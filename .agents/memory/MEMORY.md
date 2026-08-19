@@ -1,0 +1,1 @@
+- [Replit Postgres schema setup](replit-postgres-schema.md) — Qualify development schema objects with `public` and verify them through the runtime connection before switching the app backend.

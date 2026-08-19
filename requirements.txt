@@ -1,0 +1,17 @@
+requests>=2.31.0
+python-dotenv>=1.0.0
+web3>=6.0.0
+flask>=3.0.0
+python-telegram-bot>=20.0
+gunicorn>=21.2.0
+stripe>=10.0.0
+pytest>=8.0.0
+flask
+gunicorn
+pytest
+python-dotenv
+python-telegram-bot
+requests
+stripe
+web3
+psycopg[binary]

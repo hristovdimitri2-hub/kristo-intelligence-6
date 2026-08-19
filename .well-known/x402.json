@@ -1,0 +1,57 @@
+{
+  "protocol": "x402",
+  "version": "1.0",
+  "service": "Kristo Intelligence API",
+  "description": "AI-powered DeFi trading signals and crypto market intelligence on Base",
+  "payment": {
+    "chain": "base",
+    "chain_id": 8453,
+    "currency": "USDC",
+    "token_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "receiver_address": "0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
+    "amount_usdc": 0.10,
+    "network": "base"
+  },
+  "pricing": {
+    "free_tier": {
+      "limit": 1,
+      "description": "1 free API call(s) per client, then payment required"
+    },
+    "tiers": [
+      {
+        "id": "micro_request",
+        "name": "Micro Request",
+        "price_usdc": 0.10,
+        "description": "Pay-per-call: 0.10 USDC per API request",
+        "access": "single API call"
+      },
+      {
+        "id": "vip_monthly",
+        "name": "Monthly VIP",
+        "price_usdc": 29.00,
+        "description": "Unlimited monthly access + Telegram VIP group invite",
+        "access": "unlimited for 30 days"
+      }
+    ]
+  },
+  "endpoints": {
+    "paid": [
+      {"path": "/api/stats", "method": "GET", "cost_usdc": 0.10, "description": "Market activity and daily stats"},
+      {"path": "/api/sales", "method": "GET", "cost_usdc": 0.10, "description": "Real on-chain sales history"},
+      {"path": "/api/bot-status", "method": "GET", "cost_usdc": 0.10, "description": "Telegram bot status"}
+    ],
+    "free": [
+      {"path": "/.well-known/x402.json", "method": "GET", "cost_usdc": 0.0, "description": "This x402 discovery file"},
+      {"path": "/openapi.json", "method": "GET", "cost_usdc": 0.0, "description": "OpenAPI specification"},
+      {"path": "/llms.txt", "method": "GET", "cost_usdc": 0.0, "description": "LLM-friendly API description"},
+      {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0, "description": "MCP/x402 manifest"},
+      {"path": "/health", "method": "GET", "cost_usdc": 0.0, "description": "Health check"},
+      {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0, "description": "HTML dashboard"}
+    ]
+  },
+  "instructions": {
+    "payment": "Send 0.10 USDC on Base to 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
+    "verification": "Payments are verified on-chain via ERC-20 Transfer event logs",
+    "retry": "After payment confirmation, retry the endpoint to access data"
+  }
+}
