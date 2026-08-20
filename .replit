@@ -41,4 +41,10 @@ outputType = "webview"
 
 [deployment]
 deploymentTarget = "vm"
-run = ["gunicorn", "--bind=0.0.0.0:5000", "--workers=1", "main:app"]
+run = ["bash", "-c", "exec gunicorn --bind=0.0.0.0:${PORT:-10000} --workers=1 main:app"]
+
+[userenv]
+
+[userenv.shared]
+APP_PUBLIC_URL = "https://kristo-intelligence-v-5.replit.app"
+WEBHOOK_PUBLIC_URL = "https://kristo-intelligence-v-5.replit.app"

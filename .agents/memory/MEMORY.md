@@ -1,1 +1,4 @@
 - [Replit Postgres schema setup](replit-postgres-schema.md) — Qualify development schema objects with `public` and verify them through the runtime connection before switching the app backend.
+- [VM deployment port binding](replit-vm-port-binding.md) — Replit VM health checks require the production server to bind the injected `PORT`, not a hardcoded local port.
+- [CoinGecko rate-limit resilience](coingecko-rate-limit-resilience.md) — Honor 429 cooldowns and label stale cache data; never retry inside a provider-directed wait window.
+- [Catalog analytics integrity](catalog-analytics-integrity.md) — Attribute SKU revenue only from matched, settled Stripe sessions; do not let incomplete telemetry influence popularity.

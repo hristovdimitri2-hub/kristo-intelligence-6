@@ -6,18 +6,24 @@
 
 ## 🎯 IMMEDIATE NEXT STEPS (Today)
 
-### Step 1: Connect Stripe (5 min)
-Connect Stripe through the Replit **Integrations** tab. Keep all credential
-material in the managed connection or deployment Secrets; do not copy it into
-`.env`, source code, documentation, terminal commands, or Git.
+### Step 1: Get Stripe API Key (5 min)
+```bash
+# 1. Go to https://stripe.com
+# 2. Sign up or login
+# 3. Copy TEST API Key
+# 4. Add to .env:
+
+STRIPE_API_KEY=sk_test_YOUR_KEY_HERE
+STRIPE_WEBHOOK_SECRET=whsec_YOUR_SECRET_HERE
+```
 
 ### Step 2: Update .env File
 ```bash
 # Edit: .env (or create from .env.example)
 
 # STRIPE (CRITICAL)
-# Configure through Replit Integrations / deployment Secrets.
-# Never store key values in this file.
+STRIPE_API_KEY=sk_test_4e...          # ← Your test key
+STRIPE_WEBHOOK_SECRET=whsec_test_...  # ← From dashboard
 
 # APP (IMPORTANT)
 APP_PUBLIC_URL=http://localhost:5000  # ← Change when deploy
@@ -68,7 +74,7 @@ python tests/test_sales_system.py
 # 2. Login: heroku login
 # 3. Create app: heroku create your-app-name
 # 4. Add Postgres DB: heroku addons:create heroku-postgresql:hobby-dev
-# 5. Configure payment credentials only through managed deployment Secrets.
+# 5. Set env vars: heroku config:set STRIPE_API_KEY=sk_test_...
 # 6. Deploy: git push heroku main
 ```
 

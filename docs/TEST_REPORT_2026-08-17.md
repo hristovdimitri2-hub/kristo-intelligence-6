@@ -111,13 +111,15 @@ Pipeline Flow:     NEW → QUALIFIED → PAID ✓
 
 #### КРИТИЧНО (Pre-Launch):
 ```
-1. ⚠️  Stripe connection → Replit Integrations
-    - Свържи Stripe през Integrations
-    - Не копирай key стойности в `.env`, документация или Git
+1. ⚠️  STRIPE_API_KEY → .env
+   - Register на Stripe.com
+   - Get live/test API key
+   - Set STRIPE_API_KEY=sk_test_XXXXX
    
-2. ⚠️  Stripe webhook configuration
+2. ⚠️  STRIPE_WEBHOOK_SECRET → .env
    - Create webhook endpoint на /api/webhooks/stripe
-    - Съхранявай signing secret само в managed connection/Secrets
+   - Copy webhook signing secret
+   - Set STRIPE_WEBHOOK_SECRET=whsec_XXXXX
    
 3. ⚠️  APP_PUBLIC_URL → .env
    - За Stripe redirect после платеж
@@ -133,7 +135,7 @@ Pipeline Flow:     NEW → QUALIFIED → PAID ✓
    
 5. 🟠 Telegram Bot Token → .env
    - Create bot на @BotFather
-   - Configure TELEGRAM_BOT_TOKEN only through managed Secrets
+   - Set TELEGRAM_BOT_TOKEN=123456:ABC-DEF
    - Configure webhook URL
    
 6. 🟠 First Ad Campaign:

@@ -16,6 +16,10 @@ limits while data still refreshes automatically 24/7.
 from __future__ import annotations
 
 import logging
+import os
+import random
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
@@ -28,21 +32,243 @@ COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 FNG_BASE = "https://api.alternative.me"
 
-# Simple in-memory cache with 15-minute TTL (datetime-based)
+# Bounded, thread-safe cache. Successful CoinGecko responses are retained
+# longer than their fresh TTL so a rate-limited request can return explicitly
+# marked stale data instead of pretending the market has no values.
 _CACHE: Dict[str, dict] = {}
-_CACHE_TTL = timedelta(minutes=15)
+_CACHE_LOCK = threading.RLock()
+_COINGECKO_REFRESH_LOCK = threading.Lock()
+_CACHE_TTL = timedelta(seconds=max(1, int(os.getenv("MARKET_DATA_CACHE_TTL_SECONDS", "900"))))
+_STALE_CACHE_TTL = timedelta(seconds=max(60, int(os.getenv("MARKET_DATA_STALE_TTL_SECONDS", "21600"))))
+_CACHE_MAX_ENTRIES = max(8, int(os.getenv("MARKET_DATA_CACHE_MAX_ENTRIES", "64")))
+_COINGECKO_MAX_ATTEMPTS = max(1, int(os.getenv("COINGECKO_MAX_ATTEMPTS", "2")))
+_COINGECKO_TIMEOUT_SECONDS = max(1, int(os.getenv("COINGECKO_TIMEOUT_SECONDS", "5")))
+_COINGECKO_BACKOFF_BASE_SECONDS = max(0.0, float(os.getenv("COINGECKO_BACKOFF_BASE_SECONDS", "0.25")))
+_COINGECKO_BACKOFF_MAX_SECONDS = max(
+    _COINGECKO_BACKOFF_BASE_SECONDS,
+    float(os.getenv("COINGECKO_BACKOFF_MAX_SECONDS", "2")),
+)
+_COINGECKO_COOLDOWN_MAX_SECONDS = max(
+    _COINGECKO_BACKOFF_MAX_SECONDS,
+    float(os.getenv("COINGECKO_COOLDOWN_MAX_SECONDS", "120")),
+)
+_COINGECKO_COOLDOWN_UNTIL: Optional[datetime] = None
+_COINGECKO_STATUS: Dict[str, dict] = {}
 
 
-def _cached(key: str):
-    """Return cached value if still valid, else None."""
-    entry = _CACHE.get(key)
-    if entry and (datetime.now(timezone.utc) - entry["ts"]) < _CACHE_TTL:
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _cache_entry(key: str) -> Optional[dict]:
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        return dict(entry) if entry else None
+
+
+def _cache_age_seconds(key: str, now: Optional[datetime] = None) -> Optional[int]:
+    entry = _cache_entry(key)
+    if not entry:
+        return None
+    return max(0, int(((now or _now()) - entry["ts"]).total_seconds()))
+
+
+def _cached(key: str, *, allow_stale: bool = False):
+    """Return a fresh cache value, or a bounded stale value when requested."""
+    entry = _cache_entry(key)
+    if not entry:
+        return None
+
+    age = _now() - entry["ts"]
+    if age < _CACHE_TTL or (allow_stale and age < _STALE_CACHE_TTL):
         return entry["data"]
     return None
 
 
 def _set_cache(key: str, data):
-    _CACHE[key] = {"ts": datetime.now(timezone.utc), "data": data}
+    with _CACHE_LOCK:
+        if key not in _CACHE and len(_CACHE) >= _CACHE_MAX_ENTRIES:
+            oldest_key = min(_CACHE, key=lambda item: _CACHE[item]["ts"])
+            _CACHE.pop(oldest_key, None)
+        _CACHE[key] = {"ts": _now(), "data": data}
+
+
+def _set_coingecko_status(key: str, state: str, *, detail: str = "") -> None:
+    with _CACHE_LOCK:
+        _COINGECKO_STATUS[key] = {
+            "state": state,
+            "age_seconds": _cache_age_seconds(key),
+            "last_success_at": (
+                _cache_entry(key)["ts"].isoformat() if _cache_entry(key) else None
+            ),
+            "detail": detail,
+        }
+
+
+def _retry_after_seconds(response, fallback: float) -> float:
+    """Honor a server retry hint without an unbounded cooldown."""
+    raw = (getattr(response, "headers", {}) or {}).get("Retry-After")
+    try:
+        return min(_COINGECKO_COOLDOWN_MAX_SECONDS, max(fallback, float(raw)))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _set_coingecko_cooldown(delay_seconds: float) -> None:
+    global _COINGECKO_COOLDOWN_UNTIL
+    with _CACHE_LOCK:
+        _COINGECKO_COOLDOWN_UNTIL = _now() + timedelta(seconds=delay_seconds)
+
+
+def _coingecko_cooldown_active() -> bool:
+    with _CACHE_LOCK:
+        return bool(_COINGECKO_COOLDOWN_UNTIL and _now() < _COINGECKO_COOLDOWN_UNTIL)
+
+
+def _coingecko_request(cache_key: str, path: str, *, params: Optional[dict] = None) -> Optional[dict]:
+    """
+    Fetch one CoinGecko resource with cache-first reads and bounded retries.
+
+    A process-wide refresh lock prevents concurrent Telegram/dashboard requests
+    from fanning one expired cache entry into a burst of CoinGecko calls.
+    """
+    cached = _cached(cache_key)
+    if cached is not None:
+        _set_coingecko_status(cache_key, "cached")
+        return cached
+
+    stale = _cached(cache_key, allow_stale=True)
+    if _coingecko_cooldown_active():
+        if stale is not None:
+            _set_coingecko_status(cache_key, "stale", detail="rate-limit cooldown")
+            return stale
+        _set_coingecko_status(cache_key, "unavailable", detail="rate-limit cooldown")
+        return None
+
+    with _COINGECKO_REFRESH_LOCK:
+        # Another thread may have refreshed this exact resource while we waited.
+        cached = _cached(cache_key)
+        if cached is not None:
+            _set_coingecko_status(cache_key, "cached")
+            return cached
+
+        stale = _cached(cache_key, allow_stale=True)
+        if _coingecko_cooldown_active():
+            if stale is not None:
+                _set_coingecko_status(cache_key, "stale", detail="rate-limit cooldown")
+                return stale
+            _set_coingecko_status(cache_key, "unavailable", detail="rate-limit cooldown")
+            return None
+
+        # When a usable stale snapshot exists, one failed refresh is enough:
+        # return it immediately rather than holding a Telegram response open
+        # for another network timeout. A cold cache still uses bounded retries.
+        attempt_limit = 1 if stale is not None else _COINGECKO_MAX_ATTEMPTS
+        last_error = ""
+        for attempt in range(attempt_limit):
+            response = None
+            try:
+                response = requests.get(
+                    f"{COINGECKO_BASE}{path}",
+                    params=params,
+                    headers={"accept": "application/json"},
+                    timeout=_COINGECKO_TIMEOUT_SECONDS,
+                )
+                if getattr(response, "status_code", None) == 429:
+                    raise requests.HTTPError("CoinGecko rate limited", response=response)
+                response.raise_for_status()
+                data = response.json()
+                _set_cache(cache_key, data)
+                _set_coingecko_status(cache_key, "live")
+                return data
+            except Exception as exc:
+                last_error = str(exc)
+                status_code = getattr(getattr(exc, "response", response), "status_code", None)
+                if status_code == 429:
+                    cooldown = _retry_after_seconds(
+                        response,
+                        _COINGECKO_BACKOFF_MAX_SECONDS,
+                    )
+                    _set_coingecko_cooldown(cooldown)
+                    # A 429 is an explicit instruction to stop requesting.
+                    # Returning stale data is both faster for the caller and
+                    # avoids extending the provider's throttle window.
+                    break
+                is_retryable = status_code == 429 or status_code is None or status_code >= 500
+                if not is_retryable or attempt + 1 >= attempt_limit:
+                    break
+                delay = min(
+                    _COINGECKO_BACKOFF_MAX_SECONDS,
+                    _COINGECKO_BACKOFF_BASE_SECONDS * (2 ** attempt),
+                )
+                delay = _retry_after_seconds(response, delay)
+                # A small bounded jitter keeps multiple workers from retrying in lockstep.
+                delay = min(_COINGECKO_BACKOFF_MAX_SECONDS, delay + random.uniform(0, delay * 0.25))
+                if delay:
+                    time.sleep(delay)
+
+        if stale is not None:
+            log.warning("CoinGecko %s failed; serving stale cache: %s", path, last_error)
+            _set_coingecko_status(cache_key, "stale", detail="upstream request failed")
+            return stale
+
+        log.warning("CoinGecko %s unavailable: %s", path, last_error)
+        _set_coingecko_status(cache_key, "unavailable", detail="upstream request failed")
+        return None
+
+
+def get_coingecko_cache_status(cache_keys: Optional[List[str]] = None) -> dict:
+    """Return safe freshness metadata for API and dashboard consumers."""
+    keys = cache_keys or [key for key in _COINGECKO_STATUS]
+    with _CACHE_LOCK:
+        now = _now()
+        statuses = []
+        for key in keys:
+            status = _COINGECKO_STATUS.get(key)
+            if not status:
+                continue
+            entry = _CACHE.get(key)
+            current = dict(status)
+            if entry:
+                age_seconds = max(0, int((now - entry["ts"]).total_seconds()))
+                current["age_seconds"] = age_seconds
+                current["last_success_at"] = entry["ts"].isoformat()
+                if age_seconds >= int(_STALE_CACHE_TTL.total_seconds()):
+                    current["state"] = "unavailable"
+                    current["detail"] = "cached snapshot expired"
+                elif age_seconds >= int(_CACHE_TTL.total_seconds()):
+                    current["state"] = "stale"
+                elif current["state"] == "live" and age_seconds > 0:
+                    current["state"] = "cached"
+            statuses.append(current)
+
+    if not statuses:
+        return {
+            "state": "unavailable",
+            "age_seconds": None,
+            "last_success_at": None,
+            "detail": "no successful CoinGecko snapshot yet",
+        }
+
+    states = {status["state"] for status in statuses}
+    if "unavailable" in states:
+        state = "unavailable"
+    elif "stale" in states:
+        state = "stale"
+    elif "cached" in states:
+        state = "cached"
+    else:
+        state = "live"
+
+    ages = [status["age_seconds"] for status in statuses if status["age_seconds"] is not None]
+    last_successes = [status["last_success_at"] for status in statuses if status["last_success_at"]]
+    details = sorted({status["detail"] for status in statuses if status["detail"]})
+    return {
+        "state": state,
+        "age_seconds": max(ages) if ages else None,
+        "last_success_at": min(last_successes) if last_successes else None,
+        "detail": "; ".join(details),
+    }
 
 
 # ── CoinGecko: prices + market data ────────────────────────────────────────
@@ -67,112 +293,75 @@ def fetch_coingecko_prices(tokens: Optional[List[str]] = None) -> Dict[str, dict
     Returns: {symbol: {price_usd, market_cap, volume_24h, change_24h}}
     """
     cache_key = f"cg_prices_{','.join(sorted(tokens or []))}"
-    cached = _cached(cache_key)
-    if cached is not None:
-        return cached
-
     tokens = tokens or list(COINGECKO_IDS.keys())
     ids = [COINGECKO_IDS[t] for t in tokens if t in COINGECKO_IDS]
     if not ids:
         return {}
 
-    try:
-        resp = requests.get(
-            f"{COINGECKO_BASE}/simple/price",
-            params={
-                "ids": ",".join(ids),
-                "vs_currencies": "usd",
-                "include_24hr_change": "true",
-                "include_market_cap": "true",
-                "include_24hr_vol": "true",
-            },
-            headers={"accept": "application/json"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        result: Dict[str, dict] = {}
-        for sym, cid in COINGECKO_IDS.items():
-            if sym not in tokens:
-                continue
-            if cid in data:
-                result[sym] = {
-                    "price_usd": data[cid].get("usd"),
-                    "change_24h": data[cid].get("usd_24h_change"),
-                    "market_cap": data[cid].get("usd_market_cap"),
-                    "volume_24h": data[cid].get("usd_24h_vol"),
-                }
-        _set_cache(cache_key, result)
-        log.info("CoinGecko prices fetched for %d tokens", len(result))
-        return result
-    except Exception as exc:
-        log.warning("CoinGecko price fetch failed: %s", exc)
+    data = _coingecko_request(
+        cache_key,
+        "/simple/price",
+        params={
+            "ids": ",".join(ids),
+            "vs_currencies": "usd",
+            "include_24hr_change": "true",
+            "include_market_cap": "true",
+            "include_24hr_vol": "true",
+        },
+    )
+    if data is None:
         return {}
+
+    result: Dict[str, dict] = {}
+    for sym, cid in COINGECKO_IDS.items():
+        if sym not in tokens:
+            continue
+        if cid in data:
+            result[sym] = {
+                "price_usd": data[cid].get("usd"),
+                "change_24h": data[cid].get("usd_24h_change"),
+                "market_cap": data[cid].get("usd_market_cap"),
+                "volume_24h": data[cid].get("usd_24h_vol"),
+            }
+    log.info("CoinGecko prices available for %d tokens (%s)", len(result), get_coingecko_cache_status([cache_key])["state"])
+    return result
 
 
 def fetch_coingecko_trending() -> List[dict]:
     """Fetch trending coins from CoinGecko (free, no key)."""
-    cached = _cached("cg_trending")
-    if cached is not None:
-        return cached
-
-    try:
-        resp = requests.get(
-            f"{COINGECKO_BASE}/search/trending",
-            headers={"accept": "application/json"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        coins = []
-        for item in (data.get("coins") or [])[:7]:
-            coin = item.get("item", {})
-            coins.append({
-                "id": coin.get("id"),
-                "name": coin.get("name"),
-                "symbol": coin.get("symbol"),
-                "market_cap_rank": coin.get("market_cap_rank"),
-                "score": coin.get("score"),
-                "thumb": coin.get("thumb"),
-            })
-        _set_cache("cg_trending", coins)
-        log.info("CoinGecko trending: %d coins", len(coins))
-        return coins
-    except Exception as exc:
-        log.warning("CoinGecko trending fetch failed: %s", exc)
+    data = _coingecko_request("cg_trending", "/search/trending")
+    if data is None:
         return []
+
+    coins = []
+    for item in (data.get("coins") or [])[:7]:
+        coin = item.get("item", {})
+        coins.append({
+            "id": coin.get("id"),
+            "name": coin.get("name"),
+            "symbol": coin.get("symbol"),
+            "market_cap_rank": coin.get("market_cap_rank"),
+            "score": coin.get("score"),
+            "thumb": coin.get("thumb"),
+        })
+    return coins
 
 
 def fetch_coingecko_global() -> dict:
     """Fetch global crypto market data from CoinGecko."""
-    cached = _cached("cg_global")
-    if cached is not None:
-        return cached
-
-    try:
-        resp = requests.get(
-            f"{COINGECKO_BASE}/global",
-            headers={"accept": "application/json"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", {})
-        result = {
-            "total_market_cap_usd": data.get("total_market_cap", {}).get("usd"),
-            "total_volume_24h_usd": data.get("total_volume", {}).get("usd"),
-            "market_cap_change_24h": data.get("market_cap_change_percentage_24h_usd"),
-            "btc_dominance": data.get("market_cap_percentage", {}).get("btc"),
-            "eth_dominance": data.get("market_cap_percentage", {}).get("eth"),
-            "active_cryptocurrencies": data.get("active_cryptocurrencies"),
-        }
-        _set_cache("cg_global", result)
-        log.info("CoinGecko global data fetched")
-        return result
-    except Exception as exc:
-        log.warning("CoinGecko global fetch failed: %s", exc)
+    data = _coingecko_request("cg_global", "/global")
+    if data is None:
         return {}
 
+    global_data = data.get("data", {})
+    return {
+        "total_market_cap_usd": global_data.get("total_market_cap", {}).get("usd"),
+        "total_volume_24h_usd": global_data.get("total_volume", {}).get("usd"),
+        "market_cap_change_24h": global_data.get("market_cap_change_percentage_24h_usd"),
+        "btc_dominance": global_data.get("market_cap_percentage", {}).get("btc"),
+        "eth_dominance": global_data.get("market_cap_percentage", {}).get("eth"),
+        "active_cryptocurrencies": global_data.get("active_cryptocurrencies"),
+    }
 
 # ── DEXScreener: on-chain DEX pairs on Base ───────────────────────────────
 
@@ -397,13 +586,27 @@ def get_market_snapshot(tokens: Optional[List[str]] = None) -> dict:
     global_data = fetch_coingecko_global()
     dex_pairs = fetch_dexscreener_pairs(chain="base", limit=10)
     fear_greed = fetch_fear_greed()
+    price_cache_key = f"cg_prices_{','.join(sorted(tokens or []))}"
+    coingecko_status = get_coingecko_cache_status(
+        [price_cache_key, "cg_trending", "cg_global"]
+    )
+
+    if coingecko_status["state"] == "stale":
+        snapshot_source = "cached_market_data"
+    elif coingecko_status["state"] == "unavailable":
+        snapshot_source = "degraded_market_data"
+    else:
+        snapshot_source = "real_api"
 
     return {
-        "source": "real_api",
-        "timestamp": int(datetime.now(timezone.utc).timestamp()),
+        "source": snapshot_source,
+        "timestamp": int(_now().timestamp()),
         "tokens": prices,
         "trending": trending,
         "global_market": global_data,
         "dex_pairs_base": dex_pairs,
         "fear_greed_index": fear_greed,
+        "freshness": {
+            "coingecko": coingecko_status,
+        },
     }

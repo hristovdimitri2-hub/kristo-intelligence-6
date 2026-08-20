@@ -316,8 +316,8 @@ RESPONSE 200
 ├──────────────────────────────────────┤
 │                                      │
 │ PAYMENT:                             │
-│ • Stripe managed connection / Secret │
-│ • no credential values in Git        │
+│ • STRIPE_API_KEY=sk_test_XXXXX      │
+│ • STRIPE_WEBHOOK_SECRET=whsec_XXXXX │
 │                                      │
 │ SALES:                               │
 │ • APP_PUBLIC_URL=http://localhost   │
@@ -329,7 +329,7 @@ RESPONSE 200
 │ • BASE_FEE_RECEIVER=0xd4cdA900...  │
 │                                      │
 │ TELEGRAM (Optional):                 │
-│ • TELEGRAM_BOT_TOKEN=managed_Secrets_only │
+│ • TELEGRAM_BOT_TOKEN=123456:ABC     │
 │ • TELEGRAM_CHAT_ID=987654321        │
 │                                      │
 │ DATABASE:                            │

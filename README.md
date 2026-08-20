@@ -1,4 +1,4 @@
-# Кристо интелигент номер 6
+# Kristo Intelligence v6
 
 **Автоматизиран trading агент за Base DeFi екосистема**
 
@@ -7,7 +7,7 @@ Kristo Intelligence комбинира точно изчисляване на т
 ## Архитектура
 
 ```
-kristo-intelligence-v5/
+kristo-intelligence-v6/
 ├── blockchain/
 │   ├── __init__.py
 │   └── wallet.py          # Base портфейл, USDC трансфери, такса за заявка
@@ -145,7 +145,7 @@ for token, d in decisions.items():
 ## Инсталация
 
 ```bash
-cd kristo-intelligence-v5
+cd kristo-intelligence-v6
 pip install -r requirements.txt
 cp .env.example .env
 # Редактирай .env с твоите стойности

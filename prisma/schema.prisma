@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Production catalog contract. The Flask runtime manages the same table so
+/// preview can retain SQLite fallback while production uses Replit PostgreSQL.
+model AgentSKU {
+  id            String   @id
+  name          String
+  description   String
+  category      String
+  priceX402     Float    @map("price_x402")
+  priceStripe   Float    @map("price_stripe")
+  clickCount    Int      @default(0) @map("click_count")
+  callCount     Int      @default(0) @map("call_count")
+  totalRevenue  Float    @default(0) @map("total_revenue")
+  isActive      Boolean  @default(true) @map("is_active")
+  lastUpdated   DateTime @map("last_updated")
+  events        AgentEvent[]
+  metrics24h    AgentMetrics24h?
+  checkouts     AgentCheckout[]
+  entitlements  AgentEntitlement[]
+
+  @@map("agent_skus")
+}
+
+model AgentEvent {
+  eventId      String   @id @map("event_id")
+  agentId      String   @map("agent_id")
+  eventType    String   @map("event_type")
+  occurredAt   DateTime @map("occurred_at")
+  amountUsd    Float    @default(0) @map("amount_usd")
+  agent        AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@index([occurredAt, agentId, eventType], map: "idx_agent_events_window")
+  @@map("agent_events")
+}
+
+model AgentMetrics24h {
+  agentId         String   @id @map("agent_id")
+  computedAt      DateTime @map("computed_at")
+  windowStartedAt DateTime @map("window_started_at")
+  clicks          Int      @default(0)
+  calls           Int      @default(0)
+  payments        Int      @default(0)
+  revenue         Float    @default(0)
+  conversionRate  Float    @default(0) @map("conversion_rate")
+  popularityRank  Int      @default(0) @map("popularity_rank")
+  agent           AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@map("agent_metrics_24h")
+}
+
+model AgentCheckout {
+  checkoutId    String   @id @map("checkout_id")
+  agentId       String   @map("agent_id")
+  customerEmail String   @map("customer_email")
+  expectedAmount Float   @map("expected_amount")
+  paymentStatus String   @default("pending") @map("payment_status")
+  createdAt     DateTime @map("created_at")
+  paidAt        DateTime? @map("paid_at")
+  agent         AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@map("agent_checkouts")
+}
+
+model AgentEntitlement {
+  checkoutId    String   @id @map("checkout_id")
+  agentId       String   @map("agent_id")
+  customerEmail String   @map("customer_email")
+  activatedAt   DateTime @map("activated_at")
+  expiresAt     DateTime @map("expires_at")
+  status        String   @default("active")
+  agent         AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@index([agentId, customerEmail, status, expiresAt], map: "idx_agent_entitlements_access")
+  @@map("agent_entitlements")
+}
+
+enum ResearchInsightStatus {
+  PENDING
+  APPROVED
+  ARCHIVED
+}
+
+model ResearchInsight {
+  id                String                @id
+  source            String
+  externalId        String                @map("external_id")
+  title             String
+  content           String
+  actionableSummary String                @default("") @map("actionable_summary")
+  status            ResearchInsightStatus @default(PENDING)
+  createdAt         DateTime              @map("created_at")
+  updatedAt         DateTime              @map("updated_at")
+
+  @@unique([source, externalId], map: "idx_research_insights_dedupe")
+  @@index([status, createdAt], map: "idx_research_insights_status_created")
+  @@map("research_insights")
+}

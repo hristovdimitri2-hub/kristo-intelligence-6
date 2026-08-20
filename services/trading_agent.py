@@ -61,14 +61,21 @@ class TradingAgent:
         """
         decisions: Dict[str, dict] = {}
         total_estimated_exposure = 0.0
+        prices: Dict[str, float | None] = {}
+        price_status = {"state": "unavailable", "age_seconds": None}
+
+        # One CoinGecko batch request per evaluation avoids a per-token burst
+        # against the public API. The client may return explicitly marked stale
+        # cache data during a rate-limit cooldown.
+        if self.cg is not None and self.signals:
+            try:
+                prices = self.cg.get_prices(list(self.signals))
+                price_status = getattr(self.cg, "last_price_status", price_status)
+            except Exception as exc:
+                log.debug("Batch price fetch failed: %s", exc)
 
         for token, signal in self.signals.items():
-            price = None
-            if self.cg is not None:
-                try:
-                    price = self.cg.get_price(token)
-                except Exception as exc:
-                    log.debug("Price fetch failed for %s: %s", token, exc)
+            price = prices.get(token)
 
             bias = signal.get("bias", "NEUTRAL")
             conf = float(signal.get("confidence", 0.5))
@@ -80,6 +87,11 @@ class TradingAgent:
             if price is None:
                 conf *= 0.8
                 note = "no live price — reduced confidence"
+            elif price_status.get("state") == "stale":
+                conf *= 0.9
+                age = price_status.get("age_seconds")
+                age_note = f", age={age}s" if age is not None else ""
+                note = f"stale cached price=${price:.4f}{age_note} — reduced confidence"
             else:
                 note = f"price=${price:.4f}"
 
@@ -147,6 +159,7 @@ class TradingAgent:
                 "suggested_position_usd": round(suggested_position_usd, 2),
                 "narrative": signal.get("narrative", ""),
                 "note": note,
+                "market_data_status": price_status.get("state"),
                 "source": signal.get("source", "baseline"),
             }
 

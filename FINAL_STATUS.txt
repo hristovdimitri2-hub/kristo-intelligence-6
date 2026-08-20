@@ -120,14 +120,15 @@ Repository: https://github.com/hristovdimitri2-hub/kristo-intelligence-v5
 ⚡ TO LAUNCH TODAY (1-2 Hours)
 ═══════════════════════════════════════════════════════════════════════════════
 
-1. Connect Stripe (5 min)
-   → Replit Integrations
-   → Keep credentials in the managed connection or deployment Secrets
-   → Never copy credentials into .env or Git
+1. Get Stripe API Key (5 min)
+   → https://stripe.com
+   → Copy test key: sk_test_XXXXX
+   → Add to .env
 
-2. Configure Stripe webhook (2 min)
+2. Get Webhook Secret (2 min)
    → Stripe Dashboard → Webhooks
-   → Store the signing secret only in managed Secrets
+   → Copy: whsec_test_XXXXX
+   → Add to .env
 
 3. Deploy to Cloud (15 min)
    → Render.com / Heroku / AWS / Azure

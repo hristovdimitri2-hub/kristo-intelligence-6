@@ -76,13 +76,72 @@ def _api_call(method: str, token: str, payload: dict, timeout: int = 15) -> Opti
         return None
 
 
+def _send_text(
+    token: str,
+    chat_id: str,
+    text: str,
+    *,
+    reply_markup: Optional[dict] = None,
+    reply_to_message_id: Optional[int] = None,
+) -> Optional[dict]:
+    """Send a message and retry as plain text if Markdown rendering is rejected."""
+    safe_text = text if len(text) <= 4096 else f"{text[:4093]}..."
+    if len(text) > 4096:
+        log.warning("Telegram reply truncated from %d characters.", len(text))
+    payload = {"chat_id": chat_id, "text": safe_text, "parse_mode": "Markdown"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    if reply_to_message_id:
+        payload["reply_to_message_id"] = reply_to_message_id
+
+    result = _api_call("sendMessage", token, payload)
+    if result is not None:
+        return result
+
+    fallback_payload = {"chat_id": chat_id, "text": safe_text}
+    if reply_markup:
+        fallback_payload["reply_markup"] = reply_markup
+    if reply_to_message_id:
+        fallback_payload["reply_to_message_id"] = reply_to_message_id
+    return _api_call("sendMessage", token, fallback_payload)
+
+
+def _service_unavailable_reply() -> str:
+    """Short user-facing fallback for external market or AI service failures."""
+    return (
+        "🤖 Kristo Intelligence е онлайн, но пазарните данни временно не са налични.\n\n"
+        "Опитайте отново след малко или използвайте /price за VIP информация."
+    )
+
+
+def _market_freshness_notice(snapshot: dict) -> str:
+    """Explain CoinGecko cache freshness without presenting stale data as live."""
+    freshness = (snapshot.get("freshness") or {}).get("coingecko") or {}
+    state = freshness.get("state", "unavailable")
+    age_seconds = freshness.get("age_seconds")
+    age_text = (
+        f"{max(1, round(age_seconds / 60))} мин."
+        if isinstance(age_seconds, (int, float))
+        else "неизвестна възраст"
+    )
+
+    if state == "live":
+        return "🦎 *CoinGecko*: live данни"
+    if state == "cached":
+        return f"🦎 *CoinGecko*: кеширан snapshot ({age_text})"
+    if state == "stale":
+        return f"⚠️ *CoinGecko*: кеширани данни ({age_text}); live обновяването е временно ограничено."
+    return "⚠️ *CoinGecko*: live данните временно не са налични."
+
+
 # ── Auto setWebhook on startup ──────────────────────────────────────────────
 
-# Public Render URL where the webhook endpoint is exposed.
+# Public URL where Telegram can deliver updates.
 # Telegram will POST updates to: <WEBHOOK_PUBLIC_URL>/api/telegram-webhook
-WEBHOOK_PUBLIC_URL = os.getenv(
-    "WEBHOOK_PUBLIC_URL",
-    "https://kristo-intelligence-api.onrender.com",
+WEBHOOK_PUBLIC_URL = (
+    os.getenv("WEBHOOK_PUBLIC_URL")
+    or os.getenv("APP_PUBLIC_URL")
+    or ""
 ).rstrip("/")
 
 WEBHOOK_ENDPOINT = f"{WEBHOOK_PUBLIC_URL}/api/telegram-webhook"
@@ -106,9 +165,17 @@ def register_webhook() -> Optional[dict]:
     if not token:
         log.warning("register_webhook: no bot token — skipping.")
         return None
+    webhook_secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    if not webhook_secret:
+        log.warning("register_webhook: no webhook secret — skipping unsafe registration.")
+        return None
+    if not WEBHOOK_PUBLIC_URL:
+        log.warning("register_webhook: no public URL — skipping.")
+        return None
 
     payload = {
         "url": WEBHOOK_ENDPOINT,
+        "secret_token": webhook_secret,
         "allowed_updates": json.dumps([
             "message",
             "callback_query",
@@ -177,14 +244,24 @@ def generate_payment_link() -> dict:
 
 
 def _build_vip_inline_keyboard() -> dict:
-    """Build the inline keyboard markup with the VIP unlock button."""
+    """Build a useful inline keyboard for market actions and VIP access."""
     return {
-        "inline_keyboard": [[
-            {
-                "text": f"🔓 Отключи пълен VIP анализ за {VIP_PRICE_USDC:.2f} USDC",
-                "callback_data": "unlock_vip_analysis",
-            }
-        ]]
+        "inline_keyboard": [
+            [
+                {"text": "💲 Цени", "callback_data": "price"},
+                {"text": "⛽ Gas", "callback_data": "gas"},
+            ],
+            [
+                {"text": "📈 Доходности", "callback_data": "yields"},
+                {"text": "🐋 Whales", "callback_data": "whales"},
+            ],
+            [
+                {
+                    "text": f"🔓 VIP анализ за {VIP_PRICE_USDC:.2f} USDC",
+                    "callback_data": "unlock_vip_analysis",
+                }
+            ],
+        ]
     }
 
 
@@ -223,6 +300,7 @@ def _format_bulletin_text(snapshot: dict) -> str:
     return (
         f"📊 *Kristo Market Bulletin*\n"
         f"_{now_str}_\n\n"
+        f"{_market_freshness_notice(snapshot)}\n\n"
         f"😱🤑 *Fear & Greed Index*: `{fng_value}` ({fng_class})\n\n"
         f"💎 *ETH*: ${_fmt(eth_price)} ({_fmt_change(eth_change)})\n"
         f"🪙 *DEGEN*: ${_fmt(degen_price)} ({_fmt_change(degen_change)})\n\n"
@@ -252,16 +330,17 @@ def send_market_bulletin(chat_id: Optional[str] = None) -> Optional[dict]:
         log.info("Market bulletin skipped — no TELEGRAM_VIP_CHAT_ID / TELEGRAM_CHAT_ID configured.")
         return None
 
-    snapshot = get_market_snapshot()
-    text = _format_bulletin_text(snapshot)
-    keyboard = _build_vip_inline_keyboard()
-
-    result = _api_call("sendMessage", token, {
-        "chat_id": target_chat,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": keyboard,
-    })
+    try:
+        snapshot = get_market_snapshot()
+        result = _send_text(
+            token,
+            target_chat,
+            _format_bulletin_text(snapshot),
+            reply_markup=_build_vip_inline_keyboard(),
+        )
+    except Exception as exc:
+        log.warning("Market bulletin data unavailable: %s", exc)
+        result = _send_text(token, target_chat, _service_unavailable_reply())
 
     if result:
         log.info("Market bulletin sent to chat %s (msg_id=%s)", target_chat, result.get("message_id"))
@@ -281,24 +360,58 @@ def handle_callback_query(callback_data: str, chat_id: str, message_id: int) -> 
     if not token:
         return None
 
-    if callback_data == "unlock_vip_analysis":
-        payment = generate_payment_link()
-        reply_text = (
-            f"🔓 *Отключи пълен VIP анализ*\n\n"
-            f"Цена: *{payment['amount_usdc']:.2f} USDC* (Base мрежа)\n"
-            f"Получател: `{payment['receiver_address']}`\n\n"
-            f"*Инструкции за x402 верификация:*\n{payment['instructions']}\n\n"
-            f"🔗 *Wallet deep link*:\n{payment['deep_link']}"
-        )
-        return _api_call("sendMessage", token, {
-            "chat_id": chat_id,
-            "text": reply_text,
-            "parse_mode": "Markdown",
-            "reply_to_message_id": message_id,
-        })
+    if callback_data in {"price", "prices"}:
+        return send_market_bulletin(chat_id=chat_id)
 
-    log.debug("Unknown callback_data: %s", callback_data)
-    return None
+    if callback_data in {"gas", "gas_fees"}:
+        return _send_text(
+            token,
+            chat_id,
+            "⛽ *Base Gas мониторинг*\n\nBase обикновено поддържа ниски такси. "
+            "Преди трансакция проверете gas оценката във вашия wallet, защото тя се променя в реално време.",
+            reply_to_message_id=message_id,
+        )
+
+    if callback_data in {"yields", "defi_yields"}:
+        return _send_text(
+            token,
+            chat_id,
+            "📈 *DeFi доходности*\n\nИзползвайте /bulletin за актуалния пазарен контекст. "
+            "VIP анализът добавя risk-aware DeFi сигнали и следене на възможности.",
+            reply_to_message_id=message_id,
+        )
+
+    if callback_data in {"whales", "whale_activity"}:
+        return _send_text(
+            token,
+            chat_id,
+            "🐋 *Whale activity*\n\nWhale трансакциите са контекст, а не самостоятелен сигнал. "
+            "Използвайте /bulletin за текущия пазарен обзор или VIP анализа за по-дълбок контекст.",
+            reply_to_message_id=message_id,
+        )
+
+    if callback_data == "unlock_vip_analysis":
+        try:
+            payment = generate_payment_link()
+            reply_text = (
+                f"🔓 *Отключи пълен VIP анализ*\n\n"
+                f"Цена: *{payment['amount_usdc']:.2f} USDC* (Base мрежа)\n"
+                f"Получател: `{payment['receiver_address']}`\n\n"
+                f"*Инструкции за x402 верификация:*\n{payment['instructions']}\n\n"
+                f"🔗 *Wallet deep link*:\n{payment['deep_link']}"
+            )
+            return _send_text(token, chat_id, reply_text, reply_to_message_id=message_id)
+        except Exception as exc:
+            log.warning("VIP callback failed: %s", exc)
+            return _send_text(token, chat_id, _service_unavailable_reply(), reply_to_message_id=message_id)
+
+    log.info("Unknown callback_data: %s", callback_data)
+    return _send_text(
+        token,
+        chat_id,
+        "Този бутон вече не е активен. Използвайте /help, за да видите наличните команди.",
+        reply_to_message_id=message_id,
+    )
 
 
 def answer_callback_query(callback_query_id: str) -> Optional[dict]:
@@ -335,10 +448,28 @@ def process_webhook_update(update: dict) -> Optional[dict]:
         data = cb.get("data", "")
         chat_id = cb.get("message", {}).get("chat", {}).get("id")
         message_id = cb.get("message", {}).get("message_id")
-        answer_callback_query(cb_id)
-        if chat_id and message_id:
-            handle_callback_query(data, str(chat_id), message_id)
-        return {"handled": True, "type": "callback_query", "data": data}
+        try:
+            answer_callback_query(cb_id)
+            if chat_id and message_id:
+                sent = handle_callback_query(data, str(chat_id), message_id)
+                return {
+                    "handled": True,
+                    "type": "callback_query",
+                    "data": data,
+                    "response_sent": bool(sent),
+                }
+        except Exception as exc:
+            log.warning("Callback processing failed: %s", exc)
+            if chat_id:
+                sent = _send_text(token, str(chat_id), _service_unavailable_reply())
+                return {
+                    "handled": True,
+                    "type": "callback_query",
+                    "data": data,
+                    "response_sent": bool(sent),
+                    "degraded": True,
+                }
+        return {"handled": False, "reason": "callback_without_chat"}
 
     # ── Text message ──
     msg = update.get("message", {})
@@ -350,11 +481,19 @@ def process_webhook_update(update: dict) -> Optional[dict]:
     cmd = text.lower().split()[0] if text.split() else ""
 
     if cmd in ("/start", "/help"):
-        # ── Fetch real-time market snapshot (CoinGecko + DEXScreener + Fear & Greed) ──
-        snapshot = get_market_snapshot()
-
-        # ── Generate AI bulletin via GLM model (with offline fallback) ──
-        ai_bulletin = generate_market_bulletin(snapshot)
+        try:
+            snapshot = get_market_snapshot()
+            ai_bulletin = generate_market_bulletin(snapshot)
+        except Exception as exc:
+            log.warning("Telegram %s degraded by external service: %s", cmd, exc)
+            sent = _send_text(token, str(chat_id), _service_unavailable_reply())
+            return {
+                "handled": True,
+                "type": "command",
+                "cmd": cmd,
+                "response_sent": bool(sent),
+                "degraded": True,
+            }
 
         # ── Build the reply: AI analysis + market data + payment button ──
         keyboard = _build_vip_inline_keyboard()
@@ -385,6 +524,7 @@ def process_webhook_update(update: dict) -> Optional[dict]:
         fng_value = fng.get("value", "N/A")
         fng_class = fng.get("classification", "N/A")
         reply += f"\n😱🤑 *Fear & Greed Index*: `{fng_value}` ({fng_class})\n"
+        reply += f"\n{_market_freshness_notice(snapshot)}\n"
 
         reply += (
             f"\n━━━━━━━━━━━━━━━━━━━━\n"
@@ -395,33 +535,35 @@ def process_webhook_update(update: dict) -> Optional[dict]:
             f"🔓 Натиснете бутона по-долу, за да отключите пълен VIP анализ за 0.10 USDC."
         )
 
-        _api_call("sendMessage", token, {
-            "chat_id": chat_id,
-            "text": reply,
-            "parse_mode": "Markdown",
-            "reply_markup": keyboard,
-        })
-        return {"handled": True, "type": "command", "cmd": cmd}
+        sent = _send_text(token, str(chat_id), reply, reply_markup=keyboard)
+        return {"handled": True, "type": "command", "cmd": cmd, "response_sent": bool(sent)}
 
     if cmd == "/bulletin":
-        send_market_bulletin(chat_id=str(chat_id))
-        return {"handled": True, "type": "bulletin_sent"}
+        sent = send_market_bulletin(chat_id=str(chat_id))
+        return {"handled": True, "type": "bulletin_sent", "response_sent": bool(sent)}
 
     if cmd == "/price":
-        payment = generate_payment_link()
-        reply = (
-            f"*Цена и плащане (x402)*\n"
-            f"VIP анализ: {payment['amount_usdc']:.2f} USDC\n"
-            f"Мрежа: Base ({payment['chain_id']})\n"
-            f"Получател: `{payment['receiver_address']}`\n\n"
-            f"{payment['instructions']}"
-        )
-        _api_call("sendMessage", token, {
-            "chat_id": chat_id, "text": reply, "parse_mode": "Markdown",
-        })
-        return {"handled": True, "type": "price_info"}
+        try:
+            payment = generate_payment_link()
+            reply = (
+                f"*Цена и плащане (x402)*\n"
+                f"VIP анализ: {payment['amount_usdc']:.2f} USDC\n"
+                f"Мрежа: Base ({payment['chain_id']})\n"
+                f"Получател: `{payment['receiver_address']}`\n\n"
+                f"{payment['instructions']}"
+            )
+            sent = _send_text(token, str(chat_id), reply)
+        except Exception as exc:
+            log.warning("Telegram /price failed: %s", exc)
+            sent = _send_text(token, str(chat_id), _service_unavailable_reply())
+        return {"handled": True, "type": "price_info", "response_sent": bool(sent)}
 
-    return {"handled": False, "reason": "unknown_command"}
+    sent = _send_text(
+        token,
+        str(chat_id),
+        "Не разпознах командата. Използвайте /help за наличните команди.",
+    )
+    return {"handled": True, "type": "unknown_command", "response_sent": bool(sent)}
 
 
 # ── Background loop (auto bulletins + payment check every 30 min) ───────────

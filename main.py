@@ -1,5 +1,5 @@
 """
-Kristo Intelligence API v5
+Kristo Intelligence API v6
 ==========================
 Flask application with:
   * Beautiful HTML Dashboard (/dashboard) with charts & metrics
@@ -26,18 +26,19 @@ import time
 import json
 import secrets
 import hmac
+import hashlib
 from datetime import datetime, timedelta, timezone
 from collections import deque
 from typing import Dict, List, Optional
 
 import math
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, redirect, render_template_string, request, session
 
 # ── Central configuration (bound wallet address, GLM, etc.) ────────────────
 from config import get_base_fee_receiver, BOUND_BASE_FEE_RECEIVER
 
 # ── Real-time market data integration ─────────────────────────────────────
-from services.market_data import get_market_snapshot
+from services.market_data import get_coingecko_cache_status, get_market_snapshot
 
 # ── Telegram Sales Bot (x402 micro-transactions) ───────────────────────────
 from services.telegram_sales import (
@@ -85,24 +86,45 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
 )
-log = logging.getLogger("kristo.v5.main")
+log = logging.getLogger("kristo.v6.main")
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.getenv("SESSION_SECRET", "") or secrets.token_urlsafe(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 
 # ── Runtime sales integration layer ───────────────────────────────────────
 from integrations.crm_store import LeadRecord, create_crm_store
+from integrations.catalog_store import create_catalog_store
+from integrations.research_store import create_research_store
 from integrations.payment_integration import SalesCheckout
 from integrations.telegram_flow import TelegramSalesFlow
 from integrations.stripe_checkout import StripeCheckoutService
 
 CRM_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "crm_sales.db")
+CATALOG_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "agent_catalog.db")
+RESEARCH_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "research_insights.db")
 crm_store = create_crm_store(CRM_DATA_FILE)
+catalog_store = create_catalog_store(CATALOG_DATA_FILE)
+research_store = create_research_store(RESEARCH_DATA_FILE)
 checkout_store = SalesCheckout()
 telegram_flow = TelegramSalesFlow(os.getenv("TELEGRAM_BOT_TOKEN", ""))
 stripe_checkout = StripeCheckoutService()
 
 # ── In-memory data stores (thread-safe via lock) ──────────────────────────
 _lock = threading.Lock()
+_stripe_snapshot_lock = threading.Lock()
+_stripe_snapshot = {
+    "available": False,
+    "payments": [],
+    "reason": "Stripe payment snapshot is warming up.",
+    "fetched_at": None,
+    "state": "pending",
+}
+_agent_playground_usage: Dict[tuple[str, str], int] = {}
 
 # ── Product Catalog: 8 Agents + NEXUS Engine = 9 products ─────────────────
 # Each product tracks: hits (requests), sales_count, sales_volume_usd
@@ -133,6 +155,8 @@ _sales_history: List[dict] = []
 
 # Request/activity log: deque for bounded size
 _request_log: deque = deque(maxlen=500)
+_live_request_log: deque = deque(maxlen=200)
+_telegram_active_chats: set[str] = set()
 
 # Daily stats
 _daily_stats: Dict[str, dict] = {}  # date_str -> {requests, sales_count, sales_volume}
@@ -177,6 +201,29 @@ def _classify_payment(amount_usd: float) -> str:
         return "vip_monthly"
     else:
         return "micro_request"
+
+
+def _is_vip_plan(plan_key: str) -> bool:
+    normalized = plan_key.strip().lower()
+    return normalized in {"pro", "vip", "vip_monthly"}
+
+
+def _activate_stripe_vip_access(
+    paid_lead: dict,
+    event_data: dict,
+    plan_key: str,
+    already_paid: bool,
+) -> dict:
+    """Grant durable VIP access from the persisted paid lead exactly once."""
+    if not _is_vip_plan(plan_key):
+        return {"status": "not_eligible"}
+    if already_paid:
+        return {"status": "already_active"}
+
+    metadata = event_data.get("metadata", {}) or {}
+    chat_id = (paid_lead.get("telegram_chat_id") or metadata.get("telegram_chat_id") or "").strip()
+    checkout_id = str(event_data.get("id") or "")
+    return telegram_flow.deliver_vip_invite(chat_id, checkout_id, "Pro")
 
 
 def _generate_vip_invite(wallet_address: str, tx_hash: str) -> Optional[str]:
@@ -514,6 +561,32 @@ def _background_agent_loop():
         time.sleep(poll_interval)
 
 
+def _catalog_analytics_loop():
+    """Refresh durable rolling-24h catalog rankings at a bounded interval."""
+    interval_seconds = max(
+        60, int(os.getenv("CATALOG_ANALYTICS_INTERVAL_SECONDS", "86400"))
+    )
+    log.info("Catalog analytics worker started (interval=%ss).", interval_seconds)
+    while True:
+        try:
+            catalog_store.expire_entitlements()
+            catalog_store.recalculate_24h()
+        except Exception as exc:
+            log.warning("Catalog analytics refresh failed (non-fatal): %s", exc)
+        time.sleep(interval_seconds)
+
+
+def _stripe_payment_snapshot_loop():
+    """Continuously refresh the admin-only Stripe view without delaying web requests."""
+    interval_seconds = max(
+        30, int(os.getenv("STRIPE_PAYMENT_SNAPSHOT_INTERVAL_SECONDS", "60"))
+    )
+    log.info("Stripe payment snapshot worker started (interval=%ss).", interval_seconds)
+    while True:
+        _refresh_stripe_payment_snapshot()
+        time.sleep(interval_seconds)
+
+
 # ── Endpoint → Product mapping for per-agent stats ────────────────────────
 _ENDPOINT_TO_PRODUCT: Dict[str, str] = {
     "api_sales": "nexus_engine",
@@ -544,13 +617,30 @@ def _record_request(endpoint: str, success: bool):
             }
         _daily_stats[date_str]["requests"] += 1
 
-        _bot_status["last_heartbeat"] = now.isoformat()
-        _bot_status["commands_processed"] += 1
-
         # Increment per-product hits
         product_id = _ENDPOINT_TO_PRODUCT.get(endpoint)
         if product_id and product_id in _product_stats:
             _product_stats[product_id]["hits"] += 1
+
+
+def _record_telegram_activity(payload: dict, result: Optional[dict]) -> None:
+    """Keep Telegram user and command metrics separate from generic API traffic."""
+    message = payload.get("message") or {}
+    callback = payload.get("callback_query") or {}
+    callback_message = callback.get("message") or {}
+    chat = message.get("chat") or callback_message.get("chat") or {}
+    chat_id = chat.get("id")
+    handled_type = (result or {}).get("type")
+
+    with _lock:
+        if chat_id is not None:
+            _telegram_active_chats.add(str(chat_id))
+            _bot_status["active_users"] = len(_telegram_active_chats)
+        if handled_type in {"command", "bulletin_sent", "price_info", "callback_query", "unknown_command"}:
+            _bot_status["commands_processed"] += 1
+        if (result or {}).get("response_sent"):
+            _bot_status["messages_sent"] += 1
+        _bot_status["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
 
 
 def _record_product_sale(product_id: str, amount_usd: float):
@@ -585,6 +675,29 @@ def _get_products_breakdown() -> List[dict]:
 # Tracks free API calls per client (by IP address).
 # After FREE_TIER_LIMIT (1) free picks, x402 payment is required.
 _free_tier_usage: Dict[str, int] = {}  # ip -> count of free calls used
+_catalog_click_lock = threading.Lock()
+_catalog_recent_clicks: Dict[tuple[str, str], datetime] = {}
+CATALOG_CLICK_COOLDOWN_SECONDS = max(
+    60, int(os.getenv("CATALOG_CLICK_COOLDOWN_SECONDS", "900"))
+)
+
+
+def _allow_catalog_click(client_address: str, agent_id: str) -> bool:
+    """Bound anonymous catalog click ingestion to protect popularity metrics."""
+    now = datetime.now(timezone.utc)
+    key = (client_address or "unknown", agent_id)
+    with _catalog_click_lock:
+        expired_before = now - timedelta(seconds=CATALOG_CLICK_COOLDOWN_SECONDS)
+        for previous_key, previous_at in list(_catalog_recent_clicks.items()):
+            if previous_at < expired_before:
+                _catalog_recent_clicks.pop(previous_key, None)
+        previous = _catalog_recent_clicks.get(key)
+        if previous and now - previous < timedelta(
+            seconds=CATALOG_CLICK_COOLDOWN_SECONDS
+        ):
+            return False
+        _catalog_recent_clicks[key] = now
+        return True
 
 # Tracks PAID API calls per client (for volume discount pricing).
 _paid_calls_usage: Dict[str, int] = {}  # ip -> count of paid calls made
@@ -683,13 +796,215 @@ def _is_dashboard_request() -> bool:
     return False
 
 
+def _get_admin_token() -> str:
+    """Return the normalized admin credential without exposing its value."""
+    return (os.getenv("ADMIN_API_TOKEN", "") or "").strip() or (
+        os.getenv("SESSION_SECRET", "") or ""
+    ).strip()
+
+
+def _log_admin_token_mismatch(configured: str, supplied: str) -> None:
+    """Log only non-sensitive token metadata for diagnosing login issues."""
+    log.warning(
+        "Admin token mismatch: configured_present=%s configured_length=%d "
+        "supplied_present=%s supplied_length=%d",
+        bool(configured),
+        len(configured),
+        bool(supplied),
+        len(supplied),
+    )
+
+
 def _require_admin_access():
     """Require a server-side admin token for CRM and sales operations."""
-    configured = os.getenv("ADMIN_API_TOKEN", "").strip() or os.getenv("SESSION_SECRET", "").strip()
+    if session.get("admin_authenticated"):
+        return None
+    configured = _get_admin_token()
     supplied = request.headers.get("X-Admin-Token", "")
+    supplied = supplied.strip()
     if not configured or not supplied or not hmac.compare_digest(supplied, configured):
         return jsonify({"ok": False, "error": "admin_auth_required"}), 401
     return None
+
+
+def _require_research_ingest_access():
+    """Authenticate an external research source without exposing admin credentials."""
+    configured = (os.getenv("RESEARCH_INGEST_TOKEN", "") or "").strip()
+    supplied = (request.headers.get("X-Research-Ingest-Token", "") or "").strip()
+    if configured and supplied and hmac.compare_digest(supplied, configured):
+        return None
+    # An authenticated administrator may also ingest manually from the protected UI/API.
+    admin_error = _require_admin_access()
+    if not admin_error:
+        return None
+    if not configured:
+        return jsonify({"ok": False, "error": "research_ingest_not_configured"}), 503
+    return jsonify({"ok": False, "error": "research_ingest_auth_required"}), 401
+
+
+def _refresh_stripe_payment_snapshot() -> None:
+    """Refresh Stripe data away from the request path so admin reads stay responsive."""
+    global _stripe_snapshot
+    try:
+        listing = stripe_checkout.list_recent_completed_payments()
+        snapshot = {
+            **listing,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "state": "fresh" if listing.get("available") else "unavailable",
+        }
+    except Exception as exc:
+        log.warning("Stripe payment snapshot refresh failed: %s", exc)
+        with _stripe_snapshot_lock:
+            previous = dict(_stripe_snapshot)
+        snapshot = {
+            **previous,
+            "available": bool(previous.get("available")),
+            "reason": "Stripe snapshot refresh failed; showing last known state.",
+            "state": "stale" if previous.get("fetched_at") else "error",
+        }
+    with _stripe_snapshot_lock:
+        _stripe_snapshot = snapshot
+
+
+def _get_stripe_payment_snapshot() -> dict:
+    """Return a bounded cached Stripe read model; never call Stripe in an admin request."""
+    with _stripe_snapshot_lock:
+        snapshot = dict(_stripe_snapshot)
+    fetched_at = snapshot.get("fetched_at")
+    age_seconds = None
+    if fetched_at:
+        try:
+            age_seconds = max(
+                0,
+                int((datetime.now(timezone.utc) - datetime.fromisoformat(fetched_at)).total_seconds()),
+            )
+        except ValueError:
+            age_seconds = None
+    snapshot["age_seconds"] = age_seconds
+    if snapshot.get("state") == "fresh" and age_seconds is not None and age_seconds > 90:
+        snapshot["state"] = "stale"
+        snapshot["reason"] = "Stripe snapshot is older than the refresh target."
+    return snapshot
+
+
+def _catalog_x402_payment_required_response(product: dict):
+    """Return a transparent upgrade payload for an exhausted per-agent playground."""
+    price = round(float(product.get("price_x402") or X402_FEE_USDC), 6)
+    payload = {
+        "ok": False,
+        "error": "agent_demo_limit_reached",
+        "message": "The free playground request for this agent has been used.",
+        "agent_id": product["id"],
+        "payment": {
+            "protocol": "x402",
+            "chain": X402_CHAIN,
+            "chain_id": X402_CHAIN_ID,
+            "currency": "USDC",
+            "token_contract": X402_USDC_CONTRACT,
+            "receiver_address": X402_RECEIVER_ADDRESS,
+            "amount_usdc": price,
+            "settlement_status": "discovery_only",
+        },
+        "upgrade": {
+            "stripe_checkout": f"/api/v1/agents/{product['id']}/checkout",
+            "entitlement_access": f"/api/v1/agents/{product['id']}/access",
+            "note": "x402 settlement is not enabled in this preview. Stripe creates a 30-day agent entitlement.",
+        },
+    }
+    response = jsonify(payload)
+    response.status_code = 402
+    response.headers["X-Payment-Required"] = "x402"
+    response.headers["X-Payment-Address"] = X402_RECEIVER_ADDRESS
+    response.headers["X-Payment-Amount-USDC"] = str(price)
+    return response
+
+
+def _run_catalog_agent_demo(product: dict, user_input: str) -> dict:
+    """Run a bounded, transparent demo adapter rather than presenting invented market data."""
+    normalized = user_input.strip()
+    input_type = "contract_or_wallet" if normalized.startswith("0x") and len(normalized) == 42 else "asset_or_topic"
+    fingerprint = hashlib.sha256(normalized.lower().encode()).hexdigest()[:12]
+    category = product.get("category", "intelligence")
+    demo_steps = {
+        "market": ["Normalize market identifier", "Check narrative and liquidity inputs"],
+        "risk": ["Normalize target identifier", "Prepare risk-screen workflow"],
+        "defi": ["Normalize asset or pool identifier", "Prepare yield/risk comparison"],
+        "execution": ["Normalize route target", "Prepare gas and route comparison"],
+        "security": ["Normalize contract target", "Prepare static security triage"],
+        "distribution": ["Normalize signal topic", "Prepare channel publication draft"],
+    }
+    checks = demo_steps.get(category, ["Normalize request", "Prepare agent workflow"])
+    return {
+        "mode": "playground_demo",
+        "agent_id": product["id"],
+        "agent_name": product["name"],
+        "input_type": input_type,
+        "input_fingerprint": fingerprint,
+        "checks_completed": checks,
+        "result": (
+            "Demo workflow completed. This verifies the agent input path and records one call; "
+            "it does not claim a live trading recommendation or x402 settlement."
+        ),
+        "upgrade_required_for_live_access": True,
+    }
+
+
+def _build_x402_discovery(base_url: str) -> dict:
+    """Build x402 discovery from the durable 8-SKU catalog, not legacy in-memory products."""
+    agents = []
+    for product in catalog_store.get_catalog():
+        agents.append(
+            {
+                "id": product["id"],
+                "name": product["name"],
+                "description": product["description"],
+                "category": product["category"],
+                "endpoint": f"{base_url}/api/v1/agents/{product['id']}/playground",
+                "method": "POST",
+                "price_usdc": round(float(product["price_x402"]), 6),
+                "free_playground_requests_per_client": 1,
+                "stripe_checkout_endpoint": f"{base_url}/api/v1/agents/{product['id']}/checkout",
+            }
+        )
+    return {
+        "schema_version": "1.1",
+        "service": "Kristo Intelligence v6",
+        "base_url": base_url,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "payment": {
+            "protocol": "x402",
+            "chain": X402_CHAIN,
+            "chain_id": X402_CHAIN_ID,
+            "currency": "USDC",
+            "token_contract": X402_USDC_CONTRACT,
+            "receiver_address": X402_RECEIVER_ADDRESS,
+            "settlement_status": "discovery_only",
+        },
+        "agents": agents,
+        "note": "Discovery metadata is live from the catalog. Base mainnet facilitator settlement is not enabled.",
+    }
+
+
+@app.after_request
+def _capture_live_request(response):
+    """Store a bounded, credential-free stream for the protected operations view."""
+    try:
+        path = request.path
+        source = "telegram" if path == "/api/telegram-webhook" else "api" if path.startswith("/api/") else "web"
+        with _lock:
+            _live_request_log.append(
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "method": request.method,
+                    "path": path,
+                    "source": source,
+                    "status_code": response.status_code,
+                }
+            )
+    except Exception:
+        # Observability must never affect the application response.
+        pass
+    return response
 
 
 @app.before_request
@@ -881,6 +1196,7 @@ def sales_checkout():
     plan_key = (request.form.get("plan") or "pro").strip()
     source = (request.form.get("source") or "website").strip()
     campaign = (request.form.get("campaign") or "launch").strip()
+    telegram_chat_id = (request.form.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "Въведете валиден email."}), 400
 
@@ -896,13 +1212,25 @@ def sales_checkout():
         utm_medium=request.args.get("utm_medium", ""),
         utm_campaign=request.args.get("utm_campaign", ""),
         plan=plan.name,
+        telegram_chat_id=telegram_chat_id,
     )
     saved_lead = crm_store.add_lead(lead)
     checkout_payload = checkout_store.build_checkout_payload(plan_key, email)
-    stripe_session = stripe_checkout.create_checkout_session(plan_key, email, source=source, campaign=campaign)
+    stripe_session = stripe_checkout.create_checkout_session(
+        plan_key,
+        email,
+        source=source,
+        campaign=campaign,
+        telegram_chat_id=telegram_chat_id,
+    )
+    if stripe_session.get("status") not in {"checkout_created", "mock_checkout_ready"}:
+        return jsonify({"ok": False, "error": stripe_session.get("error", "checkout_unavailable")}), 503
 
     telegram_chat_id = (os.getenv("TELEGRAM_VIP_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID") or "").strip()
     onboarding = telegram_flow.create_onboarding(telegram_chat_id, plan.name)
+
+    if stripe_session.get("url"):
+        return redirect(stripe_session["url"], code=303)
 
     return jsonify({
         "ok": True,
@@ -956,6 +1284,7 @@ def api_checkout():
     plan_key = (payload.get("plan") or "pro").strip()
     source = (payload.get("source") or "api").strip()
     campaign = (payload.get("campaign") or "launch").strip()
+    telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "email is required"}), 400
 
@@ -963,9 +1292,23 @@ def api_checkout():
     if plan is None:
         return jsonify({"ok": False, "error": "unknown plan"}), 400
 
-    lead = LeadRecord(email=email, source=source, campaign=campaign, plan=plan.name)
+    lead = LeadRecord(
+        email=email,
+        source=source,
+        campaign=campaign,
+        plan=plan.name,
+        telegram_chat_id=telegram_chat_id,
+    )
     crm_store.add_lead(lead)
-    payment_session = stripe_checkout.create_checkout_session(plan_key, email, source=source, campaign=campaign)
+    payment_session = stripe_checkout.create_checkout_session(
+        plan_key,
+        email,
+        source=source,
+        campaign=campaign,
+        telegram_chat_id=telegram_chat_id,
+    )
+    if payment_session.get("status") not in {"checkout_created", "mock_checkout_ready"}:
+        return jsonify({"ok": False, "error": payment_session.get("error", "checkout_unavailable")}), 503
     return jsonify({
         "ok": True,
         "checkout": checkout_store.build_checkout_payload(plan_key, email),
@@ -973,6 +1316,191 @@ def api_checkout():
         "payment_session": payment_session,
         "plan": plan.name,
     })
+
+
+@app.route("/api/v1/agents", methods=["GET"])
+def api_agent_catalog():
+    """Return the active, payment-ready catalog without exposing internal events."""
+    return jsonify({"ok": True, "agents": catalog_store.get_catalog()})
+
+
+@app.route("/api/v1/agents/<agent_id>", methods=["GET"])
+def api_agent_detail(agent_id: str):
+    """Return one active agent SKU for a product page or machine client."""
+    agent = catalog_store.get_product(agent_id)
+    if not agent:
+        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    return jsonify({"ok": True, "agent": agent})
+
+
+@app.route("/api/v1/agents/<agent_id>/playground", methods=["POST"])
+def api_agent_playground(agent_id: str):
+    """Allow exactly one bounded interactive demo per client and catalog agent."""
+    agent = catalog_store.get_product(agent_id)
+    if not agent:
+        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    user_input = (payload.get("input") or "").strip()
+    if len(user_input) < 2 or len(user_input) > 256:
+        return jsonify(
+            {"ok": False, "error": "input_must_be_between_2_and_256_characters"}
+        ), 400
+
+    client_key = (_get_client_ip(), agent_id)
+    email = (payload.get("email") or "").strip().lower()
+    entitlement = (
+        catalog_store.get_active_entitlement(agent_id, email)
+        if email and "@" in email
+        else None
+    )
+    with _lock:
+        free_requests_used = _agent_playground_usage.get(client_key, 0)
+        if not entitlement and free_requests_used >= 1:
+            return _catalog_x402_payment_required_response(agent)
+        if not entitlement:
+            _agent_playground_usage[client_key] = free_requests_used + 1
+
+    result = _run_catalog_agent_demo(agent, user_input)
+    if not catalog_store.record_call(agent_id):
+        log.error("Catalog call could not be recorded for agent %s.", agent_id)
+        return jsonify({"ok": False, "error": "call_recording_unavailable"}), 503
+    return jsonify(
+        {
+            "ok": True,
+            "agent": agent,
+            "access": "active_entitlement" if entitlement else "one_free_playground_request",
+            "result": result,
+        }
+    )
+
+
+_AGENT_PLAYGROUND_HTML = r"""
+<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kristo Intelligence v6 — Agent playground</title>
+<style>
+:root{--bg:#090d18;--card:#111827;--border:#26334d;--text:#edf2ff;--muted:#aab7d0;--accent:#7c83ff;--good:#56d6a5;--warn:#f6bf68}*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 20% -10%,#1e2a57 0,transparent 32%),var(--bg);color:var(--text);font:16px system-ui,sans-serif}.wrap{max-width:1180px;margin:auto;padding:48px 20px 80px}
+.eyebrow{color:#b9bdff;text-transform:uppercase;letter-spacing:.1em;font-size:.76rem;font-weight:700}h1{font-size:clamp(2rem,5vw,3.4rem);margin:.35rem 0 1rem}.intro{max-width:760px;color:var(--muted);line-height:1.6}
+.notice{margin:24px 0;padding:14px 16px;border:1px solid #765923;background:#2a2113;border-radius:12px;color:#ffe3aa}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:16px}
+.card{background:linear-gradient(145deg,#131d32,#0f1729);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 12px 30px rgba(0,0,0,.2)}.meta{font-size:.78rem;color:#bfc8dd;text-transform:uppercase;letter-spacing:.07em}.price{color:var(--good);font-weight:700;margin:.7rem 0}.desc{color:var(--muted);min-height:48px;line-height:1.45}
+input,button{font:inherit;border-radius:9px;padding:11px 12px}input{display:block;width:100%;margin:16px 0 10px;background:#090d18;color:var(--text);border:1px solid #33415e}button{border:0;background:var(--accent);color:white;font-weight:750;cursor:pointer;width:100%}button:disabled{opacity:.55;cursor:wait}.result{margin-top:12px;padding:12px;border-radius:9px;background:#0a1120;color:#cbd5e1;font-size:.88rem;line-height:1.45;white-space:pre-wrap}.result.error{border:1px solid #8f4b52;color:#ffc3c8}.result.ok{border:1px solid #2f8066}.small{font-size:.78rem;color:var(--muted);margin:.65rem 0 0}.empty{color:var(--muted)}
+</style></head><body><main class="wrap"><div class="eyebrow">Kristo Intelligence v6</div><h1>Interactive agent playground</h1><p class="intro">Test each catalog agent with one free, bounded request. The result verifies the execution path and records a real catalog call; it is not a live trade signal or an on-chain x402 settlement.</p><div class="notice">After the free request, the API returns a clear upgrade path. Stripe checkout provides a separate 30-day agent entitlement; Base facilitator settlement remains intentionally disabled in this preview.</div><section id="agents" class="grid"><p class="empty">Loading catalog…</p></section></main>
+<script>
+const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function card(a){return `<article class="card"><div class="meta">${escapeHtml(a.category)}</div><h2>${escapeHtml(a.name)}</h2><p class="desc">${escapeHtml(a.description)}</p><p class="price">${Number(a.price_x402).toFixed(2)} USDC x402 · $${Number(a.price_stripe).toFixed(2)} 30-day Stripe access</p><label class="small" for="input-${a.id}">Token symbol, topic, or 0x address</label><input id="input-${a.id}" maxlength="256" placeholder="e.g. ETH or 0x…"><button data-agent="${escapeHtml(a.id)}">Run one free demo</button><div id="result-${a.id}" class="result" hidden></div><p class="small">One free request per client and agent.</p></article>`}
+function show(id,text,kind){const el=document.getElementById('result-'+id);el.hidden=false;el.className='result '+kind;el.textContent=text}
+async function run(agentId,button){const input=document.getElementById('input-'+agentId).value.trim();if(input.length<2)return show(agentId,'Enter at least 2 characters.','error');button.disabled=true;button.textContent='Running…';try{const r=await fetch('/api/v1/agents/'+encodeURIComponent(agentId)+'/playground',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input})});const data=await r.json();if(!r.ok){const upgrade=data.upgrade?.stripe_checkout?` Upgrade: ${data.upgrade.stripe_checkout}`:'';show(agentId,(data.message||data.error||'Request failed.')+upgrade,'error');return}show(agentId,data.result.result+'\\n\\nChecks: '+data.result.checks_completed.join(' · '),'ok');button.textContent='Demo completed'}catch(e){show(agentId,'Network error: '+e.message,'error')}finally{button.disabled=false;if(button.textContent==='Running…')button.textContent='Run one free demo'}}
+async function load(){try{const r=await fetch('/api/v1/agents');const data=await r.json();document.getElementById('agents').innerHTML=data.agents.map(card).join('');document.querySelectorAll('button[data-agent]').forEach(b=>b.addEventListener('click',()=>run(b.dataset.agent,b)))}catch(e){document.getElementById('agents').innerHTML='<p class="empty">Catalog unavailable.</p>'}}
+load();
+</script></body></html>
+"""
+
+
+@app.route("/agents", methods=["GET"])
+def agent_playground_page():
+    """Public catalog page for the eight bounded agent demos."""
+    return render_template_string(_AGENT_PLAYGROUND_HTML)
+
+
+@app.route("/api/v1/agents/<agent_id>/click", methods=["POST"])
+def api_agent_click(agent_id: str):
+    """Persist a product-page click for catalog conversion analytics."""
+    if not catalog_store.get_product(agent_id):
+        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    if not _allow_catalog_click(_get_client_ip(), agent_id):
+        return jsonify(
+            {
+                "ok": False,
+                "error": "click_rate_limited",
+                "retry_after_seconds": CATALOG_CLICK_COOLDOWN_SECONDS,
+            }
+        ), 429
+    if not catalog_store.record_click(agent_id):
+        return jsonify({"ok": False, "error": "click_recording_unavailable"}), 503
+    return jsonify({"ok": True, "agent_id": agent_id, "status": "click_recorded"}), 202
+
+
+@app.route("/api/v1/agents/<agent_id>/checkout", methods=["POST"])
+def api_agent_checkout(agent_id: str):
+    """Create a one-time Stripe Checkout for a 30-day agent access entitlement."""
+    agent = catalog_store.get_product(agent_id)
+    if not agent:
+        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip()
+    source = (payload.get("source") or "agent_catalog").strip()
+    campaign = (payload.get("campaign") or "agent_vip").strip()
+    telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
+    if not email or "@" not in email:
+        return jsonify({"ok": False, "error": "email is required"}), 400
+
+    plan_key = f"agent:{agent_id}"
+    crm_store.add_lead(
+        LeadRecord(
+            email=email,
+            source=source,
+            campaign=campaign,
+            plan=plan_key,
+            telegram_chat_id=telegram_chat_id,
+        )
+    )
+    payment_session = stripe_checkout.create_catalog_checkout_session(
+        agent_sku=agent_id,
+        product_name=agent["name"],
+        amount_usd=agent["price_stripe"],
+        customer_email=email,
+        source=source,
+        campaign=campaign,
+        telegram_chat_id=telegram_chat_id,
+    )
+    if payment_session.get("status") not in {"checkout_created", "mock_checkout_ready"}:
+        return jsonify(
+            {
+                "ok": False,
+                "error": payment_session.get("error", "checkout_unavailable"),
+            }
+        ), 503
+    if not catalog_store.register_checkout(
+        checkout_id=payment_session.get("checkout_id", ""),
+        product_id=agent_id,
+        customer_email=email,
+        expected_amount=agent["price_stripe"],
+    ):
+        log.error("Catalog checkout could not be registered for agent %s.", agent_id)
+        return jsonify({"ok": False, "error": "catalog_checkout_registration_failed"}), 503
+    return jsonify(
+        {
+            "ok": True,
+            "agent": agent,
+            "access": "one_time_30_day_agent_entitlement",
+            "payment_provider": payment_session.get("provider", "mock"),
+            "payment_session": payment_session,
+        }
+    )
+
+
+@app.route("/api/v1/agents/<agent_id>/access", methods=["POST"])
+def api_agent_access(agent_id: str):
+    """Enforce the active 30-day entitlement before an agent service is used."""
+    if not catalog_store.get_product(agent_id):
+        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip()
+    if not email or "@" not in email:
+        return jsonify({"ok": False, "error": "email is required"}), 400
+    entitlement = catalog_store.get_active_entitlement(agent_id, email)
+    if not entitlement:
+        return jsonify({"ok": False, "error": "agent_access_required"}), 403
+    return jsonify(
+        {
+            "ok": True,
+            "agent_id": agent_id,
+            "access": "active",
+            "expires_at": entitlement["expires_at"],
+        }
+    )
 
 
 @app.route("/api/webhooks/stripe", methods=["POST"])
@@ -991,13 +1519,80 @@ def stripe_webhook_handler():
     event_type = payload.get("type") or "checkout.session.completed"
     event_data = payload.get("data", {}).get("object", {})
 
-    if event_type == "checkout.session.completed":
+    if event_type in {
+        "checkout.session.completed",
+        "checkout.session.async_payment_succeeded",
+    }:
         email = (event_data.get("customer_details", {}).get("email") or event_data.get("customer_email") or "").strip()
-        plan_key = (event_data.get("metadata", {}) or {}).get("plan") or "pro"
+        metadata = event_data.get("metadata", {}) or {}
+        plan_key = metadata.get("plan") or "pro"
+        agent_sku = (metadata.get("agent_sku") or "").strip()
+        checkout_id = (event_data.get("id") or "").strip()
         amount = float(event_data.get("amount_total") or 0.0) / 100.0
+        payment_status = (event_data.get("payment_status") or "").strip().lower()
+        currency = (event_data.get("currency") or "").strip().lower()
+        if payment_status != "paid":
+            return jsonify(
+                {
+                    "ok": True,
+                    "status": "payment_not_settled",
+                    "event_type": event_type,
+                }
+            )
         if email:
-            crm_store.mark_paid(email, amount, plan_key)
-            return jsonify({"ok": True, "status": "paid", "email": email, "plan": plan_key, "amount_usd": amount})
+            prior_lead = crm_store.find_by_email(email)
+            if prior_lead is None:
+                log.warning("Ignoring Stripe checkout for an unknown CRM lead.")
+                return jsonify({"ok": True, "status": "ignored_unknown_lead"})
+            if agent_sku:
+                expected_plan = f"agent:{agent_sku}"
+                is_valid_catalog_payment = bool(
+                    checkout_id
+                    and currency == "usd"
+                    and plan_key == expected_plan
+                    and catalog_store.validate_checkout(
+                        checkout_id, agent_sku, email, amount
+                    )
+                )
+                if not is_valid_catalog_payment:
+                    log.warning(
+                        "Ignoring catalog payment with unmatched checkout attributes."
+                    )
+                    return jsonify(
+                        {"ok": True, "status": "ignored_unmatched_catalog_checkout"}
+                    )
+            already_paid = prior_lead.get("payment_status") == "paid"
+            paid_lead = crm_store.mark_paid(email, amount, plan_key)
+            if agent_sku:
+                catalog_store.confirm_checkout_payment(
+                    checkout_id,
+                    agent_sku,
+                    email,
+                    amount,
+                )
+                entitlement = catalog_store.grant_entitlement(
+                    checkout_id,
+                    agent_sku,
+                    email,
+                )
+                vip_access = {
+                    "status": "agent_entitlement_active",
+                    "expires_at": entitlement["expires_at"] if entitlement else None,
+                }
+            else:
+                vip_access = _activate_stripe_vip_access(
+                    paid_lead or prior_lead,
+                    event_data,
+                    plan_key,
+                    already_paid,
+                )
+            return jsonify({
+                "ok": True,
+                "status": "paid",
+                "plan": plan_key,
+                "amount_usd": amount,
+                "vip_access": vip_access["status"],
+            })
 
     return jsonify({"ok": True, "received": True, "event_type": event_type})
 
@@ -1039,70 +1634,316 @@ def api_admin_leads():
     })
 
 
-@app.route("/sales/admin", methods=["GET"])
-def sales_admin():
-    """Sales admin dashboard for launch monitoring."""
+def _admin_overview_payload() -> dict:
+    """Build the protected dashboard read model without exposing chat identifiers."""
+    leads = crm_store.get_all()
+    paid_leads = [lead for lead in leads if lead.get("payment_status") == "paid"]
+    paid_leads.sort(key=lambda lead: lead.get("created_at") or "", reverse=True)
+
+    crm_payments = [
+        {
+            "email": lead.get("email", ""),
+            "plan": lead.get("plan", ""),
+            "amount_usd": float(lead.get("amount_usd") or 0),
+            "created": lead.get("created_at", ""),
+            "provider": "crm_paid_event",
+            "payment_status": "paid",
+        }
+        for lead in paid_leads
+    ]
+    stripe_listing = _get_stripe_payment_snapshot()
+    use_stripe_feed = bool(stripe_listing["available"] and stripe_listing["payments"])
+    displayed_payments = stripe_listing["payments"] if use_stripe_feed else crm_payments
+
+    vip_plans = [
+        {
+            "email": lead.get("email", ""),
+            "plan": lead.get("plan", ""),
+            "amount_usd": float(lead.get("amount_usd") or 0),
+            "activated_at": lead.get("created_at", ""),
+            "telegram_linked": bool(lead.get("telegram_chat_id")),
+            "status": "active_paid_vip",
+        }
+        for lead in paid_leads
+        if _is_vip_plan(lead.get("plan") or "")
+    ]
+    with _lock:
+        onchain_revenue = round(sum(s.get("amount_usd", 0) for s in _sales_history), 6)
+        bot_status = dict(_bot_status)
+        wallet = dict(_wallet_state)
+        live_requests = list(_live_request_log)[-100:]
+        invite_count = len(_vip_invites)
+        onchain_vips = len(_vip_subscribers)
+
+    crm_revenue = round(sum(payment["amount_usd"] for payment in crm_payments), 2)
+    catalog_metrics = catalog_store.get_metrics_24h()
+    pending_research = len(research_store.list_insights(status="PENDING", limit=200))
+    market_cache = get_coingecko_cache_status()
+    market_age = market_cache.get("age_seconds")
+    market_detail = market_cache.get("state", "unavailable")
+    if market_age is not None:
+        market_detail = f"{market_detail} cache, age {market_age}s"
+    if market_cache.get("detail"):
+        market_detail = f"{market_detail} — {market_cache['detail']}"
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "metrics": {
+            "crm_revenue_usd": crm_revenue,
+            "onchain_revenue_usd": onchain_revenue,
+            "total_revenue_usd": round(crm_revenue + onchain_revenue, 2),
+            "paid_payments": len(paid_leads),
+            "active_vip_plans": len(vip_plans),
+            "vip_invites_generated": invite_count,
+            "onchain_vip_subscribers": onchain_vips,
+            "active_telegram_users": bot_status.get("active_users", 0),
+            "catalog_clicks_24h": catalog_metrics["totals"]["clicks"],
+            "catalog_calls_24h": catalog_metrics["totals"]["calls"],
+            "catalog_revenue_24h_usd": catalog_metrics["totals"]["revenue_usd"],
+            "active_agent_entitlements": catalog_store.active_entitlement_count(),
+            "research_pending_review": pending_research,
+        },
+        "payments": displayed_payments[:100],
+        "payment_source": "stripe_checkout" if use_stripe_feed else "crm_paid_events",
+        "vip_plans": vip_plans[:100],
+        "request_log": list(reversed(live_requests)),
+        "agent_catalog": catalog_metrics,
+        "services": {
+            "crm": {"ready": crm_store.is_healthy(), "backend": crm_store.backend},
+            "agent_catalog": {
+                "ready": catalog_store.is_healthy(),
+                "backend": catalog_store.backend,
+                "active_agents": len(catalog_metrics["products"]),
+                "detail": "24h catalog analytics",
+            },
+            "research": {
+                "ready": research_store.is_healthy(),
+                "backend": research_store.backend,
+                "detail": f"{pending_research} pending review",
+            },
+            "stripe": {
+                "configured": stripe_checkout.enabled,
+                "payment_feed_available": stripe_listing["available"],
+                "cache_state": stripe_listing.get("state", "unknown"),
+                "age_seconds": stripe_listing.get("age_seconds"),
+                "detail": stripe_listing.get("reason", "connected"),
+            },
+            "telegram": {
+                "token_configured": bot_status.get("telegram_token_configured", False),
+                "running": bot_status.get("telegram_bot_running", False),
+                "last_heartbeat": bot_status.get("last_heartbeat", ""),
+            },
+            "blockchain": {
+                "rpc_connected": wallet.get("rpc_connected", False),
+                "last_check_time": wallet.get("last_check_time"),
+            },
+            "coingecko": {
+                "ready": market_cache.get("state") in {"live", "cached"},
+                "state": market_cache.get("state", "unavailable"),
+                "age_seconds": market_age,
+                "last_success_at": market_cache.get("last_success_at"),
+                "detail": market_detail,
+            },
+        },
+    }
+
+
+@app.route("/api/admin/overview", methods=["GET"])
+def api_admin_overview():
+    """Protected live operational data for the browser admin dashboard."""
     auth_error = _require_admin_access()
     if auth_error:
         return auth_error
-    leads = crm_store.get_all()
-    pipeline = crm_store.get_sales_pipeline()
-    summary = {
-        "total": len(leads),
-        "paid": sum(1 for lead in leads if lead.get("payment_status") == "paid"),
-        "new": pipeline.get("new", 0),
-        "qualified": pipeline.get("qualified", 0),
-        "paid_pipeline": pipeline.get("paid", 0),
-    }
-    return render_template_string(
-        """
-        <!DOCTYPE html>
-        <html lang="bg">
-        <head>
-            <meta charset="UTF-8">
-            <title>Sales Admin | Kristo Intelligence</title>
-            <style>
-                body { font-family: Arial, sans-serif; background: #0b1020; color: #e2e8f0; margin: 0; padding: 40px; }
-                .wrap { max-width: 1000px; margin: 0 auto; }
-                .grid { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 16px; }
-                .card { background: #111827; border: 1px solid #24314d; border-radius: 12px; padding: 20px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { padding: 10px; border-bottom: 1px solid #24314d; text-align: left; }
-                .badge { display: inline-block; background: #1d4ed8; color: white; padding: 4px 8px; border-radius: 999px; font-size: 12px; }
-            </style>
-        </head>
-        <body>
-            <div class="wrap">
-                <h1>Sales Admin</h1>
-                <div class="grid">
-                    <div class="card"><strong>Total Leads</strong><br>{{ summary['total'] }}</div>
-                    <div class="card"><strong>New</strong><br>{{ summary['new'] }}</div>
-                    <div class="card"><strong>Qualified</strong><br>{{ summary['qualified'] }}</div>
-                    <div class="card"><strong>Paid</strong><br>{{ summary['paid'] }}</div>
-                </div>
-                <table>
-                    <thead>
-                        <tr><th>Email</th><th>Source</th><th>Plan</th><th>Status</th><th>Payment</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for lead in leads %}
-                        <tr>
-                            <td>{{ lead.get('email', '') }}</td>
-                            <td>{{ lead.get('source', '') }}</td>
-                            <td>{{ lead.get('plan', '') }}</td>
-                            <td><span class="badge">{{ lead.get('status', 'new') }}</span></td>
-                            <td>{{ lead.get('payment_status', 'pending') }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </body>
-        </html>
-        """,
-        summary=summary,
-        leads=leads,
+    return _safe_jsonify(_admin_overview_payload())
+
+
+@app.route("/api/admin/catalog-metrics", methods=["GET"])
+def api_admin_catalog_metrics():
+    """Return protected live 24-hour catalog metrics and popularity ranking."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    return _safe_jsonify({"ok": True, **catalog_store.get_metrics_24h()})
+
+
+@app.route("/api/v1/research/ingest", methods=["POST"])
+def api_research_ingest():
+    """Accept authenticated Discord, RSS, or GitHub research into a pending queue."""
+    auth_error = _require_research_ingest_access()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    try:
+        insight = research_store.ingest(
+            source=payload.get("source", ""),
+            external_id=payload.get("external_id", ""),
+            title=payload.get("title", ""),
+            content=payload.get("content", ""),
+            actionable_summary=payload.get("actionable_summary", ""),
+        )
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    created = bool(insight.pop("created"))
+    return _safe_jsonify(
+        {
+            "ok": True,
+            "created": created,
+            "insight": insight,
+        }
+    ), 201 if created else 200
+
+
+@app.route("/api/admin/research-insights", methods=["GET"])
+def api_admin_research_insights():
+    """List the protected research review queue."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    try:
+        insights = research_store.list_insights(
+            status=request.args.get("status", ""),
+            limit=request.args.get("limit", 100, type=int) or 100,
+        )
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return _safe_jsonify({"ok": True, "insights": insights, "total": len(insights)})
+
+
+@app.route("/api/admin/research-insights/<insight_id>", methods=["PATCH"])
+def api_admin_research_insight_update(insight_id: str):
+    """Approve or archive a research insight after human review."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    try:
+        insight = research_store.update_status(insight_id, payload.get("status", ""))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    if not insight:
+        return jsonify({"ok": False, "error": "research_insight_not_found"}), 404
+    return _safe_jsonify({"ok": True, "insight": insight})
+
+
+_ADMIN_LOGIN_HTML = """
+<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Вход за администратор</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1117;color:#e2e8f0;font-family:system-ui,sans-serif}
+form{width:min(420px,calc(100% - 32px));padding:32px;border:1px solid #2d3142;border-radius:16px;background:#1a1d28}
+input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:9px;font:inherit}input{background:#0f1117;color:#fff;border:1px solid #46506b;margin:18px 0}
+button{border:0;background:#6366f1;color:#fff;font-weight:700;cursor:pointer}.error{color:#fca5a5}
+</style></head><body><form method="post"><h1>Оперативен dashboard</h1><p>Въведете администраторския token.</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<label for="admin_token">Admin token</label><input id="admin_token" name="admin_token" type="password" required autofocus autocomplete="current-password"><button type="submit">Вход</button></form></body></html>
+"""
+
+
+_ADMIN_RESEARCH_HTML = r"""
+<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kristo Intelligence — R&D review</title><style>
+:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1120px;margin:auto;padding:28px}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 20px}button{border:1px solid #46506b;background:#121522;color:var(--text);padding:9px 12px;border-radius:8px;cursor:pointer;font:inherit}button.primary{background:var(--accent);border-color:var(--accent)}article{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin:12px 0}.meta{color:var(--muted);font-size:.82rem}.summary{color:#c7d2fe;white-space:pre-wrap}.content{color:var(--muted);white-space:pre-wrap;max-height:180px;overflow:auto}.actions{display:flex;gap:8px;margin-top:14px}.approved{color:var(--good)}.archived{color:var(--bad)}.empty{color:var(--muted)}
+</style></head><body><header><div><h1>R&D research queue</h1><div class="meta">Discord, RSS и GitHub ingest-ът влиза като PENDING и изисква човешко одобрение.</div></div><a href="/sales/admin">Към dashboard</a></header><main><div class="filters"><button class="primary" data-status="PENDING">Pending</button><button data-status="APPROVED">Approved</button><button data-status="ARCHIVED">Archived</button><button data-status="">All</button></div><p id="state" class="meta"></p><section id="items"><p class="empty">Loading…</p></section></main><script>
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let status='PENDING';
+function render(items){const root=document.getElementById('items');root.innerHTML=items.length?items.map(i=>`<article><div class="meta">${esc(i.source)} · ${esc(i.status)} · ${esc(new Date(i.created_at).toLocaleString('bg-BG'))}</div><h2>${esc(i.title)}</h2>${i.actionable_summary?`<p class="summary">${esc(i.actionable_summary)}</p>`:''}<p class="content">${esc(i.content)}</p><div class="actions">${i.status!=='APPROVED'?`<button onclick="updateInsight('${esc(i.id)}','APPROVED')">Approve</button>`:''}${i.status!=='ARCHIVED'?`<button onclick="updateInsight('${esc(i.id)}','ARCHIVED')">Archive</button>`:''}</div></article>`).join(''):'<p class="empty">No research insights in this view.</p>'}
+async function load(){const r=await fetch('/api/admin/research-insights?status='+encodeURIComponent(status));const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load research.');document.getElementById('state').textContent=d.total+' insight(s)';render(d.insights)}
+async function updateInsight(id,next){const r=await fetch('/api/admin/research-insights/'+encodeURIComponent(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:next})});if(!r.ok){const d=await r.json();alert(d.error||'Update failed');return}load()}
+document.querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>{status=b.dataset.status;load().catch(e=>document.getElementById('state').textContent=e.message)});load().catch(e=>document.getElementById('state').textContent=e.message);
+</script></body></html>
+"""
+
+
+_ADMIN_DASHBOARD_HTML = r"""
+<!doctype html>
+<html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kristo Intelligence — Оперативен dashboard</title>
+<style>
+:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin:16px 0 28px}.card,.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}.metric label,.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}.metric strong{display:block;font-size:1.8rem;margin-top:7px}.panel{margin:18px 0}.panel h2{font-size:1rem;margin:0 0 14px}.services{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.service{padding:12px;background:#121522;border-radius:8px}.good{color:var(--good)}.bad{color:var(--bad)}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase}.scroll{overflow:auto}.muted{color:var(--muted)}#error{color:var(--bad);min-height:18px}@media(max-width:650px){main{padding:16px}header{padding:16px;align-items:flex-start;flex-direction:column}th,td{padding:8px}}
+</style></head>
+<body><header><div><h1>Kristo Intelligence — Оперативен dashboard</h1><div class="muted">Автоматично обновяване на 15 секунди. Чувствителните данни са достъпни само за администратор.</div></div><div><a href="/sales/admin/research">R&D review</a> · <a href="/sales/admin/logout">Изход</a></div></header>
+<main><p id="error"></p><section id="metrics" class="grid"></section>
+<section class="panel"><h2>Статус на услугите</h2><div id="services" class="services"></div></section>
+<section class="panel"><h2>Каталог агенти — последни 24 часа</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Ранг</th><th>Агент</th><th>Категория</th><th>x402</th><th>VIP</th><th>Кликове</th><th>Calls</th><th>Плащания</th><th>Конверсия</th><th>Приход</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
+<section class="panel"><h2>Последни Stripe/CRM плащания</h2><p id="payment-source" class="muted"></p><div class="scroll"><table><thead><tr><th>Време</th><th>Клиент</th><th>План</th><th>Сума</th><th>Статус</th><th>Източник</th></tr></thead><tbody id="payments"></tbody></table></div></section>
+<section class="panel"><h2>Активни платени VIP планове</h2><div class="scroll"><table><thead><tr><th>Активиран</th><th>Клиент</th><th>План</th><th>Сума</th><th>Telegram</th></tr></thead><tbody id="vips"></tbody></table></div></section>
+<section class="panel"><h2>Запитвания и логове</h2><p class="muted">Показват се последните 100 заявки без headers, token-и или параметри.</p><div class="scroll"><table><thead><tr><th>Време</th><th>Източник</th><th>Метод</th><th>Път</th><th>Статус</th></tr></thead><tbody id="requests"></tbody></table></div></section>
+</main>
+<script>
+const escapeHtml = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = value => '$' + Number(value || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const date = value => { if (!value) return '—'; const stamp = typeof value === 'number' ? value * 1000 : value; const parsed = new Date(stamp); return Number.isNaN(parsed) ? '—' : parsed.toLocaleString('bg-BG'); };
+function rows(id, values, makeRow, colspan) { const target=document.getElementById(id); target.innerHTML=values.length?values.map(makeRow).join(''):`<tr><td colspan="${colspan}" class="muted">Все още няма данни.</td></tr>`; }
+function render(data) {
+  const metricLabels={'total_revenue_usd':'Общ приход','catalog_revenue_24h_usd':'Каталог приход (24ч)','catalog_clicks_24h':'Каталог кликове (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'Платени записи','active_vip_plans':'Активни VIP планове','active_telegram_users':'Активни Telegram потребители'};
+  document.getElementById('metrics').innerHTML=Object.entries(metricLabels).map(([key,label])=>`<div class="card metric"><label>${label}</label><strong>${key.includes('revenue')?money(data.metrics[key]):escapeHtml(data.metrics[key])}</strong></div>`).join('');
+  document.getElementById('services').innerHTML=Object.entries(data.services).map(([name,service])=>{const ready=service.ready ?? service.running ?? service.configured;return `<div class="service"><strong class="${ready?'good':'bad'}">${ready?'● Работи':'● Нужна проверка'}</strong><br><span class="label">${escapeHtml(name)}</span><span class="muted">${escapeHtml(service.backend || service.detail || '')}</span></div>`}).join('');
+  const catalog=data.agent_catalog||{products:[],totals:{},top_selling_agent:null};
+  const top=catalog.top_selling_agent;
+  document.getElementById('catalog-summary').textContent=top?`Топ продаван агент: ${top.name} — ${money(top.revenue_24h)} от ${top.payments_24h} плащания.`:'Все още няма платени catalog events за последните 24 часа.';
+  rows('catalog',catalog.products,p=>`<tr><td>#${escapeHtml(p.popularity_rank)}</td><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.description)}</span></td><td>${escapeHtml(p.category)}</td><td>${money(p.price_x402)} USDC</td><td>${money(p.price_stripe)}</td><td>${escapeHtml(p.clicks_24h)}</td><td>${escapeHtml(p.calls_24h)}</td><td>${escapeHtml(p.payments_24h)}</td><td>${escapeHtml(p.conversion_rate_24h)}%</td><td>${money(p.revenue_24h)}</td></tr>`,10);
+  document.getElementById('payment-source').textContent=data.payment_source==='stripe_checkout'?'Данни от Stripe Checkout.':'Stripe listing не е наличен; показани са потвърдени CRM payment events.';
+  rows('payments',data.payments,p=>`<tr><td>${date(p.created)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td class="good">${escapeHtml(p.payment_status)}</td><td>${escapeHtml(p.provider)}</td></tr>`,6);
+  rows('vips',data.vip_plans,p=>`<tr><td>${date(p.activated_at)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td>${p.telegram_linked?'Свързан':'Не е свързан'}</td></tr>`,5);
+  rows('requests',data.request_log,r=>`<tr><td>${date(r.timestamp)}</td><td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.method)}</td><td>${escapeHtml(r.path)}</td><td class="${r.status_code<400?'good':'bad'}">${escapeHtml(r.status_code)}</td></tr>`,5);
+}
+async function refresh(){try{const response=await fetch('/api/admin/overview');if(!response.ok)throw new Error('Администраторската сесия е изтекла.');render(await response.json());document.getElementById('error').textContent='';}catch(error){document.getElementById('error').textContent=error.message;}}
+refresh();setInterval(refresh,15000);
+</script></body></html>
+"""
+
+
+@app.route("/sales/admin/login", methods=["GET", "POST"])
+@app.route("/admin/login", methods=["GET", "POST"])
+def sales_admin_login():
+    """Create a signed browser session from the existing admin token."""
+    error = ""
+    if request.method == "POST":
+        configured = _get_admin_token()
+        supplied = (request.form.get("admin_token") or "").strip()
+        if configured and supplied and hmac.compare_digest(supplied, configured):
+            session.clear()
+            session["admin_authenticated"] = True
+            return redirect("/sales/admin")
+        _log_admin_token_mismatch(configured, supplied)
+        error = "Невалиден admin token."
+    return render_template_string(_ADMIN_LOGIN_HTML, error=error)
+
+
+@app.route("/sales/admin/logout", methods=["GET"])
+def sales_admin_logout():
+    session.clear()
+    return redirect("/sales/admin/login")
+
+
+@app.route("/sales/admin", methods=["GET"])
+def sales_admin():
+    """Protected browser dashboard for sales, VIP operations and service health."""
+    if session.get("admin_authenticated"):
+        return render_template_string(_ADMIN_DASHBOARD_HTML)
+
+    configured = _get_admin_token()
+    supplied = request.headers.get("X-Admin-Token", "").strip()
+    valid_header = bool(
+        configured
+        and supplied
+        and hmac.compare_digest(supplied, configured)
     )
+    if not valid_header:
+        return redirect("/sales/admin/login")
+
+    session["admin_authenticated"] = True
+    return render_template_string(_ADMIN_DASHBOARD_HTML)
+
+
+@app.route("/sales/admin/research", methods=["GET"])
+def sales_admin_research():
+    """Protected browser view for approving or archiving R&D research insights."""
+    if session.get("admin_authenticated"):
+        return render_template_string(_ADMIN_RESEARCH_HTML)
+    auth_error = _require_admin_access()
+    if auth_error:
+        return redirect("/sales/admin/login")
+    session["admin_authenticated"] = True
+    return render_template_string(_ADMIN_RESEARCH_HTML)
 
 
 @app.route("/api/launch/health", methods=["GET"])
@@ -1113,7 +1954,7 @@ def launch_health():
     pipeline = crm_store.get_sales_pipeline() if crm_ready else {}
     payload = {
         "ok": True,
-        "app": "kristo-intelligence-v5",
+        "app": "kristo-intelligence-v6",
         "status": "live" if crm_ready else "degraded",
         "payment_provider": "stripe" if os.getenv("STRIPE_API_KEY") else "mock",
         "crm_backend": crm_store.backend,
@@ -1262,18 +2103,32 @@ def api_telegram_webhook():
     The endpoint is always free (no x402 paywall) so Telegram can deliver
     updates without payment.
     """
-    _record_request("api_telegram_webhook", True)
+    configured_secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if (
+        not configured_secret
+        or not supplied_secret
+        or not hmac.compare_digest(supplied_secret, configured_secret)
+    ):
+        _record_request("api_telegram_webhook", False)
+        log.warning("Rejected Telegram webhook without a valid secret token.")
+        return jsonify({"ok": False, "error": "telegram_webhook_unauthorized"}), 401
+
     payload = request.get_json(silent=True) or {}
     if not payload:
+        _record_request("api_telegram_webhook", False)
         return jsonify({"ok": False, "error": "empty_payload"}), 400
 
     try:
         result = process_webhook_update(payload)
+        _record_request("api_telegram_webhook", True)
+        _record_telegram_activity(payload, result)
         log.info("Telegram webhook processed: %s", result)
         return jsonify({"ok": True, "result": result})
     except Exception as exc:
+        _record_request("api_telegram_webhook", False)
         log.error("Telegram webhook processing failed: %s", exc)
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": False, "error": "telegram_processing_failed"}), 500
 
 
 # ── MCP / x402 Payment Protocol ──────────────────────────────────────────
@@ -1343,78 +2198,8 @@ def api_mcp_manifest():
 
 @app.route("/.well-known/x402.json")
 def well_known_x402():
-    """
-    x402 discovery file for AI agents.
-    Describes payment requirements, receiver address, pricing, and endpoints.
-    """
-    base_url = request.host_url.rstrip("/")
-    return jsonify({
-        "protocol": "x402",
-        "version": "1.0",
-        "service": "Kristo Intelligence API",
-        "description": "AI-powered DeFi trading signals and crypto market intelligence on Base",
-        "payment": {
-            "chain": X402_CHAIN,
-            "chain_id": X402_CHAIN_ID,
-            "currency": "USDC",
-            "token_contract": X402_USDC_CONTRACT,
-            "receiver_address": X402_RECEIVER_ADDRESS,
-            "amount_usdc": X402_FEE_USDC,
-            "network": "base",
-        },
-        "pricing": {
-            "free_tier": {
-                "limit": FREE_TIER_LIMIT,
-                "description": f"{FREE_TIER_LIMIT} free API call(s) per client, then payment required",
-            },
-            "tiers": [
-                {
-                    "id": "micro_request",
-                    "name": "Micro Request",
-                    "price_usdc": X402_FEE_USDC,
-                    "description": f"Pay-per-call: {X402_FEE_USDC} USDC per API request",
-                    "access": "single API call",
-                },
-                {
-                    "id": "vip_monthly",
-                    "name": "Monthly VIP",
-                    "price_usdc": VIP_MONTHLY_USDC,
-                    "description": "Unlimited monthly access + Telegram VIP group invite",
-                    "access": "unlimited for 30 days",
-                },
-            ],
-        },
-        "endpoints": {
-            "base_url": base_url,
-            "paid": [
-                {"path": "/api/stats", "method": "GET", "cost_usdc": X402_FEE_USDC,
-                 "description": "Market activity and daily stats"},
-                {"path": "/api/sales", "method": "GET", "cost_usdc": X402_FEE_USDC,
-                 "description": "Real on-chain sales history"},
-                {"path": "/api/bot-status", "method": "GET", "cost_usdc": X402_FEE_USDC,
-                 "description": "Telegram bot status"},
-            ],
-            "free": [
-                {"path": "/.well-known/x402.json", "method": "GET", "cost_usdc": 0.0,
-                 "description": "This x402 discovery file"},
-                {"path": "/openapi.json", "method": "GET", "cost_usdc": 0.0,
-                 "description": "OpenAPI specification"},
-                {"path": "/llms.txt", "method": "GET", "cost_usdc": 0.0,
-                 "description": "LLM-friendly API description"},
-                {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
-                 "description": "MCP/x402 manifest"},
-                {"path": "/health", "method": "GET", "cost_usdc": 0.0,
-                 "description": "Health check"},
-                {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0,
-                 "description": "HTML dashboard"},
-            ],
-        },
-        "instructions": {
-            "payment": f"Send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
-            "verification": "Payments are verified on-chain via ERC-20 Transfer event logs",
-            "retry": "After payment confirmation, retry the endpoint to access data",
-        },
-    })
+    """Serve current 8-agent x402 discovery metadata from the catalog store."""
+    return _safe_jsonify(_build_x402_discovery(request.host_url.rstrip("/")))
 
 
 
@@ -1520,7 +2305,7 @@ def openapi_spec():
         "openapi": "3.0.3",
         "info": {
             "title": "Kristo Intelligence API",
-            "version": "5.0.0",
+            "version": "6.0.0",
             "description": "AI-powered DeFi trading signals and crypto market intelligence. "
                            "Uses x402 payment protocol — USDC on Base.",
             "x402": {
@@ -1606,6 +2391,29 @@ def openapi_spec():
                     "summary": "HTML dashboard (free)",
                     "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
                     "responses": {"200": {"description": "HTML dashboard page"}},
+                }
+            },
+            "/api/v1/agents/{agent_id}/playground": {
+                "post": {
+                    "summary": "One bounded free catalog-agent demo per client",
+                    "x402": {
+                        "catalog_driven_pricing": True,
+                        "settlement_status": "discovery_only",
+                        "free_playground_requests_per_client": 1,
+                    },
+                    "parameters": [
+                        {
+                            "name": "agent_id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                    "responses": {
+                        "200": {"description": "Bounded demo execution completed"},
+                        "402": {"description": "Free demo used; response includes x402 and Stripe upgrade paths"},
+                        "404": {"description": "Unknown agent"},
+                    },
                 }
             },
         },
@@ -2176,7 +2984,7 @@ _DASHBOARD_HTML = r"""
     </div>
 
     <footer>
-        Kristo Intelligence API v5 &mdash; Real Blockchain Data &mdash; <span id="footer-time"></span>
+        Kristo Intelligence API v6 &mdash; Real Blockchain Data &mdash; <span id="footer-time"></span>
     </footer>
 
 <script>
@@ -2935,7 +3743,7 @@ _NEXUS_DASHBOARD_HTML = r"""
     </div>
 
     <footer>
-        NEXUS Discovery Engine &mdash; Kristo Intelligence v5 &mdash; <span id="footer-time"></span>
+        NEXUS Discovery Engine &mdash; Kristo Intelligence v6 &mdash; <span id="footer-time"></span>
     </footer>
 
 <script>
@@ -3263,7 +4071,7 @@ def _handle_telegram_command(text: str) -> str:
 # ── Startup ──────────────────────────────────────────────────────────────
 
 def _start_background_threads():
-    """Start background threads (blockchain monitor + agent loop + Telegram sales)."""
+    """Start monitor, agent, catalog-analytics and Telegram background workers."""
     if getattr(app, "_bg_started", False):
         return
     app._bg_started = True
@@ -3275,6 +4083,21 @@ def _start_background_threads():
     # Start agent thread
     t_agent = threading.Thread(target=_background_agent_loop, daemon=True, name="agent-loop")
     t_agent.start()
+
+    # Persist a first 24-hour catalog snapshot, then refresh it once per day.
+    t_catalog = threading.Thread(
+        target=_catalog_analytics_loop,
+        daemon=True,
+        name="catalog-analytics",
+    )
+    t_catalog.start()
+
+    t_stripe_snapshot = threading.Thread(
+        target=_stripe_payment_snapshot_loop,
+        daemon=True,
+        name="stripe-payment-snapshot",
+    )
+    t_stripe_snapshot.start()
 
     # Start Telegram sales loop (auto market bulletins every 30 min, webhook-only)
     try:
@@ -3291,7 +4114,9 @@ def _start_background_threads():
     except Exception as exc:
         log.warning("Telegram webhook auto-registration failed (non-fatal): %s", exc)
 
-    log.info("Background threads started (blockchain monitor + agent + telegram sales).")
+    log.info(
+        "Background threads started (blockchain monitor + agent + catalog analytics + telegram sales)."
+    )
 
 
 # Start threads when module loads (works with gunicorn / Procfile).

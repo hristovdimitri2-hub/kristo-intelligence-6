@@ -5,10 +5,15 @@ import pytest
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_API_TOKEN", "test-admin-token")
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
+    monkeypatch.setenv("KRISTO_ALLOW_MOCK_PAYMENTS", "true")
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
     import main
     from integrations.crm_store import CRMStore
+    from integrations.stripe_checkout import StripeCheckoutService
 
     monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
+    monkeypatch.setattr(main, "stripe_checkout", StripeCheckoutService())
     return main.app.test_client()
 
 

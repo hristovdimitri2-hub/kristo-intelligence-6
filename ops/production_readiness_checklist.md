@@ -1,5 +1,14 @@
 # Production Readiness Checklist
 
+## v6 publish handoff
+- [ ] Re-publish the verified v6 build; the currently active public deployment still identifies as the prior v5 release.
+- [ ] Confirm the deployed primary URL in Publishing and keep `APP_PUBLIC_URL` / `WEBHOOK_PUBLIC_URL` aligned with that exact URL. Do not guess a v6 domain.
+- [ ] Set `RESEARCH_INGEST_TOKEN` as a production secret before connecting Discord, RSS, or GitHub ingestion.
+- [ ] Verify `/.well-known/x402.json` contains eight catalog agents and clearly reports `settlement_status: discovery_only`.
+- [ ] Verify `/agents` allows one bounded free request per client-agent and returns an honest 402 upgrade payload afterward.
+- [ ] Confirm the Stripe payment snapshot is fresh or explicitly stale in `/sales/admin`; an unavailable Stripe feed must fall back to settled CRM events.
+- [ ] Apply the production PostgreSQL schema before relying on research workflow persistence.
+
 ## Technical readiness
 - [ ] project runs in production mode
 - [ ] `.env` is configured correctly

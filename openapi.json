@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Kristo Intelligence API",
-    "version": "5.0.0",
-    "description": "AI-powered DeFi trading signals and crypto market intelligence. Uses x402 payment protocol — USDC on Base.",
+    "version": "6.0.0",
+    "description": "AI-powered DeFi trading signals and crypto market intelligence. Runtime discovery uses the durable eight-agent catalog and x402 metadata.",
     "x402": {
       "protocol": "x402",
       "receiver_address": "0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
@@ -17,8 +17,8 @@
   },
   "servers": [
     {
-      "url": "https://kristo-intelligence-v5.onrender.com",
-      "description": "Production server"
+      "url": "/",
+      "description": "Runtime-resolved production or preview server"
     }
   ],
   "paths": {
