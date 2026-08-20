@@ -126,6 +126,39 @@ def test_admin_overview_uses_cached_stripe_snapshot(v6_client, monkeypatch):
     assert first.get_json()["services"]["stripe"]["cache_state"] == "fresh"
 
 
+def test_admin_overview_exposes_transparent_agent_revenue_table_data(v6_client):
+    main, client = v6_client
+    assert main.catalog_store.record_click("whaleflow-radar", event_id="transparent-hit")
+    assert main.catalog_store.record_payment(
+        "whaleflow-radar", 0.05, event_id="transparent-sale"
+    )
+    main._wallet_state.update(
+        {
+            "rpc_connected": True,
+            "chain_id": 8453,
+            "receiver_valid": True,
+            "network": "Base Mainnet",
+        }
+    )
+
+    overview = client.get(
+        "/api/admin/overview", headers={"X-Admin-Token": "v6-admin-token"}
+    )
+    assert overview.status_code == 200
+    payload = overview.get_json()
+    whale = next(
+        product
+        for product in payload["agent_catalog"]["products"]
+        if product["id"] == "whaleflow-radar"
+    )
+    assert len(payload["agent_catalog"]["products"]) == 8
+    assert whale["hits_24h"] == 1
+    assert whale["sales_24h"] == 1
+    assert whale["revenue_24h"] == 0.05
+    assert payload["services"]["blockchain"]["ready"] is True
+    assert payload["services"]["blockchain"]["network"] == "Base Mainnet"
+
+
 def test_paid_access_needs_checkout_capability_and_forwarded_ip_cannot_bypass(v6_client):
     main, client = v6_client
     remote = {"REMOTE_ADDR": "198.51.100.10"}

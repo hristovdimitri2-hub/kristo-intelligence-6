@@ -20,6 +20,7 @@ def test_catalog_store_seeds_eight_agents_and_calculates_24h_metrics(tmp_path):
         "smart-contract-security-triage",
         "signal-to-channel-publisher",
     } == {product["id"] for product in products}
+    assert all(0.01 <= product["price_x402"] <= 0.25 for product in products)
     assert all(
         {
             "id",
@@ -48,7 +49,9 @@ def test_catalog_store_seeds_eight_agents_and_calculates_24h_metrics(tmp_path):
 
     assert whale["clicks_24h"] == 1
     assert whale["calls_24h"] == 1
+    assert whale["hits_24h"] == 2
     assert whale["payments_24h"] == 1
+    assert whale["sales_24h"] == 1
     assert whale["revenue_24h"] == 19.0
     assert whale["conversion_rate_24h"] == 100.0
     assert whale["popularity_rank"] == 1

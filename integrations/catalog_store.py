@@ -102,7 +102,9 @@ def _empty_metrics(product: Dict[str, Any]) -> Dict[str, Any]:
         **product,
         "clicks_24h": 0,
         "calls_24h": 0,
+        "hits_24h": 0,
         "payments_24h": 0,
+        "sales_24h": 0,
         "revenue_24h": 0.0,
         "conversion_rate_24h": 0.0,
         "popularity_rank": 0,
@@ -596,7 +598,9 @@ class CatalogStore:
                 if metric:
                     metric["clicks_24h"] = int(row["clicks"] or 0)
                     metric["calls_24h"] = int(row["calls"] or 0)
+                    metric["hits_24h"] = metric["clicks_24h"] + metric["calls_24h"]
                     metric["payments_24h"] = int(row["payments"] or 0)
+                    metric["sales_24h"] = metric["payments_24h"]
                     metric["revenue_24h"] = round(_as_float(row["revenue"]), 6)
 
             ranked = _rank_metrics(list(products.values()))
@@ -649,7 +653,9 @@ class CatalogStore:
             "totals": {
                 "clicks": sum(product["clicks_24h"] for product in products),
                 "calls": sum(product["calls_24h"] for product in products),
+                "hits": sum(product["hits_24h"] for product in products),
                 "payments": sum(product["payments_24h"] for product in products),
+                "sales": sum(product["sales_24h"] for product in products),
                 "revenue_usd": round(sum(product["revenue_24h"] for product in products), 6),
             },
             "top_selling_agent": (

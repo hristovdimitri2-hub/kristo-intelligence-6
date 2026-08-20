@@ -37,7 +37,7 @@ import math
 from flask import Flask, jsonify, redirect, render_template_string, request, session
 
 # ── Central configuration (bound wallet address, GLM, etc.) ────────────────
-from config import get_base_fee_receiver, BOUND_BASE_FEE_RECEIVER
+from config import BASE_CHAIN_ID, BASE_RPC_URL, get_base_fee_receiver
 
 # ── Real-time market data integration ─────────────────────────────────────
 from services.market_data import get_coingecko_cache_status, get_market_snapshot
@@ -80,7 +80,7 @@ X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status"}
 X402_FREE_ENDPOINTS = {
     "/", "/health", "/dashboard", "/nexus", "/api/mcp/manifest",
     "/.well-known/x402.json", "/openapi.json", "/llms.txt",
-    "/mcp.json", "/api/telegram-webhook",
+    "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
 }
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ app.config.update(
 
 # ── Runtime sales integration layer ───────────────────────────────────────
 from integrations.crm_store import LeadRecord, create_crm_store
-from integrations.catalog_store import create_catalog_store
+from integrations.catalog_store import CATALOG_SEED, create_catalog_store
 from integrations.research_store import create_research_store
 from integrations.payment_integration import SalesCheckout
 from integrations.telegram_flow import TelegramSalesFlow
@@ -127,18 +127,16 @@ _stripe_snapshot = {
     "state": "pending",
 }
 
-# ── Product Catalog: 8 Agents + NEXUS Engine = 9 products ─────────────────
-# Each product tracks: hits (requests), sales_count, sales_volume_usd
+# ── Official agent catalog ─────────────────────────────────────────────────
+# Keep legacy statistics endpoints aligned with the durable eight-agent catalog.
 PRODUCT_CATALOG = [
-    {"id": "market_evaluator",   "name": "Market Evaluator Agent",  "category": "agent",  "price_usdc": 0.05},
-    {"id": "defi_signals",       "name": "DeFi Signals Agent",      "category": "agent",  "price_usdc": 0.05},
-    {"id": "trading_agent",       "name": "Trading Agent",           "category": "agent",  "price_usdc": 0.05},
-    {"id": "coingecko_data",      "name": "CoinGecko Data Agent",    "category": "agent",  "price_usdc": 0.05},
-    {"id": "wallet_monitor",      "name": "Wallet Monitor Agent",   "category": "agent",  "price_usdc": 0.05},
-    {"id": "telegram_bot",        "name": "Telegram Bot Agent",     "category": "agent",  "price_usdc": 0.05},
-    {"id": "blockchain_monitor",  "name": "Blockchain Monitor Agent","category": "agent",  "price_usdc": 0.05},
-    {"id": "vip_manager",         "name": "VIP Manager Agent",      "category": "agent",  "price_usdc": 0.05},
-    {"id": "nexus_engine",        "name": "NEXUS Engine",           "category": "engine", "price_usdc": 0.10},
+    {
+        "id": product["id"],
+        "name": product["name"],
+        "category": product["category"],
+        "price_usdc": product["price_x402"],
+    }
+    for product in CATALOG_SEED
 ]
 
 # Quick lookup: product_id -> product metadata
@@ -168,6 +166,10 @@ _wallet_state = {
     "fee_receiver": None,
     "usdc_balance": 0.0,
     "rpc_connected": False,
+    "chain_id": None,
+    "network": "Base Mainnet",
+    "receiver_valid": False,
+    "rpc_error": None,
     "last_block_checked": 0,
     "last_check_time": None,
 }
@@ -292,7 +294,7 @@ def _init_wallet() -> Optional[object]:
     """
     pk = os.getenv("WALLET_PRIVATE_KEY", "").strip()
     fee_receiver = get_base_fee_receiver()  # hard fallback to bound address
-    rpc_url = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+    rpc_url = BASE_RPC_URL
     usdc_address = os.getenv("BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
 
     # Try full wallet first (with private key)
@@ -303,11 +305,19 @@ def _init_wallet() -> Optional[object]:
             if wallet is None:
                 log.warning("Wallet.from_env() returned None — falling back to monitor-only.")
             else:
+                chain_id = int(wallet.w3.eth.chain_id)
+                if chain_id != BASE_CHAIN_ID:
+                    raise ConnectionError(
+                        f"Configured RPC chain {chain_id} is not Base Mainnet ({BASE_CHAIN_ID})"
+                    )
                 log.info("Real wallet initialized: address=%s", wallet.account.address)
                 with _lock:
                     _wallet_state["wallet_address"] = wallet.account.address
                     _wallet_state["fee_receiver"] = wallet.fee_receiver
                     _wallet_state["rpc_connected"] = True
+                    _wallet_state["chain_id"] = chain_id
+                    _wallet_state["receiver_valid"] = True
+                    _wallet_state["rpc_error"] = None
                 return wallet
         except Exception as exc:
             log.error("Failed to initialize full wallet: %s — falling back to monitor-only.", exc)
@@ -322,6 +332,13 @@ def _init_wallet() -> Optional[object]:
             if not connected:
                 log.error("Cannot connect to Base RPC at %s", rpc_url)
                 return None
+            if not Web3.is_address(fee_receiver):
+                raise ValueError("Configured Base fee receiver is not a valid EVM address")
+            chain_id = int(w3.eth.chain_id)
+            if chain_id != BASE_CHAIN_ID:
+                raise ConnectionError(
+                    f"Configured RPC chain {chain_id} is not Base Mainnet ({BASE_CHAIN_ID})"
+                )
 
             # Create a lightweight monitor-only wallet-like object
             class _MonitorOnlyWallet:
@@ -353,12 +370,18 @@ def _init_wallet() -> Optional[object]:
                 _wallet_state["wallet_address"] = fee_receiver
                 _wallet_state["fee_receiver"] = fee_receiver
                 _wallet_state["rpc_connected"] = True
+                _wallet_state["chain_id"] = chain_id
+                _wallet_state["receiver_valid"] = True
+                _wallet_state["rpc_error"] = None
 
             log.info("Monitor-only wallet ready. Tracking USDC transfers to: %s", fee_receiver)
             return mock
 
         except Exception as exc:
             log.error("Failed to initialize monitor-only Web3: %s", exc)
+            with _lock:
+                _wallet_state["rpc_connected"] = False
+                _wallet_state["rpc_error"] = str(exc)
             return None
 
     log.warning("No WALLET_PRIVATE_KEY or BASE_FEE_RECEIVER set — wallet monitoring disabled.")
@@ -589,15 +612,9 @@ def _stripe_payment_snapshot_loop():
 
 
 # ── Endpoint → Product mapping for per-agent stats ────────────────────────
-_ENDPOINT_TO_PRODUCT: Dict[str, str] = {
-    "api_sales": "nexus_engine",
-    "api_stats": "nexus_engine",
-    "api_bot_status": "telegram_bot",
-    "api_mcp_manifest": "nexus_engine",
-    "dashboard": "nexus_engine",
-    "home": "nexus_engine",
-    "agent_cycle": "trading_agent",
-}
+# Catalog traffic is recorded only by durable per-agent events, not generic
+# service endpoints, so dashboard hits remain transparent and attributable.
+_ENDPOINT_TO_PRODUCT: Dict[str, str] = {}
 
 
 def _record_request(endpoint: str, success: bool):
@@ -656,20 +673,19 @@ def _record_product_sale(product_id: str, amount_usd: float):
 
 
 def _get_products_breakdown() -> List[dict]:
-    """Return the full 9-product breakdown with hits, sales, and volume."""
-    with _lock:
-        return [
-            {
-                "id": p["id"],
-                "name": p["name"],
-                "category": p["category"],
-                "price_usdc": p["price_usdc"],
-                "hits": _product_stats[p["id"]]["hits"],
-                "sales_count": _product_stats[p["id"]]["sales_count"],
-                "sales_volume_usd": _product_stats[p["id"]]["sales_volume_usd"],
-            }
-            for p in PRODUCT_CATALOG
-        ]
+    """Return the official eight-agent breakdown from durable catalog events."""
+    return [
+        {
+            "id": product["id"],
+            "name": product["name"],
+            "category": product["category"],
+            "price_usdc": product["price_x402"],
+            "hits": product["hits_24h"],
+            "sales_count": product["sales_24h"],
+            "sales_volume_usd": product["revenue_24h"],
+        }
+        for product in catalog_store.get_metrics_24h()["products"]
+    ]
 
 
 # ── x402 Free Tier Tracking ────────────────────────────────────────────────
@@ -1767,6 +1783,7 @@ def _admin_overview_payload() -> dict:
             "active_telegram_users": bot_status.get("active_users", 0),
             "catalog_clicks_24h": catalog_metrics["totals"]["clicks"],
             "catalog_calls_24h": catalog_metrics["totals"]["calls"],
+            "catalog_hits_24h": catalog_metrics["totals"]["hits"],
             "catalog_revenue_24h_usd": catalog_metrics["totals"]["revenue_usd"],
             "active_agent_entitlements": catalog_store.active_entitlement_count(),
             "research_pending_review": pending_research,
@@ -1802,7 +1819,20 @@ def _admin_overview_payload() -> dict:
                 "last_heartbeat": bot_status.get("last_heartbeat", ""),
             },
             "blockchain": {
+                "ready": bool(
+                    wallet.get("rpc_connected")
+                    and wallet.get("chain_id") == BASE_CHAIN_ID
+                    and wallet.get("receiver_valid")
+                ),
                 "rpc_connected": wallet.get("rpc_connected", False),
+                "network": wallet.get("network", "Base Mainnet"),
+                "chain_id": wallet.get("chain_id"),
+                "fee_receiver": wallet.get("fee_receiver"),
+                "detail": (
+                    f"{wallet.get('network', 'Base Mainnet')} (chain {wallet.get('chain_id')})"
+                    if wallet.get("rpc_connected")
+                    else wallet.get("rpc_error") or "Base RPC connection is not ready"
+                ),
                 "last_check_time": wallet.get("last_check_time"),
             },
             "coingecko": {
@@ -1930,7 +1960,7 @@ _ADMIN_DASHBOARD_HTML = r"""
 <body><header><div><h1>Kristo Intelligence — Оперативен dashboard</h1><div class="muted">Автоматично обновяване на 15 секунди. Чувствителните данни са достъпни само за администратор.</div></div><div><a href="/sales/admin/research">R&D review</a> · <a href="/sales/admin/logout">Изход</a></div></header>
 <main><p id="error"></p><section id="metrics" class="grid"></section>
 <section class="panel"><h2>Статус на услугите</h2><div id="services" class="services"></div></section>
-<section class="panel"><h2>Каталог агенти — последни 24 часа</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Ранг</th><th>Агент</th><th>Категория</th><th>x402</th><th>VIP</th><th>Кликове</th><th>Calls</th><th>Плащания</th><th>Конверсия</th><th>Приход</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
+<section class="panel"><h2>AI Агентни услуги (x402 Revenue)</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Име</th><th>Цена (USD)</th><th>Hits (Заявки)</th><th>Платени (Sales)</th><th>Приход (Revenue)</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
 <section class="panel"><h2>Последни Stripe/CRM плащания</h2><p id="payment-source" class="muted"></p><div class="scroll"><table><thead><tr><th>Време</th><th>Клиент</th><th>План</th><th>Сума</th><th>Статус</th><th>Източник</th></tr></thead><tbody id="payments"></tbody></table></div></section>
 <section class="panel"><h2>Активни платени VIP планове</h2><div class="scroll"><table><thead><tr><th>Активиран</th><th>Клиент</th><th>План</th><th>Сума</th><th>Telegram</th></tr></thead><tbody id="vips"></tbody></table></div></section>
 <section class="panel"><h2>Запитвания и логове</h2><p class="muted">Показват се последните 100 заявки без headers, token-и или параметри.</p><div class="scroll"><table><thead><tr><th>Време</th><th>Източник</th><th>Метод</th><th>Път</th><th>Статус</th></tr></thead><tbody id="requests"></tbody></table></div></section>
@@ -1941,13 +1971,13 @@ const money = value => '$' + Number(value || 0).toLocaleString('en-US',{minimumF
 const date = value => { if (!value) return '—'; const stamp = typeof value === 'number' ? value * 1000 : value; const parsed = new Date(stamp); return Number.isNaN(parsed) ? '—' : parsed.toLocaleString('bg-BG'); };
 function rows(id, values, makeRow, colspan) { const target=document.getElementById(id); target.innerHTML=values.length?values.map(makeRow).join(''):`<tr><td colspan="${colspan}" class="muted">Все още няма данни.</td></tr>`; }
 function render(data) {
-  const metricLabels={'total_revenue_usd':'Общ приход','catalog_revenue_24h_usd':'Каталог приход (24ч)','catalog_clicks_24h':'Каталог кликове (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'Платени записи','active_vip_plans':'Активни VIP планове','active_telegram_users':'Активни Telegram потребители'};
+  const metricLabels={'total_revenue_usd':'Общ приход','catalog_revenue_24h_usd':'Агентен приход (24ч)','catalog_hits_24h':'Агентни заявки (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'Платени записи','active_vip_plans':'Активни VIP планове','active_telegram_users':'Активни Telegram потребители'};
   document.getElementById('metrics').innerHTML=Object.entries(metricLabels).map(([key,label])=>`<div class="card metric"><label>${label}</label><strong>${key.includes('revenue')?money(data.metrics[key]):escapeHtml(data.metrics[key])}</strong></div>`).join('');
   document.getElementById('services').innerHTML=Object.entries(data.services).map(([name,service])=>{const ready=service.ready ?? service.running ?? service.configured;return `<div class="service"><strong class="${ready?'good':'bad'}">${ready?'● Работи':'● Нужна проверка'}</strong><br><span class="label">${escapeHtml(name)}</span><span class="muted">${escapeHtml(service.backend || service.detail || '')}</span></div>`}).join('');
   const catalog=data.agent_catalog||{products:[],totals:{},top_selling_agent:null};
   const top=catalog.top_selling_agent;
-  document.getElementById('catalog-summary').textContent=top?`Топ продаван агент: ${top.name} — ${money(top.revenue_24h)} от ${top.payments_24h} плащания.`:'Все още няма платени catalog events за последните 24 часа.';
-  rows('catalog',catalog.products,p=>`<tr><td>#${escapeHtml(p.popularity_rank)}</td><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.description)}</span></td><td>${escapeHtml(p.category)}</td><td>${money(p.price_x402)} USDC</td><td>${money(p.price_stripe)}</td><td>${escapeHtml(p.clicks_24h)}</td><td>${escapeHtml(p.calls_24h)}</td><td>${escapeHtml(p.payments_24h)}</td><td>${escapeHtml(p.conversion_rate_24h)}%</td><td>${money(p.revenue_24h)}</td></tr>`,10);
+  document.getElementById('catalog-summary').textContent='Показват се само durable, потвърдени catalog events за последните 24 часа. x402 settlement остава discovery-only, докато Base facilitator не бъде активиран.';
+  rows('catalog',catalog.products,p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.category)}</span></td><td>${money(p.price_x402)} USDC</td><td>${escapeHtml(p.hits_24h)}</td><td>${escapeHtml(p.sales_24h)}</td><td>${money(p.revenue_24h)}</td></tr>`,5);
   document.getElementById('payment-source').textContent=data.payment_source==='stripe_checkout'?'Данни от Stripe Checkout.':'Stripe listing не е наличен; показани са потвърдени CRM payment events.';
   rows('payments',data.payments,p=>`<tr><td>${date(p.created)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td class="good">${escapeHtml(p.payment_status)}</td><td>${escapeHtml(p.provider)}</td></tr>`,6);
   rows('vips',data.vip_plans,p=>`<tr><td>${date(p.activated_at)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td>${p.telegram_linked?'Свързан':'Не е свързан'}</td></tr>`,5);
@@ -2063,10 +2093,23 @@ def funnel_track():
 @app.route("/health")
 def health():
     crm_ready = crm_store.is_healthy()
+    with _lock:
+        wallet = dict(_wallet_state)
+    blockchain_ready = bool(
+        wallet.get("rpc_connected")
+        and wallet.get("chain_id") == BASE_CHAIN_ID
+        and wallet.get("receiver_valid")
+    )
     return jsonify(
-        status="ok" if crm_ready else "degraded",
+        status="ok" if crm_ready and blockchain_ready else "degraded",
         database={"backend": crm_store.backend, "ready": crm_ready},
-    ), 200 if crm_ready else 503
+        blockchain={
+            "ready": blockchain_ready,
+            "network": wallet.get("network", "Base Mainnet"),
+            "chain_id": wallet.get("chain_id"),
+            "fee_receiver": wallet.get("fee_receiver"),
+        },
+    ), 200 if crm_ready and blockchain_ready else 503
 
 
 @app.route("/api/sales")
@@ -2097,19 +2140,25 @@ def api_sales():
     })
 
 
-@app.route("/api/stats")
-def api_stats():
-    """Return activity, requests, daily stats, and 9-product breakdown (real data only)."""
-    _record_request("api_stats", True)
+def _statistics_payload(include_recent_requests: bool) -> dict:
+    """Build real stats from durable catalog events and live runtime state."""
     with _lock:
         daily = dict(sorted(_daily_stats.items()))
         recent_requests = list(_request_log)
         wallet_info = dict(_wallet_state)
+        sales_history = list(_sales_history)
+        bot_status = dict(_bot_status)
 
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_data = daily.get(today_str, {"requests": 0, "sales_count": 0, "sales_volume": 0.0})
+    sales_by_token: Dict[str, float] = {}
+    for sale in sales_history:
+        token = sale.get("token", "USDC")
+        sales_by_token[token] = round(
+            sales_by_token.get(token, 0.0) + float(sale.get("amount_usd", 0.0)), 6
+        )
 
-    # 9-product breakdown (8 Agents + NEXUS Engine)
+    # Official eight-agent breakdown from durable catalog events.
     products = _get_products_breakdown()
     total_hits = sum(p["hits"] for p in products)
     total_product_sales = sum(p["sales_count"] for p in products)
@@ -2118,7 +2167,7 @@ def api_stats():
     # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
     market_data = get_market_snapshot()
 
-    return _safe_jsonify({
+    payload = {
         "today": {
             "date": today_str,
             "requests": today_data.get("requests", 0),
@@ -2126,9 +2175,16 @@ def api_stats():
             "sales_volume_usd": today_data.get("sales_volume", 0.0),
         },
         "daily": daily,
-        "recent_requests": recent_requests[-50:],
         "total_requests": sum(d.get("requests", 0) for d in daily.values()),
         "wallet": wallet_info,
+        "total_volume_usd": round(
+            sum(float(sale.get("amount_usd", 0.0)) for sale in sales_history), 6
+        ),
+        "total_sales": len(sales_history),
+        "by_token": sales_by_token,
+        "history": sales_history[-100:],
+        "telegram_bot_running": bot_status.get("telegram_bot_running", False),
+        "commands_processed": bot_status.get("commands_processed", 0),
         "products": products,
         "products_summary": {
             "total_products": len(products),
@@ -2138,7 +2194,23 @@ def api_stats():
         },
         "nexus_url": NEXUS_URL,
         "market_data": market_data,
-    })
+    }
+    if include_recent_requests:
+        payload["recent_requests"] = recent_requests[-50:]
+    return payload
+
+
+@app.route("/api/dashboard-stats")
+def dashboard_stats():
+    """Return free, read-only aggregate data required by the public dashboard."""
+    return _safe_jsonify(_statistics_payload(include_recent_requests=False))
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Return paid activity, requests, daily stats, and official agent catalog data."""
+    _record_request("api_stats", True)
+    return _safe_jsonify(_statistics_payload(include_recent_requests=True))
 
 
 @app.route("/api/bot-status")
@@ -2301,7 +2373,7 @@ def mcp_json():
         "tools": [
             {
                 "name": "get_market_stats",
-                "description": "Get market activity, daily stats, 9-product breakdown, and real-time market data (CoinGecko, DEXScreener, Fear & Greed)",
+                "description": "Get market activity, daily stats, the official eight-agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed)",
                 "endpoint": f"{base_url}/api/stats",
                 "method": "GET",
                 "cost_usdc": X402_FEE_USDC,
@@ -2991,9 +3063,9 @@ _DASHBOARD_HTML = r"""
             </p>
         </div>
 
-        <!-- 9 Products Breakdown Table -->
+        <!-- Official eight-agent catalog breakdown -->
         <div class="table-card">
-            <h3>🧠 Продукти: 8 Агента + NEXUS Engine (9 продукта)</h3>
+            <h3>🧠 Официален каталог: 8 AI агента</h3>
             <table id="products-table">
                 <thead>
                     <tr>
@@ -3078,7 +3150,7 @@ function shortAddr(addr) {
 }
 
 async function loadSales() {
-    const data = await fetchJSON('/api/sales');
+    const data = await fetchJSON('/api/dashboard-stats');
     document.getElementById('m-volume').textContent = fmtMoney(data.total_volume_usd);
     document.getElementById('m-sales-count').textContent = data.total_sales + ' on-chain sales';
 
@@ -3130,13 +3202,13 @@ async function loadSales() {
 }
 
 async function loadStats() {
-    const data = await fetchJSON('/api/stats');
+    const data = await fetchJSON('/api/dashboard-stats');
     document.getElementById('m-requests').textContent = data.today.requests;
     document.getElementById('m-requests-sub').textContent = data.total_requests + ' total API calls';
     document.getElementById('m-today-sales').textContent = data.today.sales_count;
     document.getElementById('m-today-volume').textContent = fmtMoney(data.today.sales_volume_usd);
 
-    // 9 Products breakdown table
+    // Official eight-agent catalog table
     const products = data.products || [];
     const pBody = document.getElementById('products-table-body');
     pBody.innerHTML = '';
@@ -3225,7 +3297,7 @@ async function loadStats() {
     });
 
     // Recent activity
-    const recent = data.recent_requests;
+    const recent = data.recent_requests || [];
     const endpointCounts = {};
     recent.forEach(r => {
         endpointCounts[r.endpoint] = (endpointCounts[r.endpoint] || 0) + 1;
@@ -3254,7 +3326,7 @@ async function loadStats() {
 }
 
 async function loadBotStatus() {
-    const data = await fetchJSON('/api/bot-status');
+    const data = await fetchJSON('/api/dashboard-stats');
     const isOnline = data.telegram_bot_running;
     const dotClass = isOnline ? 'dot-green' : 'dot-red';
     const statusText = isOnline ? 'Online' : 'Offline';
@@ -4023,7 +4095,7 @@ function renderBridges() {
 // ── Fetch real data from API ────────────────────────────────────────────
 async function fetchRealData() {
     try {
-        const resp = await fetch('/api/stats');
+        const resp = await fetch('/api/dashboard-stats');
         const data = await resp.json();
 
         // Use real request count as base for scans
@@ -4034,11 +4106,9 @@ async function fetchRealData() {
         // Use real product hits for agent activity
         const products = data.products || [];
         products.forEach(p => {
-            if (p.id !== 'nexus_engine') {
-                const agent = AI_AGENTS.find(a => a.id === p.id);
-                if (agent) {
-                    agent.status = p.hits > 0 ? 'active' : 'idle';
-                }
+            const agent = AI_AGENTS.find(a => a.id === p.id);
+            if (agent) {
+                agent.status = p.hits > 0 ? 'active' : 'idle';
             }
         });
 
