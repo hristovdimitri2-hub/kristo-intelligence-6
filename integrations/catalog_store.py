@@ -482,6 +482,35 @@ class CatalogStore:
                 return None
         return entitlement
 
+    def get_active_entitlement_by_checkout(
+        self,
+        product_id: str,
+        checkout_id: str,
+        customer_email: str,
+        now: Optional[datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve active access only from its server-created checkout capability."""
+        reference = now or _now()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM agent_entitlements
+                WHERE checkout_id = ? AND agent_id = ? AND customer_email = ?
+                    AND status = 'active'
+                """,
+                (checkout_id, product_id, customer_email.lower()),
+            ).fetchone()
+            if not row:
+                return None
+            entitlement = self._serialize_entitlement(dict(row))
+            if datetime.fromisoformat(entitlement["expires_at"]) <= reference:
+                conn.execute(
+                    "UPDATE agent_entitlements SET status = 'expired' WHERE checkout_id = ?",
+                    (checkout_id,),
+                )
+                return None
+        return entitlement
+
     def expire_entitlements(self, now: Optional[datetime] = None) -> int:
         reference = (now or _now()).isoformat()
         with self._connect() as conn:
@@ -891,6 +920,35 @@ class PostgresCatalogStore(CatalogStore):
                 cur.execute(
                     "UPDATE agent_entitlements SET status = 'expired' WHERE checkout_id = %s",
                     (entitlement["checkout_id"],),
+                )
+                return None
+        return entitlement
+
+    def get_active_entitlement_by_checkout(
+        self,
+        product_id: str,
+        checkout_id: str,
+        customer_email: str,
+        now: Optional[datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
+        reference = now or _now()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM agent_entitlements
+                WHERE checkout_id = %s AND agent_id = %s AND customer_email = %s
+                    AND status = 'active'
+                """,
+                (checkout_id, product_id, customer_email.lower()),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            entitlement = self._serialize_entitlement(row)
+            if row["expires_at"] <= reference:
+                cur.execute(
+                    "UPDATE agent_entitlements SET status = 'expired' WHERE checkout_id = %s",
+                    (checkout_id,),
                 )
                 return None
         return entitlement

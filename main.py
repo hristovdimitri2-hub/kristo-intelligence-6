@@ -27,6 +27,8 @@ import json
 import secrets
 import hmac
 import hashlib
+import base64
+import binascii
 from datetime import datetime, timedelta, timezone
 from collections import deque
 from typing import Dict, List, Optional
@@ -704,11 +706,23 @@ _paid_calls_usage: Dict[str, int] = {}  # ip -> count of paid calls made
 
 
 def _get_client_ip() -> str:
-    """Get the real client IP, respecting X-Forwarded-For when behind a proxy."""
+    """Use forwarded client identity only when the immediate peer is an allowed proxy."""
+    peer = request.remote_addr or "unknown"
+    trusted_proxy_ips = {
+        value.strip()
+        for value in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
+        if value.strip()
+    }
+    trust_forwarded = os.getenv("TRUST_PROXY_HEADERS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     fwd = request.headers.get("X-Forwarded-For", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.remote_addr or "unknown"
+    if trust_forwarded and peer in trusted_proxy_ips and fwd:
+        # The trusted proxy appends the immediate client address at the end.
+        return fwd.split(",")[-1].strip() or peer
+    return peer
 
 
 def _get_dynamic_price(ip: str) -> float:
@@ -917,6 +931,55 @@ def _catalog_x402_payment_required_response(product: dict):
     response.headers["X-Payment-Address"] = X402_RECEIVER_ADDRESS
     response.headers["X-Payment-Amount-USDC"] = str(price)
     return response
+
+
+def _agent_access_signing_key() -> bytes:
+    """Use an explicit credential when configured, otherwise the application session key."""
+    configured = (os.getenv("AGENT_ACCESS_TOKEN_SECRET", "") or "").strip()
+    return (configured or app.config["SECRET_KEY"]).encode()
+
+
+def _issue_agent_access_token(entitlement: dict) -> str:
+    """Issue a signed bearer credential bound to one paid checkout and expiry."""
+    body = {
+        "agent_id": entitlement["agent_id"],
+        "checkout_id": entitlement["checkout_id"],
+        "customer_email": entitlement["customer_email"],
+        "expires_at": entitlement["expires_at"],
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    ).decode().rstrip("=")
+    signature = hmac.new(
+        _agent_access_signing_key(), encoded.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"ki1.{encoded}.{signature}"
+
+
+def _verify_agent_access_token(token: str, agent_id: str) -> Optional[dict]:
+    """Verify an entitlement bearer token against its durable active checkout right."""
+    try:
+        prefix, encoded, supplied_signature = token.split(".", 2)
+        if prefix != "ki1":
+            return None
+        expected_signature = hmac.new(
+            _agent_access_signing_key(), encoded.encode(), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(supplied_signature, expected_signature):
+            return None
+        padded = encoded + "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        if payload.get("agent_id") != agent_id:
+            return None
+        if datetime.fromisoformat(payload["expires_at"]) <= datetime.now(timezone.utc):
+            return None
+        return catalog_store.get_active_entitlement_by_checkout(
+            product_id=agent_id,
+            checkout_id=payload["checkout_id"],
+            customer_email=payload["customer_email"],
+        )
+    except (KeyError, ValueError, UnicodeDecodeError, json.JSONDecodeError, TypeError, binascii.Error):
+        return None
 
 
 def _run_catalog_agent_demo(product: dict, user_input: str) -> dict:
@@ -1348,12 +1411,9 @@ def api_agent_playground(agent_id: str):
         ), 400
 
     client_key = (_get_client_ip(), agent_id)
-    email = (payload.get("email") or "").strip().lower()
-    entitlement = (
-        catalog_store.get_active_entitlement(agent_id, email)
-        if email and "@" in email
-        else None
-    )
+    authorization = (request.headers.get("Authorization", "") or "").strip()
+    bearer_token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    entitlement = _verify_agent_access_token(bearer_token, agent_id) if bearer_token else None
     with _lock:
         free_requests_used = _agent_playground_usage.get(client_key, 0)
         if not entitlement and free_requests_used >= 1:
@@ -1483,14 +1543,19 @@ def api_agent_checkout(agent_id: str):
 
 @app.route("/api/v1/agents/<agent_id>/access", methods=["POST"])
 def api_agent_access(agent_id: str):
-    """Enforce the active 30-day entitlement before an agent service is used."""
+    """Exchange a paid checkout capability for a short-lived signed agent credential."""
     if not catalog_store.get_product(agent_id):
         return jsonify({"ok": False, "error": "agent_not_found"}), 404
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
-    if not email or "@" not in email:
-        return jsonify({"ok": False, "error": "email is required"}), 400
-    entitlement = catalog_store.get_active_entitlement(agent_id, email)
+    checkout_id = (payload.get("checkout_id") or "").strip()
+    if not email or "@" not in email or not checkout_id:
+        return jsonify(
+            {"ok": False, "error": "email and server_created_checkout_id are required"}
+        ), 400
+    entitlement = catalog_store.get_active_entitlement_by_checkout(
+        agent_id, checkout_id, email
+    )
     if not entitlement:
         return jsonify({"ok": False, "error": "agent_access_required"}), 403
     return jsonify(
@@ -1499,6 +1564,7 @@ def api_agent_access(agent_id: str):
             "agent_id": agent_id,
             "access": "active",
             "expires_at": entitlement["expires_at"],
+            "access_token": _issue_agent_access_token(entitlement),
         }
     )
 

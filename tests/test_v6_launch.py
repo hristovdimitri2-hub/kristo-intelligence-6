@@ -11,6 +11,8 @@ def v6_client(monkeypatch, tmp_path):
     monkeypatch.setenv("SESSION_SECRET", "v6-session-secret")
     monkeypatch.setenv("RESEARCH_INGEST_TOKEN", "v6-research-token")
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
+    monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)
+    monkeypatch.delenv("TRUSTED_PROXY_IPS", raising=False)
     import main
 
     monkeypatch.setattr(main, "catalog_store", CatalogStore(tmp_path / "catalog.db"))
@@ -124,3 +126,54 @@ def test_admin_overview_uses_cached_stripe_snapshot(v6_client, monkeypatch):
     assert len(calls) == 1
     assert first.get_json()["payment_source"] == "stripe_checkout"
     assert first.get_json()["services"]["stripe"]["cache_state"] == "fresh"
+
+
+def test_paid_access_needs_checkout_capability_and_forwarded_ip_cannot_bypass(v6_client):
+    main, client = v6_client
+    remote = {"REMOTE_ADDR": "198.51.100.10"}
+
+    first = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        headers={"X-Forwarded-For": "203.0.113.1"},
+        environ_base=remote,
+    )
+    assert first.status_code == 200
+    spoofed_retry = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        headers={"X-Forwarded-For": "203.0.113.99"},
+        environ_base=remote,
+    )
+    assert spoofed_retry.status_code == 402
+
+    assert main.catalog_store.grant_entitlement(
+        "cs_secure_capability",
+        "whaleflow-radar",
+        "buyer@example.com",
+    )
+    raw_email = client.post(
+        "/api/v1/agents/whaleflow-radar/access",
+        json={"email": "buyer@example.com"},
+    )
+    assert raw_email.status_code == 400
+    wrong_checkout = client.post(
+        "/api/v1/agents/whaleflow-radar/access",
+        json={"email": "buyer@example.com", "checkout_id": "guessed"},
+    )
+    assert wrong_checkout.status_code == 403
+    credential = client.post(
+        "/api/v1/agents/whaleflow-radar/access",
+        json={"email": "buyer@example.com", "checkout_id": "cs_secure_capability"},
+    )
+    assert credential.status_code == 200
+    token = credential.get_json()["access_token"]
+
+    paid_retry = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        headers={"Authorization": f"Bearer {token}"},
+        environ_base=remote,
+    )
+    assert paid_retry.status_code == 200
+    assert paid_retry.get_json()["access"] == "active_entitlement"

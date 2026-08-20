@@ -171,10 +171,14 @@ def test_verified_stripe_webhook_attributes_catalog_revenue(catalog_client, monk
     assert whale["revenue_24h"] == 19.0
     access = client.post(
         "/api/v1/agents/whaleflow-radar/access",
-        json={"email": "buyer@example.com"},
+        json={
+            "email": "buyer@example.com",
+            "checkout_id": "cs_catalog_payment_1",
+        },
     )
     assert access.status_code == 200
     assert access.get_json()["access"] == "active"
+    assert access.get_json()["access_token"].startswith("ki1.")
 
     duplicate = client.post(
         "/api/webhooks/stripe",
