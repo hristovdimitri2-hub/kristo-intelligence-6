@@ -2,3 +2,4 @@
 - [VM deployment port binding](replit-vm-port-binding.md) — Replit VM health checks require the production server to bind the injected `PORT`, not a hardcoded local port.
 - [CoinGecko rate-limit resilience](coingecko-rate-limit-resilience.md) — Honor 429 cooldowns and label stale cache data; never retry inside a provider-directed wait window.
 - [Catalog analytics integrity](catalog-analytics-integrity.md) — Attribute SKU revenue only from matched, settled Stripe sessions; do not let incomplete telemetry influence popularity.
+- [GitHub integration sync](github-integration-sync.md) — If CLI Git auth fails or histories diverge, preserve remote work with a connector-based non-force update after blob overlap checks.
