@@ -126,7 +126,6 @@ _stripe_snapshot = {
     "fetched_at": None,
     "state": "pending",
 }
-_agent_playground_usage: Dict[tuple[str, str], int] = {}
 
 # ── Product Catalog: 8 Agents + NEXUS Engine = 9 products ─────────────────
 # Each product tracks: hits (requests), sales_count, sales_volume_usd
@@ -939,6 +938,13 @@ def _agent_access_signing_key() -> bytes:
     return (configured or app.config["SECRET_KEY"]).encode()
 
 
+def _playground_client_key_hash(client_identity: str) -> str:
+    """Persist only a keyed digest, never a raw client address, in the usage ledger."""
+    return hmac.new(
+        _agent_access_signing_key(), (client_identity or "unknown").encode(), hashlib.sha256
+    ).hexdigest()
+
+
 def _issue_agent_access_token(entitlement: dict) -> str:
     """Issue a signed bearer credential bound to one paid checkout and expiry."""
     body = {
@@ -1410,19 +1416,15 @@ def api_agent_playground(agent_id: str):
             {"ok": False, "error": "input_must_be_between_2_and_256_characters"}
         ), 400
 
-    client_key = (_get_client_ip(), agent_id)
     authorization = (request.headers.get("Authorization", "") or "").strip()
     bearer_token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
     entitlement = _verify_agent_access_token(bearer_token, agent_id) if bearer_token else None
-    with _lock:
-        free_requests_used = _agent_playground_usage.get(client_key, 0)
-        if not entitlement and free_requests_used >= 1:
-            return _catalog_x402_payment_required_response(agent)
-        if not entitlement:
-            _agent_playground_usage[client_key] = free_requests_used + 1
-
     result = _run_catalog_agent_demo(agent, user_input)
-    if not catalog_store.record_call(agent_id):
+    if not entitlement and not catalog_store.consume_free_playground_request(
+        agent_id, _playground_client_key_hash(_get_client_ip())
+    ):
+        return _catalog_x402_payment_required_response(agent)
+    if entitlement and not catalog_store.record_call(agent_id):
         log.error("Catalog call could not be recorded for agent %s.", agent_id)
         return jsonify({"ok": False, "error": "call_recording_unavailable"}), 503
     return jsonify(

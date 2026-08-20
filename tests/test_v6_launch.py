@@ -18,8 +18,6 @@ def v6_client(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "catalog_store", CatalogStore(tmp_path / "catalog.db"))
     monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
     monkeypatch.setattr(main, "research_store", ResearchInsightStore(tmp_path / "research.db"))
-    with main._lock:
-        main._agent_playground_usage.clear()
     with main._stripe_snapshot_lock:
         main._stripe_snapshot = {
             "available": False,
@@ -177,3 +175,24 @@ def test_paid_access_needs_checkout_capability_and_forwarded_ip_cannot_bypass(v6
     )
     assert paid_retry.status_code == 200
     assert paid_retry.get_json()["access"] == "active_entitlement"
+
+
+def test_free_demo_limit_survives_catalog_store_reinitialization(v6_client, tmp_path, monkeypatch):
+    main, client = v6_client
+    remote = {"REMOTE_ADDR": "198.51.100.42"}
+    first = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        environ_base=remote,
+    )
+    assert first.status_code == 200
+
+    replacement = CatalogStore(tmp_path / "catalog.db")
+    monkeypatch.setattr(main, "catalog_store", replacement)
+    after_restart = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        environ_base=remote,
+    )
+    assert after_restart.status_code == 402
+    assert replacement.get_metrics_24h()["totals"]["calls"] == 1

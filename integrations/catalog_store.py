@@ -182,6 +182,13 @@ class CatalogStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_agent_events_window
                     ON agent_events (occurred_at, agent_id, event_type);
+                CREATE TABLE IF NOT EXISTS agent_playground_uses (
+                    agent_id TEXT NOT NULL,
+                    client_key_hash TEXT NOT NULL,
+                    consumed_at TEXT NOT NULL,
+                    PRIMARY KEY (agent_id, client_key_hash),
+                    FOREIGN KEY(agent_id) REFERENCES agent_skus(id)
+                );
 
                 CREATE TABLE IF NOT EXISTS agent_checkouts (
                     checkout_id TEXT PRIMARY KEY,
@@ -315,6 +322,41 @@ class CatalogStore:
 
     def record_call(self, product_id: str, event_id: Optional[str] = None) -> bool:
         return self._record_event(product_id, "call", event_id=event_id)
+
+    def consume_free_playground_request(
+        self, product_id: str, client_key_hash: str
+    ) -> bool:
+        """Atomically grant one durable free demo and attribute its call."""
+        if not client_key_hash or not self.get_product(product_id):
+            return False
+        now = _now().isoformat()
+        event_id = f"playground-free:{product_id}:{client_key_hash}"
+        with self._connect() as conn:
+            consumed = conn.execute(
+                """
+                INSERT OR IGNORE INTO agent_playground_uses (
+                    agent_id, client_key_hash, consumed_at
+                ) VALUES (?, ?, ?)
+                """,
+                (product_id, client_key_hash, now),
+            )
+            if consumed.rowcount != 1:
+                return False
+            event = conn.execute(
+                """
+                INSERT OR IGNORE INTO agent_events (
+                    event_id, agent_id, event_type, occurred_at, amount_usd
+                ) VALUES (?, ?, 'call', ?, 0)
+                """,
+                (event_id, product_id, now),
+            )
+            if event.rowcount != 1:
+                raise RuntimeError("free playground event id collision")
+            conn.execute(
+                "UPDATE agent_skus SET call_count = call_count + 1, last_updated = ? WHERE id = ?",
+                (now, product_id),
+            )
+        return True
 
     def record_payment(
         self, product_id: str, amount_usd: float, event_id: Optional[str] = None
@@ -677,6 +719,12 @@ class PostgresCatalogStore(CatalogStore):
                 );
                 CREATE INDEX IF NOT EXISTS idx_agent_events_window
                     ON agent_events (occurred_at, agent_id, event_type);
+                CREATE TABLE IF NOT EXISTS agent_playground_uses (
+                    agent_id TEXT NOT NULL REFERENCES agent_skus(id),
+                    client_key_hash TEXT NOT NULL,
+                    consumed_at TIMESTAMPTZ NOT NULL,
+                    PRIMARY KEY (agent_id, client_key_hash)
+                );
                 CREATE TABLE IF NOT EXISTS agent_checkouts (
                     checkout_id TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL REFERENCES agent_skus(id),
@@ -799,6 +847,45 @@ class PostgresCatalogStore(CatalogStore):
                     "UPDATE agent_skus SET total_revenue = total_revenue + %s, last_updated = %s WHERE id = %s",
                     (amount, timestamp, product_id),
                 )
+        return True
+
+    def consume_free_playground_request(
+        self, product_id: str, client_key_hash: str
+    ) -> bool:
+        """Atomically grant one shared PostgreSQL free demo and record its call."""
+        if not client_key_hash or not self.get_product(product_id):
+            return False
+        timestamp = _now()
+        event_id = f"playground-free:{product_id}:{client_key_hash}"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO agent_playground_uses (
+                    agent_id, client_key_hash, consumed_at
+                ) VALUES (%s, %s, %s)
+                ON CONFLICT(agent_id, client_key_hash) DO NOTHING
+                RETURNING agent_id
+                """,
+                (product_id, client_key_hash, timestamp),
+            )
+            if not cur.fetchone():
+                return False
+            cur.execute(
+                """
+                INSERT INTO agent_events (
+                    event_id, agent_id, event_type, occurred_at, amount_usd
+                ) VALUES (%s, %s, 'call', %s, 0)
+                ON CONFLICT(event_id) DO NOTHING
+                RETURNING event_id
+                """,
+                (event_id, product_id, timestamp),
+            )
+            if not cur.fetchone():
+                raise RuntimeError("free playground event id collision")
+            cur.execute(
+                "UPDATE agent_skus SET call_count = call_count + 1, last_updated = %s WHERE id = %s",
+                (timestamp, product_id),
+            )
         return True
 
     def register_checkout(
