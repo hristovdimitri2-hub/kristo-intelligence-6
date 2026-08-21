@@ -7,3 +7,4 @@
 - [Nexus analytics safeguards](nexus-analytics-safeguards.md) — Public Nexus interest tracking is bounded and retry-safe, while confirmed payment events retain full idempotent attribution.
 - [Agent marketplace governance](agent-marketplace-governance.md) — Public utility contracts require explicit human activation; research and startup never change the live catalog.
 - [Stripe VIP fulfillment fencing](stripe-vip-fulfillment-fencing.md) — Recoverable webhook and Telegram retries must be fenced by per-owner tokens, not only time-based leases.
+- [Telegram VIP launch verification](telegram-vip-launch-verification.md) — Bot invite delivery requires a live supergroup membership/admin check; a valid webhook alone is not sufficient.
