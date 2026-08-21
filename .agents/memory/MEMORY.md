@@ -3,3 +3,7 @@
 - [CoinGecko rate-limit resilience](coingecko-rate-limit-resilience.md) — Honor 429 cooldowns and label stale cache data; never retry inside a provider-directed wait window.
 - [Catalog analytics integrity](catalog-analytics-integrity.md) — Attribute SKU revenue only from matched, settled Stripe sessions; do not let incomplete telemetry influence popularity.
 - [GitHub integration sync](github-integration-sync.md) — If CLI Git auth fails or histories diverge, preserve remote work with a connector-based non-force update after blob overlap checks.
+- [Nexus payment isolation](nexus-payment-isolation.md) — Nexus subscriptions and x402 access use dedicated tables; never model Nexus as a ninth catalog agent.
+- [Nexus analytics safeguards](nexus-analytics-safeguards.md) — Public Nexus interest tracking is bounded and retry-safe, while confirmed payment events retain full idempotent attribution.
+- [Agent marketplace governance](agent-marketplace-governance.md) — Public utility contracts require explicit human activation; research and startup never change the live catalog.
+- [Stripe VIP fulfillment fencing](stripe-vip-fulfillment-fencing.md) — Recoverable webhook and Telegram retries must be fenced by per-owner tokens, not only time-based leases.

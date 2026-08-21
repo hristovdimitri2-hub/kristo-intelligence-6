@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 import requests
@@ -74,11 +75,19 @@ class TelegramSalesFlow:
         if not customer_chat_id:
             return {"status": "pending_telegram_link"}
 
+        invitation = self.create_vip_invite(checkout_id)
+        invite_link = invitation.get("invite_link", "")
+        if not invite_link:
+            return invitation
+        return self.send_vip_invite(customer_chat_id, plan_name, invite_link)
+
+    def create_vip_invite(self, checkout_id: str) -> Dict[str, str]:
+        """Create a one-use VIP invite without delivering it yet."""
         vip_chat_id = (os.getenv("TELEGRAM_VIP_CHAT_ID") or "").strip()
         if not self.bot_token or not vip_chat_id:
             return {"status": "pending_vip_group_configuration"}
-
         api_base = f"https://api.telegram.org/bot{self.bot_token}"
+        invite_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
         try:
             invite_response = requests.post(
                 f"{api_base}/createChatInviteLink",
@@ -86,7 +95,7 @@ class TelegramSalesFlow:
                     "chat_id": vip_chat_id,
                     "name": f"vip-{checkout_id[-24:]}",
                     "member_limit": 1,
-                    "expire_date": int(time.time()) + 24 * 60 * 60,
+                    "expire_date": int(invite_expires_at.timestamp()),
                 },
                 timeout=15,
             )
@@ -95,7 +104,28 @@ class TelegramSalesFlow:
             if not invite_response.ok or not invite_payload.get("ok") or not invite_link:
                 log.warning("Telegram VIP invite creation was rejected.")
                 return {"status": "invite_creation_failed"}
+            return {
+                "status": "invite_created",
+                "invite_link": invite_link,
+                "invite_expires_at": invite_expires_at.isoformat(),
+            }
+        except requests.RequestException:
+            log.warning("Telegram VIP invite creation failed.")
+            return {"status": "invite_creation_failed"}
 
+    def send_vip_invite(
+        self,
+        customer_chat_id: str,
+        plan_name: str,
+        invite_link: str,
+    ) -> Dict[str, str]:
+        """Deliver an already-created one-use invite, so retries reuse it."""
+        if not customer_chat_id or not invite_link:
+            return {"status": "pending_telegram_link"}
+        if not self.bot_token:
+            return {"status": "pending_vip_group_configuration"}
+        api_base = f"https://api.telegram.org/bot{self.bot_token}"
+        try:
             message_response = requests.post(
                 f"{api_base}/sendMessage",
                 json={
@@ -115,6 +145,23 @@ class TelegramSalesFlow:
         except requests.RequestException:
             log.warning("Telegram VIP invite delivery failed.")
             return {"status": "invite_delivery_failed"}
+
+    def send_message(self, customer_chat_id: str, text: str) -> Dict[str, str]:
+        """Send a non-sensitive account-link confirmation to a Telegram user."""
+        if not customer_chat_id or not self.bot_token:
+            return {"status": "message_delivery_unavailable"}
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
+                json={"chat_id": customer_chat_id, "text": text},
+                timeout=15,
+            )
+            payload = response.json()
+            if not response.ok or not payload.get("ok"):
+                return {"status": "message_delivery_failed"}
+            return {"status": "message_sent"}
+        except requests.RequestException:
+            return {"status": "message_delivery_failed"}
 
     def is_ready(self) -> bool:
         return bool(self.bot_token)

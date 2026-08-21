@@ -125,7 +125,9 @@ class CRMStore:
                     conn.execute(
                         """
                         UPDATE leads SET source=?, campaign=?, utm_source=?, utm_medium=?, utm_campaign=?,
-                        status=?, created_at=?, plan=?, telegram_chat_id=?, amount_usd=?, payment_status=?
+                        status=?, created_at=?, plan=?,
+                        telegram_chat_id=CASE WHEN ? <> '' THEN ? ELSE telegram_chat_id END,
+                        amount_usd=?, payment_status=?
                         WHERE email=?
                         """,
                         (
@@ -137,6 +139,7 @@ class CRMStore:
                             lead.status,
                             lead.created_at,
                             lead.plan,
+                            lead.telegram_chat_id,
                             lead.telegram_chat_id,
                             lead.amount_usd,
                             lead.payment_status,
@@ -175,6 +178,8 @@ class CRMStore:
         existing = self.find_by_email(lead.email)
         if existing:
             for key, value in payload.items():
+                if key == "telegram_chat_id" and not value:
+                    continue
                 existing[key] = value
             self._write(records)
             return existing
@@ -294,14 +299,14 @@ class PostgresCRMStore:
 
     def _read(self) -> List[Dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM leads ORDER BY created_at")
+            cur.execute("SELECT * FROM public.leads ORDER BY created_at")
             return [self._normalize(row) for row in cur.fetchall()]
 
     def add_lead(self, lead: LeadRecord) -> Dict[str, Any]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO leads (
+                INSERT INTO public.leads (
                     email, source, campaign, utm_source, utm_medium, utm_campaign,
                     status, created_at, plan, telegram_chat_id, amount_usd, payment_status
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -314,7 +319,10 @@ class PostgresCRMStore:
                     status = EXCLUDED.status,
                     created_at = EXCLUDED.created_at,
                     plan = EXCLUDED.plan,
-                    telegram_chat_id = EXCLUDED.telegram_chat_id,
+                    telegram_chat_id = CASE
+                        WHEN EXCLUDED.telegram_chat_id <> '' THEN EXCLUDED.telegram_chat_id
+                        ELSE public.leads.telegram_chat_id
+                    END,
                     amount_usd = EXCLUDED.amount_usd,
                     payment_status = EXCLUDED.payment_status
                 RETURNING *
@@ -342,14 +350,14 @@ class PostgresCRMStore:
 
     def find_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM leads WHERE email = %s", (email.lower(),))
+            cur.execute("SELECT * FROM public.leads WHERE email = %s", (email.lower(),))
             row = cur.fetchone()
         return self._normalize(row) if row else None
 
     def update_status(self, email: str, new_status: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE leads SET status = %s WHERE email = %s RETURNING *",
+                "UPDATE public.leads SET status = %s WHERE email = %s RETURNING *",
                 (new_status, email.lower()),
             )
             row = cur.fetchone()
@@ -359,7 +367,7 @@ class PostgresCRMStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                UPDATE leads
+                UPDATE public.leads
                 SET payment_status = 'paid',
                     status = 'qualified',
                     amount_usd = %s,

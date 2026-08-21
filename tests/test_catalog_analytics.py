@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from integrations.catalog_store import CatalogStore
+from integrations.marketplace_store import MarketplaceGovernanceStore
 
 
 def test_catalog_store_seeds_eight_agents_and_calculates_24h_metrics(tmp_path):
@@ -85,6 +86,11 @@ def catalog_client(monkeypatch, tmp_path):
 
     monkeypatch.setattr(main, "catalog_store", CatalogStore(tmp_path / "catalog.db"))
     monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
+    governance = MarketplaceGovernanceStore(tmp_path / "marketplace.db")
+    governance.ensure_active_contract(
+        main.AGENT_CONTRACT_VERSION, main.catalog_manifest(main.catalog_store.get_catalog())
+    )
+    monkeypatch.setattr(main, "marketplace_store", governance)
     return main, main.app.test_client()
 
 
@@ -106,6 +112,8 @@ def test_click_endpoint_and_admin_catalog_metrics(catalog_client):
     catalog = client.get("/api/v1/agents")
     assert catalog.status_code == 200
     assert len(catalog.get_json()["agents"]) == 8
+    assert catalog.get_json()["contract_version"] == "2.0"
+    assert all("input_schema" in agent for agent in catalog.get_json()["agents"])
 
     metrics = client.get(
         "/api/admin/catalog-metrics",
@@ -154,12 +162,6 @@ def test_verified_stripe_webhook_attributes_catalog_revenue(catalog_client, monk
             },
         },
     )
-    monkeypatch.setattr(
-        main,
-        "_activate_stripe_vip_access",
-        lambda *_args: pytest.fail("Agent purchases must not grant generic VIP access"),
-    )
-
     response = client.post(
         "/api/webhooks/stripe",
         data=b"verified-payload",

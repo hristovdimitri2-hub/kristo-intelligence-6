@@ -25,6 +25,9 @@ model AgentSKU {
   metrics24h    AgentMetrics24h?
   checkouts     AgentCheckout[]
   entitlements  AgentEntitlement[]
+  playgroundUses AgentPlaygroundUse[]
+  x402Challenges X402PaymentChallenge[]
+  x402Settlements X402Settlement[]
 
   @@map("agent_skus")
 }
@@ -82,6 +85,169 @@ model AgentEntitlement {
   @@map("agent_entitlements")
 }
 
+model AgentPlaygroundUse {
+  agentId       String   @map("agent_id")
+  clientKeyHash String   @map("client_key_hash")
+  consumedAt    DateTime @map("consumed_at")
+  agent         AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@id([agentId, clientKeyHash])
+  @@map("agent_playground_uses")
+}
+
+model X402PaymentChallenge {
+  challengeId       String   @id @map("challenge_id")
+  agentId           String   @map("agent_id")
+  endpoint          String
+  requestHash       String   @map("request_hash")
+  amountAtomic      BigInt   @map("amount_atomic")
+  amountUsdc        Float    @map("amount_usdc")
+  issuedAt          DateTime @map("issued_at")
+  issuedBlockNumber BigInt   @map("issued_block_number")
+  expiresAt         DateTime @map("expires_at")
+  status            String   @default("issued")
+  transactionHash   String?  @unique @map("transaction_hash")
+  settledAt         DateTime? @map("settled_at")
+  agent             AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@index([agentId, requestHash, status], map: "idx_x402_challenges_lookup")
+  @@map("x402_payment_challenges")
+}
+
+model X402Settlement {
+  transactionHash String   @id @map("transaction_hash")
+  challengeId     String   @unique @map("challenge_id")
+  agentId         String   @map("agent_id")
+  payerAddress    String   @map("payer_address")
+  receiverAddress String   @map("receiver_address")
+  tokenContract   String   @map("token_contract")
+  amountAtomic    BigInt   @map("amount_atomic")
+  blockNumber     BigInt   @map("block_number")
+  confirmations   Int
+  deliveryStatus  String   @default("pending") @map("delivery_status")
+  createdAt       DateTime @default(now()) @map("created_at")
+  agent           AgentSKU @relation(fields: [agentId], references: [id])
+
+  @@index([agentId, createdAt(sort: Desc)], map: "idx_x402_settlements_agent_created")
+  @@map("x402_settlements")
+}
+
+model OperationalEvent {
+  eventId    String   @id @map("event_id")
+  occurredAt DateTime @map("occurred_at")
+  eventType  String   @map("event_type")
+  source     String
+  method     String?
+  path       String?
+  statusCode Int?     @map("status_code")
+  success    Boolean?
+  metadata   Json     @default("{}")
+
+  @@index([occurredAt(sort: Desc)], map: "idx_operational_events_recent")
+  @@map("operational_events")
+}
+
+/// A standard VIP checkout is recorded before Stripe redirects the buyer.
+/// The webhook validates this server-issued expectation before fulfillment.
+model StripeVipCheckout {
+  checkoutId          String   @id @map("checkout_id")
+  customerEmail       String   @map("customer_email")
+  planKey             String   @map("plan_key")
+  expectedAmountCents Int      @map("expected_amount_cents")
+  currency            String
+  source              String
+  campaign            String
+  linkToken           String   @unique @map("link_token")
+  paymentStatus       String   @default("pending") @map("payment_status")
+  createdAt           DateTime @map("created_at")
+  paidAt              DateTime? @map("paid_at")
+  webhookEvents       StripeWebhookEvent[]
+  vipDelivery         StripeVipDelivery?
+
+  @@index([customerEmail, paymentStatus, createdAt(sort: Desc)], map: "idx_stripe_vip_checkouts_customer")
+  @@map("stripe_vip_checkouts")
+}
+
+model StripeWebhookEvent {
+  eventId     String   @id @map("event_id")
+  checkoutId  String   @map("checkout_id")
+  eventType   String   @map("event_type")
+  status      String
+  processingToken String? @map("processing_token")
+  receivedAt  DateTime @map("received_at")
+  completedAt DateTime? @map("completed_at")
+  checkout    StripeVipCheckout @relation(fields: [checkoutId], references: [checkoutId])
+
+  @@index([checkoutId, receivedAt(sort: Desc)], map: "idx_stripe_webhook_events_checkout")
+  @@map("stripe_webhook_events")
+}
+
+model StripeVipDelivery {
+  checkoutId     String   @id @map("checkout_id")
+  telegramChatId String   @default("") @map("telegram_chat_id")
+  status         String   @default("pending_link")
+  inviteLink     String   @default("") @map("invite_link")
+  inviteExpiresAt DateTime? @map("invite_expires_at")
+  attempts       Int      @default(0)
+  lastError      String   @default("") @map("last_error")
+  deliveryLockUntil DateTime? @map("delivery_lock_until")
+  deliveryLockToken String? @map("delivery_lock_token")
+  updatedAt      DateTime @map("updated_at")
+  checkout       StripeVipCheckout @relation(fields: [checkoutId], references: [checkoutId])
+
+  @@index([status, updatedAt], map: "idx_stripe_vip_deliveries_retry")
+  @@map("stripe_vip_deliveries")
+}
+
+/// Versioned machine contract for the eight catalog utilities. A human explicitly
+/// activates or rolls back a version; research workers cannot modify it.
+enum CatalogContractStatus {
+  ACTIVE
+  DRAFT
+  ROLLED_BACK
+}
+
+model CatalogContractVersion {
+  version     String                @id
+  status      CatalogContractStatus @default(DRAFT)
+  manifest    Json                  @map("manifest_json")
+  createdAt   DateTime              @map("created_at")
+  activatedAt DateTime?             @map("activated_at")
+
+  @@index([status, createdAt], map: "idx_catalog_contract_versions_status_created")
+  @@map("catalog_contract_versions")
+}
+
+/// Daily Demand Scout snapshots stay separate from AgentEvent so they cannot
+/// affect catalog ranking, revenue attribution, entitlement, or Nexus metrics.
+model DemandScoutRun {
+  runId        String                  @id @map("run_id")
+  status       String
+  generatedAt  DateTime                @map("generated_at")
+  report       Json                    @map("report_json")
+  createdAt    DateTime                @map("created_at")
+  observations DemandScoutObservation[]
+
+  @@index([generatedAt], map: "idx_demand_scout_runs_generated")
+  @@map("demand_scout_runs")
+}
+
+model DemandScoutObservation {
+  observationId String         @id @map("observation_id")
+  runId         String         @map("run_id")
+  source        String
+  category      String
+  score         Float
+  evidenceUrl   String         @map("evidence_url")
+  summary       String
+  state         String
+  observedAt    DateTime       @map("observed_at")
+  run           DemandScoutRun @relation(fields: [runId], references: [runId], onDelete: Cascade)
+
+  @@index([runId, score], map: "idx_demand_scout_observations_run")
+  @@map("demand_scout_observations")
+}
+
 enum ResearchInsightStatus {
   PENDING
   APPROVED
@@ -103,3 +269,65 @@ model ResearchInsight {
   @@index([status, createdAt], map: "idx_research_insights_status_created")
   @@map("research_insights")
 }
+
+/// Nexus is intentionally isolated from the eight official AgentSKU records.
+model NexusMembership {
+  email                 String   @id
+  plan                  String
+  status                String   @default("active")
+  checkoutId            String   @map("checkout_id")
+  stripeSubscriptionId  String   @default("") @map("stripe_subscription_id")
+  stripeCustomerId      String   @default("") @map("stripe_customer_id")
+  activatedAt           DateTime @map("activated_at")
+  expiresAt             DateTime @map("expires_at")
+  updatedAt             DateTime @map("updated_at")
+
+  @@index([status, expiresAt], map: "idx_nexus_memberships_status_expiry")
+  @@map("nexus_memberships")
+}
+
+model NexusX402Challenge {
+  challengeId        String   @id @map("challenge_id")
+  resourceId         String   @map("resource_id")
+  endpoint           String
+  requestHash        String   @map("request_hash")
+  amountAtomic       BigInt   @map("amount_atomic")
+  amountUsdc         Float    @map("amount_usdc")
+  issuedAt           DateTime @map("issued_at")
+  issuedBlockNumber  BigInt   @map("issued_block_number")
+  expiresAt          DateTime @map("expires_at")
+  status             String   @default("issued")
+  transactionHash    String?  @unique @map("transaction_hash")
+  settledAt          DateTime? @map("settled_at")
+
+  @@index([resourceId, requestHash, status], map: "idx_nexus_challenges_lookup")
+  @@map("nexus_x402_challenges")
+}
+
+model NexusX402Settlement {
+  transactionHash  String   @id @map("transaction_hash")
+  challengeId      String   @unique @map("challenge_id")
+  payerAddress     String   @map("payer_address")
+  receiverAddress  String   @map("receiver_address")
+  tokenContract    String   @map("token_contract")
+  amountAtomic     BigInt   @map("amount_atomic")
+  blockNumber      BigInt   @map("block_number")
+  confirmations    Int
+  deliveryStatus   String   @default("pending") @map("delivery_status")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("nexus_x402_settlements")
+}
+
+/// Nexus interaction events stay isolated from AgentEvent so catalog rankings
+/// continue to represent only the eight official AgentSKU records.
+model NexusAnalyticsEvent {
+  eventId    String   @id @map("event_id")
+  eventType  String   @map("event_type")
+  occurredAt DateTime @map("occurred_at")
+  amountEur  Float    @default(0) @map("amount_eur")
+
+  @@index([occurredAt, eventType], map: "idx_nexus_analytics_window")
+  @@map("nexus_analytics_events")
+}
+

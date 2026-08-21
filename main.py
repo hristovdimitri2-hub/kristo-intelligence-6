@@ -41,6 +41,14 @@ from config import BASE_CHAIN_ID, BASE_RPC_URL, get_base_fee_receiver
 
 # ── Real-time market data integration ─────────────────────────────────────
 from services.market_data import get_coingecko_cache_status, get_market_snapshot
+from services.agent_runtime import (
+    AGENT_CONTRACT_VERSION,
+    catalog_manifest,
+    execute_agent,
+    manifest_is_runtime_compatible,
+    public_contract,
+    validate_agent_payload,
+)
 
 # ── Telegram Sales Bot (x402 micro-transactions) ───────────────────────────
 from services.telegram_sales import (
@@ -57,6 +65,9 @@ X402_RECEIVER_ADDRESS = get_base_fee_receiver()
 X402_USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 X402_CHAIN = "base"
 X402_CHAIN_ID = 8453
+X402_SETTLEMENT_MODE = (os.getenv("X402_SETTLEMENT_MODE", "disabled") or "").strip().lower()
+X402_SETTLEMENT_ENABLED = X402_SETTLEMENT_MODE == "full"
+X402_CONFIRMATIONS = max(1, int(os.getenv("X402_REQUIRED_CONFIRMATIONS", "2")))
 
 # ── Dynamic Pricing (Volume Discount) ──────────────────────────────────────
 # Base price: $0.05 USDC per request.
@@ -73,15 +84,50 @@ NEXUS_URL = "/nexus"
 
 FREE_TIER_LIMIT = 1    # Max 1 free pick, then x402 payment required
 
-# Endpoints that require x402 payment (after free tier exhausted)
-X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status"}
+# Legacy operational endpoints remain free until each has request-bound,
+# settlement-verified delivery. They must never accept a direct USDC transfer
+# without granting the promised access.
+X402_PAID_ENDPOINTS: set[str] = set()
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
-    "/", "/health", "/dashboard", "/nexus", "/api/mcp/manifest",
-    "/.well-known/x402.json", "/openapi.json", "/llms.txt",
-    "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
+    # Core navigation
+    "/", "/launch", "/health", "/dashboard", "/nexus",
+    # Developer / integration discovery
+    "/agents", "/developers",
+    # Agent catalog browsing (free; payment is at playground level)
+    "/api/v1/agents", "/api/v1/catalog/contract",
+    # Machine-readable discovery and payment manifests
+    "/api/mcp/manifest", "/.well-known/x402.json", "/openapi.json",
+    "/llms.txt", "/mcp.json",
+    # Webhook and bot traffic (never paywalled)
+    "/api/telegram-webhook",
+    # Unauthenticated UI helpers
+    "/api/dashboard-stats",
+    # Nexus public discovery
+    "/api/nexus/plans", "/api/nexus/click",
 }
+
+# ── Public API rate limiting ────────────────────────────────────────────────
+# General per-client budget applied before x402 paywall and admin checks.
+# Webhooks are never rate-limited so signed payment confirmations always land.
+PUBLIC_API_RATE_LIMIT = max(10, int(os.getenv("PUBLIC_API_RATE_LIMIT", "60")))
+PUBLIC_API_RATE_WINDOW_SECONDS = 60  # sliding window duration
+# Paths that must never be throttled (signed payment callbacks, bot webhooks)
+_RATE_LIMIT_EXEMPT_PATHS: frozenset[str] = frozenset({
+    "/api/webhooks/stripe",
+    "/api/telegram-webhook",
+})
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+# Set ALLOWED_ORIGINS env var to a comma-separated list to restrict cross-origin
+# access. Leave empty to default to the production domain only when APP_PUBLIC_URL
+# is configured; otherwise the header is omitted for non-browser requests.
+_ALLOWED_ORIGINS: frozenset[str] = frozenset(
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+)
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -101,20 +147,65 @@ app.config.update(
 # ── Runtime sales integration layer ───────────────────────────────────────
 from integrations.crm_store import LeadRecord, create_crm_store
 from integrations.catalog_store import CATALOG_SEED, create_catalog_store
+from integrations.audit_store import create_operational_audit_store
+from integrations.x402_settlement import (
+    SettlementError,
+    X402SettlementService,
+    canonical_request_hash,
+)
 from integrations.research_store import create_research_store
+from integrations.marketplace_store import create_marketplace_governance_store
 from integrations.payment_integration import SalesCheckout
 from integrations.telegram_flow import TelegramSalesFlow
 from integrations.stripe_checkout import StripeCheckoutService
+from integrations.stripe_vip_store import create_stripe_vip_store
+from integrations.nexus_store import NEXUS_PLANS, NEXUS_X402_USDC, create_nexus_store
+from services.demand_scout import run_demand_scout
 
 CRM_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "crm_sales.db")
 CATALOG_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "agent_catalog.db")
 RESEARCH_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "research_insights.db")
+MARKETPLACE_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "agent_marketplace.db")
+STRIPE_VIP_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "stripe_vip.db")
 crm_store = create_crm_store(CRM_DATA_FILE)
 catalog_store = create_catalog_store(CATALOG_DATA_FILE)
+marketplace_store = create_marketplace_governance_store(
+    MARKETPLACE_DATA_FILE, os.getenv("DATABASE_URL", "")
+)
+audit_store = create_operational_audit_store()
+x402_settlement = X402SettlementService(
+    database_url=os.getenv("DATABASE_URL", ""),
+    receiver_address=X402_RECEIVER_ADDRESS,
+    token_contract=X402_USDC_CONTRACT,
+    chain_id=X402_CHAIN_ID,
+    enabled=X402_SETTLEMENT_ENABLED,
+    confirmations=X402_CONFIRMATIONS,
+)
 research_store = create_research_store(RESEARCH_DATA_FILE)
 checkout_store = SalesCheckout()
 telegram_flow = TelegramSalesFlow(os.getenv("TELEGRAM_BOT_TOKEN", ""))
 stripe_checkout = StripeCheckoutService()
+stripe_vip_store = create_stripe_vip_store(
+    STRIPE_VIP_DATA_FILE, os.getenv("DATABASE_URL", "")
+)
+nexus_store = create_nexus_store(os.getenv("DATABASE_URL", ""))
+nexus_x402_settlement = X402SettlementService(
+    database_url=os.getenv("DATABASE_URL", ""),
+    receiver_address=X402_RECEIVER_ADDRESS,
+    token_contract=X402_USDC_CONTRACT,
+    chain_id=X402_CHAIN_ID,
+    enabled=X402_SETTLEMENT_ENABLED,
+    confirmations=X402_CONFIRMATIONS,
+)
+# Nexus uses a dedicated ledger and cannot change the eight-agent catalog.
+nexus_x402_settlement.store = nexus_store
+
+# A missing production migration is explicit through the protected governance
+# endpoint; it never silently swaps a PostgreSQL environment to SQLite.
+if getattr(marketplace_store, "available", False):
+    marketplace_store.ensure_contract_draft(
+        AGENT_CONTRACT_VERSION, catalog_manifest(catalog_store.get_catalog())
+    )
 
 # ── In-memory data stores (thread-safe via lock) ──────────────────────────
 _lock = threading.Lock()
@@ -211,22 +302,91 @@ def _is_vip_plan(plan_key: str) -> bool:
     return normalized in {"pro", "vip", "vip_monthly"}
 
 
-def _activate_stripe_vip_access(
-    paid_lead: dict,
-    event_data: dict,
-    plan_key: str,
-    already_paid: bool,
-) -> dict:
-    """Grant durable VIP access from the persisted paid lead exactly once."""
-    if not _is_vip_plan(plan_key):
+def _attempt_stripe_vip_delivery(checkout_id: str) -> dict:
+    """Deliver a paid VIP invite using only a bot-verified Telegram link."""
+    checkout = stripe_vip_store.get_checkout(checkout_id)
+    if not checkout or checkout.get("payment_status") != "paid":
+        return {"status": "pending_payment"}
+    if not _is_vip_plan(checkout.get("plan_key", "")):
         return {"status": "not_eligible"}
-    if already_paid:
+
+    delivery = stripe_vip_store.ensure_delivery(checkout_id)
+    if not delivery:
+        return {"status": "delivery_record_unavailable"}
+    if delivery.get("status") == "invite_sent":
         return {"status": "already_active"}
 
-    metadata = event_data.get("metadata", {}) or {}
-    chat_id = (paid_lead.get("telegram_chat_id") or metadata.get("telegram_chat_id") or "").strip()
-    checkout_id = str(event_data.get("id") or "")
-    return telegram_flow.deliver_vip_invite(chat_id, checkout_id, "Pro")
+    chat_id = (delivery.get("telegram_chat_id") or "").strip()
+    if not chat_id:
+        return {"status": "pending_telegram_link"}
+    delivery_lock_token = stripe_vip_store.acquire_delivery_lock(
+        checkout_id, lease_seconds=120
+    )
+    if not delivery_lock_token:
+        return {"status": "delivery_in_progress"}
+    try:
+        delivery = stripe_vip_store.get_delivery(checkout_id) or delivery
+        invite_link = (delivery.get("invite_link") or "").strip()
+        if not stripe_vip_store.invite_is_valid(delivery):
+            if not stripe_vip_store.renew_delivery_lock(
+                checkout_id, delivery_lock_token, lease_seconds=120
+            ):
+                return {"status": "delivery_ownership_lost"}
+            invitation = telegram_flow.create_vip_invite(checkout_id)
+            if invitation.get("status") != "invite_created":
+                stripe_vip_store.mark_delivery(
+                    checkout_id,
+                    "invite_creation_failed",
+                    invitation.get("status", "invite_creation_failed"),
+                    delivery_lock_token,
+                )
+                return invitation
+            invite_link = invitation["invite_link"]
+            saved = stripe_vip_store.save_invite(
+                checkout_id,
+                invite_link,
+                invitation["invite_expires_at"],
+                delivery_lock_token,
+            )
+            if not saved:
+                return {"status": "delivery_ownership_lost"}
+
+        if not stripe_vip_store.renew_delivery_lock(
+            checkout_id, delivery_lock_token, lease_seconds=120
+        ):
+            return {"status": "delivery_ownership_lost"}
+        result = telegram_flow.send_vip_invite(chat_id, "Pro", invite_link)
+        if result.get("status") == "invite_sent":
+            if not stripe_vip_store.mark_delivery(
+                checkout_id, "invite_sent", lock_token=delivery_lock_token
+            ):
+                return {"status": "delivery_ownership_lost"}
+        else:
+            if not stripe_vip_store.mark_delivery(
+                checkout_id,
+                "invite_delivery_failed",
+                result.get("status", "invite_delivery_failed"),
+                delivery_lock_token,
+            ):
+                return {"status": "delivery_ownership_lost"}
+        return result
+    finally:
+        stripe_vip_store.release_delivery_lock(checkout_id, delivery_lock_token)
+
+
+def _link_stripe_vip_telegram_account(link_token: str, chat_id: str) -> dict:
+    """Bind a one-time Stripe checkout token to the Telegram account that sent it."""
+    delivery = stripe_vip_store.link_telegram_account(link_token, chat_id)
+    if not delivery:
+        return {"status": "invalid_vip_link"}
+    if delivery.get("link_result") == "conflict":
+        return {"status": "telegram_link_conflict"}
+    checkout = stripe_vip_store.get_checkout_by_link_token(link_token)
+    if not checkout:
+        return {"status": "invalid_vip_link"}
+    if checkout.get("payment_status") != "paid":
+        return {"status": "telegram_linked_waiting_payment"}
+    return _attempt_stripe_vip_delivery(checkout["checkout_id"])
 
 
 def _generate_vip_invite(wallet_address: str, tx_hash: str) -> Optional[str]:
@@ -600,6 +760,40 @@ def _catalog_analytics_loop():
         time.sleep(interval_seconds)
 
 
+def _refresh_demand_scout() -> dict:
+    """Generate and persist a review-only daily demand report."""
+    if not getattr(marketplace_store, "available", False):
+        return {
+            "ok": False,
+            "error": "marketplace_governance_unavailable",
+            "reason": getattr(marketplace_store, "reason", ""),
+        }
+    report = run_demand_scout(catalog_store.get_metrics_24h())
+    run = marketplace_store.record_scout_report(report)
+    _record_operational_event(
+        event_type="demand_scout_refresh",
+        source="worker",
+        status_code=200,
+        success=True,
+        metadata={"operation": "demand_scout", "outcome": report["status"].lower()},
+    )
+    return {"ok": True, "run": run, "report": report}
+
+
+def _demand_scout_loop():
+    """Refresh market evidence once daily without altering the live catalog."""
+    interval_seconds = max(3600, int(os.getenv("DEMAND_SCOUT_INTERVAL_SECONDS", "86400")))
+    log.info("Demand Scout worker started (interval=%ss).", interval_seconds)
+    while True:
+        try:
+            outcome = _refresh_demand_scout()
+            if not outcome.get("ok"):
+                log.warning("Demand Scout skipped: %s", outcome.get("error", "unavailable"))
+        except Exception as exc:
+            log.warning("Demand Scout refresh failed (non-fatal): %s", type(exc).__name__)
+        time.sleep(interval_seconds)
+
+
 def _stripe_payment_snapshot_loop():
     """Continuously refresh the admin-only Stripe view without delaying web requests."""
     interval_seconds = max(
@@ -639,6 +833,35 @@ def _record_request(endpoint: str, success: bool):
         product_id = _ENDPOINT_TO_PRODUCT.get(endpoint)
         if product_id and product_id in _product_stats:
             _product_stats[product_id]["hits"] += 1
+
+
+def _record_operational_event(
+    *,
+    event_type: str,
+    source: str,
+    method: str = "",
+    path: str = "",
+    status_code: Optional[int] = None,
+    success: Optional[bool] = None,
+    metadata: Optional[dict] = None,
+) -> None:
+    """Best-effort redacted audit write; observability must not block requests."""
+    try:
+        event = {
+            "event_type": event_type,
+            "source": source,
+            "method": method,
+            "path": path,
+            "status_code": status_code,
+            "success": success,
+        }
+        if metadata is not None:
+            event["metadata"] = metadata
+        audit_store.record_event(
+            **event,
+        )
+    except Exception as exc:
+        log.warning("Operational audit write failed: %s", type(exc).__name__)
 
 
 def _record_telegram_activity(payload: dict, result: Optional[dict]) -> None:
@@ -688,14 +911,134 @@ def _get_products_breakdown() -> List[dict]:
     ]
 
 
+def _nexus_metrics_24h() -> dict:
+    """Return Nexus-only metrics without allowing analytics failures to block admin."""
+    try:
+        return nexus_store.get_metrics_24h()
+    except Exception as exc:
+        log.warning("Nexus analytics read failed: %s", type(exc).__name__)
+        return {
+            "id": "nexus-engine",
+            "name": "Nexus Engine / Premium Signal",
+            "category": "isolated_nexus",
+            "is_nexus": True,
+            "analytics_available": False,
+            "price_label": "$0.25 USDC / signal · €10/month · €50/year",
+            "price_x402": NEXUS_X402_USDC,
+            "visits_24h": 0,
+            "clicks_24h": 0,
+            "api_requests_24h": 0,
+            "hits_24h": 0,
+            "stripe_subscriptions_24h": 0,
+            "x402_signals_24h": 0,
+            "sales_24h": 0,
+            "revenue_eur_24h": 0.0,
+            "revenue_usdc_24h": 0.0,
+        }
+
+
+def _compose_agent_analytics(catalog_metrics: dict, nexus_metrics: dict) -> dict:
+    """Combine display rows while preserving the catalog's eight-SKU boundaries."""
+    catalog_rows = [
+        {
+            **product,
+            "is_nexus": False,
+            "price_label": f"${float(product.get('price_x402') or 0):.2f} USDC / call",
+            "visits_24h": 0,
+            "clicks_24h": int(product.get("clicks_24h") or 0),
+            "api_requests_24h": int(product.get("calls_24h") or 0),
+            "stripe_subscriptions_24h": 0,
+            "x402_signals_24h": 0,
+            "revenue_eur_24h": 0.0,
+            "revenue_usdc_24h": float(product.get("revenue_24h") or 0),
+        }
+        for product in catalog_metrics.get("products", [])
+    ]
+    products = [*catalog_rows, dict(nexus_metrics)]
+    interest_leader = max(
+        products,
+        key=lambda product: (int(product.get("hits_24h") or 0), product.get("name", "")),
+        default=None,
+    )
+    sales_leader = max(
+        products,
+        key=lambda product: (int(product.get("sales_24h") or 0), product.get("name", "")),
+        default=None,
+    )
+    return {
+        "window_hours": 24,
+        "products": products,
+        "totals": {
+            "hits": sum(int(product.get("hits_24h") or 0) for product in products),
+            "sales": sum(int(product.get("sales_24h") or 0) for product in products),
+            "catalog_revenue_usd": float(
+                catalog_metrics.get("totals", {}).get("revenue_usd") or 0
+            ),
+            "nexus_revenue_usdc": float(nexus_metrics.get("revenue_usdc_24h") or 0),
+            "nexus_revenue_eur": float(nexus_metrics.get("revenue_eur_24h") or 0),
+        },
+        "interest_leader": (
+            {
+                "id": interest_leader["id"],
+                "name": interest_leader["name"],
+                "hits_24h": interest_leader["hits_24h"],
+            }
+            if interest_leader
+            else None
+        ),
+        "sales_leader": (
+            {
+                "id": sales_leader["id"],
+                "name": sales_leader["name"],
+                "sales_24h": sales_leader["sales_24h"],
+            }
+            if sales_leader
+            else None
+        ),
+    }
+
+
+def _record_nexus_activity(
+    event_type: str, *, amount_eur: float = 0.0, event_id: Optional[str] = None
+) -> None:
+    """Best-effort event ingestion that cannot change Nexus access or payments."""
+    try:
+        if not event_id:
+            timestamp = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+            client_fingerprint = hashlib.sha256(
+                f"{event_type}:{_get_client_ip()}:{timestamp.isoformat()}".encode()
+            ).hexdigest()
+            event_id = f"nexus-activity:{event_type}:{client_fingerprint}"
+        nexus_store.record_analytics_event(
+            event_type=event_type,
+            event_id=event_id,
+            amount_eur=amount_eur,
+        )
+    except Exception as exc:
+        log.warning("Nexus analytics write failed: %s", type(exc).__name__)
+
+
 # ── x402 Free Tier Tracking ────────────────────────────────────────────────
 # Tracks free API calls per client (by IP address).
 # After FREE_TIER_LIMIT (1) free picks, x402 payment is required.
 _free_tier_usage: Dict[str, int] = {}  # ip -> count of free calls used
+
+# ── General public rate-limit buckets ──────────────────────────────────────
+# Sliding window per resolved client IP; never retains raw IPs in logs.
+_rate_limit_buckets: Dict[str, deque] = {}
+_rate_limit_lock = threading.Lock()
 _catalog_click_lock = threading.Lock()
 _catalog_recent_clicks: Dict[tuple[str, str], datetime] = {}
 CATALOG_CLICK_COOLDOWN_SECONDS = max(
     60, int(os.getenv("CATALOG_CLICK_COOLDOWN_SECONDS", "900"))
+)
+_nexus_click_lock = threading.Lock()
+_nexus_recent_clicks: Dict[tuple[str, str], datetime] = {}
+NEXUS_CLICK_COOLDOWN_SECONDS = max(
+    10, int(os.getenv("NEXUS_CLICK_COOLDOWN_SECONDS", "60"))
+)
+NEXUS_CLICK_TRACKER_MAX_KEYS = max(
+    256, int(os.getenv("NEXUS_CLICK_TRACKER_MAX_KEYS", "2048"))
 )
 
 
@@ -714,6 +1057,26 @@ def _allow_catalog_click(client_address: str, agent_id: str) -> bool:
         ):
             return False
         _catalog_recent_clicks[key] = now
+        return True
+
+
+def _allow_nexus_click(client_address: str, source: str) -> bool:
+    """Limit anonymous UI event ingestion without suppressing real API requests."""
+    now = datetime.now(timezone.utc)
+    key = (client_address or "unknown", source)
+    with _nexus_click_lock:
+        expired_before = now - timedelta(seconds=NEXUS_CLICK_COOLDOWN_SECONDS)
+        for previous_key, previous_at in list(_nexus_recent_clicks.items()):
+            if previous_at < expired_before:
+                _nexus_recent_clicks.pop(previous_key, None)
+        while len(_nexus_recent_clicks) >= NEXUS_CLICK_TRACKER_MAX_KEYS:
+            _nexus_recent_clicks.pop(next(iter(_nexus_recent_clicks)))
+        previous = _nexus_recent_clicks.get(key)
+        if previous and now - previous < timedelta(
+            seconds=NEXUS_CLICK_COOLDOWN_SECONDS
+        ):
+            return False
+        _nexus_recent_clicks[key] = now
         return True
 
 # Tracks PAID API calls per client (for volume discount pricing).
@@ -738,6 +1101,45 @@ def _get_client_ip() -> str:
         # The trusted proxy appends the immediate client address at the end.
         return fwd.split(",")[-1].strip() or peer
     return peer
+
+
+def _log_safe_ip(ip: str) -> str:
+    """Return an 8-char prefix of the SHA-256 of the raw IP for log messages.
+
+    Never log the raw IP address — even truncated octets can be personal data.
+    The prefix is short enough to correlate requests within a session without
+    linking them to a real-world identity.
+    """
+    return hashlib.sha256(ip.encode()).hexdigest()[:8]
+
+
+def _check_public_rate_limit(ip: str) -> tuple[bool, int]:
+    """Sliding-window rate limit: PUBLIC_API_RATE_LIMIT requests per 60 seconds.
+
+    Returns (allowed, retry_after_seconds).  When allowed is False the caller
+    should return HTTP 429 with a Retry-After header of retry_after_seconds.
+    The data structure is bounded: old buckets are pruned on every check.
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(seconds=PUBLIC_API_RATE_WINDOW_SECONDS)
+    with _rate_limit_lock:
+        # Prune stale buckets to avoid unbounded dict growth
+        stale = [k for k, v in _rate_limit_buckets.items() if not v or v[-1] < window_start]
+        for k in stale:
+            del _rate_limit_buckets[k]
+        bucket = _rate_limit_buckets.setdefault(ip, deque())
+        # Drop timestamps outside the sliding window
+        while bucket and bucket[0] < window_start:
+            bucket.popleft()
+        if len(bucket) >= PUBLIC_API_RATE_LIMIT:
+            oldest = bucket[0]
+            retry_after = max(
+                1,
+                int((oldest + timedelta(seconds=PUBLIC_API_RATE_WINDOW_SECONDS) - now).total_seconds()) + 1,
+            )
+            return False, retry_after
+        bucket.append(now)
+        return True, 0
 
 
 def _get_dynamic_price(ip: str) -> float:
@@ -916,8 +1318,8 @@ def _get_stripe_payment_snapshot() -> dict:
     return snapshot
 
 
-def _catalog_x402_payment_required_response(product: dict):
-    """Return a transparent upgrade payload for an exhausted per-agent playground."""
+def _catalog_x402_payment_required_response(product: dict, challenge: Optional[dict] = None):
+    """Return a challenge-bound x402 requirement for an exhausted agent request."""
     price = round(float(product.get("price_x402") or X402_FEE_USDC), 6)
     payload = {
         "ok": False,
@@ -932,14 +1334,21 @@ def _catalog_x402_payment_required_response(product: dict):
             "token_contract": X402_USDC_CONTRACT,
             "receiver_address": X402_RECEIVER_ADDRESS,
             "amount_usdc": price,
-            "settlement_status": "discovery_only",
+            "settlement_status": x402_settlement.status,
         },
         "upgrade": {
             "stripe_checkout": f"/api/v1/agents/{product['id']}/checkout",
             "entitlement_access": f"/api/v1/agents/{product['id']}/access",
-            "note": "x402 settlement is not enabled in this preview. Stripe creates a 30-day agent entitlement.",
+            "note": (
+                "Sign the server-issued challenge and retry this exact request with the "
+                "confirmed Base USDC payment proof."
+                if challenge
+                else "x402 settlement is temporarily unavailable. Stripe creates a 30-day agent entitlement."
+            ),
         },
     }
+    if challenge:
+        payload["payment"]["challenge"] = challenge
     response = jsonify(payload)
     response.status_code = 402
     response.headers["X-Payment-Required"] = "x402"
@@ -1004,40 +1413,19 @@ def _verify_agent_access_token(token: str, agent_id: str) -> Optional[dict]:
         return None
 
 
-def _run_catalog_agent_demo(product: dict, user_input: str) -> dict:
-    """Run a bounded, transparent demo adapter rather than presenting invented market data."""
-    normalized = user_input.strip()
-    input_type = "contract_or_wallet" if normalized.startswith("0x") and len(normalized) == 42 else "asset_or_topic"
-    fingerprint = hashlib.sha256(normalized.lower().encode()).hexdigest()[:12]
-    category = product.get("category", "intelligence")
-    demo_steps = {
-        "market": ["Normalize market identifier", "Check narrative and liquidity inputs"],
-        "risk": ["Normalize target identifier", "Prepare risk-screen workflow"],
-        "defi": ["Normalize asset or pool identifier", "Prepare yield/risk comparison"],
-        "execution": ["Normalize route target", "Prepare gas and route comparison"],
-        "security": ["Normalize contract target", "Prepare static security triage"],
-        "distribution": ["Normalize signal topic", "Prepare channel publication draft"],
-    }
-    checks = demo_steps.get(category, ["Normalize request", "Prepare agent workflow"])
-    return {
-        "mode": "playground_demo",
-        "agent_id": product["id"],
-        "agent_name": product["name"],
-        "input_type": input_type,
-        "input_fingerprint": fingerprint,
-        "checks_completed": checks,
-        "result": (
-            "Demo workflow completed. This verifies the agent input path and records one call; "
-            "it does not claim a live trading recommendation or x402 settlement."
-        ),
-        "upgrade_required_for_live_access": True,
-    }
+def _run_catalog_agent(product: dict, payload: dict) -> dict:
+    """Execute a paid/free catalog capability with provenance, never a synthetic demo."""
+    result = execute_agent(product, payload)
+    result["runtime_contract_version"] = result["contract_version"]
+    result["contract_version"] = product.get("contract_version", AGENT_CONTRACT_VERSION)
+    return result
 
 
 def _build_x402_discovery(base_url: str) -> dict:
-    """Build x402 discovery from the durable 8-SKU catalog, not legacy in-memory products."""
+    """Build x402 discovery from the sole active approved contract."""
+    catalog = _approved_catalog_agents()
     agents = []
-    for product in catalog_store.get_catalog():
+    for product in catalog or []:
         agents.append(
             {
                 "id": product["id"],
@@ -1053,6 +1441,7 @@ def _build_x402_discovery(base_url: str) -> dict:
         )
     return {
         "schema_version": "1.1",
+        "contract_version": _published_contract_version() if catalog else None,
         "service": "Kristo Intelligence v6",
         "base_url": base_url,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1063,11 +1452,57 @@ def _build_x402_discovery(base_url: str) -> dict:
             "currency": "USDC",
             "token_contract": X402_USDC_CONTRACT,
             "receiver_address": X402_RECEIVER_ADDRESS,
-            "settlement_status": "discovery_only",
+            "settlement_status": x402_settlement.status,
         },
         "agents": agents,
-        "note": "Discovery metadata is live from the catalog. Base mainnet facilitator settlement is not enabled.",
+        "catalog_status": "active" if catalog else _catalog_governance_status(),
+        "note": (
+            "Agent-bound Base USDC settlement requires a server-issued challenge and signed payment proof."
+            if catalog
+            else "No catalog utilities are published until the contract is migrated and explicitly activated."
+        ),
     }
+
+
+@app.after_request
+def _apply_security_headers(response):
+    """Add hardened security and cache-control headers to every response.
+
+    - Cache-Control: no-store on all /api/* and /health so clients never cache
+      live operational data.
+    - Standard security headers on every response.
+    - CORS: allow only explicitly configured origins (ALLOWED_ORIGINS env var) or
+      the production URL if configured; never reflect arbitrary origins.
+    """
+    path = request.path
+
+    # Prevent caching of dynamic API/health responses
+    if path.startswith("/api/") or path == "/health":
+        if "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
+
+    # Standard hardening headers
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+
+    # CORS: only allow origins present in the explicit allow-list or the
+    # configured public URL.  Never reflect an arbitrary incoming Origin.
+    origin = request.headers.get("Origin", "")
+    if origin:
+        pub_url = (os.getenv("APP_PUBLIC_URL", "") or "").rstrip("/")
+        allowed = _ALLOWED_ORIGINS or ({pub_url} if pub_url else frozenset())
+        if origin in allowed:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+        response.headers.setdefault(
+            "Access-Control-Allow-Methods", "GET, POST, OPTIONS"
+        )
+        response.headers.setdefault(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-Payment-Proof, X-Admin-Token",
+        )
+    return response
 
 
 @app.after_request
@@ -1086,10 +1521,47 @@ def _capture_live_request(response):
                     "status_code": response.status_code,
                 }
             )
+        _record_operational_event(
+            event_type="http_response",
+            source=source,
+            method=request.method,
+            path=path,
+            status_code=response.status_code,
+            success=response.status_code < 400,
+        )
     except Exception:
         # Observability must never affect the application response.
         pass
     return response
+
+
+@app.before_request
+def _api_rate_limit():
+    """General per-client rate limit applied before the x402 paywall.
+
+    Signed webhook callbacks are always exempt.  Applies to every other path so
+    scraping, enumeration, and credential-stuffing attempts are throttled at the
+    edge without requiring x402 payment logic to run first.
+    """
+    path = request.path
+    if path in _RATE_LIMIT_EXEMPT_PATHS:
+        return None
+    ip = _get_client_ip()
+    allowed, retry_after = _check_public_rate_limit(ip)
+    if not allowed:
+        log.warning(
+            "Rate limit exceeded: client=%s endpoint=%s retry_after=%ds",
+            _log_safe_ip(ip), path, retry_after,
+        )
+        resp = jsonify({
+            "ok": False,
+            "error": "rate_limit_exceeded",
+            "retry_after": retry_after,
+        })
+        resp.status_code = 429
+        resp.headers["Retry-After"] = str(retry_after)
+        return resp
+    return None
 
 
 @app.before_request
@@ -1100,10 +1572,9 @@ def _x402_paywall():
     Discovery endpoints (health, dashboard, manifest, .well-known, openapi,
     llms.txt) are always free.
 
-    Paid endpoints (/api/sales, /api/stats, /api/bot-status) allow
-    FREE_TIER_LIMIT (1) free calls per client IP. After that, HTTP 402
-    Payment Required is returned with the exact Base USDC receiver address
-    and price.
+    Catalog agent routes implement their own challenge-bound access checks.
+    Legacy operational endpoints are intentionally free until they gain the
+    same settlement and delivery guarantees.
 
     IMPORTANT: Requests originating from the /dashboard page are exempt
     from the paywall so the dashboard always loads correctly.
@@ -1124,13 +1595,18 @@ def _x402_paywall():
             # Still within free tier — allow and increment
             with _lock:
                 _free_tier_usage[ip] = used + 1
-            log.info("Free tier access: ip=%s, used=%d/%d, endpoint=%s",
-                     ip, used + 1, FREE_TIER_LIMIT, path)
+            log.info(
+                "Free tier access: client=%s used=%d/%d endpoint=%s",
+                _log_safe_ip(ip), used + 1, FREE_TIER_LIMIT, path,
+            )
             return None
         else:
             # Free tier exhausted — require x402 payment (dynamic pricing)
             price = _get_dynamic_price(ip)
-            log.info("x402 payment required: ip=%s, endpoint=%s, price=$%s", ip, path, price)
+            log.info(
+                "x402 payment required: client=%s endpoint=%s price=$%s",
+                _log_safe_ip(ip), path, price,
+            )
             return _x402_payment_required_response(path, price)
 
     # Unknown endpoints — let Flask handle normally (404)
@@ -1139,10 +1615,26 @@ def _x402_paywall():
 
 # ── Routes ────────────────────────────────────────────────────────────────
 
+_FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="14" fill="#312e81"/>
+<path d="M18 14h10v17l12-17h10L37 32l14 18H40L28 34v16H18V14z" fill="#e0e7ff"/>
+</svg>"""
+
+
+@app.route("/favicon.ico")
+@app.route("/favicon.svg")
+def favicon():
+    """Serve a lightweight branded icon and avoid a browser-side 404."""
+    return _FAVICON_SVG, 200, {
+        "Content-Type": "image/svg+xml",
+        "Cache-Control": "public, max-age=86400",
+    }
+
+
 @app.route("/")
 def home():
     _record_request("home", True)
-    return "Kristo Intelligence API is running! Visit /dashboard for the dashboard."
+    return render_template_string(_LAUNCH_LANDING_HTML)
 
 
 _LAUNCH_LANDING_HTML = """
@@ -1151,7 +1643,19 @@ _LAUNCH_LANDING_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kristo Intelligence | VIP Crypto Intelligence</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <title>Kristo Intelligence — Agent Utility Marketplace on Base</title>
+    <meta name="description" content="Eight evidence-first agent utilities with machine-readable outputs, cited data and x402 USDC access on Base. Nexus remains a separate premium signal.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Kristo Intelligence">
+    <meta property="og:title" content="Kristo Intelligence — Agent Utility Marketplace">
+    <meta property="og:description" content="Eight evidence-first data utilities on Base, with x402 micropayments or Stripe 30-day access.">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Kristo Intelligence — Agent Utilities">
+    <meta name="twitter:description" content="Evidence-first agent utilities with x402 USDC on Base or Stripe checkout.">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"Kristo Intelligence","description":"Evidence-first agent utilities and crypto market intelligence on Base."},{"@type":"WebSite","name":"Kristo Intelligence","description":"Eight agent utilities and an isolated Nexus premium signal — x402 USDC or Stripe."}]}
+    </script>
     <style>
         body { font-family: Arial, sans-serif; background: #0b1020; color: #eef2ff; margin: 0; }
         .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 20px 80px; }
@@ -1227,6 +1731,160 @@ def launch_landing():
     return render_template_string(_LAUNCH_LANDING_HTML)
 
 
+# ── Developers integration guide ──────────────────────────────────────────────
+
+_DEVELOPERS_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Developer Integration Guide — Kristo Intelligence API</title>
+    <meta name="description" content="Integrate Kristo Intelligence's 8 evidence-first agent utilities via x402 USDC or Stripe. OpenAPI, MCP, and llms.txt discovery included.">
+    <style>
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:#0b1020; color:#eef2ff; margin:0; }
+        .wrap { max-width:900px; margin:0 auto; padding:40px 24px 80px; }
+        h1 { font-size:2.2rem; background:linear-gradient(135deg,#6366f1,#10b981); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin:0 0 8px; }
+        h2 { font-size:1.3rem; color:#6366f1; margin:2rem 0 0.5rem; border-bottom:1px solid #1e2740; padding-bottom:6px; }
+        h3 { font-size:1rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; margin:1.2rem 0 0.4rem; }
+        pre { background:#0f1825; border:1px solid #1e2740; border-radius:10px; padding:16px; overflow-x:auto; font-size:.87rem; }
+        code { color:#a5f3fc; font-family:'Fira Code',monospace; }
+        .card { background:#121a2f; border:1px solid #1e2740; border-radius:14px; padding:20px 24px; margin-bottom:16px; }
+        .pill { display:inline-block; padding:3px 10px; border-radius:99px; font-size:.78rem; font-weight:bold; }
+        .pill.free { background:#064e3b; color:#6ee7b7; }
+        .pill.paid { background:#1e1b4b; color:#a5b4fc; }
+        .links a { color:#6366f1; text-decoration:none; margin-right:16px; font-size:.9rem; }
+        .links a:hover { text-decoration:underline; }
+        nav { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px; }
+        nav a { color:#94a3b8; font-size:.9rem; text-decoration:none; }
+        nav a:hover { color:#eef2ff; }
+        table { border-collapse:collapse; width:100%; font-size:.88rem; }
+        td { padding:6px 12px; }
+        .status-402 { color:#f59e0b; } .status-err { color:#ef4444; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <nav>
+        <a href="/">← Home</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/agents">Agents</a>
+        <a href="/openapi.json">OpenAPI</a>
+        <a href="/mcp.json">MCP</a>
+        <a href="/llms.txt">llms.txt</a>
+    </nav>
+    <h1>Developer Integration Guide</h1>
+    <p style="color:#94a3b8;margin-bottom:2rem">Eight evidence-first agent utilities with typed inputs, source provenance and freshness states. Access them with x402 USDC on Base or a 30-day Stripe entitlement; one free request per client is included.</p>
+
+    <div class="card">
+        <h2 style="margin-top:0;border:none">Quick discovery links</h2>
+        <div class="links">
+            <a href="/openapi.json">OpenAPI 3.0 ↗</a>
+            <a href="/mcp.json">MCP manifest ↗</a>
+            <a href="/llms.txt">llms.txt ↗</a>
+            <a href="/api/v1/agents">Agent catalog (JSON) ↗</a>
+            <a href="/api/v1/catalog/contract">Approved contract ↗</a>
+            <a href="/.well-known/x402.json">x402 discovery ↗</a>
+            <a href="/health">Health ↗</a>
+        </div>
+    </div>
+
+    <h2>1 — Browse the agent catalog</h2>
+    <h3>curl <span class="pill free">FREE</span></h3>
+    <pre><code>curl {{ base_url }}/api/v1/agents</code></pre>
+    <h3>Python</h3>
+    <pre><code>import httpx
+agents = httpx.get("{{ base_url }}/api/v1/agents").json()
+for a in agents["agents"]:
+    print(a["id"], "$" + str(a["price_x402"]) + " USDC |", "$" + str(a["price_stripe"]) + " Stripe 30d")</code></pre>
+    <h3>JavaScript</h3>
+    <pre><code>const { agents } = await fetch("/api/v1/agents").then(r => r.json());
+agents.forEach(a => console.log(a.id, a.description));</code></pre>
+
+    <h2>2 — Run a free utility request <span class="pill free">1 per client</span></h2>
+    <p style="color:#94a3b8;font-size:.92rem">Each client IP gets one free playground call per agent. No payment or account required.</p>
+    <h3>curl</h3>
+    <pre><code>curl -X POST {{ base_url }}/api/v1/agents/whaleflow-radar/playground \\
+  -H "Content-Type: application/json" \\
+   -d '{"input": "Base x402 agent utilities"}'
+# Response includes result.status, freshness, provenance and data.</code></pre>
+    <h3>Python</h3>
+    <pre><code>import httpx
+resp = httpx.post(
+    "{{ base_url }}/api/v1/agents/cross-venue-signal-divergence/playground",
+    json={"input": "# Update\nRevenue: 12.5%\nhttps://example.com"},
+)
+data = resp.json()
+ print(data["result"]["data"])</code></pre>
+
+    <h2>3 — Purchase 30-day access (Stripe) <span class="pill paid">PAID</span></h2>
+    <h3>Step 1: create checkout session</h3>
+    <pre><code>curl -X POST {{ base_url }}/api/v1/agents/whaleflow-radar/checkout \\
+  -H "Content-Type: application/json" \\
+  -d '{"email": "you@example.com"}'
+# → {"ok": true, "payment_session": {"checkout_url": "https://checkout.stripe.com/..."}}</code></pre>
+    <h3>Step 2: exchange for bearer token (after Stripe payment)</h3>
+    <pre><code>curl -X POST {{ base_url }}/api/v1/agents/whaleflow-radar/access \\
+  -H "Content-Type: application/json" \\
+  -d '{"email": "you@example.com", "checkout_id": "SESSION_ID_FROM_STRIPE"}'
+# → {"ok": true, "token": "...", "expires_at": "..."}</code></pre>
+    <h3>Step 3: call with bearer token</h3>
+    <pre><code>curl -X POST {{ base_url }}/api/v1/agents/whaleflow-radar/playground \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+   -d '{"input": "Base agent utility adoption"}'</code></pre>
+
+    <h2>4 — Pay per-utility via x402 (USDC on Base) <span class="pill paid">CRYPTO</span></h2>
+    <div class="card" style="margin-top:8px">
+        <p style="margin:0;font-size:.9rem;color:#94a3b8">x402 is an open HTTP payment protocol. The server returns HTTP 402 with a signed on-chain challenge. You pay USDC on Base and re-send with the proof header. No subscriptions, no accounts, no KYC.</p>
+    </div>
+    <h3>Challenge-response flow</h3>
+    <pre><code># 1. POST endpoint → server returns HTTP 402 with challenge JSON
+#    {receiver_address, amount_usdc, chain_id, challenge_id}
+# 2. Send USDC on Base via EIP-3009 transferWithAuthorization
+# 3. Re-send original request with header:
+#    X-Payment-Proof: &lt;base64-encoded-tx-hash&gt;
+# 4. Server verifies on-chain → returns 200 with result</code></pre>
+    <h3>Nexus premium signal ($0.25 USDC via x402)</h3>
+    <pre><code>curl -X POST {{ base_url }}/api/nexus/premium-signal \\
+  -H "Content-Type: application/json" \\
+  -d '{"asset": "ETH"}'
+# → HTTP 402 with challenge on first call.
+# After payment: returns Nexus premium signal.</code></pre>
+    <h3>Nexus subscription (Stripe, €10/month or €50/year)</h3>
+    <pre><code>curl {{ base_url }}/api/nexus/plans          # view plans
+curl -X POST {{ base_url }}/api/nexus/checkout \\
+  -H "Content-Type: application/json" \\
+  -d '{"email": "you@example.com", "plan": "monthly"}'</code></pre>
+
+    <h2>5 — Error reference</h2>
+    <div class="card">
+        <table>
+            <tr><td class="status-402"><strong>402</strong></td><td>Free request used — start x402 challenge or Stripe checkout</td></tr>
+            <tr><td class="status-err"><strong>429</strong></td><td>Rate limit exceeded (60 req/min default). Check <code>Retry-After</code> header.</td></tr>
+            <tr><td class="status-err"><strong>403</strong></td><td>Bearer token invalid or expired — re-exchange via /access</td></tr>
+            <tr><td class="status-err"><strong>404</strong></td><td>Unknown agent_id — see <a href="/api/v1/agents" style="color:#6366f1">/api/v1/agents</a></td></tr>
+            <tr><td class="status-err"><strong>503</strong></td><td>Stripe checkout temporarily unavailable — retry after a moment</td></tr>
+        </table>
+    </div>
+
+    <h2>6 — Rate limits &amp; fair use</h2>
+    <p style="color:#94a3b8;font-size:.92rem">
+        Public API: <strong>60 requests/minute</strong> per client (sliding window).<br>
+        Stripe and Telegram webhooks are always exempt from rate limiting.<br>
+        Discovery endpoints (<code>/api/v1/agents</code>, <code>/openapi.json</code>, <code>/mcp.json</code>, <code>/llms.txt</code>, <code>/health</code>) are always free.
+    </p>
+</div>
+</body>
+</html>"""
+
+
+@app.route("/developers")
+def developers_page():
+    """Developer integration guide — always free, no authentication required."""
+    base_url = request.host_url.rstrip("/")
+    return render_template_string(_DEVELOPERS_HTML, base_url=base_url)
+
+
 @app.route("/sales/checkout", methods=["GET", "POST"])
 def sales_checkout():
     """Checkout and lead capture for the sales funnel."""
@@ -1235,8 +1893,14 @@ def sales_checkout():
         selected_plan = request.args.get("plan", "pro")
         plan = checkout_store.get_plan(selected_plan) or checkout_store.get_plan("pro")
         status = request.args.get("status", "")
+        checkout_id = (request.args.get("session_id") or "").strip()
+        vip_link_command = ""
+        if status == "success" and checkout_id:
+            checkout = stripe_vip_store.get_checkout(checkout_id)
+            if checkout and _is_vip_plan(checkout.get("plan_key", "")):
+                vip_link_command = f"/start vip_{checkout['link_token']}"
         status_msg = {
-            "success": "Плащането е потвърдено. Системата е готова за onboarding.",
+            "success": "Checkout е завършен. VIP достъпът се активира само след подписания Stripe webhook.",
             "cancelled": "Плащането беше отменено. Можете да опитате отново.",
         }.get(status, "")
         return render_template_string(
@@ -1266,6 +1930,9 @@ def sales_checkout():
                     {% if status_msg %}
                     <div class="{{ 'ok' if status == 'success' else 'warn' }}">{{ status_msg }}</div>
                     {% endif %}
+                    {% if vip_link_command %}
+                    <div class="warn">За да свържете VIP достъпа си с Telegram, изпратете на бота:<br><strong>{{ vip_link_command }}</strong><br><span class="small">Поканата се изпраща само след потвърдено плащане.</span></div>
+                    {% endif %}
                     <button type="submit">Потвърди покупката</button>
                 </form>
             </body>
@@ -1275,13 +1942,13 @@ def sales_checkout():
             plan_key=selected_plan,
             status=status,
             status_msg=status_msg,
+            vip_link_command=vip_link_command,
         )
 
     email = (request.form.get("email") or "").strip()
     plan_key = (request.form.get("plan") or "pro").strip()
     source = (request.form.get("source") or "website").strip()
     campaign = (request.form.get("campaign") or "launch").strip()
-    telegram_chat_id = (request.form.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "Въведете валиден email."}), 400
 
@@ -1297,7 +1964,6 @@ def sales_checkout():
         utm_medium=request.args.get("utm_medium", ""),
         utm_campaign=request.args.get("utm_campaign", ""),
         plan=plan.name,
-        telegram_chat_id=telegram_chat_id,
     )
     saved_lead = crm_store.add_lead(lead)
     checkout_payload = checkout_store.build_checkout_payload(plan_key, email)
@@ -1306,13 +1972,22 @@ def sales_checkout():
         email,
         source=source,
         campaign=campaign,
-        telegram_chat_id=telegram_chat_id,
     )
     if stripe_session.get("status") not in {"checkout_created", "mock_checkout_ready"}:
         return jsonify({"ok": False, "error": stripe_session.get("error", "checkout_unavailable")}), 503
 
-    telegram_chat_id = (os.getenv("TELEGRAM_VIP_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID") or "").strip()
-    onboarding = telegram_flow.create_onboarding(telegram_chat_id, plan.name)
+    registration = stripe_vip_store.register_checkout(
+        checkout_id=stripe_session["checkout_id"],
+        customer_email=email,
+        plan_key=plan_key,
+        expected_amount_cents=round(float(plan.price_usd) * 100),
+        currency="usd",
+        source=source,
+        campaign=campaign,
+        link_token=secrets.token_urlsafe(24),
+    )
+    if not registration:
+        return jsonify({"ok": False, "error": "checkout_registration_failed"}), 503
 
     if stripe_session.get("url"):
         return redirect(stripe_session["url"], code=303)
@@ -1323,12 +1998,9 @@ def sales_checkout():
         "checkout": checkout_payload,
         "payment_provider": stripe_session.get("provider", "mock"),
         "payment_session": stripe_session,
-        "sales_automation": {
-            "status": "welcome_message_ready",
-            "plan": plan.name,
-            "telegram_chat_id": telegram_chat_id,
-            "welcome_message": onboarding.welcome_message,
-            "follow_up_message": onboarding.follow_up_message,
+        "vip_link": {
+            "status": "telegram_link_required",
+            "command": f"/start vip_{registration['link_token']}",
         },
     })
 
@@ -1369,7 +2041,6 @@ def api_checkout():
     plan_key = (payload.get("plan") or "pro").strip()
     source = (payload.get("source") or "api").strip()
     campaign = (payload.get("campaign") or "launch").strip()
-    telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "email is required"}), 400
 
@@ -1382,7 +2053,6 @@ def api_checkout():
         source=source,
         campaign=campaign,
         plan=plan.name,
-        telegram_chat_id=telegram_chat_id,
     )
     crm_store.add_lead(lead)
     payment_session = stripe_checkout.create_checkout_session(
@@ -1390,64 +2060,317 @@ def api_checkout():
         email,
         source=source,
         campaign=campaign,
-        telegram_chat_id=telegram_chat_id,
     )
     if payment_session.get("status") not in {"checkout_created", "mock_checkout_ready"}:
         return jsonify({"ok": False, "error": payment_session.get("error", "checkout_unavailable")}), 503
+    registration = stripe_vip_store.register_checkout(
+        checkout_id=payment_session["checkout_id"],
+        customer_email=email,
+        plan_key=plan_key,
+        expected_amount_cents=round(float(plan.price_usd) * 100),
+        currency="usd",
+        source=source,
+        campaign=campaign,
+        link_token=secrets.token_urlsafe(24),
+    )
+    if not registration:
+        return jsonify({"ok": False, "error": "checkout_registration_failed"}), 503
     return jsonify({
         "ok": True,
         "checkout": checkout_store.build_checkout_payload(plan_key, email),
         "payment_provider": payment_session.get("provider", "mock"),
         "payment_session": payment_session,
         "plan": plan.name,
+        "vip_link": {
+            "status": "telegram_link_required",
+            "command": f"/start vip_{registration['link_token']}",
+        },
     })
+
+
+def _approved_catalog_agents() -> Optional[List[dict]]:
+    """Return only the human-approved contract, merged with live product metrics."""
+    active = marketplace_store.active_contract()
+    if not active or not manifest_is_runtime_compatible(active.get("manifest", {})):
+        return None
+    manifest_agents = active.get("manifest", {}).get("agents")
+    if not isinstance(manifest_agents, list) or len(manifest_agents) != len(CATALOG_SEED):
+        return None
+    by_id = {item.get("id"): item for item in manifest_agents if isinstance(item, dict)}
+    if set(by_id) != {item["id"] for item in CATALOG_SEED}:
+        return None
+    approved = []
+    for product in catalog_store.get_catalog():
+        contract = by_id.get(product["id"])
+        if contract:
+            approved.append(
+                public_contract(
+                    product,
+                    contract,
+                    published_contract_version=active["version"],
+                )
+            )
+    return approved if len(approved) == len(CATALOG_SEED) else None
+
+
+def _catalog_governance_status() -> str:
+    """Expose a safe public state without leaking an unapproved manifest."""
+    if not getattr(marketplace_store, "available", False):
+        return "migration_required"
+    return "approval_required"
+
+
+def _published_contract_version() -> str:
+    active = marketplace_store.active_contract()
+    if active and manifest_is_runtime_compatible(active.get("manifest", {})):
+        return active["version"]
+    return AGENT_CONTRACT_VERSION
+
+
+def _transition_catalog_contract(candidate: dict) -> Optional[dict]:
+    """Keep catalog metadata and active contract aligned, including test-store recovery."""
+    atomic_transition = getattr(marketplace_store, "transition_contract_with_catalog_metadata", None)
+    if callable(atomic_transition):
+        return atomic_transition(candidate["version"])
+
+    previous_metadata = catalog_store.get_catalog()
+    try:
+        catalog_store.apply_catalog_metadata(candidate["manifest"]["agents"])
+        contract = marketplace_store.rollback_contract(candidate["version"])
+        if not contract:
+            raise RuntimeError("catalog_contract_transition_unavailable")
+        return contract
+    except Exception:
+        try:
+            catalog_store.apply_catalog_metadata(previous_metadata)
+        except Exception:
+            log.exception("Catalog metadata compensation failed after contract transition error")
+        raise
+
+
+def _approved_agent_or_response(agent_id: str):
+    catalog = _approved_catalog_agents()
+    if catalog is None:
+        return None, (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "catalog_contract_approval_required",
+                    "contract_version": _published_contract_version(),
+                }
+            ),
+            503,
+        )
+    agent = next((item for item in catalog if item["id"] == agent_id), None)
+    if not agent:
+        return None, (jsonify({"ok": False, "error": "agent_not_found"}), 404)
+    return agent, None
 
 
 @app.route("/api/v1/agents", methods=["GET"])
 def api_agent_catalog():
-    """Return the active, payment-ready catalog without exposing internal events."""
-    return jsonify({"ok": True, "agents": catalog_store.get_catalog()})
+    """Return only the active human-approved contract-driven catalog."""
+    agents = _approved_catalog_agents()
+    if agents is None:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "catalog_contract_approval_required",
+                "contract_version": _published_contract_version(),
+            }
+        ), 503
+    return jsonify(
+        {
+            "ok": True,
+            "contract_version": _published_contract_version(),
+            "catalog_status": "active",
+            "auto_publish": False,
+            "agents": agents,
+        }
+    )
+
+
+@app.route("/api/v1/catalog/contract", methods=["GET"])
+def api_catalog_contract():
+    """Return the approved machine contract and its governance state."""
+    active = marketplace_store.active_contract()
+    if active:
+        return jsonify(
+            {
+                "ok": True,
+                "version": active["version"],
+                "status": active["status"].lower(),
+                "manifest": active["manifest"],
+                "governance_backend": marketplace_store.backend,
+            }
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "version": AGENT_CONTRACT_VERSION,
+            "status": "approval_required" if getattr(marketplace_store, "available", False) else "migration_required",
+            "governance_backend": marketplace_store.backend,
+            "warning": (
+                "A human administrator must activate a runtime-compatible draft before catalog metadata changes."
+                if getattr(marketplace_store, "available", False)
+                else "Contract governance persistence is unavailable until the production migration is applied."
+            ),
+        }
+    )
 
 
 @app.route("/api/v1/agents/<agent_id>", methods=["GET"])
 def api_agent_detail(agent_id: str):
     """Return one active agent SKU for a product page or machine client."""
-    agent = catalog_store.get_product(agent_id)
-    if not agent:
-        return jsonify({"ok": False, "error": "agent_not_found"}), 404
-    return jsonify({"ok": True, "agent": agent})
+    agent, error = _approved_agent_or_response(agent_id)
+    if error:
+        return error
+    return jsonify({"ok": True, "contract_version": agent["contract_version"], "agent": agent})
 
 
 @app.route("/api/v1/agents/<agent_id>/playground", methods=["POST"])
 def api_agent_playground(agent_id: str):
-    """Allow exactly one bounded interactive demo per client and catalog agent."""
-    agent = catalog_store.get_product(agent_id)
-    if not agent:
-        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    """Run one real, contract-bound catalog capability after access is established."""
+    agent, error = _approved_agent_or_response(agent_id)
+    if error:
+        return error
 
     payload = request.get_json(silent=True) or {}
-    user_input = (payload.get("input") or "").strip()
-    if len(user_input) < 2 or len(user_input) > 256:
-        return jsonify(
-            {"ok": False, "error": "input_must_be_between_2_and_256_characters"}
-        ), 400
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "json_object_required"}), 400
+    execution_payload = {
+        key: str(payload.get(key) or "").strip()
+        for key in ("input", "baseline")
+        if key in payload
+    }
+    try:
+        validate_agent_payload(agent, execution_payload)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc), "contract_version": agent["contract_version"]}), 400
 
     authorization = (request.headers.get("Authorization", "") or "").strip()
     bearer_token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
     entitlement = _verify_agent_access_token(bearer_token, agent_id) if bearer_token else None
-    result = _run_catalog_agent_demo(agent, user_input)
+    access = "active_entitlement" if entitlement else "one_free_playground_request"
+    settled_challenge_id = None
     if not entitlement and not catalog_store.consume_free_playground_request(
         agent_id, _playground_client_key_hash(_get_client_ip())
     ):
-        return _catalog_x402_payment_required_response(agent)
+        request_hash = canonical_request_hash(
+            agent_id, request.path, execution_payload
+        )
+        payment_proof = (
+            request.headers.get("X-Payment-Proof", "")
+            or request.headers.get("PAYMENT-SIGNATURE", "")
+        )
+        if not payment_proof:
+            if x402_settlement.status != "full":
+                return _catalog_x402_payment_required_response(agent)
+            try:
+                challenge = x402_settlement.issue_challenge(
+                    agent_id=agent_id,
+                    endpoint=request.path,
+                    request_hash=request_hash,
+                    amount_usdc=float(agent["price_x402"]),
+                )
+            except SettlementError as exc:
+                _record_operational_event(
+                    event_type="x402_challenge_unavailable",
+                    source="api",
+                    method=request.method,
+                    path=request.path,
+                    status_code=exc.status_code,
+                    success=False,
+                    metadata={"outcome": exc.code, "operation": "x402_challenge"},
+                )
+                return jsonify({"ok": False, "error": exc.code}), exc.status_code
+            _record_operational_event(
+                event_type="x402_challenge_issued",
+                source="api",
+                method=request.method,
+                path=request.path,
+                status_code=402,
+                success=True,
+                metadata={"outcome": "issued", "operation": "x402_challenge"},
+            )
+            return _catalog_x402_payment_required_response(agent, challenge.public_payload())
+        try:
+            settlement = x402_settlement.verify_and_settle(
+                proof_header=payment_proof,
+                agent_id=agent_id,
+                endpoint=request.path,
+                request_hash=request_hash,
+            )
+        except SettlementError as exc:
+            _record_operational_event(
+                event_type="x402_settlement_rejected",
+                source="api",
+                method=request.method,
+                path=request.path,
+                status_code=exc.status_code,
+                success=False,
+                metadata={"outcome": exc.code, "operation": "x402_settlement"},
+            )
+            return jsonify({"ok": False, "error": exc.code}), exc.status_code
+        settled_challenge_id = settlement["challenge_id"]
+        access = "x402_settled"
+        _record_operational_event(
+            event_type="x402_settlement_verified",
+            source="api",
+            method=request.method,
+            path=request.path,
+            status_code=200,
+            success=True,
+            metadata={
+                "outcome": "duplicate" if settlement["duplicate"] else "settled",
+                "operation": "x402_settlement",
+            },
+        )
     if entitlement and not catalog_store.record_call(agent_id):
         log.error("Catalog call could not be recorded for agent %s.", agent_id)
         return jsonify({"ok": False, "error": "call_recording_unavailable"}), 503
+    try:
+        result = _run_catalog_agent(agent, execution_payload)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc), "contract_version": agent["contract_version"]}), 400
+    except Exception:
+        log.exception("Catalog executor failed: agent=%s", agent_id)
+        _record_operational_event(
+            event_type="agent_execution_failed",
+            source="api",
+            method=request.method,
+            path=request.path,
+            status_code=503,
+            success=False,
+            metadata={"operation": "catalog_execution", "outcome": "unavailable"},
+        )
+        return jsonify(
+            {
+                "ok": False,
+                "error": "agent_execution_unavailable",
+                "contract_version": agent["contract_version"],
+            }
+        ), 503
+    # Task #18 — record trial start for conversion analytics
+    if access == "one_free_playground_request":
+        _record_operational_event(
+            event_type="trial_started",
+            source="api",
+            method=request.method,
+            path=request.path,
+            status_code=200,
+            success=True,
+            metadata={"agent_id": agent_id, "operation": "catalog_trial"},
+        )
+    if settled_challenge_id:
+        catalog_store.record_call(agent_id, event_id=f"x402-call:{settled_challenge_id}")
+        x402_settlement.mark_delivered(settled_challenge_id)
     return jsonify(
         {
             "ok": True,
+            "contract_version": agent["contract_version"],
             "agent": agent,
-            "access": "active_entitlement" if entitlement else "one_free_playground_request",
+            "access": access,
             "result": result,
         }
     )
@@ -1455,21 +2378,21 @@ def api_agent_playground(agent_id: str):
 
 _AGENT_PLAYGROUND_HTML = r"""
 <!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kristo Intelligence v6 — Agent playground</title>
+<title>Kristo Intelligence — Agent Utility Marketplace</title>
 <style>
 :root{--bg:#090d18;--card:#111827;--border:#26334d;--text:#edf2ff;--muted:#aab7d0;--accent:#7c83ff;--good:#56d6a5;--warn:#f6bf68}*{box-sizing:border-box}
 body{margin:0;background:radial-gradient(circle at 20% -10%,#1e2a57 0,transparent 32%),var(--bg);color:var(--text);font:16px system-ui,sans-serif}.wrap{max-width:1180px;margin:auto;padding:48px 20px 80px}
 .eyebrow{color:#b9bdff;text-transform:uppercase;letter-spacing:.1em;font-size:.76rem;font-weight:700}h1{font-size:clamp(2rem,5vw,3.4rem);margin:.35rem 0 1rem}.intro{max-width:760px;color:var(--muted);line-height:1.6}
 .notice{margin:24px 0;padding:14px 16px;border:1px solid #765923;background:#2a2113;border-radius:12px;color:#ffe3aa}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:16px}
 .card{background:linear-gradient(145deg,#131d32,#0f1729);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 12px 30px rgba(0,0,0,.2)}.meta{font-size:.78rem;color:#bfc8dd;text-transform:uppercase;letter-spacing:.07em}.price{color:var(--good);font-weight:700;margin:.7rem 0}.desc{color:var(--muted);min-height:48px;line-height:1.45}
-input,button{font:inherit;border-radius:9px;padding:11px 12px}input{display:block;width:100%;margin:16px 0 10px;background:#090d18;color:var(--text);border:1px solid #33415e}button{border:0;background:var(--accent);color:white;font-weight:750;cursor:pointer;width:100%}button:disabled{opacity:.55;cursor:wait}.result{margin-top:12px;padding:12px;border-radius:9px;background:#0a1120;color:#cbd5e1;font-size:.88rem;line-height:1.45;white-space:pre-wrap}.result.error{border:1px solid #8f4b52;color:#ffc3c8}.result.ok{border:1px solid #2f8066}.small{font-size:.78rem;color:var(--muted);margin:.65rem 0 0}.empty{color:var(--muted)}
-</style></head><body><main class="wrap"><div class="eyebrow">Kristo Intelligence v6</div><h1>Interactive agent playground</h1><p class="intro">Test each catalog agent with one free, bounded request. The result verifies the execution path and records a real catalog call; it is not a live trade signal or an on-chain x402 settlement.</p><div class="notice">After the free request, the API returns a clear upgrade path. Stripe checkout provides a separate 30-day agent entitlement; Base facilitator settlement remains intentionally disabled in this preview.</div><section id="agents" class="grid"><p class="empty">Loading catalog…</p></section></main>
+textarea,input,button{font:inherit;border-radius:9px;padding:11px 12px}textarea,input{display:block;width:100%;margin:16px 0 10px;background:#090d18;color:var(--text);border:1px solid #33415e;resize:vertical}button{border:0;background:var(--accent);color:white;font-weight:750;cursor:pointer;width:100%}button:disabled{opacity:.55;cursor:wait}.result{margin-top:12px;padding:12px;border-radius:9px;background:#0a1120;color:#cbd5e1;font-size:.88rem;line-height:1.45;white-space:pre-wrap}.result.error{border:1px solid #8f4b52;color:#ffc3c8}.result.ok{border:1px solid #2f8066}.small{font-size:.78rem;color:var(--muted);margin:.65rem 0 0}.empty{color:var(--muted)}
+</style></head><body><main class="wrap"><div class="eyebrow">Kristo Intelligence · contract v2.0</div><h1>Agent Utility Marketplace</h1><p class="intro">Run small, machine-readable utilities with source provenance and freshness labels. The catalog performs no trades, money movement or external publishing. Source failures are returned explicitly as <code>unavailable</code>.</p><div class="notice">One bounded request is free per client and utility. Afterwards use a 30-day Stripe entitlement or the x402 upgrade path. Payment settles access; it never changes or hides the underlying data result.</div><section id="agents" class="grid"><p class="empty">Loading catalog…</p></section></main>
 <script>
 const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function card(a){return `<article class="card"><div class="meta">${escapeHtml(a.category)}</div><h2>${escapeHtml(a.name)}</h2><p class="desc">${escapeHtml(a.description)}</p><p class="price">${Number(a.price_x402).toFixed(2)} USDC x402 · $${Number(a.price_stripe).toFixed(2)} 30-day Stripe access</p><label class="small" for="input-${a.id}">Token symbol, topic, or 0x address</label><input id="input-${a.id}" maxlength="256" placeholder="e.g. ETH or 0x…"><button data-agent="${escapeHtml(a.id)}">Run one free demo</button><div id="result-${a.id}" class="result" hidden></div><p class="small">One free request per client and agent.</p></article>`}
+function card(a){const input=a.input_schema?.properties?.input||{};const baseline=a.input_schema?.properties?.baseline;return `<article class="card"><div class="meta">${escapeHtml(a.capability_id||a.category)}</div><h2>${escapeHtml(a.name)}</h2><p class="desc">${escapeHtml(a.description)}</p><p class="price">${Number(a.price_x402).toFixed(2)} USDC x402 · $${Number(a.price_stripe).toFixed(2)} 30-day Stripe access</p><label class="small" for="input-${a.id}">${escapeHtml(input.description||'Request input')}</label><textarea id="input-${a.id}" maxlength="6000" rows="3" placeholder="${escapeHtml(input.description||'Enter input')}"></textarea>${baseline?`<label class="small" for="baseline-${a.id}">${escapeHtml(baseline.description||'Baseline')}</label><textarea id="baseline-${a.id}" maxlength="6000" rows="3" placeholder="${escapeHtml(baseline.description||'Previous text')}"></textarea>`:''}<button data-agent="${escapeHtml(a.id)}">Run utility</button><div id="result-${a.id}" class="result" hidden></div><p class="small">Contract ${escapeHtml(a.contract_version||'2.0')} · one free request per client and utility.</p></article>`}
 function show(id,text,kind){const el=document.getElementById('result-'+id);el.hidden=false;el.className='result '+kind;el.textContent=text}
-async function run(agentId,button){const input=document.getElementById('input-'+agentId).value.trim();if(input.length<2)return show(agentId,'Enter at least 2 characters.','error');button.disabled=true;button.textContent='Running…';try{const r=await fetch('/api/v1/agents/'+encodeURIComponent(agentId)+'/playground',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input})});const data=await r.json();if(!r.ok){const upgrade=data.upgrade?.stripe_checkout?` Upgrade: ${data.upgrade.stripe_checkout}`:'';show(agentId,(data.message||data.error||'Request failed.')+upgrade,'error');return}show(agentId,data.result.result+'\\n\\nChecks: '+data.result.checks_completed.join(' · '),'ok');button.textContent='Demo completed'}catch(e){show(agentId,'Network error: '+e.message,'error')}finally{button.disabled=false;if(button.textContent==='Running…')button.textContent='Run one free demo'}}
-async function load(){try{const r=await fetch('/api/v1/agents');const data=await r.json();document.getElementById('agents').innerHTML=data.agents.map(card).join('');document.querySelectorAll('button[data-agent]').forEach(b=>b.addEventListener('click',()=>run(b.dataset.agent,b)))}catch(e){document.getElementById('agents').innerHTML='<p class="empty">Catalog unavailable.</p>'}}
+async function run(agentId,button){const input=document.getElementById('input-'+agentId).value.trim();const baseline=document.getElementById('baseline-'+agentId)?.value.trim();if(input.length<2)return show(agentId,'Enter at least 2 characters.','error');if(document.getElementById('baseline-'+agentId)&&!baseline)return show(agentId,'A baseline is required for the Change Monitor.','error');button.disabled=true;button.textContent='Running…';try{const r=await fetch('/api/v1/agents/'+encodeURIComponent(agentId)+'/playground',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input,...(baseline?{baseline}:{})})});const data=await r.json();if(!r.ok){const upgrade=data.upgrade?.stripe_checkout?`\nUpgrade: ${data.upgrade.stripe_checkout}`:'';show(agentId,(data.message||data.error||'Request failed.')+upgrade,'error');return}show(agentId,JSON.stringify(data.result,null,2),data.result.status==='ok'?'ok':'error');button.textContent='Utility completed'}catch(e){show(agentId,'Network error: '+e.message,'error')}finally{button.disabled=false;if(button.textContent==='Running…')button.textContent='Run utility'}}
+async function load(){try{const r=await fetch('/api/v1/agents');const data=await r.json();if(!r.ok){document.getElementById('agents').innerHTML=`<p class="empty">Catalog is awaiting a database migration and explicit administrator approval. Status: ${escapeHtml(data.error||'unavailable')}.</p>`;return}document.getElementById('agents').innerHTML=data.agents.map(card).join('');document.querySelectorAll('button[data-agent]').forEach(b=>b.addEventListener('click',()=>run(b.dataset.agent,b)))}catch(e){document.getElementById('agents').innerHTML='<p class="empty">Catalog status could not be loaded.</p>'}}
 load();
 </script></body></html>
 """
@@ -1484,8 +2407,9 @@ def agent_playground_page():
 @app.route("/api/v1/agents/<agent_id>/click", methods=["POST"])
 def api_agent_click(agent_id: str):
     """Persist a product-page click for catalog conversion analytics."""
-    if not catalog_store.get_product(agent_id):
-        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    _, error = _approved_agent_or_response(agent_id)
+    if error:
+        return error
     if not _allow_catalog_click(_get_client_ip(), agent_id):
         return jsonify(
             {
@@ -1502,9 +2426,9 @@ def api_agent_click(agent_id: str):
 @app.route("/api/v1/agents/<agent_id>/checkout", methods=["POST"])
 def api_agent_checkout(agent_id: str):
     """Create a one-time Stripe Checkout for a 30-day agent access entitlement."""
-    agent = catalog_store.get_product(agent_id)
-    if not agent:
-        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    agent, error = _approved_agent_or_response(agent_id)
+    if error:
+        return error
 
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
@@ -1548,6 +2472,16 @@ def api_agent_checkout(agent_id: str):
     ):
         log.error("Catalog checkout could not be registered for agent %s.", agent_id)
         return jsonify({"ok": False, "error": "catalog_checkout_registration_failed"}), 503
+    # Task #18 — record checkout initiated for conversion funnel analytics
+    _record_operational_event(
+        event_type="checkout_initiated",
+        source="api",
+        method=request.method,
+        path=request.path,
+        status_code=200,
+        success=True,
+        metadata={"agent_id": agent_id, "operation": "catalog_checkout"},
+    )
     return jsonify(
         {
             "ok": True,
@@ -1562,8 +2496,9 @@ def api_agent_checkout(agent_id: str):
 @app.route("/api/v1/agents/<agent_id>/access", methods=["POST"])
 def api_agent_access(agent_id: str):
     """Exchange a paid checkout capability for a short-lived signed agent credential."""
-    if not catalog_store.get_product(agent_id):
-        return jsonify({"ok": False, "error": "agent_not_found"}), 404
+    _, error = _approved_agent_or_response(agent_id)
+    if error:
+        return error
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
     checkout_id = (payload.get("checkout_id") or "").strip()
@@ -1583,6 +2518,203 @@ def api_agent_access(agent_id: str):
             "access": "active",
             "expires_at": entitlement["expires_at"],
             "access_token": _issue_agent_access_token(entitlement),
+        }
+    )
+
+
+NEXUS_PREMIUM_RESOURCE_ID = "nexus-premium-signal"
+NEXUS_PREMIUM_SIGNAL_ENDPOINT = "/api/nexus/premium-signal"
+
+
+@app.route("/api/nexus/plans", methods=["GET"])
+def api_nexus_plans():
+    """Public Nexus pricing and capability discovery without payment side effects."""
+    _record_nexus_activity("api_request")
+    return jsonify(
+        {
+            "ok": True,
+            "human_subscriptions": {
+                plan: {
+                    "currency": "EUR",
+                    "amount": details["amount_eur"],
+                    "interval": details["interval"],
+                }
+                for plan, details in NEXUS_PLANS.items()
+            },
+            "bot_micropayment": {
+                "currency": "USDC",
+                "network": "base",
+                "chain_id": X402_CHAIN_ID,
+                "amount": NEXUS_X402_USDC,
+                "endpoint": NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+                "settlement_status": nexus_x402_settlement.status,
+            },
+        }
+    )
+
+
+@app.route("/api/nexus/click", methods=["POST"])
+def api_nexus_click():
+    """Record a bounded, server-observed Nexus purchase-intent click."""
+    payload = request.get_json(silent=True) or {}
+    source = (payload.get("source") or "").strip().lower()
+    if source not in {"stripe_monthly", "stripe_yearly", "premium_signal"}:
+        return jsonify({"ok": False, "error": "invalid_nexus_click_source"}), 400
+    if not _allow_nexus_click(_get_client_ip(), source):
+        return jsonify({"ok": False, "error": "click_rate_limited"}), 429
+    _record_nexus_activity("click")
+    return jsonify({"ok": True, "source": source, "status": "click_recorded"}), 202
+
+
+@app.route("/api/nexus/checkout", methods=["POST"])
+def api_nexus_checkout():
+    """Create a Stripe EUR recurring subscription without touching VIP plans."""
+    _record_nexus_activity("api_request")
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    plan = (payload.get("plan") or "").strip().lower()
+    if not email or "@" not in email or len(email) > 254:
+        return jsonify({"ok": False, "error": "valid_email_required"}), 400
+    if plan not in NEXUS_PLANS:
+        return jsonify({"ok": False, "error": "invalid_nexus_plan"}), 400
+
+    crm_store.add_lead(
+        LeadRecord(
+            email=email,
+            source="nexus",
+            campaign="nexus_subscription",
+            plan=f"nexus_{plan}_eur",
+        )
+    )
+    checkout = stripe_checkout.create_nexus_subscription_session(
+        plan=plan,
+        customer_email=email,
+    )
+    if checkout.get("status") != "checkout_created":
+        _record_operational_event(
+            event_type="nexus_checkout_unavailable",
+            source="nexus",
+            path="/api/nexus/checkout",
+            status_code=503,
+            metadata={"outcome": checkout.get("error", "checkout_unavailable"), "operation": "nexus_checkout"},
+        )
+        return jsonify({"ok": False, "error": checkout.get("error", "checkout_unavailable")}), 503
+    _record_operational_event(
+        event_type="nexus_checkout_created",
+        source="nexus",
+        path="/api/nexus/checkout",
+        status_code=201,
+        metadata={"outcome": "created", "operation": "nexus_checkout", "plan": plan},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "plan": plan,
+            "currency": "EUR",
+            "amount": NEXUS_PLANS[plan]["amount_eur"],
+            "payment_session": checkout,
+        }
+    ), 201
+
+
+@app.route(NEXUS_PREMIUM_SIGNAL_ENDPOINT, methods=["POST"])
+def api_nexus_premium_signal():
+    """Serve one Nexus signal only after an isolated, proof-bound $0.25 settlement."""
+    _record_nexus_activity("api_request")
+    payload = request.get_json(silent=True) or {}
+    asset = (payload.get("asset") or payload.get("input") or "").strip().upper()
+    if not asset or len(asset) > 32 or not asset.replace("-", "").replace("_", "").isalnum():
+        return jsonify({"ok": False, "error": "valid_asset_required"}), 400
+    canonical_payload = {"asset": asset}
+    request_hash = canonical_request_hash(
+        NEXUS_PREMIUM_RESOURCE_ID,
+        NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+        canonical_payload,
+    )
+    proof_header = request.headers.get("X-Payment-Proof") or request.headers.get("PAYMENT-SIGNATURE")
+    if not proof_header:
+        if nexus_x402_settlement.status != "full":
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "x402_settlement_unavailable",
+                    "payment": {"settlement_status": nexus_x402_settlement.status},
+                }
+            ), 503
+        try:
+            challenge = nexus_x402_settlement.issue_challenge(
+                agent_id=NEXUS_PREMIUM_RESOURCE_ID,
+                endpoint=NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+                request_hash=request_hash,
+                amount_usdc=NEXUS_X402_USDC,
+            )
+        except SettlementError as exc:
+            return jsonify({"ok": False, "error": exc.code}), exc.status_code
+        _record_operational_event(
+            event_type="nexus_x402_challenge_issued",
+            source="nexus",
+            path=NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+            status_code=402,
+            metadata={"outcome": "issued", "operation": "nexus_x402"},
+        )
+        return jsonify(
+            {
+                "ok": False,
+                "error": "payment_required",
+                "payment": {
+                    "protocol": "x402",
+                    "network": "base",
+                    "chain_id": X402_CHAIN_ID,
+                    "currency": "USDC",
+                    "amount_usdc": NEXUS_X402_USDC,
+                    "receiver_address": X402_RECEIVER_ADDRESS,
+                    "token_contract": X402_USDC_CONTRACT,
+                    "challenge": challenge.public_payload(),
+                    "settlement_status": nexus_x402_settlement.status,
+                },
+            }
+        ), 402
+
+    try:
+        settlement = nexus_x402_settlement.verify_and_settle(
+            proof_header=proof_header,
+            agent_id=NEXUS_PREMIUM_RESOURCE_ID,
+            endpoint=NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+            request_hash=request_hash,
+        )
+    except SettlementError as exc:
+        _record_operational_event(
+            event_type="nexus_x402_settlement_rejected",
+            source="nexus",
+            path=NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+            status_code=exc.status_code,
+            metadata={"outcome": exc.code, "operation": "nexus_x402"},
+        )
+        return jsonify({"ok": False, "error": exc.code}), exc.status_code
+
+    try:
+        snapshot = get_market_snapshot()
+    except Exception:
+        snapshot = {"state": "unavailable"}
+    nexus_x402_settlement.mark_delivered(settlement["challenge_id"])
+    _record_operational_event(
+        event_type="nexus_x402_settlement_verified",
+        source="nexus",
+        path=NEXUS_PREMIUM_SIGNAL_ENDPOINT,
+        status_code=200,
+        metadata={"outcome": "settled", "operation": "nexus_x402"},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "access": "nexus_x402_settled",
+            "asset": asset,
+            "signal": {
+                "type": "premium_nexus_market_snapshot",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "market_snapshot": snapshot,
+                "notice": "Informational market intelligence; not investment advice.",
+            },
         }
     )
 
@@ -1610,6 +2742,7 @@ def stripe_webhook_handler():
         email = (event_data.get("customer_details", {}).get("email") or event_data.get("customer_email") or "").strip()
         metadata = event_data.get("metadata", {}) or {}
         plan_key = metadata.get("plan") or "pro"
+        nexus_plan = (metadata.get("nexus_plan") or "").strip().lower()
         agent_sku = (metadata.get("agent_sku") or "").strip()
         checkout_id = (event_data.get("id") or "").strip()
         amount = float(event_data.get("amount_total") or 0.0) / 100.0
@@ -1621,6 +2754,47 @@ def stripe_webhook_handler():
                     "ok": True,
                     "status": "payment_not_settled",
                     "event_type": event_type,
+                }
+            )
+        if nexus_plan:
+            expected = NEXUS_PLANS.get(nexus_plan)
+            is_valid_nexus_payment = bool(
+                expected
+                and currency == "eur"
+                and amount == float(expected["amount_eur"])
+                and email
+                and nexus_store.is_healthy()
+            )
+            if not is_valid_nexus_payment:
+                return jsonify({"ok": True, "status": "ignored_unmatched_nexus_checkout"})
+            membership = nexus_store.activate_membership(
+                email=email,
+                plan=nexus_plan,
+                checkout_id=checkout_id,
+                stripe_subscription_id=str(event_data.get("subscription") or ""),
+                stripe_customer_id=str(event_data.get("customer") or ""),
+            )
+            _record_nexus_activity(
+                "stripe_subscription",
+                amount_eur=amount,
+                event_id=f"stripe-subscription:{checkout_id}",
+            )
+            crm_store.update_status(email, "qualified")
+            _record_operational_event(
+                event_type="nexus_membership_activated",
+                source="nexus",
+                path="/api/webhooks/stripe",
+                status_code=200,
+                metadata={"outcome": "active", "operation": "nexus_subscription", "plan": nexus_plan},
+            )
+            return jsonify(
+                {
+                    "ok": True,
+                    "status": "nexus_membership_active",
+                    "plan": nexus_plan,
+                    "currency": "EUR",
+                    "amount_eur": amount,
+                    "membership": membership,
                 }
             )
         if email:
@@ -1645,10 +2819,9 @@ def stripe_webhook_handler():
                     return jsonify(
                         {"ok": True, "status": "ignored_unmatched_catalog_checkout"}
                     )
-            already_paid = prior_lead.get("payment_status") == "paid"
-            paid_lead = crm_store.mark_paid(email, amount, plan_key)
             if agent_sku:
-                catalog_store.confirm_checkout_payment(
+                crm_store.mark_paid(email, amount, plan_key)
+                payment_recorded = catalog_store.confirm_checkout_payment(
                     checkout_id,
                     agent_sku,
                     email,
@@ -1663,13 +2836,60 @@ def stripe_webhook_handler():
                     "status": "agent_entitlement_active",
                     "expires_at": entitlement["expires_at"] if entitlement else None,
                 }
+                if payment_recorded:
+                    _record_operational_event(
+                        event_type="stripe_payment_confirmed",
+                        source="stripe",
+                        method=request.method,
+                        path=request.path,
+                        status_code=200,
+                        success=True,
+                        metadata={
+                            "agent_id": agent_sku,
+                            "operation": "catalog_stripe_entitlement",
+                            "outcome": "confirmed",
+                        },
+                    )
             else:
-                vip_access = _activate_stripe_vip_access(
-                    paid_lead or prior_lead,
-                    event_data,
-                    plan_key,
-                    already_paid,
+                event_id = (payload.get("id") or "").strip()
+                amount_cents = int(event_data.get("amount_total") or 0)
+                is_valid_standard_payment = bool(
+                    event_id
+                    and checkout_id
+                    and stripe_vip_store.validate_checkout(
+                        checkout_id,
+                        email,
+                        plan_key,
+                        amount_cents,
+                        currency,
+                    )
                 )
+                if not is_valid_standard_payment:
+                    log.warning("Ignoring standard Stripe payment with unmatched checkout attributes.")
+                    return jsonify(
+                        {"ok": True, "status": "ignored_unmatched_standard_checkout"}
+                    )
+                event_claim = stripe_vip_store.claim_webhook_event(
+                    event_id, checkout_id, event_type
+                )
+                if event_claim["status"] == "completed":
+                    return jsonify({"ok": True, "status": "duplicate_webhook_event"})
+                if event_claim["status"] == "processing":
+                    return jsonify({"ok": False, "error": "webhook_processing"}), 503
+                processing_token = event_claim["processing_token"]
+                try:
+                    crm_store.mark_paid(email, amount, plan_key)
+                    stripe_vip_store.mark_paid(checkout_id)
+                    stripe_vip_store.ensure_delivery(checkout_id)
+                    vip_access = _attempt_stripe_vip_delivery(checkout_id)
+                    if not stripe_vip_store.complete_webhook_event(
+                        event_id, processing_token
+                    ):
+                        return jsonify({"ok": False, "error": "webhook_ownership_lost"}), 503
+                except Exception:
+                    stripe_vip_store.fail_webhook_event(event_id, processing_token)
+                    log.exception("Stripe VIP fulfillment failed; Stripe may retry the event.")
+                    return jsonify({"ok": False, "error": "vip_fulfillment_failed"}), 500
             return jsonify({
                 "ok": True,
                 "status": "paid",
@@ -1679,6 +2899,28 @@ def stripe_webhook_handler():
             })
 
     return jsonify({"ok": True, "received": True, "event_type": event_type})
+
+
+@app.route("/api/admin/vip-deliveries/<checkout_id>/retry", methods=["POST"])
+def retry_vip_delivery(checkout_id: str):
+    """Retry delivery only for a server-recorded, paid VIP checkout."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    checkout = stripe_vip_store.get_checkout(checkout_id)
+    if not checkout:
+        return jsonify({"ok": False, "error": "checkout_not_found"}), 404
+    if checkout.get("payment_status") != "paid":
+        return jsonify({"ok": False, "error": "checkout_not_paid"}), 409
+    result = _attempt_stripe_vip_delivery(checkout_id)
+    delivered = result.get("status") in {"invite_sent", "already_active"}
+    return jsonify(
+        {
+            "ok": delivered,
+            "checkout_id": checkout_id,
+            "delivery_status": result.get("status", "unknown"),
+        }
+    ), 200 if delivered else 202
 
 
 @app.route("/api/sales/summary", methods=["GET"])
@@ -1718,6 +2960,15 @@ def api_admin_leads():
     })
 
 
+def _mask_email(value: str) -> str:
+    """Return a minimally useful dashboard identifier without exposing customer PII."""
+    email = str(value or "").strip()
+    local, separator, domain = email.partition("@")
+    if not separator or not local or not domain:
+        return "—"
+    return f"{local[:1]}***@{domain}"
+
+
 def _admin_overview_payload() -> dict:
     """Build the protected dashboard read model without exposing chat identifiers."""
     leads = crm_store.get_all()
@@ -1741,7 +2992,7 @@ def _admin_overview_payload() -> dict:
 
     vip_plans = [
         {
-            "email": lead.get("email", ""),
+            "email": _mask_email(lead.get("email", "")),
             "plan": lead.get("plan", ""),
             "amount_usd": float(lead.get("amount_usd") or 0),
             "activated_at": lead.get("created_at", ""),
@@ -1761,6 +3012,19 @@ def _admin_overview_payload() -> dict:
 
     crm_revenue = round(sum(payment["amount_usd"] for payment in crm_payments), 2)
     catalog_metrics = catalog_store.get_metrics_24h()
+    nexus_metrics = _nexus_metrics_24h()
+    agent_analytics = _compose_agent_analytics(catalog_metrics, nexus_metrics)
+    catalog_healthy = catalog_store.is_healthy()
+    audit_healthy = audit_store.is_healthy()
+    stripe_vip_healthy = stripe_vip_store.is_healthy()
+    settlement_store = getattr(x402_settlement, "store", None)
+    settlement_schema_healthy = bool(
+        settlement_store and getattr(settlement_store, "is_healthy", lambda: False)()
+    )
+    try:
+        durable_audit_events = audit_store.recent_events(limit=100)
+    except Exception:
+        durable_audit_events = []
     pending_research = len(research_store.list_insights(status="PENDING", limit=200))
     market_cache = get_coingecko_cache_status()
     market_age = market_cache.get("age_seconds")
@@ -1769,6 +3033,61 @@ def _admin_overview_payload() -> dict:
         market_detail = f"{market_detail} cache, age {market_age}s"
     if market_cache.get("detail"):
         market_detail = f"{market_detail} — {market_cache['detail']}"
+    try:
+        active_contract = marketplace_store.active_contract() if getattr(marketplace_store, "available", False) else None
+        published_agents = _approved_catalog_agents()
+    except Exception:
+        active_contract = None
+        published_agents = None
+    catalog_published = bool(active_contract and published_agents)
+    launch_gates = {
+        "contract": {
+            "status": "active" if catalog_published else _catalog_governance_status(),
+            "version": active_contract.get("version") if catalog_published else None,
+            "auto_publish": False,
+        },
+        "catalog": {
+            "published": catalog_published,
+            "approved_agent_count": len(published_agents or []),
+        },
+        "persistence": {
+            "catalog_backend": catalog_store.backend,
+            "catalog_healthy": catalog_healthy,
+            "audit_backend": audit_store.backend,
+            "audit_healthy": audit_healthy,
+            "stripe_vip_backend": stripe_vip_store.backend,
+            "stripe_vip_healthy": stripe_vip_healthy,
+            "governance_backend": marketplace_store.backend,
+            "governance_available": bool(getattr(marketplace_store, "available", False)),
+            "settlement_schema_healthy": settlement_schema_healthy,
+            "schema_verified": bool(
+                catalog_store.backend == "postgresql"
+                and audit_store.backend == "postgresql"
+                and catalog_healthy
+                and audit_healthy
+                and stripe_vip_healthy
+                and settlement_schema_healthy
+                and getattr(marketplace_store, "available", False)
+            ),
+        },
+        "x402": {
+            "mode": x402_settlement.status,
+            "production_smoke_verified": False,
+        },
+        "stripe": {
+            "configured": stripe_checkout.enabled,
+            "feed_state": stripe_listing.get("state", "unknown"),
+            "age_seconds": stripe_listing.get("age_seconds"),
+        },
+        "broad_launch": {
+            "status": "blocked",
+            "detail": "Requires Publish verification, payment delivery smoke tests, and repeat paid flagship evidence.",
+        },
+    }
+    safe_payments = [
+        {**payment, "email": _mask_email(payment.get("email", ""))}
+        for payment in displayed_payments[:100]
+    ]
     return {
         "ok": True,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1785,21 +3104,47 @@ def _admin_overview_payload() -> dict:
             "catalog_calls_24h": catalog_metrics["totals"]["calls"],
             "catalog_hits_24h": catalog_metrics["totals"]["hits"],
             "catalog_revenue_24h_usd": catalog_metrics["totals"]["revenue_usd"],
+            "agent_hits_24h": agent_analytics["totals"]["hits"],
+            "agent_sales_24h": agent_analytics["totals"]["sales"],
+            "nexus_hits_24h": nexus_metrics["hits_24h"],
+            "nexus_sales_24h": nexus_metrics["sales_24h"],
             "active_agent_entitlements": catalog_store.active_entitlement_count(),
             "research_pending_review": pending_research,
         },
-        "payments": displayed_payments[:100],
+        "payments": safe_payments,
         "payment_source": "stripe_checkout" if use_stripe_feed else "crm_paid_events",
         "vip_plans": vip_plans[:100],
-        "request_log": list(reversed(live_requests)),
+        "request_log": durable_audit_events or list(reversed(live_requests)),
         "agent_catalog": catalog_metrics,
+        "agent_analytics": agent_analytics,
+        "launch_gates": launch_gates,
         "services": {
             "crm": {"ready": crm_store.is_healthy(), "backend": crm_store.backend},
+            "audit": {
+                "ready": audit_store.is_healthy(),
+                "backend": audit_store.backend,
+                "detail": "redacted operational events",
+            },
             "agent_catalog": {
                 "ready": catalog_store.is_healthy(),
                 "backend": catalog_store.backend,
                 "active_agents": len(catalog_metrics["products"]),
-                "detail": "24h catalog analytics",
+                "detail": "24h analytics for eight official catalog agents",
+            },
+            "x402_settlement": {
+                "ready": x402_settlement.status == "full",
+                "mode": x402_settlement.status,
+                "confirmations_required": X402_CONFIRMATIONS,
+                "detail": "agent-bound Base USDC proof validation",
+            },
+            "nexus": {
+                "ready": nexus_store.is_healthy(),
+                "analytics_ready": nexus_store.analytics_is_healthy(),
+                "backend": nexus_store.backend,
+                "x402_mode": nexus_x402_settlement.status,
+                "human_pricing": "EUR 10/month or EUR 50/year",
+                "bot_pricing": f"USDC {NEXUS_X402_USDC:.2f} per premium signal",
+                "detail": "isolated subscriptions, Base x402 ledger and 24h engagement",
             },
             "research": {
                 "ready": research_store.is_healthy(),
@@ -1861,7 +3206,192 @@ def api_admin_catalog_metrics():
     auth_error = _require_admin_access()
     if auth_error:
         return auth_error
-    return _safe_jsonify({"ok": True, **catalog_store.get_metrics_24h()})
+    catalog_metrics = catalog_store.get_metrics_24h()
+    nexus_metrics = _nexus_metrics_24h()
+    return _safe_jsonify(
+        {
+            "ok": True,
+            **catalog_metrics,
+            "nexus": nexus_metrics,
+            "all_offerings": _compose_agent_analytics(
+                catalog_metrics, nexus_metrics
+            )["products"],
+        }
+    )
+
+
+@app.route("/api/admin/marketplace-governance", methods=["GET"])
+def api_admin_marketplace_governance():
+    """Show the approved contract and persistence readiness without raw research payloads."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    return _safe_jsonify(
+        {
+            "ok": bool(getattr(marketplace_store, "available", False)),
+            "backend": marketplace_store.backend,
+            "reason": getattr(marketplace_store, "reason", ""),
+            "active_contract": marketplace_store.active_contract(),
+            "contracts": marketplace_store.list_contracts(),
+            "latest_demand_scout": marketplace_store.latest_scout_report(),
+            "auto_publish": False,
+        }
+    )
+
+
+@app.route("/api/admin/demand-scout", methods=["GET", "POST"])
+def api_admin_demand_scout():
+    """Inspect or manually run bounded market research; it never publishes changes."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    if request.method == "GET":
+        report = marketplace_store.latest_scout_report()
+        return _safe_jsonify(
+            {
+                "ok": report is not None,
+                "available": bool(getattr(marketplace_store, "available", False)),
+                "reason": getattr(marketplace_store, "reason", ""),
+                "report": report,
+                "auto_publish": False,
+            }
+        )
+    outcome = _refresh_demand_scout()
+    status = 200 if outcome.get("ok") else 503
+    return _safe_jsonify({**outcome, "auto_publish": False}), status
+
+
+@app.route("/api/admin/catalog-contract/rollback", methods=["POST"])
+def api_admin_catalog_contract_rollback():
+    """Human-only contract rollback; daily research cannot call this endpoint."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    version = str(payload.get("version") or "").strip()
+    if not version:
+        return jsonify({"ok": False, "error": "contract_version_required"}), 400
+    candidate = next(
+        (item for item in marketplace_store.list_contracts() if item["version"] == version),
+        None,
+    )
+    if not candidate:
+        return jsonify({"ok": False, "error": "contract_version_not_found_or_unavailable"}), 404
+    if not manifest_is_runtime_compatible(candidate.get("manifest", {})):
+        return jsonify({"ok": False, "error": "manifest_runtime_incompatible"}), 400
+    try:
+        contract = _transition_catalog_contract(candidate)
+    except Exception:
+        log.exception("Catalog contract rollback failed")
+        return jsonify({"ok": False, "error": "catalog_contract_rollback_failed"}), 503
+    if not contract:
+        return jsonify({"ok": False, "error": "catalog_contract_rollback_failed"}), 503
+    _record_operational_event(
+        event_type="catalog_contract_rollback",
+        source="admin",
+        method=request.method,
+        path=request.path,
+        status_code=200,
+        success=True,
+        metadata={
+            "operation": "catalog_contract_governance",
+            "outcome": "rollback",
+            "catalog_version": version,
+        },
+    )
+    return _safe_jsonify({"ok": True, "active_contract": contract, "auto_publish": False})
+
+
+@app.route("/api/admin/catalog-contract/activate", methods=["POST"])
+def api_admin_catalog_contract_activate():
+    """Human-only approval path for a draft; startup and Demand Scout cannot invoke it."""
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    version = str(payload.get("version") or "").strip()
+    if not version:
+        return jsonify({"ok": False, "error": "contract_version_required"}), 400
+    candidate = next(
+        (item for item in marketplace_store.list_contracts() if item["version"] == version),
+        None,
+    )
+    if not candidate:
+        return jsonify({"ok": False, "error": "contract_version_not_found_or_unavailable"}), 404
+    if not manifest_is_runtime_compatible(candidate.get("manifest", {})):
+        return jsonify({"ok": False, "error": "manifest_runtime_incompatible"}), 400
+    try:
+        contract = _transition_catalog_contract(candidate)
+    except Exception:
+        log.exception("Catalog contract activation failed")
+        return jsonify({"ok": False, "error": "catalog_contract_activation_failed"}), 503
+    if not contract:
+        return jsonify({"ok": False, "error": "catalog_contract_activation_failed"}), 503
+    _record_operational_event(
+        event_type="catalog_contract_activated",
+        source="admin",
+        method=request.method,
+        path=request.path,
+        status_code=200,
+        success=True,
+        metadata={
+            "operation": "catalog_contract_governance",
+            "outcome": "activated",
+            "catalog_version": version,
+        },
+    )
+    return _safe_jsonify({"ok": True, "active_contract": contract, "auto_publish": False})
+
+
+@app.route("/api/admin/trial-conversion", methods=["GET"])
+def api_admin_trial_conversion():
+    """Per-agent conversion funnel: trial_started → checkout_initiated → stripe_payment_confirmed.
+
+    Returns counts and conversion percentages for each catalog agent over all
+    retained audit events (no time-window filter — intended for admin reporting).
+    Admin authentication required.
+    """
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+
+    raw_events = audit_store.recent_events(limit=5000) if hasattr(audit_store, "recent_events") else []
+    trial_counts: dict[str, int] = {}
+    checkout_counts: dict[str, int] = {}
+    paid_counts: dict[str, int] = {}
+    for ev in raw_events:
+        meta = ev.get("metadata") or {}
+        agent_id = meta.get("agent_id") or meta.get("product_id", "")
+        if not agent_id:
+            continue
+        etype = ev.get("event_type", "")
+        if etype == "trial_started":
+            trial_counts[agent_id] = trial_counts.get(agent_id, 0) + 1
+        elif etype == "checkout_initiated":
+            checkout_counts[agent_id] = checkout_counts.get(agent_id, 0) + 1
+        elif etype == "stripe_payment_confirmed":
+            paid_counts[agent_id] = paid_counts.get(agent_id, 0) + 1
+
+    catalog = catalog_store.get_catalog()
+    funnel = []
+    for a in catalog:
+        aid = a["id"]
+        trials = trial_counts.get(aid, 0)
+        checkouts = checkout_counts.get(aid, 0)
+        paid = paid_counts.get(aid, 0)
+        funnel.append({
+            "agent_id": aid,
+            "name": a["name"],
+            "category": a["category"],
+            "trials": trials,
+            "checkouts": checkouts,
+            "paid": paid,
+            "trial_to_checkout_pct": round(100.0 * checkouts / trials, 1) if trials else 0.0,
+            "checkout_to_paid_pct": round(100.0 * paid / checkouts, 1) if checkouts else 0.0,
+            "overall_conversion_pct": round(100.0 * paid / trials, 1) if trials else 0.0,
+        })
+    funnel.sort(key=lambda x: x["trials"], reverse=True)
+    return _safe_jsonify({"ok": True, "funnel": funnel, "event_window": "all_retained"})
 
 
 @app.route("/api/v1/research/ingest", methods=["POST"])
@@ -1954,13 +3484,13 @@ _ADMIN_DASHBOARD_HTML = r"""
 <html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kristo Intelligence — Оперативен dashboard</title>
 <style>
-:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin:16px 0 28px}.card,.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}.metric label,.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}.metric strong{display:block;font-size:1.8rem;margin-top:7px}.panel{margin:18px 0}.panel h2{font-size:1rem;margin:0 0 14px}.services{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.service{padding:12px;background:#121522;border-radius:8px}.good{color:var(--good)}.bad{color:var(--bad)}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase}.scroll{overflow:auto}.muted{color:var(--muted)}#error{color:var(--bad);min-height:18px}@media(max-width:650px){main{padding:16px}header{padding:16px;align-items:flex-start;flex-direction:column}th,td{padding:8px}}
+:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171;--warn:#fbbf24}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin:16px 0 28px}.card,.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}.metric label,.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}.metric strong{display:block;font-size:1.8rem;margin-top:7px}.panel{margin:18px 0}.panel h2{font-size:1rem;margin:0 0 14px}.services,.gates{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.service,.gate{padding:12px;background:#121522;border-radius:8px}.gate strong{display:block;margin-top:5px}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}.notice{margin:16px 0;padding:14px 16px;border:1px solid #695726;border-radius:10px;background:#251e0e;color:#fef3c7}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase}.scroll{overflow:auto}.muted{color:var(--muted)}#error{color:var(--bad);min-height:18px}@media(max-width:650px){main{padding:16px}header{padding:16px;align-items:flex-start;flex-direction:column}th,td{padding:8px}}
 </style></head>
 <body><header><div><h1>Kristo Intelligence — Оперативен dashboard</h1><div class="muted">Автоматично обновяване на 15 секунди. Чувствителните данни са достъпни само за администратор.</div></div><div><a href="/sales/admin/research">R&D review</a> · <a href="/sales/admin/logout">Изход</a></div></header>
-<main><p id="error"></p><section id="metrics" class="grid"></section>
+<main><p id="error"></p><div class="notice"><strong>v6 preview — launch gates pending.</strong> Публичен commercial launch не се маркира като готов, докато Publish, contract activation, payment delivery smoke и repeat paid evidence не са потвърдени.</div><p id="generated-at" class="muted"></p><section class="panel"><h2>v6 launch gates</h2><div id="launch-gates" class="gates"></div></section><section id="metrics" class="grid"></section>
 <section class="panel"><h2>Статус на услугите</h2><div id="services" class="services"></div></section>
-<section class="panel"><h2>AI Агентни услуги (x402 Revenue)</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Име</th><th>Цена (USD)</th><th>Hits (Заявки)</th><th>Платени (Sales)</th><th>Приход (Revenue)</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
+<section class="panel"><h2>AI агентни услуги — интерес и потвърдени продажби (24ч)</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Име</th><th>Цена</th><th>Hits (посещения / клик / API)</th><th>Платени (Sales)</th><th>Приход</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
 <section class="panel"><h2>Последни Stripe/CRM плащания</h2><p id="payment-source" class="muted"></p><div class="scroll"><table><thead><tr><th>Време</th><th>Клиент</th><th>План</th><th>Сума</th><th>Статус</th><th>Източник</th></tr></thead><tbody id="payments"></tbody></table></div></section>
 <section class="panel"><h2>Активни платени VIP планове</h2><div class="scroll"><table><thead><tr><th>Активиран</th><th>Клиент</th><th>План</th><th>Сума</th><th>Telegram</th></tr></thead><tbody id="vips"></tbody></table></div></section>
 <section class="panel"><h2>Запитвания и логове</h2><p class="muted">Показват се последните 100 заявки без headers, token-и или параметри.</p><div class="scroll"><table><thead><tr><th>Време</th><th>Източник</th><th>Метод</th><th>Път</th><th>Статус</th></tr></thead><tbody id="requests"></tbody></table></div></section>
@@ -1971,14 +3501,39 @@ const money = value => '$' + Number(value || 0).toLocaleString('en-US',{minimumF
 const date = value => { if (!value) return '—'; const stamp = typeof value === 'number' ? value * 1000 : value; const parsed = new Date(stamp); return Number.isNaN(parsed) ? '—' : parsed.toLocaleString('bg-BG'); };
 function rows(id, values, makeRow, colspan) { const target=document.getElementById(id); target.innerHTML=values.length?values.map(makeRow).join(''):`<tr><td colspan="${colspan}" class="muted">Все още няма данни.</td></tr>`; }
 function render(data) {
-  const metricLabels={'total_revenue_usd':'Общ приход','catalog_revenue_24h_usd':'Агентен приход (24ч)','catalog_hits_24h':'Агентни заявки (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'Платени записи','active_vip_plans':'Активни VIP планове','active_telegram_users':'Активни Telegram потребители'};
+  const metricLabels={'crm_revenue_usd':'CRM потвърден приход','onchain_revenue_usd':'Наблюдаван on-chain обем','catalog_revenue_24h_usd':'Catalog потвърден приход (24ч)','agent_hits_24h':'Agent hits (24ч)','agent_sales_24h':'Agent sales (24ч)','nexus_hits_24h':'Nexus hits (24ч)','nexus_sales_24h':'Nexus sales (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'CRM платени записи','active_vip_plans':'VIP записи (не subscription status)','active_telegram_users':'Активни Telegram потребители'};
   document.getElementById('metrics').innerHTML=Object.entries(metricLabels).map(([key,label])=>`<div class="card metric"><label>${label}</label><strong>${key.includes('revenue')?money(data.metrics[key]):escapeHtml(data.metrics[key])}</strong></div>`).join('');
+  document.getElementById('generated-at').textContent=`Последно генериране: ${date(data.generated_at)} · Catalog/Nexus метриките са за 24ч, CRM/on-chain са отделни източници.`;
+  const gates=data.launch_gates||{}, contract=gates.contract||{}, catalogGate=gates.catalog||{}, persistence=gates.persistence||{}, x402=gates.x402||{}, stripe=gates.stripe||{}, launch=gates.broad_launch||{};
+  const gate=(good,label,detail)=>`<div class="gate"><span class="label">${escapeHtml(label)}</span><strong class="${good?'good':'warn'}">● ${escapeHtml(detail)}</strong></div>`;
+  document.getElementById('launch-gates').innerHTML=[
+    gate(contract.status==='active','Contract',contract.status==='active'?`active v${contract.version}`:`${contract.status||'unknown'} — human approval required`),
+    gate(catalogGate.published,'Catalog',catalogGate.published?`${catalogGate.approved_agent_count} approved utilities published`:'hidden until approved contract'),
+    gate(persistence.schema_verified,'Persistence',`${persistence.schema_verified?'schema verified':'schema incomplete'} · ${persistence.catalog_backend||'unknown'} catalog · ${persistence.audit_backend||'unknown'} audit · ${persistence.stripe_vip_backend||'unknown'} Stripe VIP`),
+    gate(x402.mode==='full'&&x402.production_smoke_verified,'x402 settlement',`${x402.mode||'unknown'} · live smoke ${x402.production_smoke_verified?'verified':'required'}`),
+    gate(stripe.configured&&stripe.feed_state==='live','Stripe source',`${stripe.feed_state||'unknown'}${stripe.age_seconds!=null?` · age ${stripe.age_seconds}s`:''}`),
+    gate(false,'Broad launch',launch.detail||'blocked'),
+  ].join('');
   document.getElementById('services').innerHTML=Object.entries(data.services).map(([name,service])=>{const ready=service.ready ?? service.running ?? service.configured;return `<div class="service"><strong class="${ready?'good':'bad'}">${ready?'● Работи':'● Нужна проверка'}</strong><br><span class="label">${escapeHtml(name)}</span><span class="muted">${escapeHtml(service.backend || service.detail || '')}</span></div>`}).join('');
-  const catalog=data.agent_catalog||{products:[],totals:{},top_selling_agent:null};
-  const top=catalog.top_selling_agent;
-  document.getElementById('catalog-summary').textContent='Показват се само durable, потвърдени catalog events за последните 24 часа. x402 settlement остава discovery-only, докато Base facilitator не бъде активиран.';
-  rows('catalog',catalog.products,p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.category)}</span></td><td>${money(p.price_x402)} USDC</td><td>${escapeHtml(p.hits_24h)}</td><td>${escapeHtml(p.sales_24h)}</td><td>${money(p.revenue_24h)}</td></tr>`,5);
-  document.getElementById('payment-source').textContent=data.payment_source==='stripe_checkout'?'Данни от Stripe Checkout.':'Stripe listing не е наличен; показани са потвърдени CRM payment events.';
+  const analytics=data.agent_analytics||{products:[],totals:{},interest_leader:null,sales_leader:null};
+  const interest=analytics.interest_leader;
+  const sales=analytics.sales_leader;
+  const leaderText=[
+    interest ? `Най-голям интерес: ${interest.name} (${interest.hits_24h} hits)` : 'Все още няма activity.',
+    sales ? `Най-много покупки: ${sales.name} (${sales.sales_24h} confirmed sales)` : ''
+  ].filter(Boolean).join(' · ');
+  document.getElementById('catalog-summary').textContent=`${leaderText} Показани са само server-observed events за последните 24 часа. ${catalogGate.published?'Catalog metadata е от active approved contract.':'Catalog-ът не е публикуван; тези метрики са вътрешни и не представляват публични utilities.'} Nexus е отделен payment ledger и не променя ranking-а на catalog SKU-та.`;
+  const hitDetail=p=>p.is_nexus
+    ? `Посещения ${p.visits_24h||0} · Клик ${p.clicks_24h||0} · API ${p.api_requests_24h||0}`
+    : `Клик ${p.clicks_24h||0} · API ${p.calls_24h||0}`;
+  const saleDetail=p=>p.is_nexus
+    ? `Stripe ${p.stripe_subscriptions_24h||0} · x402 ${p.x402_signals_24h||0}`
+    : `${p.sales_24h||0} confirmed`;
+  const revenue=p=>p.is_nexus
+    ? `€${Number(p.revenue_eur_24h||0).toFixed(2)} · $${Number(p.revenue_usdc_24h||0).toFixed(2)} USDC`
+    : money(p.revenue_24h);
+  rows('catalog',analytics.products,p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.is_nexus?'isolated Nexus ledger':p.category)}</span></td><td>${escapeHtml(p.price_label||`${money(p.price_x402)} USDC`)}</td><td><strong>${escapeHtml(p.hits_24h)}</strong><br><span class="muted">${escapeHtml(hitDetail(p))}</span></td><td><strong>${escapeHtml(p.sales_24h)}</strong><br><span class="muted">${escapeHtml(saleDetail(p))}</span></td><td>${escapeHtml(revenue(p))}</td></tr>`,5);
+  document.getElementById('payment-source').textContent=data.payment_source==='stripe_checkout'?`Данни от Stripe Checkout · ${stripe.feed_state||'unknown'}${stripe.age_seconds!=null?` · cache age ${stripe.age_seconds}s`:''}.`:'Stripe listing не е наличен; показани са CRM paid events, не live Stripe settlement feed.';
   rows('payments',data.payments,p=>`<tr><td>${date(p.created)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td class="good">${escapeHtml(p.payment_status)}</td><td>${escapeHtml(p.provider)}</td></tr>`,6);
   rows('vips',data.vip_plans,p=>`<tr><td>${date(p.activated_at)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td>${p.telegram_linked?'Свързан':'Не е свързан'}</td></tr>`,5);
   rows('requests',data.request_log,r=>`<tr><td>${date(r.timestamp)}</td><td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.method)}</td><td>${escapeHtml(r.path)}</td><td class="${r.status_code<400?'good':'bad'}">${escapeHtml(r.status_code)}</td></tr>`,5);
@@ -2046,20 +3601,20 @@ def sales_admin_research():
 
 @app.route("/api/launch/health", methods=["GET"])
 def launch_health():
-    """Launch health endpoint for sales ops and deployment checks."""
+    """Public operational readiness endpoint.
+
+    Returns only system-level readiness flags — no lead counts, pipeline data,
+    or internal URLs that would expose sales operations to anonymous callers.
+    Authenticated callers that need pipeline data should use /api/sales/summary.
+    """
     crm_ready = crm_store.is_healthy()
-    lead_count = len(crm_store.get_all()) if crm_ready else 0
-    pipeline = crm_store.get_sales_pipeline() if crm_ready else {}
     payload = {
         "ok": True,
         "app": "kristo-intelligence-v6",
         "status": "live" if crm_ready else "degraded",
-        "payment_provider": "stripe" if os.getenv("STRIPE_API_KEY") else "mock",
-        "crm_backend": crm_store.backend,
         "crm_ready": crm_ready,
-        "lead_count": lead_count,
-        "pipeline": pipeline,
-        "public_url": os.getenv("APP_PUBLIC_URL", "http://localhost:5000"),
+        "audit_ready": audit_store.is_healthy(),
+        "x402_settlement_ready": x402_settlement.status == "full",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     return jsonify(payload), 200 if crm_ready else 503
@@ -2095,14 +3650,40 @@ def health():
     crm_ready = crm_store.is_healthy()
     with _lock:
         wallet = dict(_wallet_state)
+    mock_payments_enabled = (
+        os.getenv("KRISTO_ALLOW_MOCK_PAYMENTS", "").strip().lower() == "true"
+    )
     blockchain_ready = bool(
         wallet.get("rpc_connected")
         and wallet.get("chain_id") == BASE_CHAIN_ID
         and wallet.get("receiver_valid")
     )
+    # Explicit local/test mock mode has no RPC monitor by design. It must not
+    # make preview health fail merely because network workers are disabled.
+    if mock_payments_enabled and not wallet.get("rpc_connected"):
+        blockchain_ready = True
+        wallet["chain_id"] = BASE_CHAIN_ID
     return jsonify(
         status="ok" if crm_ready and blockchain_ready else "degraded",
-        database={"backend": crm_store.backend, "ready": crm_ready},
+        database={
+            "backend": crm_store.backend,
+            "ready": crm_ready,
+            "audit_backend": audit_store.backend,
+            "audit_ready": audit_store.is_healthy(),
+            "stripe_vip_backend": stripe_vip_store.backend,
+            "stripe_vip_ready": stripe_vip_store.is_healthy(),
+        },
+        x402={
+            "settlement_mode": x402_settlement.status,
+            "ready": x402_settlement.status == "full",
+            "confirmations_required": X402_CONFIRMATIONS,
+        },
+        nexus={
+            "ready": nexus_store.is_healthy(),
+            "analytics_ready": nexus_store.analytics_is_healthy(),
+            "x402_settlement_mode": nexus_x402_settlement.status,
+            "bot_price_usdc": NEXUS_X402_USDC,
+        },
         blockchain={
             "ready": blockchain_ready,
             "network": wallet.get("network", "Base Mainnet"),
@@ -2260,7 +3841,38 @@ def api_telegram_webhook():
         return jsonify({"ok": False, "error": "empty_payload"}), 400
 
     try:
-        result = process_webhook_update(payload)
+        message = payload.get("message") or {}
+        chat_id = message.get("chat", {}).get("id")
+        text = (message.get("text") or "").strip()
+        command_parts = text.split()
+        start_command = command_parts[0].lower() if command_parts else ""
+        if (
+            chat_id
+            and start_command.startswith("/start")
+            and len(command_parts) == 2
+            and command_parts[1].startswith("vip_")
+        ):
+            vip_result = _link_stripe_vip_telegram_account(
+                command_parts[1][4:], str(chat_id)
+            )
+            if vip_result.get("status") == "telegram_linked_waiting_payment":
+                telegram_flow.send_message(
+                    str(chat_id),
+                    "Telegram профилът е свързан. VIP поканата ще бъде изпратена след потвърдено Stripe плащане.",
+                )
+            elif vip_result.get("status") == "invalid_vip_link":
+                telegram_flow.send_message(
+                    str(chat_id),
+                    "Този VIP код не е валиден. Върнете се към Stripe checkout страницата и използвайте текущия код.",
+                )
+            elif vip_result.get("status") not in {"invite_sent", "already_active"}:
+                telegram_flow.send_message(
+                    str(chat_id),
+                    "Профилът е свързан, но VIP поканата все още не може да се изпрати. Опитайте отново по-късно.",
+                )
+            result = {"handled": True, "type": "stripe_vip_link", **vip_result}
+        else:
+            result = process_webhook_update(payload)
         _record_request("api_telegram_webhook", True)
         _record_telegram_activity(payload, result)
         log.info("Telegram webhook processed: %s", result)
@@ -2284,11 +3896,12 @@ def api_mcp_manifest():
     fee_receiver = get_base_fee_receiver()  # hard fallback to bound address
     base_url = request.host_url.rstrip("/")
 
+    catalog = _approved_catalog_agents()
     manifest = {
         "protocol": "x402",
         "version": "1.0",
         "service": "Kristo Intelligence API",
-        "description": "AI-powered DeFi trading signals and crypto market intelligence",
+        "description": "Evidence-first agent utilities and crypto market intelligence",
         "payment": {
             "chain": "base",
             "chain_id": 8453,
@@ -2296,14 +3909,6 @@ def api_mcp_manifest():
             "token_contract": os.getenv("BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
             "receiver_address": fee_receiver,
             "tiers": [
-                {
-                    "id": "micro_request",
-                    "name": "Micro Request",
-                    "price_usdc": MICRO_FEE_USDC,
-                    "description": "Pay-per-call: 0.10 USDC per API request",
-                    "access": "single API call",
-                    "endpoints": ["/api/stats", "/api/sales", "/api/bot-status"],
-                },
                 {
                     "id": "vip_monthly",
                     "name": "Monthly VIP",
@@ -2318,9 +3923,6 @@ def api_mcp_manifest():
         "endpoints": {
             "base_url": base_url,
             "available": [
-                {"path": "/api/stats", "method": "GET", "cost_usdc": MICRO_FEE_USDC, "description": "Market activity and daily stats"},
-                {"path": "/api/sales", "method": "GET", "cost_usdc": MICRO_FEE_USDC, "description": "Real on-chain sales history"},
-                {"path": "/api/bot-status", "method": "GET", "cost_usdc": MICRO_FEE_USDC, "description": "Telegram bot status"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0, "description": "This manifest (free)"},
                 {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0, "description": "HTML dashboard (free)"},
             ],
@@ -2329,6 +3931,19 @@ def api_mcp_manifest():
             "payment": f"Send USDC to {fee_receiver} on Base network",
             "verification": "Payments are verified on-chain via Transfer event logs",
             "vip_threshold": f"Payments >= ${VIP_THRESHOLD_USDC} USDC automatically generate a Telegram VIP invite code",
+        },
+        "catalog": {
+            "status": "active" if catalog else _catalog_governance_status(),
+            "contract_version": _published_contract_version() if catalog else None,
+            "agents": [
+                {
+                    "id": agent["id"],
+                    "name": agent["name"],
+                    "endpoint": f"{base_url}/api/v1/agents/{agent['id']}/playground",
+                    "price_usdc": round(float(agent["price_x402"]), 6),
+                }
+                for agent in (catalog or [])
+            ],
         },
     }
     return jsonify(manifest)
@@ -2346,18 +3961,48 @@ def well_known_x402():
 
 @app.route("/mcp.json")
 def mcp_json():
-    """
-    MCP (Model Context Protocol) discovery file for AI agent indexing.
+    """MCP discovery file — catalog-driven, contract_version 2.0.
 
-    Provides a machine-readable description of the service, available tools
-    (endpoints), and x402 payment requirements so autonomous agents can
-    discover and interact with the API automatically.
+    Lists all eight active catalog agents plus the Nexus premium signal as MCP
+    tools so AI orchestrators (Claude, GPT, custom agents) can discover the full
+    capability surface in one request.  The contract_version field is bumped
+    whenever the agent surface changes so consumers can detect staleness.
     """
     base_url = request.host_url.rstrip("/")
+    catalog = _approved_catalog_agents() or []
+
+    # Build catalog agent tool entries from the live 8-SKU store
+    catalog_tools = [
+        {
+            "name": f"agent_{a['id'].replace('-', '_')}",
+            "description": a["description"],
+            "endpoint": f"{base_url}/api/v1/agents/{a['id']}/playground",
+            "detail_endpoint": f"{base_url}/api/v1/agents/{a['id']}",
+            "method": "POST",
+            "cost_usdc": round(float(a["price_x402"]), 6),
+            "stripe_30day_usd": round(float(a["price_stripe"]), 2),
+            "free_playground_requests_per_client": 1,
+            "stripe_checkout": f"{base_url}/api/v1/agents/{a['id']}/checkout",
+            "category": a["category"],
+            "capability_id": a["capability_id"],
+            "input_schema": a["input_schema"],
+            "output_schema": a["output_schema"],
+            "source_policy": a["source_policy"],
+        }
+        for a in catalog
+    ]
+
     return jsonify({
-        "schema_version": "1.0",
+        "schema_version": "2.0",
+        "contract_version": _published_contract_version() if catalog else None,
+        "catalog_status": "active" if catalog else _catalog_governance_status(),
         "name": "Kristo Intelligence API",
-        "description": "AI-powered DeFi trading signals and crypto market intelligence on Base",
+        "description": (
+            "Eight evidence-first agent utilities and an isolated Nexus premium signal. "
+            "Catalog utilities are accessible via x402 USDC on Base or Stripe checkout."
+            if catalog
+            else "The catalog is not published until its contract is migrated and explicitly activated."
+        ),
         "base_url": base_url,
         "protocol": "x402",
         "payment": {
@@ -2366,70 +4011,37 @@ def mcp_json():
             "currency": "USDC",
             "token_contract": X402_USDC_CONTRACT,
             "receiver_address": X402_RECEIVER_ADDRESS,
-            "price_per_call_usdc": X402_FEE_USDC,
-            "free_tier_limit": FREE_TIER_LIMIT,
-            "monthly_vip_usdc": VIP_MONTHLY_USDC,
+            "catalog_price_range_usdc": {
+                "min": min((float(a["price_x402"]) for a in catalog), default=0.05),
+                "max": max((float(a["price_x402"]) for a in catalog), default=0.25),
+            },
+            "free_playground_requests_per_client": 1,
         },
-        "tools": [
-            {
-                "name": "get_market_stats",
-                "description": "Get market activity, daily stats, the official eight-agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed)",
-                "endpoint": f"{base_url}/api/stats",
-                "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
+        "agents": catalog_tools,
+        "nexus": {
+            "name": "nexus_premium_signal",
+            "description": (
+                "Nexus Engine premium market signal. "
+                "Single signal: $0.25 USDC via Base x402. "
+                "Subscription: €10/month or €50/year via Stripe."
+            ),
+            "signal_endpoint": f"{base_url}/api/nexus/premium-signal",
+            "method": "POST",
+            "cost_usdc": NEXUS_X402_USDC,
+            "subscription": {
+                "monthly_eur": 10.0,
+                "yearly_eur": 50.0,
+                "checkout": f"{base_url}/api/nexus/checkout",
             },
-            {
-                "name": "get_sales_history",
-                "description": "Get real on-chain sales history (USDC transfers) and live market snapshot",
-                "endpoint": f"{base_url}/api/sales",
-                "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
-            },
-            {
-                "name": "get_bot_status",
-                "description": "Get Telegram bot integration status and wallet info",
-                "endpoint": f"{base_url}/api/bot-status",
-                "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
-            },
-            {
-                "name": "get_mcp_manifest",
-                "description": "Get the full MCP/x402 payment manifest (free)",
-                "endpoint": f"{base_url}/api/mcp/manifest",
-                "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
-            },
-            {
-                "name": "get_x402_discovery",
-                "description": "Get x402 payment discovery metadata (free)",
-                "endpoint": f"{base_url}/.well-known/x402.json",
-                "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
-            },
-            {
-                "name": "get_openapi_spec",
-                "description": "Get OpenAPI 3.0 specification (free)",
-                "endpoint": f"{base_url}/openapi.json",
-                "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
-            },
-        ],
-        "data_sources": {
-            "coingecko": "https://api.coingecko.com/api/v3/simple/price",
-            "dexscreener": "https://api.dexscreener.com",
-            "fear_greed_index": "https://api.alternative.me/fng/",
+            "plans_endpoint": f"{base_url}/api/nexus/plans",
         },
-        "cache_ttl_minutes": 15,
-        "instructions": {
-            "payment": f"Send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
-            "verification": "Payments verified on-chain via ERC-20 Transfer event logs",
-            "retry": "After payment confirmation, retry the endpoint to access data",
+        "discovery": {
+            "x402": f"{base_url}/.well-known/x402.json",
+            "openapi": f"{base_url}/openapi.json",
+            "llms_txt": f"{base_url}/llms.txt",
+            "catalog": f"{base_url}/api/v1/agents",
+            "contract": f"{base_url}/api/v1/catalog/contract",
+            "developers": f"{base_url}/developers",
         },
     })
 
@@ -2445,8 +4057,8 @@ def openapi_spec():
         "openapi": "3.0.3",
         "info": {
             "title": "Kristo Intelligence API",
-            "version": "6.0.0",
-            "description": "AI-powered DeFi trading signals and crypto market intelligence. "
+            "version": "6.1.0",
+            "description": "Evidence-first agent utilities and data capabilities. "
                            "Uses x402 payment protocol — USDC on Base.",
             "x402": {
                 "protocol": "x402",
@@ -2461,110 +4073,142 @@ def openapi_spec():
         },
         "servers": [{"url": base_url}],
         "paths": {
-            "/api/stats": {
+            # ── Catalog agent endpoints (contract_version 2.0) ─────────────
+            "/api/v1/agents": {
                 "get": {
-                    "summary": "Market activity and daily stats",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
+                    "summary": "List all eight active catalog agents (free)",
+                    "x402": {"cost_usdc": 0.0},
+                    "responses": {"200": {"description": "Active agent catalog with pricing"}},
+                }
+            },
+            "/api/v1/catalog/contract": {
+                "get": {
+                    "summary": "Get the active machine contract and governance status (free)",
+                    "x402": {"cost_usdc": 0.0},
+                    "responses": {"200": {"description": "Active eight-utility contract manifest"}},
+                }
+            },
+            "/api/v1/agents/{agent_id}": {
+                "get": {
+                    "summary": "Get a single catalog agent by ID (free)",
+                    "x402": {"cost_usdc": 0.0},
+                    "parameters": [{"name": "agent_id", "in": "path", "required": True, "schema": {"type": "string"}}],
                     "responses": {
-                        "200": {"description": "Successful response with stats data"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
+                        "200": {"description": "Agent SKU with pricing and capability details"},
+                        "404": {"description": "Unknown agent ID"},
                     },
-                }
-            },
-            "/api/sales": {
-                "get": {
-                    "summary": "Real on-chain sales history",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with sales history"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/bot-status": {
-                "get": {
-                    "summary": "Telegram bot integration status",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with bot status"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/mcp/manifest": {
-                "get": {
-                    "summary": "MCP/x402 payment manifest (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Machine-readable payment manifest"}},
-                }
-            },
-            "/.well-known/x402.json": {
-                "get": {
-                    "summary": "x402 discovery file (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "x402 payment discovery metadata"}},
-                }
-            },
-            "/openapi.json": {
-                "get": {
-                    "summary": "This OpenAPI specification (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "OpenAPI 3.0 specification"}},
-                }
-            },
-            "/llms.txt": {
-                "get": {
-                    "summary": "LLM-friendly API description (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Plain-text API description for LLMs"}},
-                }
-            },
-            "/health": {
-                "get": {
-                    "summary": "Health check (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Service health status"}},
-                }
-            },
-            "/dashboard": {
-                "get": {
-                    "summary": "HTML dashboard (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "HTML dashboard page"}},
                 }
             },
             "/api/v1/agents/{agent_id}/playground": {
                 "post": {
-                    "summary": "One bounded free catalog-agent demo per client",
+                    "summary": "Run one bounded catalog utility per client, then x402 or Stripe",
                     "x402": {
                         "catalog_driven_pricing": True,
-                        "settlement_status": "discovery_only",
                         "free_playground_requests_per_client": 1,
                     },
-                    "parameters": [
-                        {
-                            "name": "agent_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string"},
-                        }
-                    ],
+                    "parameters": [{"name": "agent_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                    "requestBody": {"content": {"application/json": {"schema": {"required": ["input"], "properties": {"input": {"type": "string", "maxLength": 6000}, "baseline": {"type": "string", "maxLength": 6000}}}}}},
                     "responses": {
-                        "200": {"description": "Bounded demo execution completed"},
-                        "402": {"description": "Free demo used; response includes x402 and Stripe upgrade paths"},
+                        "200": {"description": "Execution envelope with provenance and freshness"},
+                        "402": {"description": "Free request used — response includes x402 challenge and Stripe checkout URL"},
                         "404": {"description": "Unknown agent"},
                     },
+                }
+            },
+            "/api/v1/agents/{agent_id}/click": {
+                "post": {
+                    "summary": "Record a catalog product-page click for conversion analytics",
+                    "x402": {"cost_usdc": 0.0},
+                    "parameters": [{"name": "agent_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                    "responses": {"202": {"description": "Click recorded"}, "429": {"description": "Click rate limited"}},
+                }
+            },
+            "/api/v1/agents/{agent_id}/checkout": {
+                "post": {
+                    "summary": "Create a 30-day Stripe checkout entitlement for a catalog agent",
+                    "x402": {"cost_usdc": 0.0},
+                    "parameters": [{"name": "agent_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                    "requestBody": {"content": {"application/json": {"schema": {"required": ["email"], "properties": {"email": {"type": "string"}}}}}},
+                    "responses": {"200": {"description": "Stripe checkout session created"}, "503": {"description": "Checkout unavailable"}},
+                }
+            },
+            "/api/v1/agents/{agent_id}/access": {
+                "post": {
+                    "summary": "Exchange a paid checkout_id for a signed bearer access token",
+                    "x402": {"cost_usdc": 0.0},
+                    "parameters": [{"name": "agent_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                    "requestBody": {"content": {"application/json": {"schema": {"required": ["email", "checkout_id"], "properties": {"email": {"type": "string"}, "checkout_id": {"type": "string"}}}}}},
+                    "responses": {"200": {"description": "Bearer access token"}, "403": {"description": "Entitlement not found"}},
+                }
+            },
+            # ── Nexus Engine ───────────────────────────────────────────────
+            "/api/nexus/plans": {
+                "get": {
+                    "summary": "Nexus Engine pricing: €10/month, €50/year, $0.25 USDC per signal",
+                    "x402": {"cost_usdc": 0.0},
+                    "responses": {"200": {"description": "Nexus plan options"}},
+                }
+            },
+            "/api/nexus/checkout": {
+                "post": {
+                    "summary": "Create a Nexus subscription checkout (EUR, recurring)",
+                    "x402": {"cost_usdc": 0.0},
+                    "requestBody": {"content": {"application/json": {"schema": {"required": ["email", "plan"], "properties": {"email": {"type": "string"}, "plan": {"type": "string", "enum": ["monthly", "yearly"]}}}}}},
+                    "responses": {"200": {"description": "Stripe subscription checkout session"}},
+                }
+            },
+            "/api/nexus/premium-signal": {
+                "post": {
+                    "summary": "Premium Nexus market signal — $0.25 USDC via Base x402",
+                    "x402": {"cost_usdc": 0.25, "protocol": "x402-challenge-response"},
+                    "requestBody": {"content": {"application/json": {"schema": {"properties": {"asset": {"type": "string"}}}}}},
+                    "responses": {
+                        "200": {"description": "Premium signal returned after settlement"},
+                        "402": {"description": "x402 challenge issued — sign and resend with X-Payment-Proof header"},
+                    },
+                }
+            },
+            # ── Discovery / free endpoints ─────────────────────────────────
+            "/api/mcp/manifest": {"get": {"summary": "MCP/x402 manifest (free)", "responses": {"200": {"description": "MCP manifest"}}}},
+            "/.well-known/x402.json": {"get": {"summary": "x402 discovery (free)", "responses": {"200": {"description": "x402 catalog discovery"}}}},
+            "/openapi.json": {"get": {"summary": "This OpenAPI spec (free)", "responses": {"200": {"description": "OpenAPI 3.0"}}}},
+            "/llms.txt": {"get": {"summary": "LLM-friendly API description (free)", "responses": {"200": {"description": "Plain text"}}}},
+            "/mcp.json": {"get": {"summary": "MCP agent catalog discovery (free)", "responses": {"200": {"description": "MCP JSON"}}}},
+            "/health": {"get": {"summary": "Operational readiness (free)", "responses": {"200": {"description": "ok"}, "503": {"description": "degraded"}}}},
+            "/developers": {"get": {"summary": "Developer integration guide (free)", "responses": {"200": {"description": "Integration HTML page"}}}},
+            # ── Legacy operational endpoints (free; not x402 settlement) ──
+            "/api/stats": {
+                "get": {
+                    "summary": "Market activity and daily stats (free legacy endpoint)",
+                    "responses": {"200": {"description": "Stats"}},
+                }
+            },
+            "/api/sales": {
+                "get": {
+                    "summary": "On-chain sales history (free legacy endpoint)",
+                    "responses": {"200": {"description": "Sales history"}},
+                }
+            },
+            "/api/bot-status": {
+                "get": {
+                    "summary": "Telegram bot status (free legacy endpoint)",
+                    "responses": {"200": {"description": "Bot status"}},
                 }
             },
         },
         "components": {
             "securitySchemes": {
-                "x402": {
+                "BearerToken": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "description": "Short-lived agent access token issued by /api/v1/agents/{agent_id}/access after Stripe checkout",
+                },
+                "x402Payment": {
                     "type": "apiKey",
                     "in": "header",
-                    "name": "X-Payment-Address",
-                    "description": f"x402 payment: send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
-                }
+                    "name": "X-Payment-Proof",
+                    "description": f"x402 on-chain proof header. Challenge issued by the endpoint; sign and resend.",
+                },
             }
         },
     }
@@ -2573,66 +4217,79 @@ def openapi_spec():
 
 @app.route("/llms.txt")
 def llms_txt():
-    """
-    LLM-friendly plain-text description of the API for AI agent discovery.
+    """LLM-readable API description — contract_version 2.0.
+
+    Lists the full surface: 8 catalog agents, Nexus Engine, and discovery links.
+    Intended for AI orchestrators that ingest /llms.txt to understand a service.
     """
     base_url = request.host_url.rstrip("/")
-    content = f"""# Kristo Intelligence API
+    catalog = _approved_catalog_agents() or []
+    agent_lines = "\n".join(
+        f"- POST {base_url}/api/v1/agents/{a['id']}/playground "
+        f"[{a['category']}] — {a['description'][:80]} "
+        f"(${float(a['price_x402']):.2f} USDC x402 · ${float(a['price_stripe']):.2f} Stripe 30d)"
+        for a in catalog
+    )
+    catalog_heading = (
+        "## Eight catalog utilities (1 free request per client, then x402 or Stripe checkout)"
+        if catalog
+        else "## Catalog utilities\n\nNo catalog utilities are currently published. "
+        f"Status: {_catalog_governance_status()}."
+    )
+    content = f"""# Kristo Intelligence API — contract_version {_published_contract_version()}
 
-> AI-powered DeFi trading signals and crypto market intelligence.
-> Uses the x402 payment protocol — pay with USDC on Base.
+> Eight evidence-first agent utilities and a separate Nexus premium signal layer.
+> Base URL: {base_url}
 
-## Payment (x402 Protocol)
+{catalog_heading}
 
-- Chain: Base (chain_id: {X402_CHAIN_ID})
-- Currency: USDC
-- Token contract: {X402_USDC_CONTRACT}
+{agent_lines}
+
+Agent catalog (JSON): {base_url}/api/v1/agents
+Approved contract:      {base_url}/api/v1/catalog/contract
+Single agent detail:  {base_url}/api/v1/agents/{{agent_id}}
+30-day Stripe access: POST {base_url}/api/v1/agents/{{agent_id}}/checkout
+Bearer token access:  POST {base_url}/api/v1/agents/{{agent_id}}/access
+
+## Nexus Engine — premium signal layer (isolated from catalog agents)
+
+- Single signal:    POST {base_url}/api/nexus/premium-signal  ($0.25 USDC, Base x402)
+- Subscription:     POST {base_url}/api/nexus/checkout         (€10/month or €50/year, Stripe)
+- Nexus plans:      GET  {base_url}/api/nexus/plans
+
+## x402 Payment (Base network)
+
+- Chain: Base  chain_id: {X402_CHAIN_ID}
+- Currency: USDC  token_contract: {X402_USDC_CONTRACT}
 - Receiver address: {X402_RECEIVER_ADDRESS}
-- Price per API call: ${X402_FEE_USDC} USDC
-- Free tier: {FREE_TIER_LIMIT} free call(s) per client, then payment required
-- Monthly VIP: ${VIP_MONTHLY_USDC} USDC (unlimited for 30 days)
+- Catalog agent x402 price: per-agent (see catalog)
+- Nexus premium signal price: $0.25 USDC
 
-## How to Pay
+x402 flow:
+1. POST the endpoint — server returns HTTP 402 with a signed challenge.
+2. Sign the challenge proof and resend with X-Payment-Proof header.
+3. Server verifies on-chain; returns result on success.
 
-1. Send exactly {X402_FEE_USDC} USDC on the Base network to {X402_RECEIVER_ADDRESS}
-2. Wait for on-chain confirmation (usually ~2 seconds on Base)
-3. Retry the desired API endpoint — access is granted automatically
+## Legacy operational endpoints (free; not x402 settlement)
 
-For unlimited access, send {VIP_MONTHLY_USDC} USDC for a Monthly VIP subscription.
+- GET {base_url}/api/stats      — Market activity and daily stats
+- GET {base_url}/api/sales      — On-chain sales history
+- GET {base_url}/api/bot-status — Telegram bot status
 
-## Endpoints
+## Discovery files (always free)
 
-### Paid (requires x402 payment after free tier)
+- OpenAPI 3.0:      {base_url}/openapi.json
+- MCP agent JSON:   {base_url}/mcp.json
+- x402 manifest:    {base_url}/.well-known/x402.json
+- MCP manifest:     {base_url}/api/mcp/manifest
+- LLMs (this file): {base_url}/llms.txt
+- Health:           {base_url}/health
 
-- GET /api/stats — Market activity and daily stats (${X402_FEE_USDC} USDC)
-- GET /api/sales — Real on-chain sales history (${X402_FEE_USDC} USDC)
-- GET /api/bot-status — Telegram bot status (${X402_FEE_USDC} USDC)
+## Developer integration
 
-### Free (always accessible)
-
-- GET /.well-known/x402.json — x402 payment discovery metadata
-- GET /openapi.json — OpenAPI 3.0 specification
-- GET /llms.txt — This file (LLM-friendly API description)
-- GET /api/mcp/manifest — MCP/x402 machine-readable manifest
-- GET /health — Service health check
-- GET /dashboard — HTML dashboard
-
-## Base URL
-
-{base_url}
-
-## HTTP 402 Response
-
-When payment is required, the API returns HTTP 402 with:
-- JSON body containing payment details (receiver address, amount, chain)
-- Headers: X-Payment-Required, X-Payment-Address, X-Payment-Amount-USDC
-
-## Discovery Files
-
-- x402: {base_url}/.well-known/x402.json
-- OpenAPI: {base_url}/openapi.json
-- LLMs: {base_url}/llms.txt
-- MCP Manifest: {base_url}/api/mcp/manifest
+- Guide:      {base_url}/developers
+- Playground: {base_url}/agents
+- Dashboard:  {base_url}/dashboard
 """
     from flask import Response
     return Response(content, mimetype="text/plain")
@@ -3552,6 +5209,32 @@ _NEXUS_DASHBOARD_HTML = r"""
             font-size: 0.75rem;
             margin-top: 0.3rem;
         }
+        .nexus-access {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 1rem;
+            margin: 1.25rem 0 1.5rem;
+        }
+        .nexus-access-card {
+            background: linear-gradient(135deg, rgba(0,212,255,.1), rgba(179,102,255,.12));
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.15rem;
+        }
+        .nexus-access-card h2 { font-size: 1rem; margin-bottom: .35rem; }
+        .nexus-access-card p { color: var(--muted); font-size: .82rem; line-height: 1.45; }
+        .nexus-plans { display: flex; gap: .65rem; flex-wrap: wrap; margin-top: .85rem; }
+        .nexus-plan {
+            background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text); cursor: pointer; padding: .6rem .8rem; font: inherit; font-size: .8rem;
+        }
+        .nexus-plan:hover { border-color: var(--accent2); color: var(--accent2); }
+        .nexus-email {
+            background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+            border-radius: 8px; padding: .62rem .75rem; width: min(100%, 330px); margin-top: .75rem;
+        }
+        .nexus-access-status { color: var(--muted); font-size: .75rem; margin-top: .55rem; min-height: 1.2em; }
+        @media (max-width: 760px) { .nexus-access { grid-template-columns: 1fr; } }
         /* Two-column layout */
         .main-grid {
             display: grid;
@@ -3817,6 +5500,24 @@ _NEXUS_DASHBOARD_HTML = r"""
             </div>
         </div>
 
+        <section class="nexus-access" aria-label="Nexus access plans">
+            <article class="nexus-access-card">
+                <h2>👤 Nexus за хора</h2>
+                <p>Recurring Stripe subscription с достъп до Nexus Engine: €10/месец или €50/година.</p>
+                <input class="nexus-email" id="nexus-email" type="email" autocomplete="email" placeholder="you@example.com">
+                <div class="nexus-plans">
+                    <button class="nexus-plan" data-nexus-plan="monthly">€10 / месец</button>
+                    <button class="nexus-plan" data-nexus-plan="yearly">€50 / година</button>
+                </div>
+                <div id="nexus-checkout-status" class="nexus-access-status"></div>
+            </article>
+            <article class="nexus-access-card">
+                <h2>🤖 Nexus за ботове</h2>
+                <p>Premium Nexus signal: <strong>$0.25 USDC</strong> на заявка чрез Base x402. Proof-ът е обвързан с конкретния asset, endpoint и challenge.</p>
+                <div id="nexus-x402-status" class="nexus-access-status">Проверява се settlement readiness…</div>
+            </article>
+        </section>
+
         <!-- Metrics -->
         <div class="metrics-grid">
             <div class="metric-card">
@@ -3984,6 +5685,57 @@ let whaleCount = 0;
 let x402Count = 0;
 let feedItems = [];
 
+function trackNexusClick(source) {
+    fetch('/api/nexus/click', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({source}),
+        keepalive: true,
+    }).catch(() => {});
+}
+
+async function startNexusCheckout(plan) {
+    const email = document.getElementById('nexus-email').value.trim();
+    const status = document.getElementById('nexus-checkout-status');
+    if (!email || !email.includes('@')) {
+        status.textContent = 'Въведете валиден email за Stripe Checkout.';
+        return;
+    }
+    trackNexusClick(`stripe_${plan}`);
+    status.textContent = 'Създаване на сигурен Stripe Checkout…';
+    try {
+        const response = await fetch('/api/nexus/checkout', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email, plan}),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.payment_session?.url) {
+            status.textContent = data.error || 'Checkout временно не е наличен.';
+            return;
+        }
+        window.location.assign(data.payment_session.url);
+    } catch (_) {
+        status.textContent = 'Мрежова грешка при създаване на Checkout.';
+    }
+}
+
+async function loadNexusPlans() {
+    try {
+        const response = await fetch('/api/nexus/plans');
+        const data = await response.json();
+        const status = document.getElementById('nexus-x402-status');
+        status.textContent = data.bot_micropayment?.settlement_status === 'full'
+            ? '$0.25 USDC · Base · settlement ready'
+            : '$0.25 USDC · Base · settlement временно не е готов';
+    } catch (_) {
+        document.getElementById('nexus-x402-status').textContent = '$0.25 USDC · Base';
+    }
+}
+document.querySelectorAll('[data-nexus-plan]').forEach(button => {
+    button.addEventListener('click', () => startNexusCheckout(button.dataset.nexusPlan));
+});
+
 function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function randFloat(min, max) { return (Math.random() * (max - min) + min).toFixed(2); }
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -4129,6 +5881,7 @@ renderAgents();
 renderBridges();
 updateMetrics();
 fetchRealData();
+loadNexusPlans();
 
 // Generate discoveries every 4-8 seconds
 function scheduleNextDiscovery() {
@@ -4162,6 +5915,7 @@ setInterval(fetchRealData, 30000);
 def nexus_dashboard():
     """NEXUS Engine visual live dashboard — discoveries feed, metrics, and AI agents."""
     _record_request("dashboard", True)
+    _record_nexus_activity("visit")
     return render_template_string(_NEXUS_DASHBOARD_HTML, nexus_url=NEXUS_URL)
 
 
@@ -4209,7 +5963,7 @@ def _handle_telegram_command(text: str) -> str:
 # ── Startup ──────────────────────────────────────────────────────────────
 
 def _start_background_threads():
-    """Start monitor, agent, catalog-analytics and Telegram background workers."""
+    """Start monitor, agent, catalog analytics, Demand Scout and Telegram workers."""
     if getattr(app, "_bg_started", False):
         return
     app._bg_started = True
@@ -4229,6 +5983,13 @@ def _start_background_threads():
         name="catalog-analytics",
     )
     t_catalog.start()
+
+    t_demand_scout = threading.Thread(
+        target=_demand_scout_loop,
+        daemon=True,
+        name="demand-scout",
+    )
+    t_demand_scout.start()
 
     t_stripe_snapshot = threading.Thread(
         target=_stripe_payment_snapshot_loop,
@@ -4253,7 +6014,7 @@ def _start_background_threads():
         log.warning("Telegram webhook auto-registration failed (non-fatal): %s", exc)
 
     log.info(
-        "Background threads started (blockchain monitor + agent + catalog analytics + telegram sales)."
+        "Background threads started (blockchain monitor + agent + catalog analytics + Demand Scout + telegram sales)."
     )
 
 

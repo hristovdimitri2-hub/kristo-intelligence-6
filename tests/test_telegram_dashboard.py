@@ -128,7 +128,20 @@ def test_admin_overview_is_protected_and_redacts_chat_ids(app_client):
     assert payload["metrics"]["paid_payments"] == 1
     assert payload["metrics"]["active_vip_plans"] == 1
     assert payload["vip_plans"][0]["telegram_linked"] is True
+    assert payload["payments"][0]["email"] == "v***@example.com"
+    assert payload["vip_plans"][0]["email"] == "v***@example.com"
+    assert payload["launch_gates"]["catalog"]["published"] is False
+    assert payload["launch_gates"]["broad_launch"]["status"] == "blocked"
+    persistence = payload["launch_gates"]["persistence"]
+    assert {
+        "catalog_healthy",
+        "audit_healthy",
+        "stripe_vip_healthy",
+        "settlement_schema_healthy",
+        "schema_verified",
+    } <= set(persistence)
     assert "telegram_chat_id" not in response.get_data(as_text=True)
+    assert "vip@example.com" not in response.get_data(as_text=True)
     assert any(row["path"] == "/health" for row in payload["request_log"])
     assert payload["services"]["crm"]["ready"] is True
 
@@ -170,6 +183,7 @@ def test_admin_dashboard_login_creates_browser_session(app_client):
 
     assert login.status_code == 200
     assert "Оперативен dashboard" in login.get_data(as_text=True)
+    assert "v6 launch gates" in login.get_data(as_text=True)
     overview = client.get("/api/admin/overview")
     assert overview.status_code == 200
 
