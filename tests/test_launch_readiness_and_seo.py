@@ -128,3 +128,24 @@ def test_trial_uses_a_signed_browser_identity_before_payment_is_required(
         environ_base={"REMOTE_ADDR": "198.51.100.7"},
     )
     assert exhausted.status_code == 402
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_error"),
+    [
+        (["not", "an", "object"], "json_object_required"),
+        ({"email": "not-an-email"}, "invalid_email"),
+        ({"email": "buyer@example.test", "source": "x" * 65}, "invalid_source"),
+        ({"email": "buyer@example.test", "campaign": ["wrong"]}, "invalid_campaign"),
+        ({"email": "buyer@example.test", "telegram_chat_id": "abc"}, "invalid_telegram_chat_id"),
+        ({"email": "buyer@example.test", "untrusted": "field"}, "unsupported_checkout_field"),
+    ],
+)
+def test_catalog_checkout_rejects_malformed_public_input(
+    launch_client, payload, expected_error
+):
+    _, client = launch_client
+    response = client.post("/api/v1/agents/whaleflow-radar/checkout", json=payload)
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == expected_error

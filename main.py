@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 import threading
 import time
 import json
@@ -2586,6 +2587,55 @@ def api_agent_click(agent_id: str):
     return jsonify({"ok": True, "agent_id": agent_id, "status": "click_recorded"}), 202
 
 
+_CHECKOUT_EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}$")
+_CHECKOUT_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
+_TELEGRAM_CHAT_ID_RE = re.compile(r"^-?[0-9]{1,32}$")
+_CHECKOUT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,255}$")
+
+
+def _validate_checkout_email(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("invalid_email")
+    email = value.strip().lower()
+    if len(email) > 254 or not _CHECKOUT_EMAIL_RE.fullmatch(email):
+        raise ValueError("invalid_email")
+    return email
+
+
+def _validate_checkout_label(payload: dict, field: str, default: str) -> str:
+    value = payload.get(field, default)
+    if value is None:
+        value = default
+    if not isinstance(value, str):
+        raise ValueError(f"invalid_{field}")
+    label = value.strip() or default
+    if not _CHECKOUT_LABEL_RE.fullmatch(label):
+        raise ValueError(f"invalid_{field}")
+    return label
+
+
+def _validated_catalog_checkout_payload(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("json_object_required")
+    unexpected = set(payload) - {"email", "source", "campaign", "telegram_chat_id"}
+    if unexpected:
+        raise ValueError("unsupported_checkout_field")
+    telegram_chat_id = payload.get("telegram_chat_id", "")
+    if telegram_chat_id is None:
+        telegram_chat_id = ""
+    if not isinstance(telegram_chat_id, str):
+        raise ValueError("invalid_telegram_chat_id")
+    telegram_chat_id = telegram_chat_id.strip()
+    if telegram_chat_id and not _TELEGRAM_CHAT_ID_RE.fullmatch(telegram_chat_id):
+        raise ValueError("invalid_telegram_chat_id")
+    return {
+        "email": _validate_checkout_email(payload.get("email")),
+        "source": _validate_checkout_label(payload, "source", "agent_catalog"),
+        "campaign": _validate_checkout_label(payload, "campaign", "agent_vip"),
+        "telegram_chat_id": telegram_chat_id,
+    }
+
+
 @app.route("/api/v1/agents/<agent_id>/checkout", methods=["POST"])
 def api_agent_checkout(agent_id: str):
     """Create a one-time Stripe Checkout for a 30-day agent access entitlement."""
@@ -2593,13 +2643,14 @@ def api_agent_checkout(agent_id: str):
     if error:
         return error
 
-    payload = request.get_json(silent=True) or {}
-    email = (payload.get("email") or "").strip()
-    source = (payload.get("source") or "agent_catalog").strip()
-    campaign = (payload.get("campaign") or "agent_vip").strip()
-    telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
-    if not email or "@" not in email:
-        return jsonify({"ok": False, "error": "email is required"}), 400
+    try:
+        checkout_request = _validated_catalog_checkout_payload(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    email = checkout_request["email"]
+    source = checkout_request["source"]
+    campaign = checkout_request["campaign"]
+    telegram_chat_id = checkout_request["telegram_chat_id"]
 
     plan_key = f"agent:{agent_id}"
     crm_store.add_lead(
@@ -2662,12 +2713,17 @@ def api_agent_access(agent_id: str):
     _, error = _approved_agent_or_response(agent_id)
     if error:
         return error
-    payload = request.get_json(silent=True) or {}
-    email = (payload.get("email") or "").strip()
-    checkout_id = (payload.get("checkout_id") or "").strip()
-    if not email or "@" not in email or not checkout_id:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) - {"email", "checkout_id"}:
+        return jsonify({"ok": False, "error": "invalid_access_payload"}), 400
+    try:
+        email = _validate_checkout_email(payload.get("email"))
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_email"}), 400
+    checkout_id = payload.get("checkout_id")
+    if not isinstance(checkout_id, str) or not _CHECKOUT_ID_RE.fullmatch(checkout_id):
         return jsonify(
-            {"ok": False, "error": "email and server_created_checkout_id are required"}
+            {"ok": False, "error": "invalid_server_created_checkout_id"}
         ), 400
     entitlement = catalog_store.get_active_entitlement_by_checkout(
         agent_id, checkout_id, email

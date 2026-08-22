@@ -16,6 +16,10 @@ def v6_client(monkeypatch, tmp_path):
     monkeypatch.delenv("TRUSTED_PROXY_IPS", raising=False)
     import main
 
+    with main._rate_limit_lock:
+        main._rate_limit_buckets.clear()
+    with main._trial_identity_lock:
+        main._trial_identity_issues.clear()
     monkeypatch.setattr(main, "catalog_store", CatalogStore(tmp_path / "catalog.db"))
     monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
     monkeypatch.setattr(main, "research_store", ResearchInsightStore(tmp_path / "research.db"))
@@ -343,7 +347,7 @@ def test_paid_access_needs_checkout_capability_and_forwarded_ip_cannot_bypass(v6
     assert raw_email.status_code == 400
     wrong_checkout = client.post(
         "/api/v1/agents/whaleflow-radar/access",
-        json={"email": "buyer@example.com", "checkout_id": "guessed"},
+        json={"email": "buyer@example.com", "checkout_id": "cs_guessed_123456"},
     )
     assert wrong_checkout.status_code == 403
     credential = client.post(

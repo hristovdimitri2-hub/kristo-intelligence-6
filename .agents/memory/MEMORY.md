@@ -11,3 +11,4 @@
 - [Commercial launch gating](commercial-launch-gating.md) — Public sales must fail closed until durable infrastructure, approved catalog, delivery configuration and real smoke proof are present.
 - [Anonymous trial identities](anonymous-trial-identities.md) — Free utility access is bound to a signed browser identity with bounded issuance, not raw IP storage alone.
 - [x402 proof delivery fencing](x402-proof-delivery-fencing.md) — A settled x402 proof may deliver its bound utility exactly once; malformed proofs fail with stable client errors.
+- [Catalog checkout validation](catalog-checkout-validation.md) — Public catalog checkout and access exchange accept only a strict, bounded input contract before CRM or Stripe.
