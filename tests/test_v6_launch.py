@@ -79,6 +79,49 @@ def test_dynamic_x402_discovery_and_one_free_agent_execution(v6_client, monkeypa
     assert main.catalog_store.get_metrics_24h()["totals"]["calls"] == 1
 
 
+def test_replayed_x402_proof_is_not_executed_twice(v6_client, monkeypatch):
+    main, client = v6_client
+    executions = []
+
+    class ReplaySettlement:
+        status = "full"
+
+        def verify_and_settle(self, **kwargs):
+            return {"challenge_id": "paid-once", "settled": True, "duplicate": True}
+
+    monkeypatch.setattr(main, "x402_settlement", ReplaySettlement())
+    monkeypatch.setattr(
+        main,
+        "execute_agent",
+        lambda product, payload: executions.append((product["id"], payload))
+        or {
+            "contract_version": product["contract_version"],
+            "agent_id": product["id"],
+            "status": "ok",
+            "freshness": {"state": "live"},
+            "data": {},
+            "provenance": [],
+            "warnings": [],
+        },
+    )
+
+    assert client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        environ_base={"REMOTE_ADDR": "198.51.100.90"},
+    ).status_code == 200
+    replay = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        headers={"X-Payment-Proof": "already-settled-proof"},
+        environ_base={"REMOTE_ADDR": "198.51.100.90"},
+    )
+
+    assert replay.status_code == 409
+    assert replay.get_json()["error"] == "payment_proof_already_delivered"
+    assert executions == [("whaleflow-radar", {"input": "ETH"})]
+
+
 def test_research_ingest_is_deduplicated_and_requires_review(v6_client):
     _, client = v6_client
     body = {

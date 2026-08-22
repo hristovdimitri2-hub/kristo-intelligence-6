@@ -2450,6 +2450,23 @@ def api_agent_playground(agent_id: str):
                 metadata={"outcome": exc.code, "operation": "x402_settlement"},
             )
             return jsonify({"ok": False, "error": exc.code}), exc.status_code
+        if settlement.get("duplicate"):
+            _record_operational_event(
+                event_type="x402_settlement_replayed",
+                source="api",
+                method=request.method,
+                path=request.path,
+                status_code=409,
+                success=False,
+                metadata={"outcome": "already_delivered", "operation": "x402_settlement"},
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "payment_proof_already_delivered",
+                    "challenge_id": settlement["challenge_id"],
+                }
+            ), 409
         settled_challenge_id = settlement["challenge_id"]
         access = "x402_settled"
         _record_operational_event(
