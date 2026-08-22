@@ -1464,6 +1464,31 @@ def _build_x402_discovery(base_url: str) -> dict:
     }
 
 
+def _catalog_mcp_agents(base_url: str, catalog: list[dict]) -> list[dict]:
+    """Project the approved catalog into the shared MCP/discovery shape."""
+    return [
+        {
+            "id": agent["id"],
+            "name": agent["name"],
+            "description": agent["description"],
+            "endpoint": f"{base_url}/api/v1/agents/{agent['id']}/playground",
+            "detail_endpoint": f"{base_url}/api/v1/agents/{agent['id']}",
+            "method": "POST",
+            "price_usdc": round(float(agent["price_x402"]), 6),
+            "stripe_30day_usd": round(float(agent["price_stripe"]), 2),
+            "free_playground_requests_per_client": 1,
+            "stripe_checkout": f"{base_url}/api/v1/agents/{agent['id']}/checkout",
+            "access_endpoint": f"{base_url}/api/v1/agents/{agent['id']}/access",
+            "category": agent["category"],
+            "capability_id": agent["capability_id"],
+            "input_schema": agent["input_schema"],
+            "output_schema": agent["output_schema"],
+            "source_policy": agent["source_policy"],
+        }
+        for agent in catalog
+    ]
+
+
 @app.after_request
 def _apply_security_headers(response):
     """Add hardened security and cache-control headers to every response.
@@ -3888,62 +3913,53 @@ def api_telegram_webhook():
 @app.route("/api/mcp/manifest")
 def api_mcp_manifest():
     """
-    MCP (Model Context Protocol) manifest for AI Agent machine-to-machine payments.
-    Compatible with x402 payment protocol — AI agents can read this to understand
-    how to pay for API access via USDC on Base.
+    MCP/x402 manifest generated from the approved catalog contract.
+
+    No paid catalog utility is advertised until a human has activated a
+    runtime-compatible contract. Agent clients receive the exact bound endpoint,
+    input schema, price, checkout and access-token flow for every published SKU.
     """
     _record_request("api_mcp_manifest", True)
-    fee_receiver = get_base_fee_receiver()  # hard fallback to bound address
     base_url = request.host_url.rstrip("/")
-
     catalog = _approved_catalog_agents()
+    agents = _catalog_mcp_agents(base_url, catalog or [])
     manifest = {
         "protocol": "x402",
-        "version": "1.0",
+        "version": "2.0",
         "service": "Kristo Intelligence API",
         "description": "Evidence-first agent utilities and crypto market intelligence",
         "payment": {
-            "chain": "base",
-            "chain_id": 8453,
+            "chain": X402_CHAIN,
+            "chain_id": X402_CHAIN_ID,
             "currency": "USDC",
-            "token_contract": os.getenv("BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
-            "receiver_address": fee_receiver,
-            "tiers": [
-                {
-                    "id": "vip_monthly",
-                    "name": "Monthly VIP",
-                    "price_usdc": VIP_MONTHLY_USDC,
-                    "description": "Unlimited monthly access + Telegram VIP group invite",
-                    "access": "unlimited for 30 days",
-                    "endpoints": ["ALL"],
-                    "bonus": "Telegram VIP group invite code",
-                },
-            ],
+            "token_contract": X402_USDC_CONTRACT,
+            "receiver_address": X402_RECEIVER_ADDRESS,
+            "settlement_status": x402_settlement.status,
+            "flow": (
+                "One free request per client-agent. Afterward, request the bound playground "
+                "endpoint, receive a server-issued x402 challenge, then resend the same request "
+                "with X-Payment-Proof; alternatively create a Stripe checkout and exchange its "
+                "paid entitlement for a bearer access token."
+            ),
         },
         "endpoints": {
             "base_url": base_url,
-            "available": [
+            "free": [
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0, "description": "This manifest (free)"},
-                {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0, "description": "HTML dashboard (free)"},
+                {"path": "/api/v1/agents", "method": "GET", "cost_usdc": 0.0, "description": "Active catalog (free)"},
+                {"path": "/api/v1/catalog/contract", "method": "GET", "cost_usdc": 0.0, "description": "Contract status (free)"},
             ],
+            "agents": agents,
         },
         "instructions": {
-            "payment": f"Send USDC to {fee_receiver} on Base network",
-            "verification": "Payments are verified on-chain via Transfer event logs",
-            "vip_threshold": f"Payments >= ${VIP_THRESHOLD_USDC} USDC automatically generate a Telegram VIP invite code",
+            "x402": "Never prepay from this manifest: use the challenge returned by the exact endpoint request.",
+            "stripe": "Create the listed checkout for a catalog agent, then exchange its paid checkout ID for the listed bearer access endpoint.",
+            "verification": "The server verifies Base USDC proof against the request-bound challenge before delivery.",
         },
         "catalog": {
             "status": "active" if catalog else _catalog_governance_status(),
             "contract_version": _published_contract_version() if catalog else None,
-            "agents": [
-                {
-                    "id": agent["id"],
-                    "name": agent["name"],
-                    "endpoint": f"{base_url}/api/v1/agents/{agent['id']}/playground",
-                    "price_usdc": round(float(agent["price_x402"]), 6),
-                }
-                for agent in (catalog or [])
-            ],
+            "agents": agents,
         },
     }
     return jsonify(manifest)
@@ -3970,27 +3986,7 @@ def mcp_json():
     """
     base_url = request.host_url.rstrip("/")
     catalog = _approved_catalog_agents() or []
-
-    # Build catalog agent tool entries from the live 8-SKU store
-    catalog_tools = [
-        {
-            "name": f"agent_{a['id'].replace('-', '_')}",
-            "description": a["description"],
-            "endpoint": f"{base_url}/api/v1/agents/{a['id']}/playground",
-            "detail_endpoint": f"{base_url}/api/v1/agents/{a['id']}",
-            "method": "POST",
-            "cost_usdc": round(float(a["price_x402"]), 6),
-            "stripe_30day_usd": round(float(a["price_stripe"]), 2),
-            "free_playground_requests_per_client": 1,
-            "stripe_checkout": f"{base_url}/api/v1/agents/{a['id']}/checkout",
-            "category": a["category"],
-            "capability_id": a["capability_id"],
-            "input_schema": a["input_schema"],
-            "output_schema": a["output_schema"],
-            "source_policy": a["source_policy"],
-        }
-        for a in catalog
-    ]
+    catalog_tools = _catalog_mcp_agents(base_url, catalog)
 
     return jsonify({
         "schema_version": "2.0",
@@ -4017,7 +4013,14 @@ def mcp_json():
             },
             "free_playground_requests_per_client": 1,
         },
-        "agents": catalog_tools,
+        "agents": [
+            {
+                **agent,
+                "name": f"agent_{agent['id'].replace('-', '_')}",
+                "cost_usdc": agent["price_usdc"],
+            }
+            for agent in catalog_tools
+        ],
         "nexus": {
             "name": "nexus_premium_signal",
             "description": (
@@ -4053,6 +4056,8 @@ def openapi_spec():
     Includes x402 payment extensions so agents know how to pay.
     """
     base_url = request.host_url.rstrip("/")
+    catalog = _approved_catalog_agents() or []
+    contract_version = _published_contract_version() if catalog else None
     spec = {
         "openapi": "3.0.3",
         "info": {
@@ -4069,6 +4074,19 @@ def openapi_spec():
                 "token_contract": X402_USDC_CONTRACT,
                 "price_per_call_usdc": X402_FEE_USDC,
                 "free_tier_limit": FREE_TIER_LIMIT,
+            },
+            "x-kristo-catalog": {
+                "status": "active" if catalog else _catalog_governance_status(),
+                "contract_version": contract_version,
+                "agents": [
+                    {
+                        "id": agent["id"],
+                        "price_usdc": round(float(agent["price_x402"]), 6),
+                        "stripe_30day_usd": round(float(agent["price_stripe"]), 2),
+                        "input_schema": agent["input_schema"],
+                    }
+                    for agent in catalog
+                ],
             },
         },
         "servers": [{"url": base_url}],
@@ -5962,6 +5980,30 @@ def _handle_telegram_command(text: str) -> str:
 
 # ── Startup ──────────────────────────────────────────────────────────────
 
+def _telegram_webhook_autoregistration_enabled() -> bool:
+    """Allow Telegram webhook mutation only when production explicitly opts in."""
+    return os.getenv("TELEGRAM_WEBHOOK_AUTOREGISTER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _register_telegram_webhook_if_enabled() -> None:
+    """Keep local starts from overwriting a production Telegram webhook."""
+    if not _telegram_webhook_autoregistration_enabled():
+        log.info(
+            "Telegram webhook auto-registration disabled; set "
+            "TELEGRAM_WEBHOOK_AUTOREGISTER=true only after confirming the production URL."
+        )
+        return
+    try:
+        register_webhook()
+    except Exception as exc:
+        log.warning("Telegram webhook auto-registration failed (non-fatal): %s", exc)
+
+
 def _start_background_threads():
     """Start monitor, agent, catalog analytics, Demand Scout and Telegram workers."""
     if getattr(app, "_bg_started", False):
@@ -6005,13 +6047,8 @@ def _start_background_threads():
     except Exception as exc:
         log.warning("Failed to start Telegram sales thread (non-fatal): %s", exc)
 
-    # ── Auto-register Telegram webhook on startup ──
-    # Calls setWebhook so Telegram delivers updates to /api/telegram-webhook.
-    # Runs on every deploy — no manual action required.
-    try:
-        register_webhook()
-    except Exception as exc:
-        log.warning("Telegram webhook auto-registration failed (non-fatal): %s", exc)
+    # setWebhook changes remote bot configuration, so it is production opt-in.
+    _register_telegram_webhook_if_enabled()
 
     log.info(
         "Background threads started (blockchain monitor + agent + catalog analytics + Demand Scout + telegram sales)."

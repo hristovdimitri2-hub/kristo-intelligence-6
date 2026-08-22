@@ -223,6 +223,20 @@ def test_telegram_webhook_requires_secret_and_tracks_authorized_update(app_clien
     assert main._bot_status["commands_processed"] == 1
 
 
+def test_telegram_webhook_registration_is_explicit_production_opt_in(app_client, monkeypatch):
+    main, _ = app_client
+    calls = []
+    monkeypatch.setattr(main, "register_webhook", lambda: calls.append("called"))
+    monkeypatch.delenv("TELEGRAM_WEBHOOK_AUTOREGISTER", raising=False)
+
+    main._register_telegram_webhook_if_enabled()
+    assert calls == []
+
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_AUTOREGISTER", "true")
+    main._register_telegram_webhook_if_enabled()
+    assert calls == ["called"]
+
+
 def test_stripe_payment_listing_reads_past_unpaid_page(monkeypatch):
     from integrations.stripe_checkout import StripeCheckoutService
 

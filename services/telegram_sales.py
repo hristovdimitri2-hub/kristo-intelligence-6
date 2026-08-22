@@ -149,15 +149,15 @@ WEBHOOK_ENDPOINT = f"{WEBHOOK_PUBLIC_URL}/api/telegram-webhook"
 
 def register_webhook() -> Optional[dict]:
     """
-    Automatically register the Telegram webhook on startup.
+    Register the Telegram webhook when the application explicitly enables it.
 
     Calls the Telegram Bot API setWebhook method so that all incoming
     updates are delivered to:
         https://kristo-intelligence-api.onrender.com/api/telegram-webhook
 
-    This runs on every deploy, eliminating the need for manual webhook
-    registration.  Safe to call repeatedly — Telegram simply overwrites
-    the previous webhook URL.
+    The application calls this only when TELEGRAM_WEBHOOK_AUTOREGISTER is
+    explicitly enabled. It is safe to call repeatedly, but it overwrites the
+    previous webhook URL and must not run during local development.
 
     Returns the Telegram API result dict on success, or None on failure.
     """

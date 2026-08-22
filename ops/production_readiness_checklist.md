@@ -3,6 +3,7 @@
 ## v6 publish handoff
 - [ ] Publish the verified v6 build; the currently active public deployment identifies as the prior v5 release and is not approval for this catalog.
 - [ ] Confirm the deployed primary URL in Publishing and keep `APP_PUBLIC_URL` / `WEBHOOK_PUBLIC_URL` aligned with that exact URL. Do not guess a v6 domain.
+- [ ] After confirming that URL, set `TELEGRAM_WEBHOOK_AUTOREGISTER=true` only in production and restart once to register the signed Telegram webhook. Keep it unset in development so local restarts cannot overwrite production bot configuration.
 - [ ] Set `RESEARCH_INGEST_TOKEN` as a production secret before connecting Discord, RSS, or GitHub ingestion.
 - [ ] Set a dedicated `AGENT_ACCESS_TOKEN_SECRET` production secret; access tokens are signed checkout-bound bearer credentials.
 - [ ] Keep `TRUST_PROXY_HEADERS` disabled until the exact immediate reverse-proxy addresses are confirmed, then set it with a matching `TRUSTED_PROXY_IPS` allowlist. Never trust arbitrary `X-Forwarded-For` headers.

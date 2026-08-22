@@ -147,6 +147,26 @@ model OperationalEvent {
   @@map("operational_events")
 }
 
+/// CRM leads captured from the landing page and reconciled with payments.
+model Lead {
+  email         String   @id
+  source        String   @default("website")
+  campaign      String   @default("launch")
+  utmSource     String   @default("") @map("utm_source")
+  utmMedium     String   @default("") @map("utm_medium")
+  utmCampaign   String   @default("") @map("utm_campaign")
+  status        String   @default("new")
+  createdAt     DateTime @map("created_at")
+  plan          String   @default("")
+  telegramChatId String  @default("") @map("telegram_chat_id")
+  amountUsd     Float    @default(0) @map("amount_usd")
+  paymentStatus String   @default("pending") @map("payment_status")
+
+  @@index([createdAt], map: "idx_leads_created_at")
+  @@index([paymentStatus, createdAt(sort: Desc)], map: "idx_leads_payment_status")
+  @@map("leads")
+}
+
 /// A standard VIP checkout is recorded before Stripe redirects the buyer.
 /// The webhook validates this server-issued expectation before fulfillment.
 model StripeVipCheckout {
