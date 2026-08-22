@@ -6,6 +6,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_API_TOKEN", "test-admin-token")
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
     monkeypatch.setenv("KRISTO_ALLOW_MOCK_PAYMENTS", "true")
+    monkeypatch.delenv("APP_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("KRISTO_ENV", raising=False)
     monkeypatch.delenv("STRIPE_API_KEY", raising=False)
     monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
     import main
@@ -22,7 +24,10 @@ def test_health_endpoint(client):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["status"] == "ok"
-    assert payload["database"] == {"backend": "sqlite", "ready": True}
+    assert payload["database"]["backend"] == "sqlite"
+    assert payload["database"]["ready"] is True
+    assert payload["database"]["audit_backend"] in {"postgresql", "unavailable"}
+    assert isinstance(payload["database"]["audit_ready"], bool)
     assert payload["blockchain"]["network"] == "Base Mainnet"
     assert payload["blockchain"]["chain_id"] == 8453
     assert "ready" in payload["blockchain"]

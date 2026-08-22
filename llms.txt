@@ -1,56 +1,36 @@
 # Kristo Intelligence API
 
-> AI-powered DeFi trading signals and crypto market intelligence.
-> Uses the x402 payment protocol — pay with USDC on Base.
+> Evidence-first agent utilities with transparent provenance, freshness labels and bounded payment access.
+> This repository file is an offline reference. The authoritative service description is generated at runtime at `/llms.txt`.
 
-## Payment (x402 Protocol)
+## Start here
 
-- Chain: Base (chain_id: 8453)
-- Currency: USDC
-- Token contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-- Receiver address: 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f
-- Price per API call: $0.10 USDC
-- Free tier: 1 free call(s) per client, then payment required
-- Monthly VIP: $29.00 USDC (unlimited for 30 days)
+- `GET /api/v1/agents` — active human-approved catalog; returns a clear unavailable status until approval.
+- `GET /api/v1/catalog/contract` — contract and governance status.
+- `GET /api/mcp/manifest` — MCP and payment flow.
+- `GET /mcp.json` — MCP catalog discovery.
+- `GET /.well-known/x402.json` — x402 discovery.
+- `GET /openapi.json` — runtime OpenAPI specification.
+- `GET /api/launch/health` — public commercial launch-readiness gate.
 
-## How to Pay
+## Access model
 
-1. Send exactly 0.10 USDC on the Base network to 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f
-2. Wait for on-chain confirmation (usually ~2 seconds on Base)
-3. Retry the desired API endpoint — access is granted automatically
+Each approved utility has one bounded free playground request per client. Afterward:
 
-For unlimited access, send 29.00 USDC for a Monthly VIP subscription.
+1. Call the utility endpoint and receive an HTTP 402 request-bound challenge, then resend the exact request with `X-Payment-Proof`; or
+2. Create a Stripe checkout for that utility and exchange a confirmed entitlement for a short-lived bearer token.
 
-## Endpoints
+Never send a payment solely from an offline reference. Read the runtime manifest and use only the challenge returned by the requested endpoint.
 
-### Paid (requires x402 payment after free tier)
+## Public product pages
 
-- GET /api/stats — Market activity and daily stats ($0.10 USDC)
-- GET /api/sales — Real on-chain sales history ($0.10 USDC)
-- GET /api/bot-status — Telegram bot status ($0.10 USDC)
+- `/agents` — agent utility marketplace.
+- `/developers` — integration guide.
+- `/nexus` — separate Nexus premium signal layer.
 
-### Free (always accessible)
+## Safety and availability
 
-- GET /.well-known/x402.json — x402 payment discovery metadata
-- GET /openapi.json — OpenAPI 3.0 specification
-- GET /llms.txt — This file (LLM-friendly API description)
-- GET /api/mcp/manifest — MCP/x402 machine-readable manifest
-- GET /health — Service health check
-- GET /dashboard — HTML dashboard
-
-## Base URL
-
-https://kristo-intelligence-v5.onrender.com
-
-## HTTP 402 Response
-
-When payment is required, the API returns HTTP 402 with:
-- JSON body containing payment details (receiver address, amount, chain)
-- Headers: X-Payment-Required, X-Payment-Address, X-Payment-Amount-USDC
-
-## Discovery Files
-
-- x402: https://kristo-intelligence-v5.onrender.com/.well-known/x402.json
-- OpenAPI: https://kristo-intelligence-v5.onrender.com/openapi.json
-- LLMs: https://kristo-intelligence-v5.onrender.com/llms.txt
-- MCP Manifest: https://kristo-intelligence-v5.onrender.com/api/mcp/manifest
+- Unapproved catalog utilities are not advertised as purchasable.
+- Provider outages are returned explicitly as unavailable or partial data.
+- The API does not execute trades, move customer funds or publish to external accounts.
+- `/api/launch/health` returns HTTP 503 until all commercial launch gates are verified.

@@ -124,6 +124,70 @@ class StripeCheckoutService:
             agent_sku=agent_sku,
         )
 
+    def create_nexus_subscription_session(
+        self,
+        *,
+        plan: str,
+        customer_email: str,
+        source: str = "nexus",
+        campaign: str = "nexus_subscription",
+    ) -> Dict[str, Any]:
+        """Create an EUR recurring Checkout session isolated from one-time VIP sales."""
+        plans = {
+            "monthly": {"amount_cents": 1000, "interval": "month", "label": "Nexus Engine — Monthly"},
+            "yearly": {"amount_cents": 5000, "interval": "year", "label": "Nexus Engine — Yearly"},
+        }
+        selected = plans.get(plan)
+        if not selected:
+            return {"status": "checkout_error", "provider": "stripe", "error": "invalid_nexus_plan"}
+        if not self.enabled or self._stripe is None:
+            return {"status": "checkout_error", "provider": "stripe", "error": "stripe_not_configured"}
+        public_url = os.getenv("APP_PUBLIC_URL", "").strip().rstrip("/")
+        if not public_url:
+            return {"status": "checkout_error", "provider": "stripe", "error": "app_public_url_not_configured"}
+
+        metadata = {
+            "app": "kristo-intelligence",
+            "nexus_plan": plan,
+            "source": source,
+            "campaign": campaign,
+        }
+        try:
+            session = self._stripe.checkout.Session.create(
+                mode="subscription",
+                customer_email=customer_email,
+                line_items=[
+                    {
+                        "price_data": {
+                            "currency": "eur",
+                            "product_data": {"name": selected["label"]},
+                            "unit_amount": selected["amount_cents"],
+                            "recurring": {"interval": selected["interval"]},
+                        },
+                        "quantity": 1,
+                    }
+                ],
+                metadata=metadata,
+                subscription_data={"metadata": metadata},
+                success_url=f"{public_url}/nexus?status=success&plan={plan}&session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"{public_url}/nexus?status=cancelled&plan={plan}",
+            )
+            return {
+                "status": "checkout_created",
+                "provider": "stripe",
+                "checkout_id": session.id,
+                "customer_email": customer_email,
+                "plan": plan,
+                "amount_eur": selected["amount_cents"] / 100,
+                "url": session.url,
+            }
+        except Exception:
+            return {
+                "status": "checkout_error",
+                "provider": "stripe",
+                "error": "stripe_checkout_creation_failed",
+            }
+
     def verify_webhook(self, payload: bytes, signature: str) -> Optional[Dict[str, Any]]:
         """Verify and decode a Stripe webhook using the configured signing secret."""
         if not self.webhook_secret or self._stripe is None:
@@ -186,7 +250,12 @@ class StripeCheckoutService:
 
     @staticmethod
     def _mock_payments_allowed() -> bool:
-        return os.getenv("KRISTO_ALLOW_MOCK_PAYMENTS", "").strip().lower() in {"1", "true", "yes"}
+        enabled = os.getenv("KRISTO_ALLOW_MOCK_PAYMENTS", "").strip().lower() in {"1", "true", "yes"}
+        production_mode = os.getenv("KRISTO_ENV", "").strip().lower() in {"production", "prod"}
+        public_url_configured = bool(os.getenv("APP_PUBLIC_URL", "").strip())
+        # A browser-reachable deployment must never degrade to a success-looking
+        # mock checkout. Development previews can still opt in explicitly.
+        return enabled and not production_mode and not public_url_configured
 
     def _plan_amount(self, plan_key: str) -> float:
         pricing = {

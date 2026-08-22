@@ -3,6 +3,7 @@ import pytest
 from integrations.catalog_store import CatalogStore
 from integrations.crm_store import CRMStore
 from integrations.research_store import ResearchInsightStore
+from integrations.marketplace_store import MarketplaceGovernanceStore
 
 
 @pytest.fixture()
@@ -18,6 +19,11 @@ def v6_client(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "catalog_store", CatalogStore(tmp_path / "catalog.db"))
     monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
     monkeypatch.setattr(main, "research_store", ResearchInsightStore(tmp_path / "research.db"))
+    governance = MarketplaceGovernanceStore(tmp_path / "marketplace.db")
+    governance.ensure_active_contract(
+        main.AGENT_CONTRACT_VERSION, main.catalog_manifest(main.catalog_store.get_catalog())
+    )
+    monkeypatch.setattr(main, "marketplace_store", governance)
     with main._stripe_snapshot_lock:
         main._stripe_snapshot = {
             "available": False,
@@ -29,14 +35,27 @@ def v6_client(monkeypatch, tmp_path):
     return main, main.app.test_client()
 
 
-def test_dynamic_x402_discovery_and_one_free_agent_demo(v6_client):
+def test_dynamic_x402_discovery_and_one_free_agent_execution(v6_client, monkeypatch):
     main, client = v6_client
+    monkeypatch.setattr(
+        main,
+        "execute_agent",
+        lambda product, payload: {
+            "contract_version": "2.0",
+            "agent_id": product["id"],
+            "status": "ok",
+            "freshness": {"state": "live"},
+            "data": {"input": payload["input"]},
+            "provenance": [],
+            "warnings": [],
+        },
+    )
 
     discovery = client.get("/.well-known/x402.json")
     assert discovery.status_code == 200
     payload = discovery.get_json()
     assert payload["service"] == "Kristo Intelligence v6"
-    assert payload["payment"]["settlement_status"] == "discovery_only"
+    assert payload["payment"]["settlement_status"] == main.x402_settlement.status
     assert len(payload["agents"]) == 8
     assert all(agent["endpoint"].endswith("/playground") for agent in payload["agents"])
 
@@ -47,7 +66,8 @@ def test_dynamic_x402_discovery_and_one_free_agent_demo(v6_client):
     )
     assert first.status_code == 200
     assert first.get_json()["access"] == "one_free_playground_request"
-    assert first.get_json()["result"]["mode"] == "playground_demo"
+    assert first.get_json()["contract_version"] == "2.0"
+    assert first.get_json()["result"]["status"] == "ok"
 
     exhausted = client.post(
         "/api/v1/agents/whaleflow-radar/playground",
@@ -155,8 +175,98 @@ def test_admin_overview_exposes_transparent_agent_revenue_table_data(v6_client):
     assert whale["hits_24h"] == 1
     assert whale["sales_24h"] == 1
     assert whale["revenue_24h"] == 0.05
+    combined_whale = next(
+        product
+        for product in payload["agent_analytics"]["products"]
+        if product["id"] == "whaleflow-radar"
+    )
+    assert combined_whale["clicks_24h"] == 1
+    assert combined_whale["hits_24h"] == 1
     assert payload["services"]["blockchain"]["ready"] is True
     assert payload["services"]["blockchain"]["network"] == "Base Mainnet"
+    assert payload["launch_gates"]["contract"]["activation_available"] is False
+
+
+def test_admin_overview_combines_isolated_nexus_hits_and_confirmed_sales(v6_client, monkeypatch):
+    main, client = v6_client
+
+    class FakeNexusAnalyticsStore:
+        backend = "postgresql"
+
+        def __init__(self):
+            self.events = []
+
+        def is_healthy(self):
+            return True
+
+        def analytics_is_healthy(self):
+            return True
+
+        def record_analytics_event(self, **event):
+            self.events.append(event)
+            return True
+
+        def get_metrics_24h(self):
+            counts = {
+                event_type: sum(
+                    1 for event in self.events if event["event_type"] == event_type
+                )
+                for event_type in ("visit", "click", "api_request")
+            }
+            return {
+                "id": "nexus-engine",
+                "name": "Nexus Engine / Premium Signal",
+                "category": "isolated_nexus",
+                "is_nexus": True,
+                "analytics_available": True,
+                "price_label": "$0.25 USDC / signal · €10/month · €50/year",
+                "price_x402": 0.25,
+                "visits_24h": counts["visit"],
+                "clicks_24h": counts["click"],
+                "api_requests_24h": counts["api_request"],
+                "hits_24h": sum(counts.values()),
+                "stripe_subscriptions_24h": 1,
+                "x402_signals_24h": 2,
+                "sales_24h": 3,
+                "revenue_eur_24h": 10.0,
+                "revenue_usdc_24h": 0.5,
+            }
+
+    fake_store = FakeNexusAnalyticsStore()
+    monkeypatch.setattr(main, "nexus_store", fake_store)
+    with main._nexus_click_lock:
+        main._nexus_recent_clicks.clear()
+
+    assert client.get("/nexus").status_code == 200
+    assert client.get("/api/nexus/plans").status_code == 200
+    assert client.post("/api/nexus/click", json={"source": "stripe_monthly"}).status_code == 202
+    assert client.post("/api/nexus/premium-signal", json={"asset": "not valid!"}).status_code == 400
+
+    headers = {"X-Admin-Token": "v6-admin-token"}
+    overview = client.get("/api/admin/overview", headers=headers)
+    assert overview.status_code == 200
+    payload = overview.get_json()
+    assert len(payload["agent_catalog"]["products"]) == 8
+    assert len(payload["agent_analytics"]["products"]) == 9
+    nexus = next(
+        product
+        for product in payload["agent_analytics"]["products"]
+        if product["id"] == "nexus-engine"
+    )
+    assert nexus["hits_24h"] == 4
+    assert nexus["visits_24h"] == 1
+    assert nexus["clicks_24h"] == 1
+    assert nexus["api_requests_24h"] == 2
+    assert nexus["sales_24h"] == 3
+    assert nexus["stripe_subscriptions_24h"] == 1
+    assert nexus["x402_signals_24h"] == 2
+    assert payload["agent_analytics"]["interest_leader"]["id"] == "nexus-engine"
+    assert payload["agent_analytics"]["sales_leader"]["id"] == "nexus-engine"
+
+    metrics = client.get("/api/admin/catalog-metrics", headers=headers)
+    assert metrics.status_code == 200
+    assert len(metrics.get_json()["products"]) == 8
+    assert len(metrics.get_json()["all_offerings"]) == 9
 
 
 def test_paid_access_needs_checkout_capability_and_forwarded_ip_cannot_bypass(v6_client):

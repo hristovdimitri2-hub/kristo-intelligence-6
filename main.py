@@ -99,11 +99,11 @@ X402_FREE_ENDPOINTS = {
     "/api/v1/agents", "/api/v1/catalog/contract",
     # Machine-readable discovery and payment manifests
     "/api/mcp/manifest", "/.well-known/x402.json", "/openapi.json",
-    "/llms.txt", "/mcp.json",
+    "/llms.txt", "/mcp.json", "/robots.txt", "/sitemap.xml",
     # Webhook and bot traffic (never paywalled)
     "/api/telegram-webhook",
     # Unauthenticated UI helpers
-    "/api/dashboard-stats",
+    "/api/dashboard-stats", "/api/launch/health",
     # Nexus public discovery
     "/api/nexus/plans", "/api/nexus/click",
 }
@@ -1659,7 +1659,22 @@ def favicon():
 @app.route("/")
 def home():
     _record_request("home", True)
-    return render_template_string(_LAUNCH_LANDING_HTML)
+    return _render_launch_landing()
+
+
+def _render_launch_landing():
+    readiness = _launch_readiness_payload()
+    blocked = [
+        check["detail"]
+        for check in readiness["checks"].values()
+        if not check["ready"]
+    ]
+    return render_template_string(
+        _LAUNCH_LANDING_HTML,
+        canonical_url=request.host_url.rstrip("/"),
+        launch_ready=readiness["ready"],
+        blocked_summary=blocked[0] if blocked else "",
+    )
 
 
 _LAUNCH_LANDING_HTML = """
@@ -1678,6 +1693,7 @@ _LAUNCH_LANDING_HTML = """
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Kristo Intelligence — Agent Utilities">
     <meta name="twitter:description" content="Evidence-first agent utilities with x402 USDC on Base or Stripe checkout.">
+    <link rel="canonical" href="{{ canonical_url }}">
     <script type="application/ld+json">
     {"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"Kristo Intelligence","description":"Evidence-first agent utilities and crypto market intelligence on Base."},{"@type":"WebSite","name":"Kristo Intelligence","description":"Eight agent utilities and an isolated Nexus premium signal — x402 USDC or Stripe."}]}
     </script>
@@ -1696,6 +1712,9 @@ _LAUNCH_LANDING_HTML = """
         .price { font-size: 2.2rem; font-weight: 800; margin: 12px 0; }
         ul { margin: 0; padding-left: 18px; color: #dbeafe; }
         .small { color: #94a3b8; font-size: 0.9rem; }
+        .notice { margin: 24px 0; padding: 16px 18px; background: #2a2113; border: 1px solid #80632b; border-radius: 14px; color: #fde7b0; line-height: 1.45; }
+        .notice strong { display: block; margin-bottom: 5px; color: #fff0c4; }
+        .unavailable { color: #fcd98a; font-weight: bold; }
         @media (max-width: 800px) { .hero, .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -1703,14 +1722,22 @@ _LAUNCH_LANDING_HTML = """
     <div class="wrap">
         <div class="hero">
             <div class="card">
-                <div class="tag">AI • Crypto • DeFi • Telegram</div>
-                <h1>VIP crypto intelligence за активни трейдъри.</h1>
-                <p>Получавай live пазарни анализи, DeFi сигнали и premium Telegram известия без шум, без хаос и без демо данни.</p>
+                <div class="tag">Evidence-first AI • Crypto • DeFi • Telegram</div>
+                <h1>Crypto intelligence с ясни източници и проверим статус.</h1>
+                <p>Пазарни анализи, DeFi сигнали и machine-readable utilities с видима свежест на данните. Нито една платена услуга не се отваря, преди да е потвърден целият delivery flow.</p>
+                {% if launch_ready %}
                 <div class="cta">
                     <a class="btn" href="/sales/checkout?plan=pro">Започни с Pro</a>
                     <a class="btn secondary" href="/dashboard">Виж dashboard</a>
                 </div>
-                <p class="small">Реални данни • Base мрежа • Live market insights • Telegram VIP access</p>
+                <p class="small">Потвърдени payment, delivery и access проверки • Base мрежа • Telegram VIP access</p>
+                {% else %}
+                <div class="notice"><strong>Публичните продажби още не са активирани.</strong>{{ blocked_summary }}. Можеш да разгледаш услугите и интеграционната информация; покупка няма да бъде предложена, докато всички launch проверки не са реално потвърдени.</div>
+                <div class="cta">
+                    <a class="btn" href="/agents">Разгледай utilities</a>
+                    <a class="btn secondary" href="/developers">За разработчици</a>
+                </div>
+                {% endif %}
             </div>
             <div class="card">
                 <h3>Какво включва</h3>
@@ -1729,19 +1756,19 @@ _LAUNCH_LANDING_HTML = """
                 <h3>Starter</h3>
                 <div class="price">$29</div>
                 <p>Базов достъп до market bulletin и сигнали.</p>
-                <a class="btn" href="/sales/checkout?plan=starter">Избери Starter</a>
+                {% if launch_ready %}<a class="btn" href="/sales/checkout?plan=starter">Избери Starter</a>{% else %}<p class="unavailable">Недостъпен до потвърден public launch.</p>{% endif %}
             </div>
             <div class="card">
                 <h3>Pro</h3>
                 <div class="price">$79</div>
                 <p>VIP Telegram + premium market intelligence.</p>
-                <a class="btn" href="/sales/checkout?plan=pro">Избери Pro</a>
+                {% if launch_ready %}<a class="btn" href="/sales/checkout?plan=pro">Избери Pro</a>{% else %}<p class="unavailable">Недостъпен до потвърден public launch.</p>{% endif %}
             </div>
             <div class="card">
                 <h3>API Access</h3>
                 <div class="price">$149</div>
                 <p>За по-напреднали клиенти и data access.</p>
-                <a class="btn" href="/sales/checkout?plan=api">Избери API</a>
+                {% if launch_ready %}<a class="btn" href="/sales/checkout?plan=api">Избери API</a>{% else %}<p class="unavailable">Недостъпен до потвърден public launch.</p>{% endif %}
             </div>
         </div>
     </div>
@@ -1753,7 +1780,7 @@ _LAUNCH_LANDING_HTML = """
 @app.route("/launch")
 def launch_landing():
     """Public sales landing page for live product launch."""
-    return render_template_string(_LAUNCH_LANDING_HTML)
+    return _render_launch_landing()
 
 
 # ── Developers integration guide ──────────────────────────────────────────────
@@ -2403,7 +2430,7 @@ def api_agent_playground(agent_id: str):
 
 _AGENT_PLAYGROUND_HTML = r"""
 <!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kristo Intelligence — Agent Utility Marketplace</title>
+<title>Kristo Intelligence — Agent Utility Marketplace</title><meta name="description" content="Evidence-first agent utilities with source provenance, freshness labels and bounded payment flows."><meta property="og:title" content="Kristo Intelligence — Agent Utility Marketplace"><meta property="og:description" content="Evidence-first utilities with transparent data provenance and freshness labels."><meta property="og:type" content="website"><link rel="canonical" href="{{ canonical_url }}">
 <style>
 :root{--bg:#090d18;--card:#111827;--border:#26334d;--text:#edf2ff;--muted:#aab7d0;--accent:#7c83ff;--good:#56d6a5;--warn:#f6bf68}*{box-sizing:border-box}
 body{margin:0;background:radial-gradient(circle at 20% -10%,#1e2a57 0,transparent 32%),var(--bg);color:var(--text);font:16px system-ui,sans-serif}.wrap{max-width:1180px;margin:auto;padding:48px 20px 80px}
@@ -2426,7 +2453,10 @@ load();
 @app.route("/agents", methods=["GET"])
 def agent_playground_page():
     """Public catalog page for the eight bounded agent demos."""
-    return render_template_string(_AGENT_PLAYGROUND_HTML)
+    return render_template_string(
+        _AGENT_PLAYGROUND_HTML,
+        canonical_url=f"{request.host_url.rstrip('/')}/agents",
+    )
 
 
 @app.route("/api/v1/agents/<agent_id>/click", methods=["POST"])
@@ -3061,14 +3091,27 @@ def _admin_overview_payload() -> dict:
     try:
         active_contract = marketplace_store.active_contract() if getattr(marketplace_store, "available", False) else None
         published_agents = _approved_catalog_agents()
+        contracts = marketplace_store.list_contracts() if getattr(marketplace_store, "available", False) else []
     except Exception:
         active_contract = None
         published_agents = None
+        contracts = []
     catalog_published = bool(active_contract and published_agents)
+    activation_candidate = next(
+        (
+            contract
+            for contract in contracts
+            if str(contract.get("status", "")).upper() == "DRAFT"
+            and manifest_is_runtime_compatible(contract.get("manifest", {}))
+        ),
+        None,
+    )
     launch_gates = {
         "contract": {
             "status": "active" if catalog_published else _catalog_governance_status(),
             "version": active_contract.get("version") if catalog_published else None,
+            "draft_version": activation_candidate.get("version") if activation_candidate else None,
+            "activation_available": bool(activation_candidate),
             "auto_publish": False,
         },
         "catalog": {
@@ -3513,7 +3556,7 @@ _ADMIN_DASHBOARD_HTML = r"""
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin:16px 0 28px}.card,.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}.metric label,.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}.metric strong{display:block;font-size:1.8rem;margin-top:7px}.panel{margin:18px 0}.panel h2{font-size:1rem;margin:0 0 14px}.services,.gates{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.service,.gate{padding:12px;background:#121522;border-radius:8px}.gate strong{display:block;margin-top:5px}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}.notice{margin:16px 0;padding:14px 16px;border:1px solid #695726;border-radius:10px;background:#251e0e;color:#fef3c7}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase}.scroll{overflow:auto}.muted{color:var(--muted)}#error{color:var(--bad);min-height:18px}@media(max-width:650px){main{padding:16px}header{padding:16px;align-items:flex-start;flex-direction:column}th,td{padding:8px}}
 </style></head>
 <body><header><div><h1>Kristo Intelligence — Оперативен dashboard</h1><div class="muted">Автоматично обновяване на 15 секунди. Чувствителните данни са достъпни само за администратор.</div></div><div><a href="/sales/admin/research">R&D review</a> · <a href="/sales/admin/logout">Изход</a></div></header>
-<main><p id="error"></p><div class="notice"><strong>v6 preview — launch gates pending.</strong> Публичен commercial launch не се маркира като готов, докато Publish, contract activation, payment delivery smoke и repeat paid evidence не са потвърдени.</div><p id="generated-at" class="muted"></p><section class="panel"><h2>v6 launch gates</h2><div id="launch-gates" class="gates"></div></section><section id="metrics" class="grid"></section>
+<main><p id="error"></p><div class="notice"><strong>v6 preview — launch gates pending.</strong> Публичен commercial launch не се маркира като готов, докато Publish, contract activation, payment delivery smoke и repeat paid evidence не са потвърдени.</div><p id="generated-at" class="muted"></p><section class="panel"><h2>v6 launch gates</h2><div id="launch-gates" class="gates"></div></section><section class="panel"><h2>Одобрение на catalog contract</h2><p id="catalog-approval" class="muted">Зареждане…</p></section><section id="metrics" class="grid"></section>
 <section class="panel"><h2>Статус на услугите</h2><div id="services" class="services"></div></section>
 <section class="panel"><h2>AI агентни услуги — интерес и потвърдени продажби (24ч)</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Име</th><th>Цена</th><th>Hits (посещения / клик / API)</th><th>Платени (Sales)</th><th>Приход</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
 <section class="panel"><h2>Последни Stripe/CRM плащания</h2><p id="payment-source" class="muted"></p><div class="scroll"><table><thead><tr><th>Време</th><th>Клиент</th><th>План</th><th>Сума</th><th>Статус</th><th>Източник</th></tr></thead><tbody id="payments"></tbody></table></div></section>
@@ -3525,6 +3568,14 @@ const escapeHtml = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&
 const money = value => '$' + Number(value || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const date = value => { if (!value) return '—'; const stamp = typeof value === 'number' ? value * 1000 : value; const parsed = new Date(stamp); return Number.isNaN(parsed) ? '—' : parsed.toLocaleString('bg-BG'); };
 function rows(id, values, makeRow, colspan) { const target=document.getElementById(id); target.innerHTML=values.length?values.map(makeRow).join(''):`<tr><td colspan="${colspan}" class="muted">Все още няма данни.</td></tr>`; }
+async function activateContract(version) {
+  if (!version || !confirm(`Активираш reviewed catalog contract ${version}. Това публикува осемте одобрени utilities.`)) return;
+  const response = await fetch('/api/admin/catalog-contract/activate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({version})});
+  const data = await response.json();
+  if (!response.ok) { document.getElementById('error').textContent = data.error || 'Contract activation failed.'; return; }
+  document.getElementById('error').textContent = '';
+  refresh();
+}
 function render(data) {
   const metricLabels={'crm_revenue_usd':'CRM потвърден приход','onchain_revenue_usd':'Наблюдаван on-chain обем','catalog_revenue_24h_usd':'Catalog потвърден приход (24ч)','agent_hits_24h':'Agent hits (24ч)','agent_sales_24h':'Agent sales (24ч)','nexus_hits_24h':'Nexus hits (24ч)','nexus_sales_24h':'Nexus sales (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'CRM платени записи','active_vip_plans':'VIP записи (не subscription status)','active_telegram_users':'Активни Telegram потребители'};
   document.getElementById('metrics').innerHTML=Object.entries(metricLabels).map(([key,label])=>`<div class="card metric"><label>${label}</label><strong>${key.includes('revenue')?money(data.metrics[key]):escapeHtml(data.metrics[key])}</strong></div>`).join('');
@@ -3539,6 +3590,15 @@ function render(data) {
     gate(stripe.configured&&stripe.feed_state==='live','Stripe source',`${stripe.feed_state||'unknown'}${stripe.age_seconds!=null?` · age ${stripe.age_seconds}s`:''}`),
     gate(false,'Broad launch',launch.detail||'blocked'),
   ].join('');
+   const approval=document.getElementById('catalog-approval');
+   if (contract.status==='active') {
+     approval.innerHTML=`<span class="good">● Активен contract ${escapeHtml(contract.version||'')}</span> — публичният catalog използва само този одобрен contract.`;
+   } else if (contract.activation_available && contract.draft_version) {
+     approval.innerHTML=`<span class="warn">● Чака човешко одобрение: ${escapeHtml(contract.draft_version)}</span><br><button class="primary" id="activate-contract">Активирай reviewed catalog</button>`;
+     document.getElementById('activate-contract').onclick=()=>activateContract(contract.draft_version);
+   } else {
+     approval.innerHTML=`<span class="warn">● Няма готов reviewed contract за активиране.</span> Първо завърши Publish и schema verification.`;
+   }
   document.getElementById('services').innerHTML=Object.entries(data.services).map(([name,service])=>{const ready=service.ready ?? service.running ?? service.configured;return `<div class="service"><strong class="${ready?'good':'bad'}">${ready?'● Работи':'● Нужна проверка'}</strong><br><span class="label">${escapeHtml(name)}</span><span class="muted">${escapeHtml(service.backend || service.detail || '')}</span></div>`}).join('');
   const analytics=data.agent_analytics||{products:[],totals:{},interest_leader:null,sales_leader:null};
   const interest=analytics.interest_leader;
@@ -3632,17 +3692,131 @@ def launch_health():
     or internal URLs that would expose sales operations to anonymous callers.
     Authenticated callers that need pipeline data should use /api/sales/summary.
     """
-    crm_ready = crm_store.is_healthy()
+    readiness = _launch_readiness_payload()
     payload = {
-        "ok": True,
+        "ok": readiness["ready"],
         "app": "kristo-intelligence-v6",
-        "status": "live" if crm_ready else "degraded",
-        "crm_ready": crm_ready,
+        "status": "launch_ready" if readiness["ready"] else "launch_blocked",
+        "crm_ready": readiness["checks"]["crm_persistence"]["ready"],
         "audit_ready": audit_store.is_healthy(),
         "x402_settlement_ready": x402_settlement.status == "full",
+        "readiness": readiness,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return jsonify(payload), 200 if crm_ready else 503
+    return jsonify(payload), 200 if readiness["ready"] else 503
+
+
+def _launch_readiness_payload() -> dict:
+    """Build a public, non-sensitive launch gate report.
+
+    A running process and a commercially ready service are different states.
+    This endpoint intentionally reports blocked until durable storage, explicit
+    payment configuration, catalog governance and external delivery evidence
+    are all present. It never returns secret values or internal URLs.
+    """
+    database_configured = bool((os.getenv("DATABASE_URL", "") or "").strip())
+    app_public_url_configured = bool((os.getenv("APP_PUBLIC_URL", "") or "").strip())
+    active_catalog = _approved_catalog_agents()
+    mock_mode = StripeCheckoutService._mock_payments_allowed()
+    persistence_ready = bool(
+        database_configured
+        and crm_store.backend == "postgresql"
+        and catalog_store.backend == "postgresql"
+        and audit_store.backend == "postgresql"
+        and stripe_vip_store.backend == "postgresql"
+        and nexus_store.backend == "postgresql"
+        and getattr(marketplace_store, "backend", "") == "postgresql"
+        and crm_store.is_healthy()
+        and catalog_store.is_healthy()
+        and audit_store.is_healthy()
+        and stripe_vip_store.is_healthy()
+        and nexus_store.is_healthy()
+        and getattr(marketplace_store, "available", False)
+    )
+    checks = {
+        "crm_persistence": {
+            "ready": persistence_ready,
+            "detail": "managed PostgreSQL schema verified" if persistence_ready else "managed PostgreSQL migration or schema verification required",
+        },
+        "catalog_contract": {
+            "ready": bool(active_catalog),
+            "detail": "active human-approved contract" if active_catalog else "human approval of the reviewed contract required",
+        },
+        "stripe_fulfillment": {
+            "ready": bool(
+                stripe_checkout.enabled
+                and stripe_checkout.webhook_secret
+                and app_public_url_configured
+                and not mock_mode
+            ),
+            "detail": (
+                "Stripe checkout and signed webhook configured"
+                if stripe_checkout.enabled and stripe_checkout.webhook_secret and app_public_url_configured and not mock_mode
+                else "live Stripe checkout, webhook signing secret and public URL required"
+            ),
+        },
+        "x402_settlement": {
+            "ready": x402_settlement.status == "full",
+            "detail": "Base settlement service configured" if x402_settlement.status == "full" else "Base x402 settlement configuration required",
+        },
+        "telegram_delivery": {
+            "ready": bool(
+                (os.getenv("TELEGRAM_BOT_TOKEN", "") or "").strip()
+                and (os.getenv("TELEGRAM_VIP_CHAT_ID", "") or "").strip()
+            ),
+            "detail": (
+                "bot and VIP supergroup configured; end-to-end delivery still requires a real smoke test"
+                if (os.getenv("TELEGRAM_BOT_TOKEN", "") or "").strip() and (os.getenv("TELEGRAM_VIP_CHAT_ID", "") or "").strip()
+                else "Telegram bot and VIP supergroup configuration required"
+            ),
+        },
+        "production_secrets": {
+            "ready": all(
+                bool((os.getenv(name, "") or "").strip())
+                for name in (
+                    "SESSION_SECRET",
+                    "ADMIN_API_TOKEN",
+                    "AGENT_ACCESS_TOKEN_SECRET",
+                    "RESEARCH_INGEST_TOKEN",
+                )
+            ),
+            "detail": "required dedicated production secrets configured",
+        },
+        "external_smoke_tests": {
+            "ready": False,
+            "detail": "requires real Stripe, Telegram and x402 delivery evidence after Publish",
+        },
+    }
+    return {
+        "ready": all(check["ready"] for check in checks.values()),
+        "checks": checks,
+        "catalog_status": "active" if active_catalog else _catalog_governance_status(),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.route("/robots.txt", methods=["GET"])
+def robots_txt():
+    """Expose a crawler policy and link the runtime sitemap."""
+    sitemap = f"{request.host_url.rstrip('/')}/sitemap.xml"
+    return app.response_class(
+        f"User-agent: *\nAllow: /\nDisallow: /sales/admin\nDisallow: /api/admin\nSitemap: {sitemap}\n",
+        mimetype="text/plain",
+    )
+
+
+@app.route("/sitemap.xml", methods=["GET"])
+def sitemap_xml():
+    """Expose only stable, public entry points; unpublished agent pages stay out."""
+    base_url = request.host_url.rstrip("/")
+    urls = ("/", "/agents", "/developers", "/nexus")
+    body = "".join(
+        f"<url><loc>{base_url}{path}</loc></url>" for path in urls
+    )
+    return app.response_class(
+        f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>',
+        mimetype="application/xml",
+    )
 
 
 @app.route("/api/funnel/track", methods=["POST"])
@@ -4193,6 +4367,9 @@ def openapi_spec():
             "/llms.txt": {"get": {"summary": "LLM-friendly API description (free)", "responses": {"200": {"description": "Plain text"}}}},
             "/mcp.json": {"get": {"summary": "MCP agent catalog discovery (free)", "responses": {"200": {"description": "MCP JSON"}}}},
             "/health": {"get": {"summary": "Operational readiness (free)", "responses": {"200": {"description": "ok"}, "503": {"description": "degraded"}}}},
+            "/api/launch/health": {"get": {"summary": "Commercial launch readiness (free)", "responses": {"200": {"description": "all launch gates verified"}, "503": {"description": "launch still blocked"}}}},
+            "/robots.txt": {"get": {"summary": "Crawler policy (free)", "responses": {"200": {"description": "robots policy"}}}},
+            "/sitemap.xml": {"get": {"summary": "Public page sitemap (free)", "responses": {"200": {"description": "XML sitemap"}}}},
             "/developers": {"get": {"summary": "Developer integration guide (free)", "responses": {"200": {"description": "Integration HTML page"}}}},
             # ── Legacy operational endpoints (free; not x402 settlement) ──
             "/api/stats": {
@@ -4302,6 +4479,9 @@ x402 flow:
 - MCP manifest:     {base_url}/api/mcp/manifest
 - LLMs (this file): {base_url}/llms.txt
 - Health:           {base_url}/health
+- Launch readiness: {base_url}/api/launch/health
+- Crawler policy:   {base_url}/robots.txt
+- Sitemap:          {base_url}/sitemap.xml
 
 ## Developer integration
 

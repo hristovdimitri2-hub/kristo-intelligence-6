@@ -2,107 +2,85 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Kristo Intelligence API",
-    "version": "6.0.0",
-    "description": "AI-powered DeFi trading signals and crypto market intelligence. Runtime discovery uses the durable eight-agent catalog and x402 metadata.",
-    "x402": {
-      "protocol": "x402",
-      "receiver_address": "0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
-      "currency": "USDC",
-      "chain": "base",
-      "chain_id": 8453,
-      "token_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-      "price_per_call_usdc": 0.10,
-      "free_tier_limit": 1
-    }
+    "version": "6.1.0",
+    "description": "Repository reference only. The authoritative specification is generated at runtime at /openapi.json and always reflects the active human-approved catalog."
   },
   "servers": [
     {
       "url": "/",
-      "description": "Runtime-resolved production or preview server"
+      "description": "Use the published application origin."
     }
   ],
   "paths": {
-    "/api/stats": {
+    "/api/v1/agents": {
       "get": {
-        "summary": "Market activity and daily stats",
-        "x402": {"cost_usdc": 0.10, "free_tier_eligible": true},
+        "summary": "List active human-approved agent utilities",
         "responses": {
-          "200": {"description": "Successful response with stats data"},
-          "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"}
+          "200": {
+            "description": "Active catalog"
+          },
+          "503": {
+            "description": "Catalog approval or migration required"
+          }
         }
       }
     },
-    "/api/sales": {
-      "get": {
-        "summary": "Real on-chain sales history",
-        "x402": {"cost_usdc": 0.10, "free_tier_eligible": true},
+    "/api/v1/agents/{agent_id}/playground": {
+      "post": {
+        "summary": "Run a bounded utility with free, x402 or entitlement access",
         "responses": {
-          "200": {"description": "Successful response with sales history"},
-          "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"}
-        }
-      }
-    },
-    "/api/bot-status": {
-      "get": {
-        "summary": "Telegram bot integration status",
-        "x402": {"cost_usdc": 0.10, "free_tier_eligible": true},
-        "responses": {
-          "200": {"description": "Successful response with bot status"},
-          "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"}
+          "200": {
+            "description": "Utility result"
+          },
+          "402": {
+            "description": "Request-bound x402 challenge"
+          }
         }
       }
     },
     "/api/mcp/manifest": {
       "get": {
-        "summary": "MCP/x402 payment manifest (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
-        "responses": {"200": {"description": "Machine-readable payment manifest"}}
+        "summary": "Runtime MCP and payment manifest",
+        "responses": {
+          "200": {
+            "description": "Machine-readable discovery"
+          }
+        }
+      }
+    },
+    "/mcp.json": {
+      "get": {
+        "summary": "Runtime MCP catalog discovery",
+        "responses": {
+          "200": {
+            "description": "MCP JSON"
+          }
+        }
       }
     },
     "/.well-known/x402.json": {
       "get": {
-        "summary": "x402 discovery file (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
-        "responses": {"200": {"description": "x402 payment discovery metadata"}}
+        "summary": "Runtime x402 discovery",
+        "responses": {
+          "200": {
+            "description": "x402 payment metadata"
+          }
+        }
       }
     },
-    "/openapi.json": {
+    "/api/launch/health": {
       "get": {
-        "summary": "This OpenAPI specification (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
-        "responses": {"200": {"description": "OpenAPI 3.0 specification"}}
-      }
-    },
-    "/llms.txt": {
-      "get": {
-        "summary": "LLM-friendly API description (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
-        "responses": {"200": {"description": "Plain-text API description for LLMs"}}
-      }
-    },
-    "/health": {
-      "get": {
-        "summary": "Health check (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
-        "responses": {"200": {"description": "Service health status"}}
-      }
-    },
-    "/dashboard": {
-      "get": {
-        "summary": "HTML dashboard (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
-        "responses": {"200": {"description": "HTML dashboard page"}}
+        "summary": "Public commercial launch readiness",
+        "responses": {
+          "200": {
+            "description": "All launch gates verified"
+          },
+          "503": {
+            "description": "One or more launch gates remain blocked"
+          }
+        }
       }
     }
   },
-  "components": {
-    "securitySchemes": {
-      "x402": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Payment-Address",
-        "description": "x402 payment: send 0.10 USDC on Base to 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f"
-      }
-    }
-  }
+  "x-runtime-source": "/openapi.json"
 }
