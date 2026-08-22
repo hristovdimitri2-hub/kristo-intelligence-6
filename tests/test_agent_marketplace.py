@@ -281,7 +281,8 @@ def test_versioned_activation_and_rollback_restore_executable_catalog(monkeypatc
     expected = next(agent for agent in v20["agents"] if agent["id"] == "whaleflow-radar")
     assert restored_agent["price_x402"] == expected["price_x402"]
     assert_discovery_versions("2.0")
-    restored_execution = client.post(
+    restored_browser = main.app.test_client()
+    restored_execution = restored_browser.post(
         "/api/v1/agents/cross-venue-signal-divergence/playground",
         json={"input": "# Heading\nRevenue: 12.5%\nSource https://example.com/report"},
         environ_base={"REMOTE_ADDR": "203.0.113.20"},

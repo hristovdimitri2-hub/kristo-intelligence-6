@@ -88,3 +88,43 @@ def test_mock_checkout_is_rejected_for_a_browser_reachable_environment(monkeypat
 
     assert checkout["status"] == "checkout_error"
     assert checkout["error"] == "stripe_not_configured"
+
+
+def test_trial_uses_a_signed_browser_identity_before_payment_is_required(
+    launch_client, monkeypatch
+):
+    main, client = launch_client
+    monkeypatch.setattr(
+        main,
+        "execute_agent",
+        lambda product, payload: {
+            "agent_id": product["id"],
+            "contract_version": product["contract_version"],
+            "status": "ok",
+            "freshness": {"state": "live"},
+            "data": {"input": payload["input"]},
+            "provenance": [],
+            "warnings": [],
+        },
+    )
+
+    first = client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        environ_base={"REMOTE_ADDR": "198.51.100.7"},
+    )
+    assert first.status_code == 200
+    cookie = first.headers["Set-Cookie"]
+    assert f"{main.TRIAL_IDENTITY_COOKIE}=" in cookie
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+
+    signed_identity = cookie.split(";", 1)[0].split("=", 1)[1]
+    second_client = main.app.test_client()
+    second_client.set_cookie(main.TRIAL_IDENTITY_COOKIE, signed_identity)
+    exhausted = second_client.post(
+        "/api/v1/agents/whaleflow-radar/playground",
+        json={"input": "ETH"},
+        environ_base={"REMOTE_ADDR": "198.51.100.7"},
+    )
+    assert exhausted.status_code == 402

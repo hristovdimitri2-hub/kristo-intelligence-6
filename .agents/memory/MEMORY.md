@@ -9,3 +9,4 @@
 - [Stripe VIP fulfillment fencing](stripe-vip-fulfillment-fencing.md) — Recoverable webhook and Telegram retries must be fenced by per-owner tokens, not only time-based leases.
 - [Telegram VIP launch verification](telegram-vip-launch-verification.md) — Bot invite delivery requires a live supergroup membership/admin check; a valid webhook alone is not sufficient.
 - [Commercial launch gating](commercial-launch-gating.md) — Public sales must fail closed until durable infrastructure, approved catalog, delivery configuration and real smoke proof are present.
+- [Anonymous trial identities](anonymous-trial-identities.md) — Free utility access is bound to a signed browser identity with bounded issuance, not raw IP storage alone.

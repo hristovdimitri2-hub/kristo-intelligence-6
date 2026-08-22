@@ -1040,6 +1040,14 @@ NEXUS_CLICK_COOLDOWN_SECONDS = max(
 NEXUS_CLICK_TRACKER_MAX_KEYS = max(
     256, int(os.getenv("NEXUS_CLICK_TRACKER_MAX_KEYS", "2048"))
 )
+TRIAL_IDENTITY_COOKIE = "ki_trial_identity"
+TRIAL_IDENTITY_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+TRIAL_IDENTITY_ISSUE_WINDOW_SECONDS = 60 * 60 * 24
+TRIAL_IDENTITY_ISSUES_PER_NETWORK = max(
+    1, int(os.getenv("TRIAL_IDENTITY_ISSUES_PER_NETWORK", "3"))
+)
+_trial_identity_lock = threading.Lock()
+_trial_identity_issues: Dict[str, deque] = {}
 
 
 def _allow_catalog_click(client_address: str, agent_id: str) -> bool:
@@ -1361,6 +1369,75 @@ def _agent_access_signing_key() -> bytes:
     """Use an explicit credential when configured, otherwise the application session key."""
     configured = (os.getenv("AGENT_ACCESS_TOKEN_SECRET", "") or "").strip()
     return (configured or app.config["SECRET_KEY"]).encode()
+
+
+def _trial_network_key(client_ip: str) -> str:
+    """Keep anonymous trial issuance bounded without retaining raw addresses."""
+    return hmac.new(
+        _agent_access_signing_key(), (client_ip or "unknown").encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def _allow_trial_identity_issue(client_ip: str) -> bool:
+    """Limit new anonymous browser identities per network over a 24-hour window."""
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(seconds=TRIAL_IDENTITY_ISSUE_WINDOW_SECONDS)
+    key = _trial_network_key(client_ip)
+    with _trial_identity_lock:
+        for stale_key, bucket in list(_trial_identity_issues.items()):
+            while bucket and bucket[0] < window_start:
+                bucket.popleft()
+            if not bucket:
+                _trial_identity_issues.pop(stale_key, None)
+        bucket = _trial_identity_issues.setdefault(key, deque())
+        if len(bucket) >= TRIAL_IDENTITY_ISSUES_PER_NETWORK:
+            return False
+        bucket.append(now)
+        return True
+
+
+def _sign_trial_identity(identity: str) -> str:
+    signature = hmac.new(
+        _agent_access_signing_key(), identity.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{identity}.{signature}"
+
+
+def _resolve_trial_identity() -> tuple[Optional[str], Optional[str]]:
+    """Return a verified anonymous browser identity and an optional new cookie.
+
+    The durable usage ledger receives only a keyed digest of this random
+    identity, never a raw address. New identities are bounded per network so
+    clearing cookies cannot create unlimited free requests.
+    """
+    supplied = (request.cookies.get(TRIAL_IDENTITY_COOKIE, "") or "").strip()
+    identity, separator, signature = supplied.partition(".")
+    if identity and separator and signature:
+        expected = hmac.new(
+            _agent_access_signing_key(), identity.encode(), hashlib.sha256
+        ).hexdigest()
+        if hmac.compare_digest(signature, expected):
+            return identity, None
+    client_ip = _get_client_ip()
+    if not _allow_trial_identity_issue(client_ip):
+        return None, None
+    identity = secrets.token_urlsafe(24)
+    return identity, _sign_trial_identity(identity)
+
+
+def _attach_trial_identity_cookie(response, signed_identity: Optional[str]):
+    """Persist a newly issued anonymous identity with browser-safe cookie flags."""
+    if signed_identity:
+        response.set_cookie(
+            TRIAL_IDENTITY_COOKIE,
+            signed_identity,
+            max_age=TRIAL_IDENTITY_MAX_AGE_SECONDS,
+            secure=True,
+            httponly=True,
+            samesite="Lax",
+            path="/",
+        )
+    return response
 
 
 def _playground_client_key_hash(client_identity: str) -> str:
@@ -2305,8 +2382,17 @@ def api_agent_playground(agent_id: str):
     entitlement = _verify_agent_access_token(bearer_token, agent_id) if bearer_token else None
     access = "active_entitlement" if entitlement else "one_free_playground_request"
     settled_challenge_id = None
+    trial_identity, new_trial_cookie = _resolve_trial_identity() if not entitlement else (None, None)
+    if not entitlement and not trial_identity:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "trial_identity_rate_limited",
+                "message": "Free trial identity limit reached. Continue with x402 or Stripe access.",
+            }
+        ), 429
     if not entitlement and not catalog_store.consume_free_playground_request(
-        agent_id, _playground_client_key_hash(_get_client_ip())
+        agent_id, _playground_client_key_hash(trial_identity or "")
     ):
         request_hash = canonical_request_hash(
             agent_id, request.path, execution_payload
@@ -2412,12 +2498,16 @@ def api_agent_playground(agent_id: str):
             path=request.path,
             status_code=200,
             success=True,
-            metadata={"agent_id": agent_id, "operation": "catalog_trial"},
+            metadata={
+                "agent_id": agent_id,
+                "operation": "catalog_trial",
+                "identity_source": "new_signed_cookie" if new_trial_cookie else "signed_cookie",
+            },
         )
     if settled_challenge_id:
         catalog_store.record_call(agent_id, event_id=f"x402-call:{settled_challenge_id}")
         x402_settlement.mark_delivered(settled_challenge_id)
-    return jsonify(
+    response = jsonify(
         {
             "ok": True,
             "contract_version": agent["contract_version"],
@@ -2426,6 +2516,7 @@ def api_agent_playground(agent_id: str):
             "result": result,
         }
     )
+    return _attach_trial_identity_cookie(response, new_trial_cookie)
 
 
 _AGENT_PLAYGROUND_HTML = r"""
