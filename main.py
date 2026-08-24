@@ -3837,10 +3837,26 @@ def _handle_telegram_command(text: str) -> str:
 # ── Startup ──────────────────────────────────────────────────────────────
 
 def _start_background_threads():
-    """Start monitor, agent, catalog-analytics and Telegram background workers."""
+    """Start monitor, agent, catalog-analytics and Telegram background workers.
+
+    Respects two environment flags:
+      - KRISTO_DISABLE_BACKGROUND_THREADS=true → never start (web-only mode,
+        used when a dedicated scripts.worker process handles background work)
+      - KRISTO_WORKER_MODE=true → always start (worker process mode)
+    Default (neither flag): start threads inline (legacy single-process mode).
+    """
     if getattr(app, "_bg_started", False):
         return
     app._bg_started = True
+
+    worker_mode = os.getenv("KRISTO_WORKER_MODE", "").lower() in ("1", "true", "yes")
+    disable_flag = os.getenv("KRISTO_DISABLE_BACKGROUND_THREADS", "").lower() in ("1", "true", "yes")
+    if disable_flag and not worker_mode:
+        log.info("Background threads disabled (KRISTO_DISABLE_BACKGROUND_THREADS=true). "
+                 "Run scripts.worker in a separate process for background work.")
+        return
+    if worker_mode:
+        log.info("Worker mode active (KRISTO_WORKER_MODE=true) — starting all background threads.")
 
     # Start blockchain monitor (real wallet)
     t_chain = threading.Thread(target=_blockchain_monitor_loop, daemon=True, name="blockchain-monitor")
