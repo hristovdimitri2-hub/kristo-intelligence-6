@@ -1,0 +1,76 @@
+# ── docker-compose.yml for Kristo Intelligence 6 ────────────────────────────
+# Local development + production-ready stack.
+#
+# Usage:
+#   cp .env.example .env  (then edit values)
+#   docker compose up -d
+#
+# Services:
+#   web       — Flask app (gunicorn) on port 10000
+#   postgres  — PostgreSQL 16 for production-grade CRM/catalog storage
+#   worker    — Background worker (blockchain monitor, telegram sales)
+#
+# Notes:
+#   - PostgreSQL is OPTIONAL. If DATABASE_URL is not set, the app falls back
+#     to SQLite (data/crm_sales.db) automatically.
+#   - The worker service shares the same image as web; it runs the same
+#     gunicorn process but with KRISTO_WORKER_MODE=true which disables the
+#     HTTP server and runs only background threads.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kristo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kristo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kristo_dev}
+      POSTGRES_DB: kristo
+    volumes:
+      - kristo_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kristo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: kristo-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:-kristo_dev}@postgres:5432/kristo
+      - KRISTO_DISABLE_BACKGROUND_THREADS=true  # worker handles them
+      - PORT=10000
+    ports:
+      - "${WEB_PORT:-10000}:10000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  worker:
+    build: .
+    container_name: kristo-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:-kristo_dev}@postgres:5432/kristo
+      - KRISTO_WORKER_MODE=true  # disable HTTP, run only background threads
+      - KRISTO_DISABLE_BACKGROUND_THREADS=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "scripts.worker"]
+
+volumes:
+  kristo_pgdata:
+    driver: local

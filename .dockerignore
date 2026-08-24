@@ -1,0 +1,70 @@
+# Docker ignore list — keeps build context small and secrets out of image.
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.Python
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data (must not be baked into image)
+data/
+attached_assets/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.tmp
+*.bak
+market_state.json
+
+# Secrets — NEVER bake into image
+.env
+.env.local
+.env.production
+
+# Replit / Render platform configs
+.replit
+.render/
+
+# Tests (kept out of image for size; run in CI)
+tests/
+
+# Docs (kept out of image for size)
+docs/
+*.md
+!README.md
+
+# Agent memory (local runtime state)
+.agents/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
