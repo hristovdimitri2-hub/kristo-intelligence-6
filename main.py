@@ -3854,6 +3854,45 @@ def _handle_telegram_command(text: str) -> str:
 
 # ── Startup ──────────────────────────────────────────────────────────────
 
+# ── Free-tier keep-alive (self-ping) ────────────────────────────────────────
+# Render free instances spin down after ~15 minutes without inbound traffic.
+# A lightweight self-GET every 10 minutes keeps the service awake 24/7 so AI
+# agents can discover and pay for the API at any time, day or night.
+KEEPALIVE_INTERVAL_SECONDS = max(300, int(os.getenv("KEEPALIVE_INTERVAL_SECONDS", "600")))
+
+
+def _keepalive_loop():
+    """Periodically ping our own public /health endpoint to prevent spin-down.
+
+    Runs as a daemon thread alongside the other background loops. The target
+    URL is resolved from KEEPALIVE_PUBLIC_URL / APP_PUBLIC_URL /
+    WEBHOOK_PUBLIC_URL with a hard fallback to the production Render URL.
+    Failures are non-fatal — the loop simply retries on the next interval.
+    """
+    public_url = (
+        os.getenv("KEEPALIVE_PUBLIC_URL", "").strip()
+        or os.getenv("APP_PUBLIC_URL", "").strip()
+        or os.getenv("WEBHOOK_PUBLIC_URL", "").strip()
+        or "https://kristo-intelligence-api.onrender.com"
+    ).rstrip("/")
+    target = f"{public_url}/health"
+    log.info(
+        "Keep-alive thread started (interval=%ds, target=%s).",
+        KEEPALIVE_INTERVAL_SECONDS,
+        target,
+    )
+    # Give the web server time to bind before the very first ping.
+    time.sleep(120)
+    while True:
+        try:
+            import requests as _requests
+            response = _requests.get(target, timeout=30)
+            log.info("Keep-alive ping: %s -> HTTP %d", target, response.status_code)
+        except Exception as exc:
+            log.warning("Keep-alive ping failed (non-fatal): %s", exc)
+        time.sleep(KEEPALIVE_INTERVAL_SECONDS)
+
+
 def _start_background_threads():
     """Start monitor, agent, catalog-analytics and Telegram background workers.
 
@@ -3899,6 +3938,13 @@ def _start_background_threads():
     )
     t_stripe_snapshot.start()
 
+    # Keep-alive self-ping: prevents free-tier spin-down between customer
+    # calls so AI agents can reach the API 24/7.
+    t_keepalive = threading.Thread(
+        target=_keepalive_loop, daemon=True, name="keep-alive"
+    )
+    t_keepalive.start()
+
     # Start Telegram sales loop (auto market bulletins every 30 min, webhook-only)
     try:
         t_sales = threading.Thread(target=telegram_sales_loop, daemon=True, name="telegram-sales")
@@ -3915,7 +3961,8 @@ def _start_background_threads():
         log.warning("Telegram webhook auto-registration failed (non-fatal): %s", exc)
 
     log.info(
-        "Background threads started (blockchain monitor + agent + catalog analytics + telegram sales)."
+        "Background threads started (blockchain monitor + agent + catalog analytics "
+        "+ keep-alive + telegram sales)."
     )
 
 
