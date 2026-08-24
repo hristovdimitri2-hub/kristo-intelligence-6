@@ -91,6 +91,17 @@ logging.basicConfig(
 log = logging.getLogger("kristo.v6.main")
 
 app = Flask(__name__)
+# ── Reverse-proxy awareness (Render / nginx / docker-compose) ────────────────
+# Render terminates TLS and forwards plain HTTP, so Flask would otherwise
+# build http:// URLs in every discovery spec (x402.json, openapi.json,
+# llms.txt, mcp.json). ProxyFix honors X-Forwarded-Proto/X-Forwarded-Host
+# so request.host_url returns the correct https:// public URL.
+from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=0, x_proto=1, x_host=1)
+# NOTE: x_for=0 is deliberate — X-Forwarded-For is client-controllable, so
+# remote_addr is NOT rewritten. Free-tier identity spoofing protection in
+# _get_client_ip() stays intact (see test_v6_launch.py).
 app.config["SECRET_KEY"] = os.getenv("SESSION_SECRET", "") or secrets.token_urlsafe(32)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
