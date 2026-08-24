@@ -407,14 +407,25 @@ def _blockchain_monitor_loop():
     it is recorded as a real sale.
 
     Uses the ERC-20 Transfer event log to find incoming transfers.
+
+    If the RPC is unreachable at startup (the public mainnet.base.org
+    endpoint rate-limits with 429s), the thread retries indefinitely
+    instead of exiting — otherwise payment detection would never start.
     """
     log.info("Blockchain monitor thread started.")
-    wallet = _init_wallet()
-    if wallet is None:
-        log.warning("Blockchain monitor: no wallet — thread exiting.")
-        return
-
     poll_interval = int(os.getenv("BLOCKCHAIN_POLL_INTERVAL", "30"))
+    retry_interval = max(60, int(os.getenv("BLOCKCHAIN_RETRY_INTERVAL", "120")))
+
+    wallet = None
+    while wallet is None:
+        wallet = _init_wallet()
+        if wallet is None:
+            log.warning(
+                "Blockchain monitor: wallet unavailable (RPC down / rate-limited) "
+                "— retrying in %ds.",
+                retry_interval,
+            )
+            time.sleep(retry_interval)
     usdc_address = os.getenv("BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
     fee_receiver = wallet.fee_receiver
 

@@ -1,0 +1,14 @@
+﻿fix(monitor): retry wallet init forever instead of exiting when RPC is down
+
+Live production logs (2026-08-24) showed the blockchain monitor thread
+permanently exiting when the public Base RPC (mainnet.base.org) was
+unreachable at startup: "Blockchain monitor: no wallet - thread exiting."
+That meant payment detection would NEVER start, even after the RPC
+recovered.
+
+Fix: the monitor now retries wallet initialization indefinitely
+(BLOCKCHAIN_RETRY_INTERVAL, default 120s, min 60s). As soon as the RPC
+is reachable it connects, and incoming USDC transfers to the fee
+receiver are detected as before. Concept unchanged.
+
+pytest: 45/45 PASS.
