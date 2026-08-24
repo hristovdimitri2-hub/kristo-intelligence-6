@@ -14,7 +14,7 @@
  *   npm install viem
  *
  * Run:
- *   X402_API_BASE=https://kristo-intelligence-v-5.replit.app \
+ *   X402_API_BASE=https://kristo-intelligence-v-6.replit.app \
  *   X402_PRIVATE_KEY=0xYOUR_BOT_WALLET_PRIVATE_KEY \
  *   node docs/x402-client-example.js
  *
@@ -56,7 +56,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 
 const BASE_CHAIN_ID = 8453;
-const DEFAULT_API_BASE = "https://kristo-intelligence-v-5.replit.app";
+const DEFAULT_API_BASE = "https://kristo-intelligence-v-6.replit.app";
 const DEFAULT_ENDPOINT = "/api/stats";
 const DEFAULT_PROOF_HEADER = "X-Payment-Proof";
 const USDC_DECIMALS = 6;

@@ -245,7 +245,7 @@ def main():
     args = parser.parse_args()
     
     print("\n" + "=" * 70)
-    print("  KRISTO INTELLIGENCE v5 — AUTOMATED TWITTER MARKETING")
+    print("  KRISTO INTELLIGENCE v6 — AUTOMATED TWITTER MARKETING")
     print("=" * 70 + "\n")
     
     # Step 1: Load credentials

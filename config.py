@@ -1,5 +1,5 @@
 """
-Kristo Intelligence v5 — Central Configuration
+Kristo Intelligence v6 — Central Configuration
 ================================================
 
 Single source of truth for critical constants (wallet addresses, RPC

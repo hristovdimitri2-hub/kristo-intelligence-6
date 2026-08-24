@@ -9,7 +9,7 @@ from typing import Dict, Optional
 import requests
 
 
-log = logging.getLogger("kristo.v5.telegram_flow")
+log = logging.getLogger("kristo.v6.telegram_flow")
 
 
 @dataclass

@@ -1,5 +1,5 @@
 """
-DeFi signal generator for Kristo Intelligence v5.
+DeFi signal generator for Kristo Intelligence v6.
 
 Base44-guided signal set covering:
   * ETH   — Ethereum core
@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List
 
-log = logging.getLogger("kristo.v5.defi")
+log = logging.getLogger("kristo.v6.defi")
 
 # Base44-guided baseline signals. These are static defaults that can be
 # enriched by live CoinGecko prices and Base44 API data at runtime.

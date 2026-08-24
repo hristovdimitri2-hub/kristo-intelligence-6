@@ -174,7 +174,7 @@ def check_env_vars():
 
 def main():
     print("\n" + "=" * 70)
-    print("  Kristo Intelligence v5 - Production Deployment Status Check")
+    print("  Kristo Intelligence v6 - Production Deployment Status Check")
     print("=" * 70)
 
     if not RENDER_API_KEY:

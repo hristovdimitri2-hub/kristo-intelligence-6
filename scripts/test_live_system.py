@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Kristo Intelligence v5 — Live System Test
+Kristo Intelligence v6 — Live System Test
 ==========================================
 
 End-to-end automated test that verifies:
@@ -112,7 +112,7 @@ def check_base_fee_receiver_address() -> str:
 def main():
     """Run all tests and print PASSED / FAILED."""
     print("\n" + "=" * 70)
-    print("  Kristo Intelligence v5 — Live System Test")
+    print("  Kristo Intelligence v6 — Live System Test")
     print("=" * 70)
 
     results = {}

@@ -53,7 +53,7 @@ published, payment-ready, or approved for real customer sales.
 | `/api/sales/summary` | ✓ | 200 OK |
 
 ### Application Health (PASS)
-- **App Name**: kristo-intelligence-v5
+- **App Name**: kristo-intelligence-6
 - **Status**: LIVE
 - **CRM Backend**: SQLite
 - **Payment Provider**: ✓ **Stripe (ACTIVE)**

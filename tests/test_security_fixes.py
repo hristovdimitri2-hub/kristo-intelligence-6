@@ -53,7 +53,7 @@ def test_browser_admin_login_trims_configured_and_supplied_token(client, monkeyp
 def test_invalid_browser_admin_login_logs_metadata_without_token(caplog, client):
     import main
 
-    caplog.set_level("WARNING", logger="kristo.v5.main")
+    caplog.set_level("WARNING", logger="kristo.v6.main")
     response = client.post(
         "/sales/admin/login",
         data={"admin_token": "wrong-token-value"},

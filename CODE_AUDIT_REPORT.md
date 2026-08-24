@@ -1,7 +1,7 @@
-# Kristo Intelligence v5 — Code Audit
+# Kristo Intelligence v6 — Code Audit
 
 **Audit date:** 2026-08-19  
-**Repository:** `https://github.com/hristovdimitri2-hub/kristo-intelligence-v5`  
+**Repository:** `https://github.com/hristovdimitri2-hub/kristo-intelligence-6`  
 **Scope:** Python Flask application, payment/CRM integrations, blockchain listener and wallet, Telegram/AI/market-data services, tests and deployment configuration.
 
 ## Executive summary

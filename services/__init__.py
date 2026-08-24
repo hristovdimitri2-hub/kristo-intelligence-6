@@ -1,4 +1,4 @@
-"""Services package for Kristo Intelligence v5."""
+"""Services package for Kristo Intelligence v6."""
 
 from .coingecko import CoinGeckoClient
 from .defi_signals import DeFiSignalGenerator

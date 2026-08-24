@@ -212,7 +212,7 @@ def check_deployment_status(service_id: str, deploy_id: str):
 
 def main():
     print("\n" + "="*70)
-    print("  Kristo Intelligence v5 - Automated Stripe & Render Sync")
+    print("  Kristo Intelligence v6 - Automated Stripe & Render Sync")
     print("="*70 + "\n")
 
     if not RENDER_API_KEY:

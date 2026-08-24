@@ -22,7 +22,7 @@ try:
 except Exception:  # pragma: no cover — web3 is optional at import time
     _HAS_WEB3 = False
 
-log = logging.getLogger("kristo.v5.wallet")
+log = logging.getLogger("kristo.v6.wallet")
 
 # ERC-20 `transfer(address,uint256)` ABI fragment
 _ERC20_TRANSFER_ABI = [

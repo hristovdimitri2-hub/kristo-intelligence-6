@@ -22,7 +22,7 @@ import requests
 
 from config import GLM_API_BASE, GLM_API_KEY, GLM_MODEL
 
-log = logging.getLogger("kristo.v5.ai_engine")
+log = logging.getLogger("kristo.v6.ai_engine")
 
 
 def generate_market_bulletin(market_data: dict) -> str:

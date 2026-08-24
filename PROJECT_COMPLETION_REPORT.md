@@ -561,5 +561,5 @@ All that's needed: API key + deployment + ads.
 *Report Generated: 2026-08-17*
 *System Status: ✅ PRODUCTION READY*
 *Recommendation: IMMEDIATE LAUNCH*
-*GitHub: https://github.com/hristovdimitri2-hub/kristo-intelligence-v5*
+*GitHub: https://github.com/hristovdimitri2-hub/kristo-intelligence-6*
 *Commits: 4 total (7ca546e, 2a2a464, db384cf, 8fa5cde)*

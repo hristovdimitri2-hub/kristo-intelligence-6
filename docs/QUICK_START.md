@@ -57,7 +57,7 @@ python tests/test_sales_system.py
 # 1. Go to https://render.com
 # 2. Connect GitHub account
 # 3. Create "New Web Service"
-# 4. Select your repo: kristo-intelligence-v5
+# 4. Select your repo: kristo-intelligence-6
 # 5. Configure:
 #    - Runtime: Python 3.9
 #    - Build command: pip install -r requirements.txt

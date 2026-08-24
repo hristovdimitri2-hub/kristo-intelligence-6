@@ -120,7 +120,7 @@ def verify_stripe_config():
 def main():
     print("\n\n")
     print("╔" + "=" * 68 + "╗")
-    print("║  KRISTO INTELLIGENCE v5 - PRODUCTION DEPLOYMENT VERIFICATION   ║")
+    print("║  KRISTO INTELLIGENCE v6 - PRODUCTION DEPLOYMENT VERIFICATION   ║")
     print("╚" + "=" * 68 + "╝")
     
     # Run verifications

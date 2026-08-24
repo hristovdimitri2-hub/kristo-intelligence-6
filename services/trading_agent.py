@@ -1,5 +1,5 @@
 """
-Trading agent for Kristo Intelligence v5.
+Trading agent for Kristo Intelligence v6.
 
 Combines CoinGecko prices with Base44-guided DeFi signals to produce a
 single, human-readable trading decision per token plus an aggregate
@@ -20,7 +20,7 @@ import logging
 import os
 from typing import Dict, List
 
-log = logging.getLogger("kristo.v5.agent")
+log = logging.getLogger("kristo.v6.agent")
 
 
 class TradingAgent:

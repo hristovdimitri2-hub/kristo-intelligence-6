@@ -1,5 +1,5 @@
 """
-CoinGecko price client for Kristo Intelligence v5.
+CoinGecko price client for Kristo Intelligence v6.
 
 Uses the public CoinGecko API by default. If a Base44 API key is provided,
 requests are routed/authenticated per Base44 guidance so the client can
@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 import requests
 
-log = logging.getLogger("kristo.v5.coingecko")
+log = logging.getLogger("kristo.v6.coingecko")
 
 # Base44-guided token list (CoinGecko ids).
 SUPPORTED_TOKENS = {

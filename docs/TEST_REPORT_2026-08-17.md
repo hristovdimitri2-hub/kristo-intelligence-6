@@ -238,4 +238,4 @@ Pipeline Flow:     NEW → QUALIFIED → PAID ✓
 
 *Документ генериран от: Test Suite 1.0*  
 *Всички тестове: PASSED ✅*  
-*GitHub: https://github.com/hristovdimitri2-hub/kristo-intelligence-v5*
+*GitHub: https://github.com/hristovdimitri2-hub/kristo-intelligence-6*

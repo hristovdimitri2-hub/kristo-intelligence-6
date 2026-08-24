@@ -35,7 +35,7 @@ from services.ai_engine import generate_market_bulletin
 # ── Central configuration (bound wallet address) ───────────────────────────
 from config import get_base_fee_receiver
 
-log = logging.getLogger("kristo.v5.telegram_sales")
+log = logging.getLogger("kristo.v6.telegram_sales")
 
 # ── x402 Payment constants (mirrors main.py) ────────────────────────────────
 # Receiver address is bound via config.get_base_fee_receiver() (hard fallback)

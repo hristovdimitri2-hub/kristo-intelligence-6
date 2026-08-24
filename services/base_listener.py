@@ -16,7 +16,7 @@ from typing import Optional
 
 from config import get_base_fee_receiver, BASE_RPC_URL, BASE_USDC_CONTRACT
 
-log = logging.getLogger("kristo.v5.base_listener")
+log = logging.getLogger("kristo.v6.base_listener")
 
 # ERC-20 Transfer event topic: keccak256("Transfer(address,address,uint256)")
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"

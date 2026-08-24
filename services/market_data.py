@@ -1,5 +1,5 @@
 """
-Real-time market data integration for Kristo Intelligence v5.
+Real-time market data integration for Kristo Intelligence v6.
 
 Fetches live data from three public, free API sources:
   * CoinGecko Free API  — token prices, market caps, 24h change
@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 
 import requests
 
-log = logging.getLogger("kristo.v5.market_data")
+log = logging.getLogger("kristo.v6.market_data")
 
 # ── API endpoints (all free, no key required) ──────────────────────────────
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"

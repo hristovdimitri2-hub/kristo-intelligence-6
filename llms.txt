@@ -40,7 +40,7 @@ For unlimited access, send 29.00 USDC for a Monthly VIP subscription.
 
 ## Base URL
 
-https://kristo-intelligence-v5.onrender.com
+https://kristo-intelligence-v6.onrender.com
 
 ## HTTP 402 Response
 
@@ -50,7 +50,7 @@ When payment is required, the API returns HTTP 402 with:
 
 ## Discovery Files
 
-- x402: https://kristo-intelligence-v5.onrender.com/.well-known/x402.json
-- OpenAPI: https://kristo-intelligence-v5.onrender.com/openapi.json
-- LLMs: https://kristo-intelligence-v5.onrender.com/llms.txt
-- MCP Manifest: https://kristo-intelligence-v5.onrender.com/api/mcp/manifest
+- x402: https://kristo-intelligence-v6.onrender.com/.well-known/x402.json
+- OpenAPI: https://kristo-intelligence-v6.onrender.com/openapi.json
+- LLMs: https://kristo-intelligence-v6.onrender.com/llms.txt
+- MCP Manifest: https://kristo-intelligence-v6.onrender.com/api/mcp/manifest

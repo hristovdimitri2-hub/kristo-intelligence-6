@@ -23,7 +23,7 @@ const http = require("http");
 // ── Configuration ───────────────────────────────────────────────────────────
 
 const API_BASE_URL =
-  process.env.API_BASE_URL || "https://kristo-intelligence-v5.onrender.com";
+  process.env.API_BASE_URL || "https://kristo-intelligence-v6.onrender.com";
 
 // x402 Bazaar / Coinbase catalog registry endpoint.
 // This is the public ping endpoint for the x402 Bazaar directory.
@@ -34,7 +34,7 @@ const BAZAAR_REGISTRY_URL =
 // Service metadata
 const SERVICE = {
   name: "Kristo Intelligence API",
-  version: "5.0.0",
+  version: "6.0.0",
   description:
     "AI-powered DeFi trading signals and crypto market intelligence on Base. " +
     "Pay-per-call with USDC via x402 protocol.",
@@ -90,7 +90,7 @@ function sendRequest(url, data) {
       headers: {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(body),
-        "User-Agent": "kristo-intelligence-v5/register-bazaar",
+        "User-Agent": "kristo-intelligence-v6/register-bazaar",
       },
       timeout: 30000,
     };
@@ -131,7 +131,7 @@ async function selfHealthCheck() {
         hostname: parsed.hostname,
         port: parsed.port || (isHttps ? 443 : 80),
         path: parsed.pathname,
-        headers: { "User-Agent": "kristo-intelligence-v5/register-bazaar" },
+        headers: { "User-Agent": "kristo-intelligence-v6/register-bazaar" },
         timeout: 15000,
       },
       (res) => {

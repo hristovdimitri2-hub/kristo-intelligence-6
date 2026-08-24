@@ -1,4 +1,4 @@
-"""Blockchain / Base network package for Kristo Intelligence v5."""
+"""Blockchain / Base network package for Kristo Intelligence v6."""
 
 from .wallet import Wallet
 
