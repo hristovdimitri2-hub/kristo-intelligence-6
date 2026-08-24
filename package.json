@@ -1,0 +1,42 @@
+{
+  "name": "kristo-intelligence-6",
+  "version": "6.0.0",
+  "private": true,
+  "description": "Kristo Intelligence 6 — automated DeFi trading agent for Base. Node.js components: market evaluator + x402 bazaar registration.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "market:once": "node lib/agents/market_evaluator.js --once",
+    "market:loop": "node lib/agents/market_evaluator.js --loop",
+    "register:bazaar": "node scripts/register_bazaar.js",
+    "test": "node --test scripts/",
+    "help": "echo 'Kristo Intelligence 6 — Node.js components\\n\\nCommands:\\n  npm run market:once    Scan market demand once\\n  npm run market:loop     Continuous market scanning\\n  npm run register:bazaar Register service on x402 Bazaar\\n  npm test               Run Node.js tests\\n'"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "base",
+    "defi",
+    "x402",
+    "usdc",
+    "trading-agent",
+    "coingecko",
+    "blockchain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6.git"
+  },
+  "homepage": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6#readme",
+  "bugs": {
+    "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6/issues"
+  },
+  "authors": [
+    {
+      "name": "Kristo Intelligence"
+    }
+  ]
+}
