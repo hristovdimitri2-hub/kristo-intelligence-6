@@ -25,7 +25,16 @@ discovery_bp = Blueprint("discovery", __name__)
 
 @discovery_bp.route("/health")
 def health():
-    """Service health check (free, no paywall)."""
+    """Service health check (free, no paywall).
+
+    Liveness semantics: returns 200 whenever the web service and its
+    database are up — this is what platform health checks (Render, Docker)
+    and the keep-alive loop rely on. Blockchain connectivity is reported
+    informationally: the public Base RPC is rate-limited (429s) and must
+    never take the whole API offline. The background monitor keeps retrying
+    and resumes scanning from the last checked block, so no incoming
+    payment is ever missed during an RPC hiccup.
+    """
     from main import _lock, _wallet_state, crm_store
     from config import BASE_CHAIN_ID
 
@@ -39,6 +48,7 @@ def health():
     )
     return jsonify(
         status="ok" if crm_ready and blockchain_ready else "degraded",
+        service="up",
         database={"backend": crm_store.backend, "ready": crm_ready},
         blockchain={
             "ready": blockchain_ready,
@@ -46,7 +56,7 @@ def health():
             "chain_id": wallet.get("chain_id"),
             "fee_receiver": wallet.get("fee_receiver"),
         },
-    ), 200 if crm_ready and blockchain_ready else 503
+    ), 200 if crm_ready else 503
 
 
 @discovery_bp.route("/api/mcp/manifest")

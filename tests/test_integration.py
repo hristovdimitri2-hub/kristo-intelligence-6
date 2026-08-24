@@ -46,6 +46,35 @@ def test_health_endpoint(client, monkeypatch):
     assert payload["blockchain"]["ready"] is True
 
 
+def test_health_endpoint_returns_200_when_blockchain_rpc_is_flaky(client, monkeypatch):
+    """Regression test (2026-08-24 deploy failure): platform health checks
+    must not fail when the public Base RPC is rate-limited (429). The service
+    itself is up — only the blockchain monitor is degraded."""
+    import main
+
+    degraded_wallet_state = {
+        "wallet_address": None,
+        "fee_receiver": None,
+        "usdc_balance": 0.0,
+        "rpc_connected": False,
+        "chain_id": None,
+        "network": "Base Mainnet",
+        "receiver_valid": False,
+        "rpc_error": "429 Too Many Requests",
+        "last_block_checked": 0,
+        "last_check_time": None,
+    }
+    monkeypatch.setattr(main, "_wallet_state", degraded_wallet_state)
+
+    response = client.get("/health")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["service"] == "up"
+    assert payload["status"] == "degraded"
+    assert payload["database"]["ready"] is True
+    assert payload["blockchain"]["ready"] is False
+
+
 def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200
