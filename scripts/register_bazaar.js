@@ -23,7 +23,7 @@ const http = require("http");
 // ── Configuration ───────────────────────────────────────────────────────────
 
 const API_BASE_URL =
-  process.env.API_BASE_URL || "https://kristo-intelligence-v6.onrender.com";
+  process.env.API_BASE_URL || "https://kristo-intelligence-api.onrender.com";
 
 // x402 Bazaar / Coinbase catalog registry endpoint.
 // This is the public ping endpoint for the x402 Bazaar directory.
@@ -155,7 +155,7 @@ async function selfHealthCheck() {
 
 async function main() {
   console.log("╔══════════════════════════════════════════════════════════════╗");
-  console.log("║  x402 Bazaar Registration — Kristo Intelligence API v5     ║");
+  console.log("║  x402 Bazaar Registration — Kristo Intelligence API v6     ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
   console.log();
 

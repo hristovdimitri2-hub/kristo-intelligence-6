@@ -4,7 +4,6 @@
   "private": true,
   "description": "Kristo Intelligence 6 — automated DeFi trading agent for Base. Node.js components: market evaluator + x402 bazaar registration.",
   "license": "MIT",
-  "type": "module",
   "engines": {
     "node": ">=20.0.0"
   },
