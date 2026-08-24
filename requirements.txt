@@ -1,17 +1,27 @@
-requests>=2.31.0
-python-dotenv>=1.0.0
-web3>=6.0.0
-flask>=3.0.0
-python-telegram-bot>=20.0
-gunicorn>=21.2.0
-stripe>=10.0.0
-pytest>=8.0.0
-flask
-gunicorn
-pytest
-python-dotenv
-python-telegram-bot
-requests
-stripe
-web3
-psycopg[binary]
+# Kristo Intelligence 6 — direct dependencies (pinned)
+# For full reproducible builds, install from requirements.lock instead:
+#   pip install -r requirements.lock
+#
+# This file lists only direct dependencies with pinned minor versions.
+# Transitive dependencies are resolved by pip and pinned in requirements.lock.
+
+# ── Web framework ──────────────────────────────────────────────────────────
+Flask==3.1.3
+gunicorn==26.1.0
+
+# ── Blockchain ─────────────────────────────────────────────────────────────
+web3==7.16.0
+
+# ── HTTP / APIs ────────────────────────────────────────────────────────────
+requests==2.34.2
+stripe==15.5.1
+python-telegram-bot==22.8
+
+# ── Database ───────────────────────────────────────────────────────────────
+psycopg[binary]==3.3.4
+
+# ── Configuration ──────────────────────────────────────────────────────────
+python-dotenv==1.2.3
+
+# ── Testing ────────────────────────────────────────────────────────────────
+pytest==9.1.1
