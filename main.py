@@ -1137,6 +1137,179 @@ def _x402_paywall():
     return None
 
 
+# ── Register Blueprints (modular route groups) ────────────────────────────
+# Discovery routes (x402, OpenAPI, llms.txt, MCP, health) live in the
+# app/blueprints/discovery.py module. They use lazy imports to access
+# shared state and helpers defined above, avoiding circular imports.
+# See audit item #5 (2026-08-24).
+from app.blueprints.discovery import discovery_bp
+app.register_blueprint(discovery_bp)
+
+
+@app.route("/api/sales")
+def api_sales():
+    """Return REAL sales history (from on-chain USDC transfers) and total volume."""
+    _record_request("api_sales", True)
+    with _lock:
+        history = list(_sales_history)
+        total_volume = round(sum(s["amount_usd"] for s in history), 6)
+        total_count = len(history)
+
+        by_token: Dict[str, float] = {}
+        for s in history:
+            by_token[s["token"]] = round(by_token.get(s["token"], 0) + s["amount_usd"], 6)
+
+    # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
+    market_data = get_market_snapshot()
+
+    return _safe_jsonify({
+        "total_volume_usd": total_volume,
+        "total_sales": total_count,
+        "by_token": by_token,
+        "history": history[-100:],
+        "source": "real_blockchain",
+        "wallet_address": _wallet_state.get("wallet_address"),
+        "usdc_balance": _wallet_state.get("usdc_balance", 0.0),
+        "market_data": market_data,
+    })
+
+
+def _statistics_payload(include_recent_requests: bool) -> dict:
+    """Build real stats from durable catalog events and live runtime state."""
+    with _lock:
+        daily = dict(sorted(_daily_stats.items()))
+        recent_requests = list(_request_log)
+        wallet_info = dict(_wallet_state)
+        sales_history = list(_sales_history)
+        bot_status = dict(_bot_status)
+
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_data = daily.get(today_str, {"requests": 0, "sales_count": 0, "sales_volume": 0.0})
+    sales_by_token: Dict[str, float] = {}
+    for sale in sales_history:
+        token = sale.get("token", "USDC")
+        sales_by_token[token] = round(
+            sales_by_token.get(token, 0.0) + float(sale.get("amount_usd", 0.0)), 6
+        )
+
+    # Official eight-agent breakdown from durable catalog events.
+    products = _get_products_breakdown()
+    total_hits = sum(p["hits"] for p in products)
+    total_product_sales = sum(p["sales_count"] for p in products)
+    total_product_volume = round(sum(p["sales_volume_usd"] for p in products), 6)
+
+    # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
+    market_data = get_market_snapshot()
+
+    payload = {
+        "today": {
+            "date": today_str,
+            "requests": today_data.get("requests", 0),
+            "sales_count": today_data.get("sales_count", 0),
+            "sales_volume_usd": today_data.get("sales_volume", 0.0),
+        },
+        "daily": daily,
+        "total_requests": sum(d.get("requests", 0) for d in daily.values()),
+        "wallet": wallet_info,
+        "total_volume_usd": round(
+            sum(float(sale.get("amount_usd", 0.0)) for sale in sales_history), 6
+        ),
+        "total_sales": len(sales_history),
+        "by_token": sales_by_token,
+        "history": sales_history[-100:],
+        "telegram_bot_running": bot_status.get("telegram_bot_running", False),
+        "commands_processed": bot_status.get("commands_processed", 0),
+        "products": products,
+        "products_summary": {
+            "total_products": len(products),
+            "total_hits": total_hits,
+            "total_sales": total_product_sales,
+            "total_volume_usd": total_product_volume,
+        },
+        "nexus_url": NEXUS_URL,
+        "market_data": market_data,
+    }
+    if include_recent_requests:
+        payload["recent_requests"] = recent_requests[-50:]
+    return payload
+
+
+@app.route("/api/dashboard-stats")
+def dashboard_stats():
+    """Return free, read-only aggregate data required by the public dashboard."""
+    return _safe_jsonify(_statistics_payload(include_recent_requests=False))
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Return paid activity, requests, daily stats, and official agent catalog data."""
+    _record_request("api_stats", True)
+    return _safe_jsonify(_statistics_payload(include_recent_requests=True))
+
+
+@app.route("/api/bot-status")
+def api_bot_status():
+    """Return Telegram bot integration status."""
+    _record_request("api_bot_status", True)
+    with _lock:
+        status = dict(_bot_status)
+        wallet_info = dict(_wallet_state)
+    status["last_heartbeat"] = status.get("last_heartbeat", "")
+    status["uptime_started"] = status.get("uptime_started", "")
+    status["wallet"] = wallet_info
+    return _safe_jsonify(status)
+
+
+# ── Telegram Webhook (for bot messages & inline button callbacks) ─────────
+
+@app.route("/api/telegram-webhook", methods=["POST"])
+def api_telegram_webhook():
+    """
+    Webhook endpoint for Telegram Bot API updates.
+
+    Receives Telegram Update objects (messages and callback_query events)
+    and delegates processing to `services.telegram_sales.process_webhook_update`.
+
+    This handles:
+      * Text commands: /start, /help, /bulletin, /price
+      * Inline button callbacks: "🔓 Отключи пълен VIP анализ за 0.10 USDC"
+
+    The endpoint is always free (no x402 paywall) so Telegram can deliver
+    updates without payment.
+    """
+    configured_secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if (
+        not configured_secret
+        or not supplied_secret
+        or not hmac.compare_digest(supplied_secret, configured_secret)
+    ):
+        _record_request("api_telegram_webhook", False)
+        log.warning("Rejected Telegram webhook without a valid secret token.")
+        return jsonify({"ok": False, "error": "telegram_webhook_unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    if not payload:
+        _record_request("api_telegram_webhook", False)
+        return jsonify({"ok": False, "error": "empty_payload"}), 400
+
+    try:
+        result = process_webhook_update(payload)
+        _record_request("api_telegram_webhook", True)
+        _record_telegram_activity(payload, result)
+        log.info("Telegram webhook processed: %s", result)
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        _record_request("api_telegram_webhook", False)
+        log.error("Telegram webhook processing failed: %s", exc)
+        return jsonify({"ok": False, "error": "telegram_processing_failed"}), 500
+
+
+# ── MCP / x402 Payment Protocol ──────────────────────────────────────────
+
+
+
+
 # ── Routes ────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -2090,552 +2263,7 @@ def funnel_track():
     }})
 
 
-@app.route("/health")
-def health():
-    crm_ready = crm_store.is_healthy()
-    with _lock:
-        wallet = dict(_wallet_state)
-    blockchain_ready = bool(
-        wallet.get("rpc_connected")
-        and wallet.get("chain_id") == BASE_CHAIN_ID
-        and wallet.get("receiver_valid")
-    )
-    return jsonify(
-        status="ok" if crm_ready and blockchain_ready else "degraded",
-        database={"backend": crm_store.backend, "ready": crm_ready},
-        blockchain={
-            "ready": blockchain_ready,
-            "network": wallet.get("network", "Base Mainnet"),
-            "chain_id": wallet.get("chain_id"),
-            "fee_receiver": wallet.get("fee_receiver"),
-        },
-    ), 200 if crm_ready and blockchain_ready else 503
 
-
-@app.route("/api/sales")
-def api_sales():
-    """Return REAL sales history (from on-chain USDC transfers) and total volume."""
-    _record_request("api_sales", True)
-    with _lock:
-        history = list(_sales_history)
-        total_volume = round(sum(s["amount_usd"] for s in history), 6)
-        total_count = len(history)
-
-        by_token: Dict[str, float] = {}
-        for s in history:
-            by_token[s["token"]] = round(by_token.get(s["token"], 0) + s["amount_usd"], 6)
-
-    # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
-    market_data = get_market_snapshot()
-
-    return _safe_jsonify({
-        "total_volume_usd": total_volume,
-        "total_sales": total_count,
-        "by_token": by_token,
-        "history": history[-100:],
-        "source": "real_blockchain",
-        "wallet_address": _wallet_state.get("wallet_address"),
-        "usdc_balance": _wallet_state.get("usdc_balance", 0.0),
-        "market_data": market_data,
-    })
-
-
-def _statistics_payload(include_recent_requests: bool) -> dict:
-    """Build real stats from durable catalog events and live runtime state."""
-    with _lock:
-        daily = dict(sorted(_daily_stats.items()))
-        recent_requests = list(_request_log)
-        wallet_info = dict(_wallet_state)
-        sales_history = list(_sales_history)
-        bot_status = dict(_bot_status)
-
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    today_data = daily.get(today_str, {"requests": 0, "sales_count": 0, "sales_volume": 0.0})
-    sales_by_token: Dict[str, float] = {}
-    for sale in sales_history:
-        token = sale.get("token", "USDC")
-        sales_by_token[token] = round(
-            sales_by_token.get(token, 0.0) + float(sale.get("amount_usd", 0.0)), 6
-        )
-
-    # Official eight-agent breakdown from durable catalog events.
-    products = _get_products_breakdown()
-    total_hits = sum(p["hits"] for p in products)
-    total_product_sales = sum(p["sales_count"] for p in products)
-    total_product_volume = round(sum(p["sales_volume_usd"] for p in products), 6)
-
-    # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
-    market_data = get_market_snapshot()
-
-    payload = {
-        "today": {
-            "date": today_str,
-            "requests": today_data.get("requests", 0),
-            "sales_count": today_data.get("sales_count", 0),
-            "sales_volume_usd": today_data.get("sales_volume", 0.0),
-        },
-        "daily": daily,
-        "total_requests": sum(d.get("requests", 0) for d in daily.values()),
-        "wallet": wallet_info,
-        "total_volume_usd": round(
-            sum(float(sale.get("amount_usd", 0.0)) for sale in sales_history), 6
-        ),
-        "total_sales": len(sales_history),
-        "by_token": sales_by_token,
-        "history": sales_history[-100:],
-        "telegram_bot_running": bot_status.get("telegram_bot_running", False),
-        "commands_processed": bot_status.get("commands_processed", 0),
-        "products": products,
-        "products_summary": {
-            "total_products": len(products),
-            "total_hits": total_hits,
-            "total_sales": total_product_sales,
-            "total_volume_usd": total_product_volume,
-        },
-        "nexus_url": NEXUS_URL,
-        "market_data": market_data,
-    }
-    if include_recent_requests:
-        payload["recent_requests"] = recent_requests[-50:]
-    return payload
-
-
-@app.route("/api/dashboard-stats")
-def dashboard_stats():
-    """Return free, read-only aggregate data required by the public dashboard."""
-    return _safe_jsonify(_statistics_payload(include_recent_requests=False))
-
-
-@app.route("/api/stats")
-def api_stats():
-    """Return paid activity, requests, daily stats, and official agent catalog data."""
-    _record_request("api_stats", True)
-    return _safe_jsonify(_statistics_payload(include_recent_requests=True))
-
-
-@app.route("/api/bot-status")
-def api_bot_status():
-    """Return Telegram bot integration status."""
-    _record_request("api_bot_status", True)
-    with _lock:
-        status = dict(_bot_status)
-        wallet_info = dict(_wallet_state)
-    status["last_heartbeat"] = status.get("last_heartbeat", "")
-    status["uptime_started"] = status.get("uptime_started", "")
-    status["wallet"] = wallet_info
-    return _safe_jsonify(status)
-
-
-# ── Telegram Webhook (for bot messages & inline button callbacks) ─────────
-
-@app.route("/api/telegram-webhook", methods=["POST"])
-def api_telegram_webhook():
-    """
-    Webhook endpoint for Telegram Bot API updates.
-
-    Receives Telegram Update objects (messages and callback_query events)
-    and delegates processing to `services.telegram_sales.process_webhook_update`.
-
-    This handles:
-      * Text commands: /start, /help, /bulletin, /price
-      * Inline button callbacks: "🔓 Отключи пълен VIP анализ за 0.10 USDC"
-
-    The endpoint is always free (no x402 paywall) so Telegram can deliver
-    updates without payment.
-    """
-    configured_secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
-    supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if (
-        not configured_secret
-        or not supplied_secret
-        or not hmac.compare_digest(supplied_secret, configured_secret)
-    ):
-        _record_request("api_telegram_webhook", False)
-        log.warning("Rejected Telegram webhook without a valid secret token.")
-        return jsonify({"ok": False, "error": "telegram_webhook_unauthorized"}), 401
-
-    payload = request.get_json(silent=True) or {}
-    if not payload:
-        _record_request("api_telegram_webhook", False)
-        return jsonify({"ok": False, "error": "empty_payload"}), 400
-
-    try:
-        result = process_webhook_update(payload)
-        _record_request("api_telegram_webhook", True)
-        _record_telegram_activity(payload, result)
-        log.info("Telegram webhook processed: %s", result)
-        return jsonify({"ok": True, "result": result})
-    except Exception as exc:
-        _record_request("api_telegram_webhook", False)
-        log.error("Telegram webhook processing failed: %s", exc)
-        return jsonify({"ok": False, "error": "telegram_processing_failed"}), 500
-
-
-# ── MCP / x402 Payment Protocol ──────────────────────────────────────────
-
-@app.route("/api/mcp/manifest")
-def api_mcp_manifest():
-    """
-    MCP (Model Context Protocol) manifest for AI Agent machine-to-machine payments.
-    Compatible with x402 payment protocol — AI agents can read this to understand
-    how to pay for API access via USDC on Base.
-    """
-    _record_request("api_mcp_manifest", True)
-    fee_receiver = get_base_fee_receiver()  # hard fallback to bound address
-    base_url = request.host_url.rstrip("/")
-
-    manifest = {
-        "protocol": "x402",
-        "version": "1.0",
-        "service": "Kristo Intelligence API",
-        "description": "AI-powered DeFi trading signals and crypto market intelligence",
-        "payment": {
-            "chain": "base",
-            "chain_id": 8453,
-            "currency": "USDC",
-            "token_contract": os.getenv("BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
-            "receiver_address": fee_receiver,
-            "tiers": [
-                {
-                    "id": "micro_request",
-                    "name": "Micro Request",
-                    "price_usdc": MICRO_FEE_USDC,
-                    "description": "Pay-per-call: 0.10 USDC per API request",
-                    "access": "single API call",
-                    "endpoints": ["/api/stats", "/api/sales", "/api/bot-status"],
-                },
-                {
-                    "id": "vip_monthly",
-                    "name": "Monthly VIP",
-                    "price_usdc": VIP_MONTHLY_USDC,
-                    "description": "Unlimited monthly access + Telegram VIP group invite",
-                    "access": "unlimited for 30 days",
-                    "endpoints": ["ALL"],
-                    "bonus": "Telegram VIP group invite code",
-                },
-            ],
-        },
-        "endpoints": {
-            "base_url": base_url,
-            "available": [
-                {"path": "/api/stats", "method": "GET", "cost_usdc": MICRO_FEE_USDC, "description": "Market activity and daily stats"},
-                {"path": "/api/sales", "method": "GET", "cost_usdc": MICRO_FEE_USDC, "description": "Real on-chain sales history"},
-                {"path": "/api/bot-status", "method": "GET", "cost_usdc": MICRO_FEE_USDC, "description": "Telegram bot status"},
-                {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0, "description": "This manifest (free)"},
-                {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0, "description": "HTML dashboard (free)"},
-            ],
-        },
-        "instructions": {
-            "payment": f"Send USDC to {fee_receiver} on Base network",
-            "verification": "Payments are verified on-chain via Transfer event logs",
-            "vip_threshold": f"Payments >= ${VIP_THRESHOLD_USDC} USDC automatically generate a Telegram VIP invite code",
-        },
-    }
-    return jsonify(manifest)
-
-
-# ── AI Agent Discovery Endpoints (x402, OpenAPI, llms.txt) ────────────────
-
-@app.route("/.well-known/x402.json")
-def well_known_x402():
-    """Serve current 8-agent x402 discovery metadata from the catalog store."""
-    return _safe_jsonify(_build_x402_discovery(request.host_url.rstrip("/")))
-
-
-
-
-@app.route("/mcp.json")
-def mcp_json():
-    """
-    MCP (Model Context Protocol) discovery file for AI agent indexing.
-
-    Provides a machine-readable description of the service, available tools
-    (endpoints), and x402 payment requirements so autonomous agents can
-    discover and interact with the API automatically.
-    """
-    base_url = request.host_url.rstrip("/")
-    return jsonify({
-        "schema_version": "1.0",
-        "name": "Kristo Intelligence API",
-        "description": "AI-powered DeFi trading signals and crypto market intelligence on Base",
-        "base_url": base_url,
-        "protocol": "x402",
-        "payment": {
-            "chain": X402_CHAIN,
-            "chain_id": X402_CHAIN_ID,
-            "currency": "USDC",
-            "token_contract": X402_USDC_CONTRACT,
-            "receiver_address": X402_RECEIVER_ADDRESS,
-            "price_per_call_usdc": X402_FEE_USDC,
-            "free_tier_limit": FREE_TIER_LIMIT,
-            "monthly_vip_usdc": VIP_MONTHLY_USDC,
-        },
-        "tools": [
-            {
-                "name": "get_market_stats",
-                "description": "Get market activity, daily stats, the official eight-agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed)",
-                "endpoint": f"{base_url}/api/stats",
-                "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
-            },
-            {
-                "name": "get_sales_history",
-                "description": "Get real on-chain sales history (USDC transfers) and live market snapshot",
-                "endpoint": f"{base_url}/api/sales",
-                "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
-            },
-            {
-                "name": "get_bot_status",
-                "description": "Get Telegram bot integration status and wallet info",
-                "endpoint": f"{base_url}/api/bot-status",
-                "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
-            },
-            {
-                "name": "get_mcp_manifest",
-                "description": "Get the full MCP/x402 payment manifest (free)",
-                "endpoint": f"{base_url}/api/mcp/manifest",
-                "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
-            },
-            {
-                "name": "get_x402_discovery",
-                "description": "Get x402 payment discovery metadata (free)",
-                "endpoint": f"{base_url}/.well-known/x402.json",
-                "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
-            },
-            {
-                "name": "get_openapi_spec",
-                "description": "Get OpenAPI 3.0 specification (free)",
-                "endpoint": f"{base_url}/openapi.json",
-                "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
-            },
-        ],
-        "data_sources": {
-            "coingecko": "https://api.coingecko.com/api/v3/simple/price",
-            "dexscreener": "https://api.dexscreener.com",
-            "fear_greed_index": "https://api.alternative.me/fng/",
-        },
-        "cache_ttl_minutes": 15,
-        "instructions": {
-            "payment": f"Send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
-            "verification": "Payments verified on-chain via ERC-20 Transfer event logs",
-            "retry": "After payment confirmation, retry the endpoint to access data",
-        },
-    })
-
-
-@app.route("/openapi.json")
-def openapi_spec():
-    """
-    OpenAPI 3.0 specification for AI agent discovery.
-    Includes x402 payment extensions so agents know how to pay.
-    """
-    base_url = request.host_url.rstrip("/")
-    spec = {
-        "openapi": "3.0.3",
-        "info": {
-            "title": "Kristo Intelligence API",
-            "version": "6.0.0",
-            "description": "AI-powered DeFi trading signals and crypto market intelligence. "
-                           "Uses x402 payment protocol — USDC on Base.",
-            "x402": {
-                "protocol": "x402",
-                "receiver_address": X402_RECEIVER_ADDRESS,
-                "currency": "USDC",
-                "chain": X402_CHAIN,
-                "chain_id": X402_CHAIN_ID,
-                "token_contract": X402_USDC_CONTRACT,
-                "price_per_call_usdc": X402_FEE_USDC,
-                "free_tier_limit": FREE_TIER_LIMIT,
-            },
-        },
-        "servers": [{"url": base_url}],
-        "paths": {
-            "/api/stats": {
-                "get": {
-                    "summary": "Market activity and daily stats",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with stats data"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/sales": {
-                "get": {
-                    "summary": "Real on-chain sales history",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with sales history"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/bot-status": {
-                "get": {
-                    "summary": "Telegram bot integration status",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with bot status"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/mcp/manifest": {
-                "get": {
-                    "summary": "MCP/x402 payment manifest (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Machine-readable payment manifest"}},
-                }
-            },
-            "/.well-known/x402.json": {
-                "get": {
-                    "summary": "x402 discovery file (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "x402 payment discovery metadata"}},
-                }
-            },
-            "/openapi.json": {
-                "get": {
-                    "summary": "This OpenAPI specification (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "OpenAPI 3.0 specification"}},
-                }
-            },
-            "/llms.txt": {
-                "get": {
-                    "summary": "LLM-friendly API description (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Plain-text API description for LLMs"}},
-                }
-            },
-            "/health": {
-                "get": {
-                    "summary": "Health check (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Service health status"}},
-                }
-            },
-            "/dashboard": {
-                "get": {
-                    "summary": "HTML dashboard (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "HTML dashboard page"}},
-                }
-            },
-            "/api/v1/agents/{agent_id}/playground": {
-                "post": {
-                    "summary": "One bounded free catalog-agent demo per client",
-                    "x402": {
-                        "catalog_driven_pricing": True,
-                        "settlement_status": "discovery_only",
-                        "free_playground_requests_per_client": 1,
-                    },
-                    "parameters": [
-                        {
-                            "name": "agent_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {"description": "Bounded demo execution completed"},
-                        "402": {"description": "Free demo used; response includes x402 and Stripe upgrade paths"},
-                        "404": {"description": "Unknown agent"},
-                    },
-                }
-            },
-        },
-        "components": {
-            "securitySchemes": {
-                "x402": {
-                    "type": "apiKey",
-                    "in": "header",
-                    "name": "X-Payment-Address",
-                    "description": f"x402 payment: send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
-                }
-            }
-        },
-    }
-    return jsonify(spec)
-
-
-@app.route("/llms.txt")
-def llms_txt():
-    """
-    LLM-friendly plain-text description of the API for AI agent discovery.
-    """
-    base_url = request.host_url.rstrip("/")
-    content = f"""# Kristo Intelligence API
-
-> AI-powered DeFi trading signals and crypto market intelligence.
-> Uses the x402 payment protocol — pay with USDC on Base.
-
-## Payment (x402 Protocol)
-
-- Chain: Base (chain_id: {X402_CHAIN_ID})
-- Currency: USDC
-- Token contract: {X402_USDC_CONTRACT}
-- Receiver address: {X402_RECEIVER_ADDRESS}
-- Price per API call: ${X402_FEE_USDC} USDC
-- Free tier: {FREE_TIER_LIMIT} free call(s) per client, then payment required
-- Monthly VIP: ${VIP_MONTHLY_USDC} USDC (unlimited for 30 days)
-
-## How to Pay
-
-1. Send exactly {X402_FEE_USDC} USDC on the Base network to {X402_RECEIVER_ADDRESS}
-2. Wait for on-chain confirmation (usually ~2 seconds on Base)
-3. Retry the desired API endpoint — access is granted automatically
-
-For unlimited access, send {VIP_MONTHLY_USDC} USDC for a Monthly VIP subscription.
-
-## Endpoints
-
-### Paid (requires x402 payment after free tier)
-
-- GET /api/stats — Market activity and daily stats (${X402_FEE_USDC} USDC)
-- GET /api/sales — Real on-chain sales history (${X402_FEE_USDC} USDC)
-- GET /api/bot-status — Telegram bot status (${X402_FEE_USDC} USDC)
-
-### Free (always accessible)
-
-- GET /.well-known/x402.json — x402 payment discovery metadata
-- GET /openapi.json — OpenAPI 3.0 specification
-- GET /llms.txt — This file (LLM-friendly API description)
-- GET /api/mcp/manifest — MCP/x402 machine-readable manifest
-- GET /health — Service health check
-- GET /dashboard — HTML dashboard
-
-## Base URL
-
-{base_url}
-
-## HTTP 402 Response
-
-When payment is required, the API returns HTTP 402 with:
-- JSON body containing payment details (receiver address, amount, chain)
-- Headers: X-Payment-Required, X-Payment-Address, X-Payment-Amount-USDC
-
-## Discovery Files
-
-- x402: {base_url}/.well-known/x402.json
-- OpenAPI: {base_url}/openapi.json
-- LLMs: {base_url}/llms.txt
-- MCP Manifest: {base_url}/api/mcp/manifest
-"""
-    from flask import Response
-    return Response(content, mimetype="text/plain")
 
 
 # ── Dashboard HTML ────────────────────────────────────────────────────────
