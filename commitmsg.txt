@@ -1,0 +1,19 @@
+﻿feat(discovery+seo): robots.txt, sitemap.xml, agents.json + marketing kit
+
+Visibility push (2026-08-24):
+
+1. /robots.txt — allows all crawlers, points at the sitemap and blocks
+   /api/admin/.
+2. /sitemap.xml — dynamic sitemap (always correct host/https) covering
+   all public pages and discovery endpoints. Ready for Google Search
+   Console / Bing Webmaster submission.
+3. /agents.json — AI-agent service discovery manifest (spec 1.0):
+   service description, x402 payment scheme (receiver, price, chain),
+   paid endpoints with costs, and docs links. Agents can find, price
+   and pay for the API with zero human interaction.
+4. docs/MARKETING_KIT.md — ready-to-post content for Twitter/X, Reddit,
+   Discord, Telegram, and Hacker News, plus a directory-submission
+   checklist and the remaining owner-only action items.
+
+All new routes are free (no paywall), dynamic (single source of truth in
+config/main constants), and follow the existing blueprint pattern.

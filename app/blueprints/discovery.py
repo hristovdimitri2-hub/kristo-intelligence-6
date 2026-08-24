@@ -374,6 +374,104 @@ def openapi_spec():
     return jsonify(spec)
 
 
+@discovery_bp.route("/robots.txt")
+def robots_txt():
+    """Allow all crawlers; point them at the key discovery endpoints."""
+    content = f"""User-agent: *
+Allow: /
+Disallow: /api/admin/
+
+# Machine-readable discovery endpoints for AI agents and crawlers
+Sitemap: {request.host_url.rstrip('/')}/sitemap.xml
+"""
+    return Response(content, mimetype="text/plain")
+
+
+@discovery_bp.route("/sitemap.xml")
+def sitemap_xml():
+    """Dynamic sitemap for SEO — always reflects the current host."""
+    base_url = request.host_url.rstrip("/")
+    pages = [
+        ("/", "1.0", "daily"),
+        ("/dashboard", "0.9", "hourly"),
+        ("/nexus", "0.8", "daily"),
+        ("/agents", "0.8", "daily"),
+        ("/launch", "0.7", "weekly"),
+        ("/llms.txt", "0.6", "weekly"),
+        ("/openapi.json", "0.6", "weekly"),
+        ("/.well-known/x402.json", "0.6", "weekly"),
+        ("/api/mcp/manifest", "0.6", "weekly"),
+    ]
+    urls = "\n".join(
+        f"  <url><loc>{base_url}{path}</loc>"
+        f"<changefreq>{freq}</changefreq><priority>{prio}</priority></url>"
+        for path, prio, freq in pages
+    )
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{urls}
+</urlset>"""
+    return Response(xml, mimetype="application/xml")
+
+
+@discovery_bp.route("/agents.json")
+def agents_json():
+    """agents.json — emerging standard for AI-agent service discovery.
+
+    Describes the service, its x402 payment scheme, and the endpoints an
+    autonomous agent can call — so agents can find, price and pay for this
+    API without any human interaction.
+    """
+    from main import (
+        X402_CHAIN_ID,
+        X402_FEE_USDC,
+        X402_RECEIVER_ADDRESS,
+        X402_USDC_CONTRACT,
+        FREE_TIER_LIMIT,
+        VIP_MONTHLY_USDC,
+    )
+
+    base_url = request.host_url.rstrip("/")
+    return jsonify({
+        "spec_version": "1.0",
+        "name": "Kristo Intelligence",
+        "description": (
+            "AI-powered DeFi trading signals and crypto market intelligence "
+            "on Base. Autonomous agents pay per call with USDC via x402."
+        ),
+        "url": base_url,
+        "payment": {
+            "protocol": "x402",
+            "chain": "base",
+            "chain_id": X402_CHAIN_ID,
+            "currency": "USDC",
+            "token_contract": X402_USDC_CONTRACT,
+            "receiver_address": X402_RECEIVER_ADDRESS,
+            "price_per_call_usdc": X402_FEE_USDC,
+            "free_tier_limit": FREE_TIER_LIMIT,
+            "monthly_vip_usdc": VIP_MONTHLY_USDC,
+        },
+        "endpoints": [
+            {"path": "/api/stats", "method": "GET",
+             "description": "Market activity, daily stats, live market data",
+             "cost_usdc": X402_FEE_USDC},
+            {"path": "/api/sales", "method": "GET",
+             "description": "Real on-chain sales history (USDC transfers)",
+             "cost_usdc": X402_FEE_USDC},
+            {"path": "/api/bot-status", "method": "GET",
+             "description": "Telegram bot integration status",
+             "cost_usdc": X402_FEE_USDC},
+        ],
+        "docs": {
+            "llms_txt": f"{base_url}/llms.txt",
+            "openapi": f"{base_url}/openapi.json",
+            "x402_discovery": f"{base_url}/.well-known/x402.json",
+            "mcp_manifest": f"{base_url}/api/mcp/manifest",
+        },
+        "payment_verification": "On-chain ERC-20 Transfer event monitoring",
+    })
+
+
 @discovery_bp.route("/llms.txt")
 def llms_txt():
     """LLM-friendly plain-text description of the API for AI agent discovery."""
