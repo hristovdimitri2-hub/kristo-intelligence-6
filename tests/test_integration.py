@@ -17,7 +17,25 @@ def client(monkeypatch, tmp_path):
     return main.app.test_client()
 
 
-def test_health_endpoint(client):
+def test_health_endpoint(client, monkeypatch):
+    # Simulate a healthy monitor-only wallet so the test is deterministic
+    # and does not depend on live Base RPC connectivity.
+    import main
+
+    healthy_wallet_state = {
+        "wallet_address": main.X402_RECEIVER_ADDRESS,
+        "fee_receiver": main.X402_RECEIVER_ADDRESS,
+        "usdc_balance": 0.0,
+        "rpc_connected": True,
+        "chain_id": 8453,
+        "network": "Base Mainnet",
+        "receiver_valid": True,
+        "rpc_error": None,
+        "last_block_checked": 0,
+        "last_check_time": None,
+    }
+    monkeypatch.setattr(main, "_wallet_state", healthy_wallet_state)
+
     response = client.get("/health")
     assert response.status_code == 200
     payload = response.get_json()
@@ -25,7 +43,7 @@ def test_health_endpoint(client):
     assert payload["database"] == {"backend": "sqlite", "ready": True}
     assert payload["blockchain"]["network"] == "Base Mainnet"
     assert payload["blockchain"]["chain_id"] == 8453
-    assert "ready" in payload["blockchain"]
+    assert payload["blockchain"]["ready"] is True
 
 
 def test_public_dashboard_stats_are_free_and_use_official_catalog(client):

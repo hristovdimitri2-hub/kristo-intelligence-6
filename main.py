@@ -827,9 +827,16 @@ def _is_dashboard_request() -> bool:
 
 def _get_admin_token() -> str:
     """Return the normalized admin credential without exposing its value."""
-    return (os.getenv("ADMIN_API_TOKEN", "") or "").strip() or (
-        os.getenv("SESSION_SECRET", "") or ""
-    ).strip()
+    token = (os.getenv("ADMIN_API_TOKEN", "") or "").strip()
+    if token:
+        return token
+    fallback = (os.getenv("SESSION_SECRET", "") or "").strip()
+    if fallback:
+        log.warning(
+            "ADMIN_API_TOKEN is not set — falling back to SESSION_SECRET. "
+            "Set an explicit ADMIN_API_TOKEN in production."
+        )
+    return fallback
 
 
 def _log_admin_token_mismatch(configured: str, supplied: str) -> None:

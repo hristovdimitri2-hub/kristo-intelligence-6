@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 discord_notifier.py
 ===================
-Automated Discord webhook notifications for Kristo Intelligence API v5.
+Automated Discord webhook notifications for Kristo Intelligence API v6.
 
 Sends formatted Rich Embeds to Discord servers with live market alerts,
 API activity summaries, and technical signatures for developers.

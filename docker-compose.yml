@@ -13,9 +13,9 @@
 # Notes:
 #   - PostgreSQL is OPTIONAL. If DATABASE_URL is not set, the app falls back
 #     to SQLite (data/crm_sales.db) automatically.
-#   - The worker service shares the same image as web; it runs the same
-#     gunicorn process but with KRISTO_WORKER_MODE=true which disables the
-#     HTTP server and runs only background threads.
+#   - The worker service shares the same image as web; it runs
+#     `python -m scripts.worker` with KRISTO_WORKER_MODE=true, which skips the
+#     HTTP server and runs only the background threads.
 
 services:
   postgres:
@@ -64,7 +64,7 @@ services:
     env_file: .env
     environment:
       - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:-kristo_dev}@postgres:5432/kristo
-      - KRISTO_WORKER_MODE=true  # disable HTTP, run only background threads
+      - KRISTO_WORKER_MODE=true  # run only background threads (no HTTP server)
       - KRISTO_DISABLE_BACKGROUND_THREADS=false
     depends_on:
       postgres:

@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 twitter_automator.py
 ====================
-Automated X (Twitter) marketing module for Kristo Intelligence API v5.
+Automated X (Twitter) marketing module for Kristo Intelligence API v6.
 
 Pulls live on-chain market data from /api/stats endpoint, formats it into
 technical posts suitable for developer/trading audiences, and publishes to X.
@@ -36,7 +36,7 @@ TWITTER_API_BASE = "https://api.twitter.com/2"
 
 # Marketing CTA signature (mandatory)
 DEVELOPER_PITCH = (
-    "🚀 Data stream provided via Kristo Intelligence API v5\n"
+    "🚀 Data stream provided via Kristo Intelligence API v6\n"
     "Request cost: 0.10 USDC | Base Network\n"
     "Connect via: https://kristo-intelligence-api.onrender.com"
 )

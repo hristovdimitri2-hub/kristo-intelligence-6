@@ -3,6 +3,21 @@
 This directory contains files preserved for historical reference but no longer
 active in the codebase.
 
+## openapi.json.static / llms.txt.static
+
+**Original location:** repo root (`openapi.json`, `llms.txt`)
+**Archived:** 2026-08-24 (post-audit hardening)
+
+These static discovery specs were the source of the original
+wrong-receiver-address bug (2026-08-24 audit): the static files pointed to a
+different wallet than the one the app actually monitors. Both endpoints
+(`GET /openapi.json`, `GET /llms.txt`) are now served **dynamically** from
+`app/blueprints/discovery.py`, built from `config.get_base_fee_receiver()` —
+a single source of truth — so they can never drift from the configured
+receiver again.
+
+Do NOT restore these files to the repo root.
+
 ## prisma-schema-legacy.prisma
 
 **Original location:** `prisma/schema.prisma`
