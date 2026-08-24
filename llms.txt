@@ -8,14 +8,14 @@
 - Chain: Base (chain_id: 8453)
 - Currency: USDC
 - Token contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-- Receiver address: 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f
+- Receiver address: 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
 - Price per API call: $0.10 USDC
 - Free tier: 1 free call(s) per client, then payment required
 - Monthly VIP: $29.00 USDC (unlimited for 30 days)
 
 ## How to Pay
 
-1. Send exactly 0.10 USDC on the Base network to 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f
+1. Send exactly 0.10 USDC on the Base network to 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
 2. Wait for on-chain confirmation (usually ~2 seconds on Base)
 3. Retry the desired API endpoint — access is granted automatically
 

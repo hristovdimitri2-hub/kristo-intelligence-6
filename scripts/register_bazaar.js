@@ -45,7 +45,7 @@ const SERVICE = {
     chain_id: 8453,
     currency: "USDC",
     token_contract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    receiver_address: "0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
+    receiver_address: "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
     price_per_call_usdc: 0.10,
     free_tier_limit: 1,
     monthly_vip_usdc: 29.00,

