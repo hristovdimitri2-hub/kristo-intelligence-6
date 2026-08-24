@@ -28,3 +28,24 @@ Thumbs.db
 
 # Market Evaluator state (local runtime data)
 market_state.json
+
+# ── Runtime data files (added 2026-08-24 audit) ────────────────────────────
+# SQLite databases — never commit; may contain PII
+*.db
+*.sqlite
+*.sqlite3
+
+# Local runtime data directories
+data/
+attached_assets/
+
+# Test output artifacts
+tests/test_results.json
+
+# Replit deployment config (platform-specific; deploy via Replit UI)
+.replit
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
