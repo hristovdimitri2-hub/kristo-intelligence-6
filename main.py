@@ -1362,7 +1362,26 @@ def _x402_paywall():
                     if _try_consume_payment_proof(proof, price, ip):
                         return None  # paid call — allow through
 
-            # No valid proof — require x402 payment (dynamic pricing)
+                    # Credential WAS presented but is broken/unusable:
+                    # unknown tx, replayed proof, or underpayment. 401 tells
+                    # the agent its proof is the problem (vs 402 = "pay now").
+                    return jsonify({
+                        "ok": False,
+                        "error": "invalid_payment_proof",
+                        "message": (
+                            "The X-Payment-Proof was not accepted: the "
+                            "transaction is unknown/unconfirmed on Base, "
+                            "already used, or below the required amount."
+                        ),
+                        "required_amount_usdc": _get_dynamic_price(ip),
+                        "receiver_address": X402_RECEIVER_ADDRESS,
+                        "hint": (
+                            "Wait for confirmation (~2s on Base) and retry, "
+                            "or make a fresh payment and retry with its proof."
+                        ),
+                    }), 401
+
+            # No proof at all — demand payment (canonical 402).
             price = _get_dynamic_price(ip)
             log.info("x402 payment required: ip=%s, endpoint=%s, price=$%s", ip, path, price)
             return _x402_payment_required_response(path, price)

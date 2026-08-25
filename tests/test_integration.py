@@ -184,13 +184,18 @@ def test_x402_payment_proof_completes_the_handshake(client, monkeypatch):
     assert resp.status_code == 200
     assert main._paid_calls_usage.get("127.0.0.1", 0) >= 1
 
-    # Replay: the same proof must NOT grant a second call (idempotency)
-    assert client.get("/api/stats", headers={"X-Payment-Proof": proof}).status_code == 402
+    # Replay: the same proof must NOT grant a second call (idempotency).
+    # A presented-but-consumed credential is 401 (invalid proof), not 402.
+    replay = client.get("/api/stats", headers={"X-Payment-Proof": proof})
+    assert replay.status_code == 401
+    assert replay.get_json()["error"] == "invalid_payment_proof"
 
 
 def test_x402_payment_proof_rejects_forged_tx(client, monkeypatch):
     """A proof referencing an unverified transaction must stay locked out —
-    the server may not trust client claims without on-chain evidence."""
+    the server may not trust client claims without on-chain evidence.
+    A presented-but-invalid credential now returns 401 (broken proof),
+    distinct from 402 (no proof / payment required)."""
     import base64 as b64
     import json as jsonlib
     import main
@@ -209,9 +214,43 @@ def test_x402_payment_proof_rejects_forged_tx(client, monkeypatch):
         "amount_usdc": 0.05,
     }).encode()).decode().rstrip("=")
 
-    # Verification fails (unknown tx) -> still 402
+    # Verification fails (unknown tx) -> 401 invalid proof
     resp = client.get("/api/bot-status", headers={"X-Payment-Proof": proof})
-    assert resp.status_code == 402
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "invalid_payment_proof"
+    assert "X-Payment-Proof" in resp.get_json()["hint"] or "retry" in resp.get_json()["hint"]
+
+
+def test_mcp_sse_endpoint_streams_tool_definitions(client):
+    """The MCP SSE endpoint lets Claude Desktop / Cursor discover our paid
+    tools over the streamable-HTTP transport."""
+    resp = client.get("/mcp/sse")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/event-stream"
+
+    import json as jsonlib
+    stream = resp.get_data(as_text=True)
+    # SSE framing present
+    assert "event: endpoint" in stream
+    assert "event: message" in stream
+    # JSON-RPC server info
+    assert "kristo-intelligence" in stream
+    assert "2024-11-05" in stream
+    # Tools advertised with x402 pricing
+    assert "get_market_stats" in stream
+    assert "get_onchain_sales" in stream
+    assert "get_bot_status" in stream
+    assert '"price_usdc"' in stream
+
+
+def test_mcp_info_endpoint(client):
+    """Human/machine summary pointing at the SSE transport."""
+    resp = client.get("/mcp")
+    assert resp.status_code == 200
+    b = resp.get_json()
+    assert b["mcp"]["transport"] == "sse"
+    assert b["mcp"]["sse_endpoint"].endswith("/mcp/sse")
+    assert "Claude Desktop" in b["clients"]
 
 
 def test_x402_response_documents_proof_header(client, monkeypatch):

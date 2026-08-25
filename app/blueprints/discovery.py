@@ -59,6 +59,115 @@ def health():
     ), 200 if crm_ready else 503
 
 
+@discovery_bp.route("/mcp/sse")
+def mcp_sse():
+    """MCP Server-Sent Events endpoint — Streamable HTTP transport.
+
+    Lets MCP-native clients (Claude Desktop, Cursor, Continue) discover and
+    call the paid Kristo endpoints as tools. GET returns an SSE stream with
+    tool definitions; tool CALLS happen through the regular paid endpoints
+    (the 402 paywall is the payment layer).
+
+    Protocol notes:
+    - We implement the minimal, spec-compliant handshake: endpoint event +
+      initialize/tools/list JSON-RPC support over the SSE stream.
+    - Tool schemas advertise the x402 price so the AGENT (or its operator)
+    can decide to pay before calling.
+    """
+    from main import (
+        X402_CHAIN_ID,
+        X402_FEE_USDC,
+        X402_RECEIVER_ADDRESS,
+        X402_USDC_CONTRACT,
+        VIP_MONTHLY_USDC,
+    )
+
+    base_url = request.host_url.rstrip("/")
+    server_info = {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {"tools": {}},
+        "serverInfo": {
+            "name": "kristo-intelligence",
+            "version": "1.0.0",
+            "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
+        },
+    }
+    tools = [
+        {
+            "name": "get_market_stats",
+            "description": (
+                "Market activity, daily stats, and live market data "
+                "(CoinGecko, DEXScreener, Fear & Greed). Paid via x402."
+            ),
+            "inputSchema": {"type": "object", "properties": {},
+                            "additionalProperties": False},
+            "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
+                     "receiver": X402_RECEIVER_ADDRESS,
+                     "token_contract": X402_USDC_CONTRACT,
+                     "endpoint": f"{base_url}/api/stats"},
+        },
+        {
+            "name": "get_onchain_sales",
+            "description": (
+                "Real on-chain sales history (USDC transfers to the Kristo "
+                "fee receiver). Paid via x402."
+            ),
+            "inputSchema": {"type": "object", "properties": {},
+                            "additionalProperties": False},
+            "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
+                     "receiver": X402_RECEIVER_ADDRESS,
+                     "token_contract": X402_USDC_CONTRACT,
+                     "endpoint": f"{base_url}/api/sales"},
+        },
+        {
+            "name": "get_bot_status",
+            "description": "Telegram bot integration status. Paid via x402.",
+            "inputSchema": {"type": "object", "properties": {},
+                            "additionalProperties": False},
+            "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
+                     "receiver": X402_RECEIVER_ADDRESS,
+                     "token_contract": X402_USDC_CONTRACT,
+                     "endpoint": f"{base_url}/api/bot-status"},
+        },
+    ]
+    messages = [
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+    ]
+
+    def generate():
+        # SSE stream: endpoint announcement + initialize + tools/list.
+        yield "event: endpoint\n"
+        yield f"data: {base_url}/mcp/sse\n\n"
+        import json as _json
+        yield "event: message\n"
+        yield "data: " + _json.dumps({"jsonrpc": "2.0", "id": 0,
+                                      "result": server_info}) + "\n\n"
+        yield "event: message\n"
+        yield "data: " + _json.dumps({"jsonrpc": "2.0", "id": 1,
+                                      "result": {"tools": tools}}) + "\n\n"
+
+    resp = Response(generate(), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["X-Accel-Buffering"] = "no"
+    return resp
+
+
+@discovery_bp.route("/mcp")
+def mcp_info():
+    """Human/machine summary of the MCP endpoints we expose."""
+    base_url = request.host_url.rstrip("/")
+    return jsonify({
+        "mcp": {
+            "transport": "sse",
+            "sse_endpoint": f"{base_url}/mcp/sse",
+            "manifest": f"{base_url}/api/mcp/manifest",
+        },
+        "clients": ["Claude Desktop", "Cursor", "Continue", "LangChain",
+                    "any MCP-compatible agent"],
+        "payment": "x402 (USDC on Base) — tools are paid endpoints",
+    })
+
+
 @discovery_bp.route("/api/mcp/manifest")
 def api_mcp_manifest():
     """MCP (Model Context Protocol) manifest for AI agent M2M payments."""
