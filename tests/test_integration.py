@@ -226,6 +226,66 @@ def test_x402_response_documents_proof_header(client, monkeypatch):
     assert "transaction_hash" in body["payment_proof"]["format"]
 
 
+def test_client_ip_resolution_via_render_proxy(client, monkeypatch):
+    """Free tier must be counted per REAL client IP, not per rotating Render
+    proxy IP. Two calls through different private proxies from the same
+    client must share one free call."""
+    import main
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+
+    # Call 1 through Render proxy A — free tier for the real client
+    r1 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "203.0.113.7"},
+                    environ_base={"REMOTE_ADDR": "10.197.24.22"})
+    assert r1.status_code == 200
+
+    # Call 2 through a DIFFERENT Render proxy IP — same real client → 402
+    r2 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "203.0.113.7"},
+                    environ_base={"REMOTE_ADDR": "10.195.90.118"})
+    assert r2.status_code == 402
+
+
+def test_client_ip_resolution_rejects_spoofed_xff_prefix(client, monkeypatch):
+    """A client may PREPEND fake entries to X-Forwarded-For; the server must
+    resolve to the last PUBLIC entry (appended by the trusted proxy)."""
+    import main
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+
+    # Client spoofs "1.2.3.4" first, proxy appends real IP "198.51.100.9"
+    r1 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "1.2.3.4, 198.51.100.9"},
+                    environ_base={"REMOTE_ADDR": "10.197.204.138"})
+    assert r1.status_code == 200
+    # Same spoof + same real client → still one identity → 402
+    r2 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "1.2.3.4, 198.51.100.9"},
+                    environ_base={"REMOTE_ADDR": "10.197.204.138"})
+    assert r2.status_code == 402
+    # Rotating the SPOOFED prefix must not grant a new free call
+    r3 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "9.9.9.9, 198.51.100.9"},
+                    environ_base={"REMOTE_ADDR": "10.197.204.138"})
+    assert r3.status_code == 402
+
+
+def test_client_ip_resolution_walks_back_past_private_hops(client, monkeypatch):
+    """With multiple proxy hops the XFF chain may end with private IPs;
+    resolution must walk back to the last public (client) address."""
+    import main
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+
+    r1 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "203.0.113.5, 10.1.2.3"},
+                    environ_base={"REMOTE_ADDR": "10.0.0.5"})
+    assert r1.status_code == 200
+    # The same client through another hop tail → same identity → 402
+    r2 = client.get("/api/stats",
+                    headers={"X-Forwarded-For": "203.0.113.5, 10.9.9.9"},
+                    environ_base={"REMOTE_ADDR": "10.0.0.6"})
+    assert r2.status_code == 402
+
+
 def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200

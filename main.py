@@ -742,23 +742,57 @@ def _allow_catalog_click(client_address: str, agent_id: str) -> bool:
 _paid_calls_usage: Dict[str, int] = {}  # ip -> count of paid calls made
 
 
+def _is_private_or_loopback(ip: str) -> bool:
+    """True for loopback / RFC1918 / CGNAT addresses (Render's internal proxies).
+
+    Deliberately NARROWER than ipaddress.is_private: the IANA special-purpose
+    ranges (TEST-NET 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, ...) are
+    NOT treated as private here, so they remain valid public client
+    identities. This matters because is_private would silently reclassify
+    documented public clients as proxies.
+    """
+    import ipaddress as _ipa
+    try:
+        addr = _ipa.ip_address(ip)
+    except ValueError:
+        return False
+    if addr.is_loopback:
+        return True
+    if addr.version == 4:
+        return (
+            addr in _ipa.ip_network("10.0.0.0/8")
+            or addr in _ipa.ip_network("172.16.0.0/12")
+            or addr in _ipa.ip_network("192.168.0.0/16")
+            or addr in _ipa.ip_network("100.64.0.0/10")  # CGNAT (shared space)
+        )
+    return addr in _ipa.ip_network("fc00::/7")  # private IPv6
+
+
 def _get_client_ip() -> str:
-    """Use forwarded client identity only when the immediate peer is an allowed proxy."""
+    """Resolve the real client IP for free-tier / discount accounting.
+
+    On Render every request arrives through Render's internal proxy, so
+    remote_addr is a ROTATING private address (10.x.x.x). Without XFF
+    resolution the free tier would be counted per PROXY IP — clients could
+    harvest a fresh free call every time the proxy rotates.
+
+    Trust model: when the immediate peer is a private/loopback address, the
+    request must have traversed our platform proxy, which appends the real
+    client IP to X-Forwarded-For. Client-supplied spoofed entries sit
+    EARLIER in the chain, so we walk from the END and use the last PUBLIC
+    IP. When the peer is a public address (direct access / tests),
+    remote_addr is used as-is and X-Forwarded-For is IGNORED (anti-spoofing).
+    """
     peer = request.remote_addr or "unknown"
-    trusted_proxy_ips = {
-        value.strip()
-        for value in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
-        if value.strip()
-    }
-    trust_forwarded = os.getenv("TRUST_PROXY_HEADERS", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    fwd = request.headers.get("X-Forwarded-For", "")
-    if trust_forwarded and peer in trusted_proxy_ips and fwd:
-        # The trusted proxy appends the immediate client address at the end.
-        return fwd.split(",")[-1].strip() or peer
+    fwd = request.headers.get("X-Forwarded-For", "").strip()
+    if fwd and _is_private_or_loopback(peer):
+        entries = [e.strip() for e in fwd.split(",") if e.strip()]
+        for entry in reversed(entries):
+            if not _is_private_or_loopback(entry):
+                return entry
+        # All entries private (multi-hop internal) — best effort: last entry.
+        if entries:
+            return entries[-1]
     return peer
 
 
