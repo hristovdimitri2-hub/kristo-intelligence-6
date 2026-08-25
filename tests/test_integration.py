@@ -150,6 +150,82 @@ def test_sentinel_revenue_alert_on_payment(monkeypatch):
     assert state["usdc_balance"] == 0.05
 
 
+def test_x402_payment_proof_completes_the_handshake(client, monkeypatch):
+    """Regression test (2026-08-25): a paying client MUST gain access when
+    retrying with the documented X-Payment-Proof header. Before this fix the
+    server never read the header — payers stayed locked out."""
+    import base64 as b64
+    import json as jsonlib
+    import main
+
+    # Isolate module-level state so this test cannot pollute other tests.
+    monkeypatch.setattr(main, "_sales_history", [])
+    monkeypatch.setattr(main, "_verified_payments", set())
+    monkeypatch.setattr(main, "_paid_calls_usage", {})
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    monkeypatch.setattr(main, "_daily_stats", {})
+
+    # 1st call — free tier
+    assert client.get("/api/stats").status_code == 200
+    # 2nd call — paywall
+    assert client.get("/api/stats").status_code == 402
+
+    # Simulate the background monitor having recorded the on-chain payment.
+    payer = "0x" + "ab" * 20
+    tx = "0x" + "cd" * 32
+    main._record_real_sale(token="USDC", amount_usd=0.05, tx_hash=tx, sender=payer)
+
+    proof = b64.urlsafe_b64encode(jsonlib.dumps({
+        "payer": payer, "transaction_hash": tx, "amount_usdc": 0.05,
+    }).encode()).decode().rstrip("=")
+
+    # Retry with the proof — access granted
+    resp = client.get("/api/stats", headers={"X-Payment-Proof": proof})
+    assert resp.status_code == 200
+    assert main._paid_calls_usage.get("127.0.0.1", 0) >= 1
+
+    # Replay: the same proof must NOT grant a second call (idempotency)
+    assert client.get("/api/stats", headers={"X-Payment-Proof": proof}).status_code == 402
+
+
+def test_x402_payment_proof_rejects_forged_tx(client, monkeypatch):
+    """A proof referencing an unverified transaction must stay locked out —
+    the server may not trust client claims without on-chain evidence."""
+    import base64 as b64
+    import json as jsonlib
+    import main
+
+    monkeypatch.setattr(main, "_sales_history", [])
+    monkeypatch.setattr(main, "_verified_payments", set())
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    # Deterministic offline behaviour: on-chain verification fails.
+    monkeypatch.setattr(main, "_verify_payment_onchain", lambda *a, **k: None)
+
+    assert client.get("/api/bot-status").status_code == 200   # free tier
+    forged_tx = "0x" + "ef" * 32
+    proof = b64.urlsafe_b64encode(jsonlib.dumps({
+        "payer": "0x" + "11" * 20,
+        "transaction_hash": forged_tx,
+        "amount_usdc": 0.05,
+    }).encode()).decode().rstrip("=")
+
+    # Verification fails (unknown tx) -> still 402
+    resp = client.get("/api/bot-status", headers={"X-Payment-Proof": proof})
+    assert resp.status_code == 402
+
+
+def test_x402_response_documents_proof_header(client, monkeypatch):
+    """The 402 response must tell bots HOW to retry (machine-readable)."""
+    import main
+    monkeypatch.setattr(main, "_free_tier_usage", {"127.0.0.1": 99})  # exhausted
+
+    resp = client.get("/api/sales")             # immediately 402
+    assert resp.status_code == 402
+    body = resp.get_json()
+    assert body["payment_proof"]["header"] == "X-Payment-Proof"
+    assert "transaction_hash" in body["payment_proof"]["format"]
+
+
 def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200

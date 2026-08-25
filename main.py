@@ -825,6 +825,14 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         },
         "endpoint": endpoint,
         "free_tier_limit": FREE_TIER_LIMIT,
+        "payment_proof": {
+            "header": "X-Payment-Proof",
+            "format": "base64url(JSON({payer, transaction_hash, amount_usdc}))",
+            "retry": (
+                "After your USDC transfer is confirmed on Base, retry this "
+                "endpoint with the X-Payment-Proof header to gain access."
+            ),
+        },
         "instructions": (
             f"Send exactly {amount} USDC (Base network) to "
             f"{X402_RECEIVER_ADDRESS}. After payment is confirmed on-chain, "
@@ -1121,6 +1129,143 @@ def _capture_live_request(response):
     return response
 
 
+# ── x402 payment proof verification (completes the payment handshake) ───────
+# A paying client retries with header X-Payment-Proof:
+#   base64url(JSON({payer, transaction_hash, amount_usdc, ...}))
+# The server verifies the proof ON-CHAIN (ERC-20 Transfer to our receiver),
+# records the sale, and grants access for exactly one call.
+_verified_payments: set = set()          # tx hashes that already granted access
+_payment_verify_lock = threading.Lock()
+_payment_verify_w3 = None
+
+_TRANSFER_EVENT_TOPIC = (
+    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+)
+
+
+def _get_verify_web3():
+    """Lazily build a lightweight Web3 provider for on-demand proof checks."""
+    global _payment_verify_w3
+    with _payment_verify_lock:
+        if _payment_verify_w3 is None:
+            from web3 import Web3
+            _payment_verify_w3 = Web3(
+                Web3.HTTPProvider(BASE_RPC_URL, request_kwargs={"timeout": 15})
+            )
+        return _payment_verify_w3
+
+
+def _decode_payment_proof(header_value: str) -> Optional[dict]:
+    """Decode and sanity-check the X-Payment-Proof header payload."""
+    import base64 as _b64
+    import binascii as _binascii
+    try:
+        padded = header_value + "=" * (-len(header_value) % 4)
+        payload = json.loads(_b64.urlsafe_b64decode(padded.encode()).decode())
+        if not isinstance(payload, dict):
+            return None
+        tx_hash = str(payload.get("transaction_hash") or "").strip().lower()
+        payer = str(payload.get("payer") or "").strip().lower()
+        if not tx_hash.startswith("0x") or len(tx_hash) != 66:
+            return None
+        if not payer.startswith("0x") or len(payer) != 42:
+            return None
+        return {
+            "tx_hash": tx_hash,
+            "payer": payer,
+            "amount_usdc": float(payload.get("amount_usdc") or 0.0),
+        }
+    except (ValueError, TypeError, _binascii.Error, Exception):
+        return None
+
+
+def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
+    """
+    Verify via RPC that tx_hash is a confirmed USDC Transfer from payer to
+    our fee receiver with at least min_amount_usdc. Returns the verified
+    amount, or None if the proof does not hold.
+    """
+    try:
+        w3 = _get_verify_web3()
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+    except Exception:
+        # Unknown tx, RPC hiccup, or not mined yet — treat as not verified;
+        # the client may retry in a few seconds.
+        return None
+    try:
+        if int(receipt.get("status", 0)) != 1:
+            return None
+        usdc_addr = os.getenv(
+            "BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        ).lower()
+        receiver = X402_RECEIVER_ADDRESS.lower()
+        for log_entry in receipt.get("logs", []):
+            try:
+                address = str(log_entry.get("address") or "").lower()
+                topics = log_entry.get("topics") or []
+                if address != usdc_addr or len(topics) < 3:
+                    continue
+                topic0 = topics[0].hex() if hasattr(topics[0], "hex") else str(topics[0])
+                if topic0.lower() != _TRANSFER_EVENT_TOPIC:
+                    continue
+                from_topic = topics[1].hex() if hasattr(topics[1], "hex") else str(topics[1])
+                to_topic = topics[2].hex() if hasattr(topics[2], "hex") else str(topics[2])
+                from_addr = ("0x" + from_topic[-40:]).lower()
+                to_addr = ("0x" + to_topic[-40:]).lower()
+                data = log_entry.get("data")
+                raw = data.hex() if isinstance(data, (bytes, bytearray)) else str(data)
+                amount = int(raw, 16) / 1e6
+                if (to_addr == receiver and from_addr == payer
+                        and amount + 1e-9 >= min_amount_usdc):
+                    return amount
+            except Exception:
+                continue
+        return None
+    except Exception:
+        return None
+
+
+def _try_consume_payment_proof(proof: dict, price: float, ip: str) -> bool:
+    """
+    Consume a payment proof: verify it (fast path via recorded sales, slow
+    path via on-chain receipt), record the sale exactly once, and grant one
+    API call. One payment unlocks exactly one call (single-call semantics).
+    """
+    tx = proof["tx_hash"]
+    with _lock:
+        if tx in _verified_payments:
+            return False  # already consumed — prevents replay
+
+    # Fast path: the background monitor already recorded this transfer.
+    amount = None
+    with _lock:
+        for s in _sales_history:
+            if str(s.get("tx_hash", "")).lower() == tx:
+                amount = float(s.get("amount_usd", 0.0))
+                break
+
+    # Slow path: verify the receipt directly on-chain (instant unlock —
+    # no need to wait for the 30s monitor cycle).
+    if amount is None:
+        amount = _verify_payment_onchain(tx, proof["payer"], price)
+        if amount is None:
+            return False
+        _record_real_sale(
+            token="USDC", amount_usd=round(amount, 6), tx_hash=tx,
+            sender=proof["payer"],
+        )
+
+    if amount + 1e-9 < price:
+        return False
+
+    with _lock:
+        _verified_payments.add(tx)
+        _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
+    log.info("x402 payment proof accepted: tx=%s payer=%s amount=$%.2f",
+             tx, proof["payer"], amount)
+    return True
+
+
 @app.before_request
 def _x402_paywall():
     """
@@ -1157,7 +1302,17 @@ def _x402_paywall():
                      ip, used + 1, FREE_TIER_LIMIT, path)
             return None
         else:
-            # Free tier exhausted — require x402 payment (dynamic pricing)
+            # Free tier exhausted — accept a valid on-chain payment proof
+            # (X-Payment-Proof header) before demanding a new payment.
+            proof_header = (request.headers.get("X-Payment-Proof") or "").strip()
+            if proof_header:
+                proof = _decode_payment_proof(proof_header)
+                if proof:
+                    price = _get_dynamic_price(ip)
+                    if _try_consume_payment_proof(proof, price, ip):
+                        return None  # paid call — allow through
+
+            # No valid proof — require x402 payment (dynamic pricing)
             price = _get_dynamic_price(ip)
             log.info("x402 payment required: ip=%s, endpoint=%s, price=$%s", ip, path, price)
             return _x402_payment_required_response(path, price)

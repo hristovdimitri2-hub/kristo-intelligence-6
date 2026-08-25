@@ -504,7 +504,9 @@ def llms_txt():
 
 1. Send exactly {X402_FEE_USDC} USDC on the Base network to {X402_RECEIVER_ADDRESS}
 2. Wait for on-chain confirmation (usually ~2 seconds on Base)
-3. Retry the desired API endpoint — access is granted automatically
+3. Retry the desired endpoint with the `X-Payment-Proof` header:
+   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": {X402_FEE_USDC}}}))`
+4. The server verifies the transfer on-chain and grants access automatically
 
 For unlimited access, send {VIP_MONTHLY_USDC} USDC for a Monthly VIP subscription.
 
