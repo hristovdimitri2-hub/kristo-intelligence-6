@@ -307,6 +307,35 @@ def test_client_ip_resolution_walks_back_past_private_hops(client, monkeypatch):
     assert r2.status_code == 402
 
 
+def test_ai_plugin_json_discovery_manifest(client):
+    """OpenAI ai-plugin.json — the classic plugin discovery format that
+    agent scanners crawl for."""
+    resp = client.get("/.well-known/ai-plugin.json")
+    assert resp.status_code == 200
+    b = resp.get_json()
+    assert b["schema_version"] == "v1"
+    assert b["name_for_model"] == "kristo_intelligence"
+    assert b["api"]["type"] == "openapi"
+    assert b["api"]["url"].endswith("/openapi.json")
+    assert b["auth"]["type"] == "none"
+    # The x402 payment block lets scanners price the service immediately.
+    assert b["x402_payment"]["chain_id"] == 8453
+    assert b["x402_payment"]["receiver_address"].startswith("0x")
+    assert b["x402_payment"]["price_per_call_usdc"] > 0
+
+
+def test_landing_page_shows_the_payment_flow(client):
+    """The landing page must demo the 402 -> pay -> 200 handshake."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "402" in html
+    assert "X-Payment-Proof" in html
+    assert "200 OK" in html
+    assert "api/stats" in html          # copy-paste curl example
+    assert "No API keys" in html
+
+
 def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200

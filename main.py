@@ -79,7 +79,8 @@ X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status"}
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
     "/", "/health", "/dashboard", "/nexus", "/api/mcp/manifest",
-    "/.well-known/x402.json", "/openapi.json", "/llms.txt",
+    "/.well-known/x402.json", "/.well-known/ai-plugin.json", "/openapi.json",
+    "/llms.txt", "/agents.json", "/robots.txt", "/sitemap.xml",
     "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
 }
 
@@ -1547,8 +1548,136 @@ def api_telegram_webhook():
 
 @app.route("/")
 def home():
+    """Landing page: an animated terminal demo of the x402 payment flow.
+
+    B2D conversion page — shows developers exactly what the API does in
+    10 seconds (call -> 402 -> pay -> 200) with copy-paste curl commands.
+    """
     _record_request("home", True)
-    return "Kristo Intelligence API is running! Visit /dashboard for the dashboard."
+    return render_template_string(_LANDING_HTML)
+
+
+_LANDING_HTML = r"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kristo Intelligence — API that pays for itself (x402 / USDC on Base)</title>
+<meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Pay 0.05 USDC on Base, retry, get data.">
+<style>
+  :root { --bg:#0b0f1a; --panel:#111726; --line:#1e2a44; --txt:#dbe4ff;
+          --green:#4ade80; --amber:#fbbf24; --blue:#60a5fa; --muted:#8294b8; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--txt);
+         font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+         display:flex; justify-content:center; padding:48px 20px; }
+  .wrap { max-width:860px; width:100%; }
+  h1 { font-size:26px; text-align:center; margin-bottom:8px; }
+  h1 .accent { color:var(--blue); }
+  .sub { text-align:center; color:var(--muted); font-size:14px; margin-bottom:32px; }
+  .sub b { color:var(--txt); }
+  .terminal { background:var(--panel); border:1px solid var(--line);
+              border-radius:10px; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+  .term-bar { display:flex; align-items:center; gap:8px; padding:10px 14px;
+              border-bottom:1px solid var(--line); background:#0d1322; }
+  .dot { width:11px; height:11px; border-radius:50%; }
+  .r{background:#ef6b6b}.y{background:#f5c451}.g{background:#57c785}
+  .term-title { margin-left:auto; color:var(--muted); font-size:12px; }
+  .term-body { padding:18px 16px; font-size:13.5px; line-height:1.75; min-height:330px; }
+  .p { color:var(--muted); } .cmd { color:var(--txt); }
+  .ok { color:var(--green); } .warn { color:var(--amber); }
+  .dim { opacity:.55; }
+  @keyframes blink { 50% { opacity:0; } }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:28px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:16px; text-align:center; }
+  .card .big { font-size:20px; font-weight:bold; margin-bottom:4px; }
+  .card .lbl { color:var(--muted); font-size:12px; }
+  .cta-row { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:26px 0; }
+  .btn { display:inline-block; padding:12px 22px; border-radius:8px; font-size:14px;
+         text-decoration:none; border:1px solid var(--line); color:var(--txt);
+         transition:.15s; }
+  .btn:hover { border-color:var(--blue); }
+  .btn.primary { background:var(--blue); color:#08101f; border-color:var(--blue); font-weight:bold; }
+  .try { margin-top:28px; text-align:center; }
+  .try code { background:var(--panel); border:1px solid var(--line); padding:10px 14px;
+              border-radius:8px; display:inline-block; font-size:13px; color:var(--green); }
+  .foot { margin-top:30px; text-align:center; color:var(--muted); font-size:12px; line-height:2; }
+  .foot a { color:var(--blue); text-decoration:none; }
+  @media(max-width:640px){ .grid{grid-template-columns:1fr;} h1{font-size:20px;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1> Kristo Intelligence — <span class="accent">the API that pays for itself</span></h1>
+  <p class="sub">DeFi market intelligence for AI agents. <b>No API keys. No signup.</b><br>
+     The HTTP <b>402</b> response IS the checkout — USDC on Base.</p>
+
+  <div class="terminal">
+    <div class="term-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="term-title">agent@base:~</span>
+    </div>
+    <div class="term-body" id="term"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><div class="big" style="color:var(--green)">$0.05</div><div class="lbl">per API call (USDC on Base)</div></div>
+    <div class="card"><div class="big" style="color:var(--blue)">~2s</div><div class="lbl">payment settlement (Base L2)</div></div>
+    <div class="card"><div class="big" style="color:var(--amber)">1 free</div><div class="lbl">call per client — try it now</div></div>
+  </div>
+
+  <div class="cta-row">
+    <a class="btn primary" href="/dashboard">Open live dashboard →</a>
+    <a class="btn" href="/llms.txt">llms.txt</a>
+    <a class="btn" href="/openapi.json">OpenAPI</a>
+    <a class="btn" href="/.well-known/x402.json">x402.json</a>
+    <a class="btn" href="/agents.json">agents.json</a>
+  </div>
+
+  <div class="try">
+    <p class="p" style="margin-bottom:10px">Test it right now — copy, paste, no login:</p>
+    <code>curl https://kristo-intelligence-api.onrender.com/api/stats</code>
+  </div>
+
+  <p class="foot">
+    npm install <a href="https://github.com/hristovdimitri2-hub/kristo-intelligence-6/tree/main/packages/x402-client" target="_blank" rel="noopener">kristo-x402-client</a>
+    (auto-pays 402s for your agent) · Telegram <a href="https://t.me/kristointelbot" target="_blank" rel="noopener">@kristointelbot</a><br>
+    Discovery: x402.json · OpenAPI · llms.txt · MCP · agents.json — MIT licensed
+  </p>
+</div>
+
+<script>
+// Animated terminal: the exact x402 handshake an autonomous agent performs.
+const SCRIPT = [
+  {t:800,  cls:'p',     html:'<span class="dim"># 1. Agent calls the API — no key, no auth</span>'},
+  {t:400,  cls:'cmd',   html:'$ curl https://kristo-intelligence-api.onrender.com/api/stats'},
+  {t:900,  cls:'warn',  html:'HTTP/1.1 <b>402 Payment Required</b>'},
+  {t:300,  cls:'ok',    html:'{ "x402_amount": "0.05", "x402_token": "USDC",<br>&nbsp;&nbsp;"x402_recipient": "0xd4cdA900...", "x402_chain_id": 8453,<br>&nbsp;&nbsp;"x402_retry_instructions": "Send USDC, retry with X-Payment-Proof" }'},
+  {t:1100, cls:'p',     html:'<span class="dim"># 2. Agent reads the JSON contract, pays on Base (~2s)</span>'},
+  {t:400,  cls:'cmd',   html:'$ send 0.05 USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: 0x7f3a…c21e ✓</span>'},
+  {t:1000, cls:'p',     html:'<span class="dim"># 3. Retry with the payment proof</span>'},
+  {t:400,  cls:'cmd',   html:'$ curl -H "X-Payment-Proof: ..." /api/stats'},
+  {t:900,  cls:'ok',    html:'HTTP/1.1 <b>200 OK</b> — market intelligence delivered <span class="dim">✓</span>'},
+];
+const term = document.getElementById('term');
+let i = 0;
+function step() {
+  if (i >= SCRIPT.length) { setTimeout(restart, 6000); return; }
+  const s = SCRIPT[i++];
+  const div = document.createElement('div');
+  div.className = s.cls;
+  div.innerHTML = s.html;
+  term.appendChild(div);
+  setTimeout(step, s.t);
+}
+function restart() { term.innerHTML = ''; i = 0; step(); }
+step();
+</script>
+</body>
+</html>
+"""
 
 
 _LAUNCH_LANDING_HTML = """

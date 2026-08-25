@@ -400,6 +400,8 @@ def sitemap_xml():
         ("/llms.txt", "0.6", "weekly"),
         ("/openapi.json", "0.6", "weekly"),
         ("/.well-known/x402.json", "0.6", "weekly"),
+        ("/.well-known/ai-plugin.json", "0.6", "weekly"),
+        ("/agents.json", "0.6", "weekly"),
         ("/api/mcp/manifest", "0.6", "weekly"),
     ]
     urls = "\n".join(
@@ -469,6 +471,57 @@ def agents_json():
             "mcp_manifest": f"{base_url}/api/mcp/manifest",
         },
         "payment_verification": "On-chain ERC-20 Transfer event monitoring",
+    })
+
+
+@discovery_bp.route("/.well-known/ai-plugin.json")
+def ai_plugin_json():
+    """OpenAI ai-plugin.json manifest — the classic ChatGPT-plugin discovery
+    format that many agent scanners still crawl for."""
+    from main import (
+        X402_CHAIN_ID,
+        X402_FEE_USDC,
+        X402_RECEIVER_ADDRESS,
+        X402_USDC_CONTRACT,
+        FREE_TIER_LIMIT,
+    )
+
+    base_url = request.host_url.rstrip("/")
+    return jsonify({
+        "schema_version": "v1",
+        "name_for_human": "Kristo Intelligence",
+        "name_for_model": "kristo_intelligence",
+        "description_for_human": (
+            "AI-powered DeFi trading signals and crypto market intelligence on "
+            "Base. Pay per request with USDC via the x402 protocol — no API keys."
+        ),
+        "description_for_model": (
+            "Fetch DeFi market stats, real on-chain USDC sales history, and "
+            "bot integration status. Paid endpoints cost "
+            f"{X402_FEE_USDC} USDC per call via x402 (HTTP 402): send USDC on "
+            f"Base (chain {X402_CHAIN_ID}) to {X402_RECEIVER_ADDRESS}, then "
+            "retry with the X-Payment-Proof header. One free call per client."
+        ),
+        "auth": {"type": "none"},
+        "api": {
+            "type": "openapi",
+            "url": f"{base_url}/openapi.json",
+            "has_user_authentication": False,
+        },
+        "logo_url": f"{base_url}/favicon.ico",
+        "contact_email": "hristovdimitri2@gmail.com",
+        "legal_info_url": f"{base_url}/llms.txt",
+        "x402_payment": {
+            "protocol": "x402",
+            "network": "base",
+            "chain_id": X402_CHAIN_ID,
+            "token_contract": X402_USDC_CONTRACT,
+            "receiver_address": X402_RECEIVER_ADDRESS,
+            "price_per_call_usdc": X402_FEE_USDC,
+            "free_tier_limit": FREE_TIER_LIMIT,
+            "proof_header": "X-Payment-Proof",
+            "client_package": "kristo-x402-client (npm)",
+        },
     })
 
 
