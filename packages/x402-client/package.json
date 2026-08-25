@@ -1,0 +1,40 @@
+{
+  "name": "kristo-x402-client",
+  "version": "1.0.0",
+  "description": "Zero-dependency x402 client for the Kristo Intelligence API — handles HTTP 402 paywalls, USDC payments on Base, and payment-proof retries automatically. Includes a LangChain tool factory.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./langchain": "./src/langchain.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "x402",
+    "base",
+    "usdc",
+    "ai-agents",
+    "langchain",
+    "defi",
+    "payments",
+    "http-402",
+    "kristo"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6",
+    "directory": "packages/x402-client"
+  },
+  "homepage": "https://kristo-intelligence-api.onrender.com",
+  "bugs": {
+    "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6/issues"
+  }
+}
