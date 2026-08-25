@@ -3956,6 +3956,14 @@ def _start_background_threads():
     )
     t_keepalive.start()
 
+    # Kristo Sentinel: in-app autonomous monitoring & Telegram alerting agent
+    # (health transitions, on-chain revenue, GitHub/PR status, weekly report).
+    try:
+        from services.sentinel import start_sentinel_thread
+        start_sentinel_thread()
+    except Exception as exc:
+        log.warning("Failed to start Sentinel thread (non-fatal): %s", exc)
+
     # Start Telegram sales loop (auto market bulletins every 30 min, webhook-only)
     try:
         t_sales = threading.Thread(target=telegram_sales_loop, daemon=True, name="telegram-sales")
@@ -3973,7 +3981,7 @@ def _start_background_threads():
 
     log.info(
         "Background threads started (blockchain monitor + agent + catalog analytics "
-        "+ keep-alive + telegram sales)."
+        "+ keep-alive + sentinel + telegram sales)."
     )
 
 
