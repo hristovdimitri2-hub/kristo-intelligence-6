@@ -1,4 +1,4 @@
-﻿# Kristo Intelligence вЂ” Marketing Kit
+# Kristo Intelligence вЂ” Marketing Kit
 
 Ready-to-post content for every channel. Copy, paste, publish. The API is
 live 24/7 at https://kristo-intelligence-api.onrender.com
