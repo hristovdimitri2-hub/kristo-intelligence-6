@@ -226,6 +226,27 @@ def test_x402_response_documents_proof_header(client, monkeypatch):
     assert "transaction_hash" in body["payment_proof"]["format"]
 
 
+def test_x402_response_is_self_contained_for_llm_agents(client, monkeypatch):
+    """Canonical x402_* fields: an LLM receiving ONLY the 402 body must be
+    able to construct the payment and the retry request — no docs needed."""
+    import main
+    from config import BOUND_BASE_FEE_RECEIVER
+    monkeypatch.setattr(main, "_free_tier_usage", {"127.0.0.1": 99})
+
+    resp = client.get("/api/sales")
+    assert resp.status_code == 402
+    b = resp.get_json()
+    assert b["x402_network"] == "base-mainnet"
+    assert b["x402_chain_id"] == 8453
+    assert b["x402_token"] == "USDC"
+    assert b["x402_token_contract"].startswith("0x")
+    assert float(b["x402_amount"]) > 0
+    assert b["x402_recipient"] == BOUND_BASE_FEE_RECEIVER
+    assert "tx_hash" in b["x402_accepts"]
+    assert "X-Payment-Proof" in b["x402_retry_instructions"]
+    assert "x402_recipient" in b["x402_retry_instructions"]
+
+
 def test_client_ip_resolution_via_render_proxy(client, monkeypatch):
     """Free tier must be counted per REAL client IP, not per rotating Render
     proxy IP. Two calls through different private proxies from the same

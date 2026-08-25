@@ -844,6 +844,21 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
     body = {
         "error": "payment_required",
         "x402_version": "1.0",
+        # Canonical x402_* top-level fields — self-contained for LLM agents:
+        # a model that receives ONLY this JSON can construct the payment
+        # and the retry request without reading llms.txt or the docs.
+        "x402_network": "base-mainnet",
+        "x402_chain_id": X402_CHAIN_ID,
+        "x402_token": "USDC",
+        "x402_token_contract": X402_USDC_CONTRACT,
+        "x402_amount": str(amount),
+        "x402_recipient": X402_RECEIVER_ADDRESS,
+        "x402_accepts": ["tx_hash"],
+        "x402_retry_instructions": (
+            "Send the amount in USDC on Base to x402_recipient, then repeat "
+            "this request with header 'X-Payment-Proof: "
+            "base64url(JSON({payer, transaction_hash, amount_usdc}))'."
+        ),
         "message": (
             f"Free tier exhausted. Send {amount} USDC on Base to "
             f"{X402_RECEIVER_ADDRESS} to unlock this endpoint."
