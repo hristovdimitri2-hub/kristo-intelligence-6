@@ -79,6 +79,10 @@ class StripeCheckoutService:
         try:
             session = self._stripe.checkout.Session.create(
                 mode="payment",
+                # Explicit card payment type: live-mode accounts reject
+                # sessions without it when no dashboard payment methods are
+                # activated ("No valid payment method types ...").
+                payment_method_types=["card"],
                 customer_email=customer_email,
                 line_items=[{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name}, "unit_amount": int(resolved_amount * 100)}, "quantity": 1}],
                 metadata=metadata,
