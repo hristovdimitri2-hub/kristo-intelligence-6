@@ -375,6 +375,26 @@ def test_landing_page_shows_the_payment_flow(client):
     assert "No API keys" in html
 
 
+def test_strict_x402_mode_first_call_requires_payment(client, monkeypatch):
+    """Strict x402 semantics (KRISTO_FREE_TIER_LIMIT=0): the FIRST unpaid
+    request must return the canonical 402 challenge — required by x402
+    marketplaces/verifiers (PayAPI.market)."""
+    import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+
+    resp = client.get("/api/stats")
+    assert resp.status_code == 402
+    b = resp.get_json()
+    assert b["error"] == "payment_required"
+    # accepts[] must be present for marketplace verifiers
+    assert b["accepts"] == ["tx_hash"]
+    assert b["accepts[]"] == ["tx_hash"]
+    assert b["x402_accepts"] == ["tx_hash"]
+    # WWW-Authenticate header per 402 conventions
+    assert "x402" in resp.headers.get("WWW-Authenticate", "")
+
+
 def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200

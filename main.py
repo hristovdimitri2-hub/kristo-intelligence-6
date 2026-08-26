@@ -71,7 +71,11 @@ X402_FEE_USDC = X402_FEE_USDC_BASE  # Backward-compat alias (used in manifests)
 # Falls back to relative "/" so links work even if NEXUS is served from same domain.
 NEXUS_URL = "/nexus"
 
-FREE_TIER_LIMIT = 1    # Max 1 free pick, then x402 payment required
+# Free-tier limit per client. Default 1 free call for casual evaluation.
+# Set KRISTO_FREE_TIER_LIMIT=0 in production for STRICT x402 semantics:
+# every unpaid request returns the canonical 402 payment challenge
+# (required by x402 marketplaces/verifiers such as PayAPI.market).
+FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 
 # Endpoints that require x402 payment (after free tier exhausted)
 X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status"}
@@ -855,13 +859,17 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         "x402_amount": str(amount),
         "x402_recipient": X402_RECEIVER_ADDRESS,
         "x402_accepts": ["tx_hash"],
+        # Plain "accepts" alias for verifiers/marketplaces that parse the
+        # shorter field name (PayAPI.market expects accepts[]).
+        "accepts": ["tx_hash"],
+        "accepts[]": ["tx_hash"],
         "x402_retry_instructions": (
             "Send the amount in USDC on Base to x402_recipient, then repeat "
             "this request with header 'X-Payment-Proof: "
             "base64url(JSON({payer, transaction_hash, amount_usdc}))'."
         ),
         "message": (
-            f"Free tier exhausted. Send {amount} USDC on Base to "
+            f"Payment required. Send {amount} USDC on Base to "
             f"{X402_RECEIVER_ADDRESS} to unlock this endpoint."
         ),
         "payment": {
@@ -897,6 +905,14 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
     resp.headers["X-Payment-Amount-USDC"] = str(amount)
     resp.headers["X-Payment-Chain"] = X402_CHAIN
     resp.headers["X-Payment-Token-Contract"] = X402_USDC_CONTRACT
+    # WWW-Authenticate per HTTP 402 conventions — some verifiers look for it.
+    resp.headers["WWW-Authenticate"] = (
+        f'x402 realm="kristo-intelligence", '
+        f'chain="{X402_CHAIN}", chain_id="{X402_CHAIN_ID}", '
+        f'token="USDC", token_contract="{X402_USDC_CONTRACT}", '
+        f'receiver="{X402_RECEIVER_ADDRESS}", amount="{amount}", '
+        f'accepts="tx_hash"'
+    )
     return resp
 
 
