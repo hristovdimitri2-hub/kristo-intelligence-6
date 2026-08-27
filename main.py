@@ -37,7 +37,17 @@ import math
 from flask import Flask, jsonify, redirect, render_template_string, request, session
 
 # ── Central configuration (bound wallet address, GLM, etc.) ────────────────
-from config import BASE_CHAIN_ID, BASE_RPC_URL, get_base_fee_receiver
+from config import (
+    BASE_CHAIN_ID,
+    BASE_RPC_URL,
+    get_base_fee_receiver,
+    BASE_FEE_AMOUNT_USDC,
+    KRISTO_STATS_PRICE,
+    KRISTO_SALES_PRICE,
+    KRISTO_ARB_PRICE,
+    KRISTO_RUG_PRICE,
+    KRISTO_WHALE_PRICE,
+)
 
 # ── Real-time market data integration ─────────────────────────────────────
 from services.market_data import get_coingecko_cache_status, get_market_snapshot
@@ -59,12 +69,21 @@ X402_CHAIN = "base"
 X402_CHAIN_ID = 8453
 
 # ── Dynamic Pricing (Volume Discount) ──────────────────────────────────────
-# Base price: $0.05 USDC per request.
-# Volume discount: drops to $0.01 USDC for batch/frequent calls.
-X402_FEE_USDC_BASE = 0.05       # Standard per-call price
+# Prices are defined ONCE in config.py (KRISTO_*_PRICE constants) and wired
+# here through X402_PRICE_MAP. Do NOT hardcode prices in this file.
+X402_FEE_USDC_BASE = BASE_FEE_AMOUNT_USDC  # Standard per-call price (fallback)
 X402_FEE_USDC_DISCOUNT = 0.01   # Discounted price for high-volume callers
 X402_VOLUME_THRESHOLD = 10      # After 10 paid calls, price drops to $0.01
 X402_FEE_USDC = X402_FEE_USDC_BASE  # Backward-compat alias (used in manifests)
+
+# Per-endpoint x402 price map — single source of truth from config.py.
+# Endpoints not listed here fall back to BASE_FEE_AMOUNT_USDC.
+X402_PRICE_MAP = {
+    "/api/stats": KRISTO_STATS_PRICE,
+    "/api/sales": KRISTO_SALES_PRICE,
+    "/api/bot-status": KRISTO_STATS_PRICE,
+    "/api/arb/opportunities": KRISTO_ARB_PRICE,
+}
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
 # Public Render URL for the NEXUS Discovery Engine (Next.js platform).
@@ -78,7 +97,7 @@ NEXUS_URL = "/nexus"
 FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 
 # Endpoints that require x402 payment (after free tier exhausted)
-X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status"}
+X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status", "/api/arb/opportunities"}
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
@@ -203,7 +222,8 @@ _bot_status = {
 }
 
 # ── Subscription tiers & pricing ─────────────────────────────────────────
-MICRO_FEE_USDC = 0.10      # Per API call
+# Per-API-call price comes from config (single source of truth).
+MICRO_FEE_USDC = BASE_FEE_AMOUNT_USDC  # Per API call
 VIP_MONTHLY_USDC = 29.00   # Monthly VIP subscription
 VIP_THRESHOLD_USDC = 0.10  # Payments above this trigger VIP invite logic
 
@@ -801,19 +821,22 @@ def _get_client_ip() -> str:
     return peer
 
 
-def _get_dynamic_price(ip: str) -> float:
+def _get_dynamic_price(ip: str, endpoint: str = "") -> float:
     """
-    Dynamic pricing with volume discount.
+    Per-endpoint dynamic pricing with volume discount.
 
-    Base price: $0.05 USDC per request.
-    After X402_VOLUME_THRESHOLD (10) paid calls, price drops to $0.01 USDC
-    to incentivize batch/frequent on-chain usage.
+    The base price for each endpoint comes from X402_PRICE_MAP (wired to
+    config.py KRISTO_*_PRICE constants — single source of truth).
+    After X402_VOLUME_THRESHOLD (10) paid calls, the price drops to
+    X402_FEE_USDC_DISCOUNT to incentivize batch/frequent on-chain usage.
     """
+    base = X402_PRICE_MAP.get(endpoint, BASE_FEE_AMOUNT_USDC)
     with _lock:
         paid_count = _paid_calls_usage.get(ip, 0)
     if paid_count >= X402_VOLUME_THRESHOLD:
-        return X402_FEE_USDC_DISCOUNT
-    return X402_FEE_USDC_BASE
+        # Volume discount never exceeds the base price
+        return min(X402_FEE_USDC_DISCOUNT, base)
+    return base
 
 
 def _sanitize_json(obj):
@@ -894,8 +917,7 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         "instructions": (
             f"Send exactly {amount} USDC (Base network) to "
             f"{X402_RECEIVER_ADDRESS}. After payment is confirmed on-chain, "
-            f"retry this endpoint. For unlimited access, send 29.00 USDC for "
-            f"a Monthly VIP subscription."
+            f"retry this endpoint."
         ),
     }
     resp = jsonify(body)
@@ -1374,7 +1396,7 @@ def _x402_paywall():
             if proof_header:
                 proof = _decode_payment_proof(proof_header)
                 if proof:
-                    price = _get_dynamic_price(ip)
+                    price = _get_dynamic_price(ip, path)
                     if _try_consume_payment_proof(proof, price, ip):
                         return None  # paid call — allow through
 
@@ -1389,7 +1411,7 @@ def _x402_paywall():
                             "transaction is unknown/unconfirmed on Base, "
                             "already used, or below the required amount."
                         ),
-                        "required_amount_usdc": _get_dynamic_price(ip),
+                        "required_amount_usdc": _get_dynamic_price(ip, path),
                         "receiver_address": X402_RECEIVER_ADDRESS,
                         "hint": (
                             "Wait for confirmation (~2s on Base) and retry, "
@@ -1398,7 +1420,7 @@ def _x402_paywall():
                     }), 401
 
             # No proof at all — demand payment (canonical 402).
-            price = _get_dynamic_price(ip)
+            price = _get_dynamic_price(ip, path)
             log.info("x402 payment required: ip=%s, endpoint=%s, price=$%s", ip, path, price)
             return _x402_payment_required_response(path, price)
 
@@ -1413,6 +1435,34 @@ def _x402_paywall():
 # See audit item #5 (2026-08-24).
 from app.blueprints.discovery import discovery_bp
 app.register_blueprint(discovery_bp)
+
+
+@app.route("/api/arb/opportunities")
+def api_arb_opportunities():
+    """Live cross-DEX arbitrage spreads on Base (paid via x402).
+
+    Returns the current top arbitrage opportunities from the Arb Radar
+    background scanner: pair, buy DEX, sell DEX, spread %, estimated
+    profit after gas, and liquidity constraints. Served from an
+    in-memory cache — zero additional RPC cost per call.
+    """
+    _record_request("api_arb_opportunities", True)
+    from services.arb_radar import get_opportunities, get_scan_info
+
+    opportunities = get_opportunities()
+    scan_info = get_scan_info()
+
+    return _safe_jsonify({
+        "opportunities": opportunities,
+        "count": len(opportunities),
+        "scan_info": scan_info,
+        "source": "dexscreener_cross_dex",
+        "network": "base",
+        "disclaimer": (
+            "Spreads computed from DEXScreener aggregated prices. "
+            "Estimates are indicative; verify on-chain before executing."
+        ),
+    })
 
 
 @app.route("/api/sales")
@@ -1689,9 +1739,9 @@ const SCRIPT = [
   {t:800,  cls:'p',     html:'<span class="dim"># 1. Agent calls the API — no key, no auth</span>'},
   {t:400,  cls:'cmd',   html:'$ curl https://kristo-intelligence-api.onrender.com/api/stats'},
   {t:900,  cls:'warn',  html:'HTTP/1.1 <b>402 Payment Required</b>'},
-  {t:300,  cls:'ok',    html:'{ "x402_amount": "0.05", "x402_token": "USDC",<br>&nbsp;&nbsp;"x402_recipient": "0xd4cdA900...", "x402_chain_id": 8453,<br>&nbsp;&nbsp;"x402_retry_instructions": "Send USDC, retry with X-Payment-Proof" }'},
+  {t:300,  cls:'ok',    html:'{ "x402_amount": "0.005", "x402_token": "USDC",<br>&nbsp;&nbsp;"x402_recipient": "0xd4cdA900...", "x402_chain_id": 8453,<br>&nbsp;&nbsp;"x402_retry_instructions": "Send USDC, retry with X-Payment-Proof" }'},
   {t:1100, cls:'p',     html:'<span class="dim"># 2. Agent reads the JSON contract, pays on Base (~2s)</span>'},
-  {t:400,  cls:'cmd',   html:'$ send 0.05 USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: 0x7f3a…c21e ✓</span>'},
+  {t:400,  cls:'cmd',   html:'$ send 0.005 USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: &lt;YOUR_TX_HASH&gt; ✓</span>'},
   {t:1000, cls:'p',     html:'<span class="dim"># 3. Retry with the payment proof</span>'},
   {t:400,  cls:'cmd',   html:'$ curl -H "X-Payment-Proof: ..." /api/stats'},
   {t:900,  cls:'ok',    html:'HTTP/1.1 <b>200 OK</b> — market intelligence delivered <span class="dim">✓</span>'},
@@ -4323,6 +4373,13 @@ def _start_background_threads():
         target=_keepalive_loop, daemon=True, name="keep-alive"
     )
     t_keepalive.start()
+
+    # Arb Radar: cross-DEX arbitrage spread detection on Base (paid endpoint).
+    try:
+        from services.arb_radar import start_arb_radar_thread
+        start_arb_radar_thread()
+    except Exception as exc:
+        log.warning("Failed to start Arb Radar thread (non-fatal): %s", exc)
 
     # Kristo Sentinel: in-app autonomous monitoring & Telegram alerting agent
     # (health transitions, on-chain revenue, GitHub/PR status, weekly report).

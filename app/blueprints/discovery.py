@@ -199,7 +199,7 @@ def api_mcp_manifest():
                     "id": "micro_request",
                     "name": "Micro Request",
                     "price_usdc": MICRO_FEE_USDC,
-                    "description": "Pay-per-call: 0.10 USDC per API request",
+                    "description": f"Pay-per-call: {MICRO_FEE_USDC} USDC per API request",
                     "access": "single API call",
                     "endpoints": ["/api/stats", "/api/sales", "/api/bot-status"],
                 },

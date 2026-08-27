@@ -40,7 +40,7 @@ BASE_CHAIN_ID = int(os.getenv("BASE_CHAIN_ID", "8453"))
 BASE_USDC_CONTRACT = os.getenv(
     "BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 )
-BASE_FEE_AMOUNT_USDC = float(os.getenv("BASE_FEE_AMOUNT_USDC", "0.10"))
+BASE_FEE_AMOUNT_USDC = float(os.getenv("BASE_FEE_AMOUNT_USDC", "0.005"))
 
 # ── OpenAI-compatible AI Engine configuration ─────────────────────────────
 # OpenRouter is the default provider; GLM remains supported through the
@@ -48,3 +48,13 @@ BASE_FEE_AMOUNT_USDC = float(os.getenv("BASE_FEE_AMOUNT_USDC", "0.10"))
 GLM_API_BASE = os.getenv("GLM_API_BASE", "https://openrouter.ai/api/v1")
 GLM_API_KEY = os.getenv("GLM_API_KEY") or os.getenv("OPENROUTER_API_KEY", "")
 GLM_MODEL = os.getenv("GLM_MODEL", "openai/gpt-4o-mini")
+
+
+# ── x402 Product Prices ───────────────────────────────────────────────────
+# Single source of pricing truth for all endpoints.
+# These defaults can be overridden via environment variables.
+KRISTO_STATS_PRICE = float(os.getenv("KRISTO_STATS_PRICE", "0.005"))       # /api/stats
+KRISTO_SALES_PRICE = float(os.getenv("KRISTO_SALES_PRICE", "0.05"))        # /api/sales
+KRISTO_ARB_PRICE = float(os.getenv("KRISTO_ARB_PRICE", "0.005"))         # /api/arb/opportunities
+KRISTO_RUG_PRICE = float(os.getenv("KRISTO_RUG_PRICE", "0.003"))          # rug-risk endpoint
+KRISTO_WHALE_PRICE = float(os.getenv("KRISTO_WHALE_PRICE", "0.01"))      # whale activity endpoint

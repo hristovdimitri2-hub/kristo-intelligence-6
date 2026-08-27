@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+# Pricing single source of truth lives in config.py (KRISTO_*_PRICE).
+from config import KRISTO_ARB_PRICE, KRISTO_RUG_PRICE, KRISTO_WHALE_PRICE
+
 
 CATALOG_SEED: List[Dict[str, Any]] = [
     {
@@ -14,7 +17,7 @@ CATALOG_SEED: List[Dict[str, Any]] = [
         "name": "WhaleFlow Radar",
         "description": "On-chain whale, exchange-flow and smart-money movement signals with confidence.",
         "category": "onchain_intelligence",
-        "price_x402": 0.03,
+        "price_x402": KRISTO_WHALE_PRICE,
         "price_stripe": 19.0,
     },
     {
@@ -22,7 +25,7 @@ CATALOG_SEED: List[Dict[str, Any]] = [
         "name": "Cross-Venue Signal Divergence",
         "description": "Compares spot, perpetual and prediction-market signals to surface meaningful divergence.",
         "category": "market_intelligence",
-        "price_x402": 0.04,
+        "price_x402": KRISTO_ARB_PRICE,
         "price_stripe": 24.0,
     },
     {
@@ -30,7 +33,7 @@ CATALOG_SEED: List[Dict[str, Any]] = [
         "name": "Token Launch & Rug Risk Scanner",
         "description": "Screens token-launch liquidity, deployer and contract red flags before a trade decision.",
         "category": "token_security",
-        "price_x402": 0.06,
+        "price_x402": KRISTO_RUG_PRICE,
         "price_stripe": 29.0,
     },
     {
@@ -62,7 +65,7 @@ CATALOG_SEED: List[Dict[str, Any]] = [
         "name": "Smart Contract Security Triage",
         "description": "First-pass verified-contract screening for access, upgrade, ownership and minting red flags.",
         "category": "security",
-        "price_x402": 0.12,
+        "price_x402": KRISTO_RUG_PRICE,
         "price_stripe": 49.0,
     },
     {

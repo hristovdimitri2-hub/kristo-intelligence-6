@@ -402,7 +402,7 @@ def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     assert payload["products_summary"]["total_products"] == 8
     assert len(payload["products"]) == 8
     assert "recent_requests" not in payload
-    assert all(0.01 <= product["price_usdc"] <= 0.25 for product in payload["products"])
+    assert all(0.001 <= product["price_usdc"] <= 0.25 for product in payload["products"])
     assert payload["total_volume_usd"] == 0.0
     assert payload["total_sales"] == 0
     assert "telegram_bot_running" in payload

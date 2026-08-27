@@ -20,7 +20,7 @@ def test_catalog_store_seeds_eight_agents_and_calculates_24h_metrics(tmp_path):
         "smart-contract-security-triage",
         "signal-to-channel-publisher",
     } == {product["id"] for product in products}
-    assert all(0.01 <= product["price_x402"] <= 0.25 for product in products)
+    assert all(0.001 <= product["price_x402"] <= 0.25 for product in products)
     assert all(
         {
             "id",
