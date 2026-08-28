@@ -3,7 +3,7 @@
   "info": {
     "title": "Kristo Intelligence API",
     "version": "6.0.0",
-    "description": "AI-powered DeFi trading signals and crypto market intelligence. Runtime discovery uses the durable eight-agent catalog and x402 metadata.",
+    "description": "AI-powered DeFi trading signals and crypto market intelligence on Base. Pay-per-call with USDC via x402 protocol.",
     "x402": {
       "protocol": "x402",
       "receiver_address": "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
@@ -15,6 +15,9 @@
       "free_tier_limit": 1
     }
   },
+  "x-discovery": {
+    "ownershipProofs": ["0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"]
+  },
   "servers": [
     {
       "url": "/",
@@ -25,72 +28,148 @@
     "/api/stats": {
       "get": {
         "summary": "Market activity and daily stats",
+        "description": "Returns real-time market activity, daily stats, and aggregated metrics for the Base DeFi ecosystem.",
+        "x-payment-info": {
+          "protocols": ["x402"],
+          "price": {
+            "mode": "fixed",
+            "currency": "USD",
+            "amount": "0.10"
+          },
+          "free_tier_limit": 1,
+          "receiver": "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+          "chain": "base",
+          "chain_id": 8453,
+          "token_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
         "x402": {"cost_usdc": 0.10, "free_tier_eligible": true},
+        "security": [{"x402": []}],
         "responses": {
           "200": {"description": "Successful response with stats data"},
-          "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"}
+          "402": {
+            "description": "Payment Required — free tier exhausted, send 0.10 USDC on Base to receiver address",
+            "headers": {
+              "X-Payment-Required": {"schema": {"type": "string"}},
+              "X-Payment-Address": {"schema": {"type": "string"}},
+              "X-Payment-Amount-USDC": {"schema": {"type": "string"}}
+            }
+          }
         }
       }
     },
     "/api/sales": {
       "get": {
         "summary": "Real on-chain sales history",
+        "description": "Returns verified on-chain sales transactions from the Base ecosystem, including amounts, token pairs, and timestamps.",
+        "x-payment-info": {
+          "protocols": ["x402"],
+          "price": {
+            "mode": "fixed",
+            "currency": "USD",
+            "amount": "0.10"
+          },
+          "free_tier_limit": 1,
+          "receiver": "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+          "chain": "base",
+          "chain_id": 8453,
+          "token_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
         "x402": {"cost_usdc": 0.10, "free_tier_eligible": true},
+        "security": [{"x402": []}],
         "responses": {
           "200": {"description": "Successful response with sales history"},
-          "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"}
+          "402": {
+            "description": "Payment Required — free tier exhausted, send 0.10 USDC on Base to receiver address",
+            "headers": {
+              "X-Payment-Required": {"schema": {"type": "string"}},
+              "X-Payment-Address": {"schema": {"type": "string"}},
+              "X-Payment-Amount-USDC": {"schema": {"type": "string"}}
+            }
+          }
         }
       }
     },
     "/api/bot-status": {
       "get": {
         "summary": "Telegram bot integration status",
+        "description": "Returns the current status of the Telegram sales bot, including last bulletin time, subscriber count, and operational metrics.",
+        "x-payment-info": {
+          "protocols": ["x402"],
+          "price": {
+            "mode": "fixed",
+            "currency": "USD",
+            "amount": "0.10"
+          },
+          "free_tier_limit": 1,
+          "receiver": "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+          "chain": "base",
+          "chain_id": 8453,
+          "token_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
         "x402": {"cost_usdc": 0.10, "free_tier_eligible": true},
+        "security": [{"x402": []}],
         "responses": {
           "200": {"description": "Successful response with bot status"},
-          "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"}
+          "402": {
+            "description": "Payment Required — free tier exhausted, send 0.10 USDC on Base to receiver address",
+            "headers": {
+              "X-Payment-Required": {"schema": {"type": "string"}},
+              "X-Payment-Address": {"schema": {"type": "string"}},
+              "X-Payment-Amount-USDC": {"schema": {"type": "string"}}
+            }
+          }
         }
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "summary": "Agent catalog (free)",
+        "description": "Returns the 8-agent catalog with descriptions, categories, and pricing for each agent SKU.",
+        "responses": {"200": {"description": "Agent catalog as JSON array"}}
       }
     },
     "/api/mcp/manifest": {
       "get": {
         "summary": "MCP/x402 payment manifest (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
+        "description": "Machine-readable MCP/x402 manifest for AI agent discovery.",
         "responses": {"200": {"description": "Machine-readable payment manifest"}}
+      }
+    },
+    "/.well-known/x402": {
+      "get": {
+        "summary": "x402 discovery file (free)",
+        "description": "x402scan-compatible discovery file listing all payable resources. Returns {version: 1, resources: [...]} format.",
+        "responses": {"200": {"description": "x402 discovery payload with resources array"}}
       }
     },
     "/.well-known/x402.json": {
       "get": {
-        "summary": "x402 discovery file (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
+        "summary": "x402 payment metadata (free, legacy)",
+        "description": "Legacy x402 payment discovery metadata with receiver address, pricing tiers, and endpoint list.",
         "responses": {"200": {"description": "x402 payment discovery metadata"}}
       }
     },
     "/openapi.json": {
       "get": {
         "summary": "This OpenAPI specification (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
         "responses": {"200": {"description": "OpenAPI 3.0 specification"}}
       }
     },
     "/llms.txt": {
       "get": {
         "summary": "LLM-friendly API description (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
         "responses": {"200": {"description": "Plain-text API description for LLMs"}}
       }
     },
     "/health": {
       "get": {
         "summary": "Health check (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
         "responses": {"200": {"description": "Service health status"}}
       }
     },
     "/dashboard": {
       "get": {
         "summary": "HTML dashboard (free)",
-        "x402": {"cost_usdc": 0.0, "free_tier_eligible": false},
         "responses": {"200": {"description": "HTML dashboard page"}}
       }
     }
@@ -101,7 +180,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Payment-Address",
-        "description": "x402 payment: send 0.10 USDC on Base to 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+        "description": "x402 payment: send 0.10 USDC on Base to 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f. After payment, retry the endpoint with X-Payment-Address header set to the sender wallet address."
       }
     }
   }

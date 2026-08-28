@@ -246,6 +246,40 @@ def well_known_x402():
     return _safe_jsonify(_build_x402_discovery(request.host_url.rstrip("/")))
 
 
+@discovery_bp.route("/.well-known/x402")
+def well_known_x402_scan():
+    """x402scan-compatible discovery file (no .json extension).
+
+    Returns the fan-out format expected by x402scan:
+        {
+          "version": 1,
+          "resources": ["https://host/api/stats", ...],
+          "ownershipProofs": ["0x..."]
+        }
+
+    This is the discovery endpoint that https://www.x402scan.com/resources/register
+    probes when a user submits the server URL. See:
+    https://github.com/Merit-Systems/x402scan/blob/main/docs/DISCOVERY.md
+    """
+    from main import X402_RECEIVER_ADDRESS
+
+    base_url = request.host_url.rstrip("/")
+    return jsonify({
+        "version": 1,
+        "resources": [
+            f"{base_url}/api/stats",
+            f"{base_url}/api/sales",
+            f"{base_url}/api/bot-status",
+        ],
+        "ownershipProofs": [X402_RECEIVER_ADDRESS],
+        "instructions": (
+            "Send 0.10 USDC on Base to " + X402_RECEIVER_ADDRESS +
+            " after the free tier (1 call per IP) is exhausted. "
+            "Retry the endpoint with X-Payment-Address header set to the sender wallet."
+        ),
+    })
+
+
 @discovery_bp.route("/mcp.json")
 def mcp_json():
     """MCP (Model Context Protocol) discovery file for AI agent indexing."""
@@ -342,7 +376,14 @@ def mcp_json():
 
 @discovery_bp.route("/openapi.json")
 def openapi_spec():
-    """OpenAPI 3.0 specification for AI agent discovery."""
+    """OpenAPI 3.0 specification for AI agent discovery (x402scan-compatible).
+
+    Includes:
+    - x-discovery.ownershipProofs (top-level, x402scan preferred location)
+    - x-payment-info per paid operation (x402scan required)
+    - security + securitySchemes for x402 authentication
+    - 402 response declared on every paid operation
+    """
     from main import (
         X402_CHAIN,
         X402_CHAIN_ID,
@@ -353,6 +394,50 @@ def openapi_spec():
     )
 
     base_url = request.host_url.rstrip("/")
+    # x-payment-info shared block for all paid operations
+    payment_info = {
+        "protocols": ["x402"],
+        "price": {
+            "mode": "fixed",
+            "currency": "USD",
+            "amount": str(X402_FEE_USDC),
+        },
+        "free_tier_limit": FREE_TIER_LIMIT,
+        "receiver": X402_RECEIVER_ADDRESS,
+        "chain": X402_CHAIN,
+        "chain_id": X402_CHAIN_ID,
+        "token_contract": X402_USDC_CONTRACT,
+    }
+    # Standard 402 response with required payment headers
+    response_402 = {
+        "description": "Payment Required — free tier exhausted, send USDC to receiver",
+        "headers": {
+            "X-Payment-Required": {"schema": {"type": "string"}},
+            "X-Payment-Address": {"schema": {"type": "string"}},
+            "X-Payment-Amount-USDC": {"schema": {"type": "string"}},
+        },
+    }
+
+    def _paid_op(summary, description):
+        return {
+            "summary": summary,
+            "description": description,
+            "x-payment-info": payment_info,
+            "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
+            "security": [{"x402": []}],
+            "responses": {
+                "200": {"description": "Successful response"},
+                "402": response_402,
+            },
+        }
+
+    def _free_op(summary, description):
+        return {
+            "summary": summary,
+            "description": description,
+            "responses": {"200": {"description": "Successful response"}},
+        }
+
     spec = {
         "openapi": "3.0.3",
         "info": {
@@ -371,103 +456,55 @@ def openapi_spec():
                 "free_tier_limit": FREE_TIER_LIMIT,
             },
         },
+        "x-discovery": {
+            "ownershipProofs": [X402_RECEIVER_ADDRESS],
+        },
         "servers": [{"url": base_url}],
         "paths": {
-            "/api/stats": {
-                "get": {
-                    "summary": "Market activity and daily stats",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with stats data"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/sales": {
-                "get": {
-                    "summary": "Real on-chain sales history",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with sales history"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/bot-status": {
-                "get": {
-                    "summary": "Telegram bot integration status",
-                    "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
-                    "responses": {
-                        "200": {"description": "Successful response with bot status"},
-                        "402": {"description": "Payment Required — free tier exhausted, send USDC to receiver"},
-                    },
-                }
-            },
-            "/api/mcp/manifest": {
-                "get": {
-                    "summary": "MCP/x402 payment manifest (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Machine-readable payment manifest"}},
-                }
-            },
-            "/.well-known/x402.json": {
-                "get": {
-                    "summary": "x402 discovery file (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "x402 payment discovery metadata"}},
-                }
-            },
-            "/openapi.json": {
-                "get": {
-                    "summary": "This OpenAPI specification (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "OpenAPI 3.0 specification"}},
-                }
-            },
-            "/llms.txt": {
-                "get": {
-                    "summary": "LLM-friendly API description (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Plain-text API description for LLMs"}},
-                }
-            },
-            "/health": {
-                "get": {
-                    "summary": "Health check (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "Service health status"}},
-                }
-            },
-            "/dashboard": {
-                "get": {
-                    "summary": "HTML dashboard (free)",
-                    "x402": {"cost_usdc": 0.0, "free_tier_eligible": False},
-                    "responses": {"200": {"description": "HTML dashboard page"}},
-                }
-            },
-            "/api/v1/agents/{agent_id}/playground": {
-                "post": {
-                    "summary": "One bounded free catalog-agent demo per client",
-                    "x402": {
-                        "catalog_driven_pricing": True,
-                        "settlement_status": "discovery_only",
-                        "free_playground_requests_per_client": 1,
-                    },
-                    "parameters": [
-                        {
-                            "name": "agent_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string"},
-                        }
-                    ],
-                    "responses": {
-                        "200": {"description": "Bounded demo execution completed"},
-                        "402": {"description": "Free demo used; response includes x402 and Stripe upgrade paths"},
-                        "404": {"description": "Unknown agent"},
-                    },
-                }
-            },
+            "/api/stats": {"get": _paid_op(
+                "Market activity and daily stats",
+                "Returns real-time market activity, daily stats, and aggregated metrics for the Base DeFi ecosystem.",
+            )},
+            "/api/sales": {"get": _paid_op(
+                "Real on-chain sales history",
+                "Returns verified on-chain sales transactions from the Base ecosystem, including amounts, token pairs, and timestamps.",
+            )},
+            "/api/bot-status": {"get": _paid_op(
+                "Telegram bot integration status",
+                "Returns the current status of the Telegram sales bot, including last bulletin time, subscriber count, and operational metrics.",
+            )},
+            "/api/v1/agents": {"get": _free_op(
+                "Agent catalog (free)",
+                "Returns the 8-agent catalog with descriptions, categories, and pricing for each agent SKU.",
+            )},
+            "/api/mcp/manifest": {"get": _free_op(
+                "MCP/x402 payment manifest (free)",
+                "Machine-readable MCP/x402 manifest for AI agent discovery.",
+            )},
+            "/.well-known/x402": {"get": _free_op(
+                "x402 discovery file (x402scan-compatible, free)",
+                "Returns {version: 1, resources: [...], ownershipProofs: [...]} format expected by x402scan.",
+            )},
+            "/.well-known/x402.json": {"get": _free_op(
+                "x402 payment metadata (legacy, free)",
+                "Legacy x402 payment discovery metadata with receiver address, pricing tiers, and endpoint list.",
+            )},
+            "/openapi.json": {"get": _free_op(
+                "This OpenAPI specification (free)",
+                "OpenAPI 3.0 specification with x-payment-info per operation.",
+            )},
+            "/llms.txt": {"get": _free_op(
+                "LLM-friendly API description (free)",
+                "Plain-text API description for LLMs.",
+            )},
+            "/health": {"get": _free_op(
+                "Health check (free)",
+                "Service health status.",
+            )},
+            "/dashboard": {"get": _free_op(
+                "HTML dashboard (free)",
+                "HTML dashboard page with charts and metrics.",
+            )},
         },
         "components": {
             "securitySchemes": {
@@ -475,7 +512,11 @@ def openapi_spec():
                     "type": "apiKey",
                     "in": "header",
                     "name": "X-Payment-Address",
-                    "description": f"x402 payment: send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
+                    "description": (
+                        f"x402 payment: send {X402_FEE_USDC} USDC on Base to "
+                        f"{X402_RECEIVER_ADDRESS}. After payment, retry the endpoint "
+                        "with X-Payment-Address header set to the sender wallet address."
+                    ),
                 }
             }
         },
