@@ -257,6 +257,22 @@ def test_402_body_parses_as_canonical_x402_v2(client, monkeypatch):
     assert inp.get("type") == "http"
     assert inp.get("method") in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD")
 
+    # agentcash audit (used by x402scan registration) extracts the input
+    # schema from extensions.bazaar.schema.properties.input.properties
+    # .body|.queryParams — missing => SCHEMA_INPUT_MISSING (error).
+    schema = bazaar.get("schema")
+    assert isinstance(schema, dict), "extensions.bazaar.schema is required"
+    props = schema.get("properties")
+    assert isinstance(props, dict)
+    in_props = (props.get("input") or {}).get("properties") or {}
+    assert isinstance(in_props.get("queryParams"), dict) or isinstance(in_props.get("body"), dict), \
+        "input schema must expose queryParams or body properties"
+    # ...and the output schema from schema.properties.output.properties.example
+    # — missing => SCHEMA_OUTPUT_MISSING (error).
+    out_props = (props.get("output") or {}).get("properties") or {}
+    assert isinstance(out_props.get("example"), dict), \
+        "output schema must expose an example property"
+
 
 def test_402_accepts_amount_matches_configured_price(client, monkeypatch):
     """accepts[].amount (atomic units) must equal the configured decimal price."""

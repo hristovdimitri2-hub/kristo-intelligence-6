@@ -895,8 +895,39 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
         "description": desc,
         "mimeType": "application/json",
     }
+    # Bazaar discovery extension: `info` carries the HTTP request structure,
+    # `schema` carries the JSON-Schema view. The agentcash/x402scan audit
+    # extracts the input schema from schema.properties.input.properties
+    # .body|.queryParams and the output schema from schema.properties.output
+    # .properties.example — both must be present or the route fails with
+    # SCHEMA_INPUT_MISSING / SCHEMA_OUTPUT_MISSING (severity: error).
     extensions = {
-        "bazaar": {"info": {"input": {"type": "http", "method": "GET"}}}
+        "bazaar": {
+            "info": {
+                "input": {"type": "http", "method": "GET"},
+            },
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "object",
+                        "properties": {
+                            "queryParams": {"type": "object", "properties": {}}
+                        },
+                    },
+                    "output": {
+                        "type": "object",
+                        "properties": {
+                            "example": {
+                                "type": "object",
+                                "description": "Paid JSON response payload",
+                            }
+                        },
+                    },
+                },
+            },
+        }
     }
     return accepts, resource, extensions
 
