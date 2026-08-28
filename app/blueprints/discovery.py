@@ -261,9 +261,14 @@ def well_known_x402_scan():
     probes when a user submits the server URL. See:
     https://github.com/Merit-Systems/x402scan/blob/main/docs/DISCOVERY.md
     """
-    from main import X402_RECEIVER_ADDRESS
+    from main import X402_RECEIVER_ADDRESS, X402_FEE_USDC, FREE_TIER_LIMIT
 
     base_url = request.host_url.rstrip("/")
+    tier_note = (
+        f"after the free tier ({FREE_TIER_LIMIT} call{'s' if FREE_TIER_LIMIT != 1 else ''} per IP) is exhausted"
+        if FREE_TIER_LIMIT > 0
+        else "for each request (no free tier: every unpaid call returns HTTP 402)"
+    )
     return jsonify({
         "version": 1,
         "resources": [
@@ -273,8 +278,8 @@ def well_known_x402_scan():
         ],
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
         "instructions": (
-            "Send 0.10 USDC on Base to " + X402_RECEIVER_ADDRESS +
-            " after the free tier (1 call per IP) is exhausted. "
+            f"Send {X402_FEE_USDC:g} USDC on Base to " + X402_RECEIVER_ADDRESS +
+            f" {tier_note}. "
             "Retry the endpoint with X-Payment-Address header set to the sender wallet."
         ),
     })

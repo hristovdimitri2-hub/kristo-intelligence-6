@@ -190,9 +190,11 @@ def test_402_response_body_includes_payment_details(client, monkeypatch):
     json_str = json.dumps(data)
     assert "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f" in json_str, \
         "402 body must include correct receiver address"
-    # Amount can be 0.05 or 0.10 depending on X402_FEE_USDC setting
-    assert ("0.05" in json_str or "0.10" in json_str or "0.5" in json_str or "0.1" in json_str), \
-        "402 body must include a payment amount"
+    # Amount comes from the single source of truth (config.py price map)
+    from config import KRISTO_STATS_PRICE
+    expected_amount = f"{KRISTO_STATS_PRICE:g}"
+    assert expected_amount in json_str, \
+        f"402 body must include the configured payment amount ({expected_amount})"
 
 
 # ── Free endpoints remain free ──────────────────────────────────────────────
