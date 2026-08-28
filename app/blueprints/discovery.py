@@ -440,6 +440,10 @@ def openapi_spec():
         return {
             "summary": summary,
             "description": description,
+            # Explicitly public: excludes these routes from x402 402-probing
+            # (x402scan/agentcash: routes without an auth mode declaration
+            # get probed for a 402 challenge and show up as errors).
+            "security": [],
             "responses": {"200": {"description": "Successful response"}},
         }
 
@@ -460,6 +464,9 @@ def openapi_spec():
                 "price_per_call_usdc": X402_FEE_USDC,
                 "free_tier_limit": FREE_TIER_LIMIT,
             },
+            # Ownership verification + contact channel for agents/operators
+            # (x402scan: "Add info.contact.email to your openapi.json")
+            "contact": {"email": "hristovdimitri2@gmail.com"},
         },
         "x-discovery": {
             "ownershipProofs": [X402_RECEIVER_ADDRESS],
@@ -527,6 +534,22 @@ def openapi_spec():
         },
     }
     return jsonify(spec)
+
+
+@discovery_bp.route("/favicon.ico")
+@discovery_bp.route("/favicon.svg")
+def favicon():
+    """Minimal SVG favicon (x402scan/agentcash check /favicon.ico|png|svg)."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+        '<rect width="32" height="32" rx="6" fill="#1a1a2e"/>'
+        '<text x="16" y="22" font-family="monospace" font-size="16" '
+        'font-weight="bold" fill="#00ff88" text-anchor="middle">K</text>'
+        "</svg>"
+    )
+    resp = Response(svg, mimetype="image/svg+xml")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @discovery_bp.route("/robots.txt")
