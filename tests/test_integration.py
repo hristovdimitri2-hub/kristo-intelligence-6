@@ -281,12 +281,12 @@ def test_x402_response_is_self_contained_for_llm_agents(client, monkeypatch):
     assert b["x402_token_contract"].startswith("0x")
     assert float(b["x402_amount"]) > 0
     assert b["x402_recipient"] == BOUND_BASE_FEE_RECEIVER
-    # accepts is now the canonical x402 v1 payment requirements array
+    # accepts is now the canonical x402 v2 payment requirements array
     acc = b["x402_accepts"]
     assert isinstance(acc, list) and acc
     assert acc[0]["scheme"] == "exact"
-    assert acc[0]["network"] == "base"
-    assert acc[0]["maxAmountRequired"].isdigit()
+    assert acc[0]["network"] == "eip155:8453"
+    assert acc[0]["amount"].isdigit()
     assert "X-Payment-Proof" in b["x402_retry_instructions"]
     assert "x402_recipient" in b["x402_retry_instructions"]
 
@@ -392,19 +392,23 @@ def test_strict_x402_mode_first_call_requires_payment(client, monkeypatch):
     assert resp.status_code == 402
     b = resp.get_json()
     assert b["error"] == "payment_required"
-    # accepts[] must carry canonical x402 v1 payment requirements for
-    # marketplace verifiers (x402scan v1 schema: camelCase + atomic units)
+    # accepts[] must carry canonical x402 v2 payment requirements for
+    # marketplace verifiers (x402scan v2 schema: CAIP-2 network + atomic units)
     for acc in (b["accepts"], b["accepts[]"], b["x402_accepts"]):
         assert isinstance(acc, list) and acc, "accepts must be a non-empty array"
         req = acc[0]
         assert req["scheme"] == "exact"
-        assert req["network"] == "base"
-        assert req["maxAmountRequired"].isdigit(), \
-            "maxAmountRequired must be atomic units (0.005 USDC -> '5000')"
-        assert int(req["maxAmountRequired"]) == int(round(float(b["x402_amount"]) * 1_000_000))
+        assert req["network"] == "eip155:8453", \
+            "v2 network must be CAIP-2 form (eip155:8453 = Base)"
+        assert isinstance(req["amount"], str) and req["amount"].isdigit(), \
+            "amount must be atomic units (0.005 USDC -> '5000')"
+        assert int(req["amount"]) == int(round(float(b["x402_amount"]) * 1_000_000))
         assert req["payTo"] == b["x402_recipient"]
         assert req["asset"].startswith("0x")
         assert isinstance(req["maxTimeoutSeconds"], int)
+    # v2 top-level resource + bazaar extensions make the route invocable
+    assert b["resource"]["url"].startswith("http")
+    assert b["extensions"]["bazaar"]["info"]["input"]["method"] in ("GET", "POST")
     # WWW-Authenticate header per 402 conventions
     assert "x402" in resp.headers.get("WWW-Authenticate", "")
 

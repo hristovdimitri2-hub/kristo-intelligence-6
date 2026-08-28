@@ -208,25 +208,24 @@ def test_discovery_endpoints_are_free(client):
             f"{path} should be free (200), got {r.status_code}"
 
 
-# ── Canonical x402 v1 challenge (x402scan parseX402Response / v1 zod schema) ─
-# Mirrors apps/scan/src/lib/x402/v1/schema.ts in the x402scan repository:
-#   x402Version: literal(1)  |  accepts: array(paymentRequirementsV1)
-#   paymentRequirementsV1: scheme, network (named network), maxAmountRequired
-#   (string, TOKEN ATOMIC UNITS), resource (URL), payTo, asset,
-#   maxTimeoutSeconds (int), optional description/mimeType/extra/outputSchema.
+# ── Canonical x402 v2 challenge (x402scan parseX402Response / v2 zod schema) ─
+# Mirrors apps/scan/src/lib/x402/v2/schema.ts + schema.test.ts fixtures:
+#   x402Version: literal(2) | accepts: array(PaymentRequirementsV2) with
+#   CAIP-2 network ("eip155:8453") and `amount` in TOKEN ATOMIC UNITS |
+#   resource: {url, description, mimeType?} | extensions.bazaar (invocability)
 
-def test_402_body_parses_as_canonical_x402_v1(client, monkeypatch):
-    """The 402 JSON body must satisfy the x402scan v1 zod schema."""
+def test_402_body_parses_as_canonical_x402_v2(client, monkeypatch):
+    """The 402 JSON body must satisfy the x402scan v2 zod schema."""
     import main
     main._free_tier_usage["127.0.0.1"] = 1
     r = client.get("/api/stats")
     assert r.status_code == 402
     d = r.get_json()
 
-    # Top-level: x402Version must be the integer 1 (v2 probe checks literal 2,
-    # v1 schema is z.literal(1).default(1) — must NOT be a string).
-    assert d.get("x402Version") == 1, \
-        "x402Version must be integer 1 for the v1 parser"
+    # Top-level: x402Version must be the integer 2 (the v2 probe checks
+    # literal(2); v1 responses are rejected with "migrate to v2 spec").
+    assert d.get("x402Version") == 2, \
+        "x402Version must be integer 2 for the v2 parser"
     assert isinstance(d.get("error"), str)
 
     accepts = d.get("accepts")
@@ -234,38 +233,48 @@ def test_402_body_parses_as_canonical_x402_v1(client, monkeypatch):
         "Accepts must contain at least one valid payment requirement"
     req = accepts[0]
     assert req["scheme"] == "exact"
-    assert req["network"] == "base", "network must be a named network (e.g. base)"
-    assert isinstance(req["maxAmountRequired"], str) and req["maxAmountRequired"].isdigit(), \
-        "maxAmountRequired must be a numeric STRING in token atomic units"
-    assert int(req["maxAmountRequired"]) == 5000, \
+    assert req["network"] == "eip155:8453", \
+        "v2 network must be CAIP-2 form (eip155:8453 = Base)"
+    assert isinstance(req["amount"], str) and req["amount"].isdigit(), \
+        "amount must be a numeric STRING in token atomic units"
+    assert int(req["amount"]) == 5000, \
         "0.005 USDC must be encoded as 5000 atomic units (6 decimals)"
-    assert req["resource"].startswith("http"), "resource must be an absolute URL"
     assert req["payTo"].startswith("0x") and len(req["payTo"]) == 42
     assert req["asset"].startswith("0x") and len(req["asset"]) == 42
     assert isinstance(req["maxTimeoutSeconds"], int)
-    # outputSchema (input structure) makes the route invocable instead of skipped
-    os_ = req.get("outputSchema")
-    assert isinstance(os_, dict) and os_.get("input", {}).get("type") == "http"
-    assert os_["input"]["method"] in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD")
+
+    # v2 top-level resource object
+    res = d.get("resource")
+    assert isinstance(res, dict)
+    assert res["url"].startswith("http"), "resource.url must be an absolute URL"
+    assert isinstance(res.get("description"), str)
+    assert res.get("mimeType") == "application/json"
+
+    # extensions.bazaar input structure makes the route invocable, not skipped
+    bazaar = d.get("extensions", {}).get("bazaar")
+    assert isinstance(bazaar, dict)
+    inp = bazaar.get("info", {}).get("input", {})
+    assert inp.get("type") == "http"
+    assert inp.get("method") in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD")
 
 
 def test_402_accepts_amount_matches_configured_price(client, monkeypatch):
-    """maxAmountRequired (atomic units) must equal the configured decimal price."""
+    """accepts[].amount (atomic units) must equal the configured decimal price."""
     import main
     from config import KRISTO_STATS_PRICE
     main._free_tier_usage["127.0.0.1"] = 1
     r = client.get("/api/stats")
     assert r.status_code == 402
     d = r.get_json()
-    atomic = int(d["accepts"][0]["maxAmountRequired"])
+    atomic = int(d["accepts"][0]["amount"])
     assert atomic == int(round(KRISTO_STATS_PRICE * 1_000_000)), \
         "atomic units must equal price * 10^6 (USDC has 6 decimals on Base)"
 
 
-def test_402_no_conflicting_v2_version_field(client, monkeypatch):
-    """The v2 probe checks x402Version === 2; we must not accidentally claim v2."""
+def test_402_claims_v2_version_explicitly(client, monkeypatch):
+    """x402Version must be 2 so the v2 parser (not the deprecated v1) runs."""
     import main
     main._free_tier_usage["127.0.0.1"] = 1
     r = client.get("/api/sales")
     assert r.status_code == 402
-    assert r.get_json()["x402Version"] != 2
+    assert r.get_json()["x402Version"] == 2
