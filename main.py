@@ -861,6 +861,41 @@ def _safe_jsonify(obj):
     return jsonify(_sanitize_json(obj))
 
 
+def _x402_payment_requirements(endpoint: str, amount: float, description: str = ""):
+    """
+    Canonical x402 v1 payment requirements array (x402scan-parseable).
+
+    Field names and semantics follow the official x402 v1 spec, which is what
+    x402scan's v1 zod schema expects (apps/scan/src/lib/x402/v1/schema.ts):
+      * camelCase names (x402Version, maxAmountRequired, maxTimeoutSeconds, payTo)
+      * `maxAmountRequired` in TOKEN ATOMIC UNITS — USDC on Base has 6
+        decimals, so 0.005 USDC -> "5000" and 0.05 USDC -> "50000"
+      * `network` must be a named network ("base")
+    """
+    resource_url = request.host_url.rstrip("/") + (
+        endpoint if endpoint.startswith("/") else "/" + endpoint
+    )
+    return [
+        {
+            "scheme": "exact",
+            "network": X402_CHAIN,
+            "maxAmountRequired": str(int(round(float(amount) * 1_000_000))),
+            "resource": resource_url,
+            "description": description
+            or f"Kristo Intelligence - paid API data ({endpoint})",
+            "mimeType": "application/json",
+            "payTo": X402_RECEIVER_ADDRESS,
+            "asset": X402_USDC_CONTRACT,
+            "maxTimeoutSeconds": 60,
+            "extra": {"name": "USDC", "version": "2"},
+            "outputSchema": {
+                "input": {"type": "http", "method": "GET"},
+                "output": None,
+            },
+        }
+    ]
+
+
 def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] = None):
     """
     Build a standard HTTP 402 Payment Required response for the x402 protocol.
@@ -869,8 +904,14 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
     If price_usdc is provided, uses dynamic pricing; otherwise uses base price.
     """
     amount = price_usdc if price_usdc is not None else X402_FEE_USDC
+    # Canonical x402 v1 accepts (parsed by x402scan) + atomic-unit amount.
+    accepts = _x402_payment_requirements(endpoint, amount)
     body = {
+        "x402Version": 1,
         "error": "payment_required",
+        "accepts": accepts,
+        "accepts[]": accepts,
+        "x402_accepts": accepts,
         "x402_version": "1.0",
         # Canonical x402_* top-level fields — self-contained for LLM agents:
         # a model that receives ONLY this JSON can construct the payment
@@ -881,11 +922,8 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         "x402_token_contract": X402_USDC_CONTRACT,
         "x402_amount": str(amount),
         "x402_recipient": X402_RECEIVER_ADDRESS,
-        "x402_accepts": ["tx_hash"],
-        # Plain "accepts" alias for verifiers/marketplaces that parse the
-        # shorter field name (PayAPI.market expects accepts[]).
-        "accepts": ["tx_hash"],
-        "accepts[]": ["tx_hash"],
+        # accepts / accepts[] / x402_accepts are defined at the top of the
+        # body (canonical x402 v1 payment requirements, x402scan-parseable).
         "x402_retry_instructions": (
             "Send the amount in USDC on Base to x402_recipient, then repeat "
             "this request with header 'X-Payment-Proof: "
@@ -1044,9 +1082,18 @@ def _get_stripe_payment_snapshot() -> dict:
 def _catalog_x402_payment_required_response(product: dict):
     """Return a transparent upgrade payload for an exhausted per-agent playground."""
     price = round(float(product.get("price_x402") or X402_FEE_USDC), 6)
+    # Canonical x402 v1 accepts (x402scan-parseable) + atomic-unit amount.
+    accepts = _x402_payment_requirements(
+        request.path,
+        price,
+        description=f"Kristo Intelligence agent data ({product['id']})",
+    )
     payload = {
-        "ok": False,
+        "x402Version": 1,
         "error": "agent_demo_limit_reached",
+        "accepts": accepts,
+        "accepts[]": accepts,
+        "ok": False,
         "message": "The free playground request for this agent has been used.",
         "agent_id": product["id"],
         "payment": {
