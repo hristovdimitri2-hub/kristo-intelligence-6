@@ -1617,6 +1617,10 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
         "daily": daily,
         "total_requests": sum(d.get("requests", 0) for d in daily.values()),
         "wallet": wallet_info,
+        # The address customers pay to — must always be the bound fee
+        # receiver, NOT the operator hot wallet (which is the payer side).
+        "payment_receiver": X402_RECEIVER_ADDRESS,
+        "fee_receiver": wallet_info.get("fee_receiver") or X402_RECEIVER_ADDRESS,
         "total_volume_usd": round(
             sum(float(sale.get("amount_usd", 0.0)) for sale in sales_history), 6
         ),
@@ -3219,9 +3223,9 @@ _DASHBOARD_HTML = r"""
         <div class="payment-info">
             <h3 style="color: var(--muted); margin-bottom: 1rem;">💳 Как да платите</h3>
             <p style="margin-bottom: 0.5rem;">Изпратете <strong>USDC</strong> към следния адрес в <strong>Base</strong> мрежата:</p>
-            <div class="addr" id="payment-addr">Loading wallet address...</div>
+            <div class="addr" id="payment-addr">Loading payment address...</div>
             <p style="margin-top: 1rem; color: var(--muted); font-size: 0.85rem;">
-                💡 Плащанията се верифицират автоматично on-chain. При плащане ≥ $0.10 USDC получавате Telegram VIP поканителен код.
+                💡 Плащанията се верифицират автоматично on-chain. Цени: от <strong>$0.003</strong> на заявка (зависи от endpoint-а). Без абонаменти — плащаш само за това, което ползваш.
             </p>
         </div>
 
@@ -3380,10 +3384,12 @@ async function loadStats() {
         totalSales += p.sales_count;
         totalVolume += p.sales_volume_usd;
         const catLabel = p.category === 'engine' ? '⚙️ Engine' : '🤖 Agent';
+        // Show micro-prices honestly: 0.003 must NEVER round down to $0.00.
+        const fmtPrice = v => '$' + (Number(v) < 0.01 ? Number(v).toFixed(4) : Number(v).toFixed(2));
         const row = `<tr>
             <td><strong>${p.name}</strong></td>
             <td style="color:var(--muted);font-size:0.8rem;">${catLabel}</td>
-            <td style="color:var(--accent2);">$${p.price_usdc.toFixed(2)}</td>
+            <td style="color:var(--accent2);">${fmtPrice(p.price_usdc)}</td>
             <td>${p.hits}</td>
             <td>${p.sales_count}</td>
             <td style="color:var(--accent2);">${fmtMoney(p.sales_volume_usd)}</td>
@@ -3497,10 +3503,13 @@ async function loadBotStatus() {
     document.getElementById('m-bot-commands').textContent =
         data.commands_processed + ' commands processed';
 
-    // Update payment address in pricing section
-    const walletAddr = data.wallet && data.wallet.wallet_address;
-    if (walletAddr) {
-        document.getElementById('payment-addr').textContent = walletAddr;
+    // Update payment address in pricing section.
+    // CRITICAL: show the FEE RECEIVER (where customers pay), never the
+    // operator hot wallet derived from WALLET_PRIVATE_KEY — the hot wallet
+    // is the PAYER side and its address must not be advertised as payable.
+    const payAddr = data.payment_receiver || data.fee_receiver;
+    if (payAddr) {
+        document.getElementById('payment-addr').textContent = payAddr;
     }
 }
 
