@@ -1736,7 +1736,7 @@ _LANDING_HTML = r"""
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kristo Intelligence — API that pays for itself (x402 / USDC on Base)</title>
-<meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Pay 0.05 USDC on Base, retry, get data.">
+<meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Paid per call, from $0.003/call (USDC on Base), retry, get data.">
 <style>
   :root { --bg:#0b0f1a; --panel:#111726; --line:#1e2a44; --txt:#dbe4ff;
           --green:#4ade80; --amber:#fbbf24; --blue:#60a5fa; --muted:#8294b8; }
