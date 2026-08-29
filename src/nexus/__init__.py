@@ -116,13 +116,11 @@ def mount_nexus_engine(app, force_rebuild: bool = False) -> NexusEngine:
     engine = build_default_engine()
     extensions["nexus_engine"] = engine
 
-    from flask import current_app
+    from .blueprint import create_nexus_blueprint
+    from .distribution import create_distribution_blueprint
 
-    if current_app and current_app._get_current_object() is app:
-        # Called inside an active request context (e.g. tests) — defer
-        # registration to avoid double-registration conflicts.
-        if "nexus_intel" not in app.blueprints:
-            app.register_blueprint(create_nexus_blueprint())
-    elif "nexus_intel" not in app.blueprints:
+    if "nexus_intel" not in app.blueprints:
         app.register_blueprint(create_nexus_blueprint())
+    if "viral_distribution" not in app.blueprints:
+        app.register_blueprint(create_distribution_blueprint())
     return engine

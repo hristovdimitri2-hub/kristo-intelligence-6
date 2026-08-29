@@ -847,6 +847,7 @@ _RATE_LIMIT_DEFAULTS = {
     "agent_checkout": (60, 300),   # catalog Stripe checkout / 5 min
     "stripe_webhook": (240, 300),  # signature-verified, but bounded
     "telegram_webhook": (240, 300),  # secret-verified, but bounded
+    "public_activity": (120, 300),  # public proof-of-traction feed, bounded
 }
 
 _rate_limit_lock = threading.Lock()
