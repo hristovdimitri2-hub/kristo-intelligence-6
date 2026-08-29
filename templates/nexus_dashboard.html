@@ -417,6 +417,22 @@
             z-index: 1;
         }
     </style>
+<style>
+/* ── Nexus Strategy Briefs panel ── */
+.strategy-empty{padding:14px;border:1px dashed #2b3a5d;border-radius:12px;color:#7c8db5;font-size:0.85rem;}
+.strategy-brief{padding:14px 16px;border-radius:12px;background:#121a2f;border:1px solid #2b3a5d;}
+.strategy-brief.high{border-left:3px solid #f87171;}
+.strategy-brief.medium{border-left:3px solid #fbbf24;}
+.strategy-brief.low{border-left:3px solid #34d399;}
+.sb-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;color:#eef2ff;}
+.sb-priority{font-size:0.65rem;font-weight:700;padding:2px 8px;border-radius:999px;}
+.sb-priority.high{background:#3b1d2a;color:#f87171;}
+.sb-priority.medium{background:#3a3220;color:#fbbf24;}
+.sb-priority.low{background:#173a2e;color:#34d399;}
+.sb-rationale{color:#94a3b8;font-size:0.82rem;margin-bottom:8px;}
+.sb-actions{margin:0;padding-left:18px;color:#a5b4d4;font-size:0.8rem;}
+.sb-actions li{margin:2px 0;}
+</style>
 </head>
 <body>
     <header>
@@ -443,6 +459,17 @@
                 <span>⏱️ Интервал: <strong>30s</strong></span>
                 <span>🌐 Мрежа: <strong>Base (8453)</strong></span>
                 <span>📦 Блок: <strong id="current-block">—</strong></span>
+            </div>
+        </div>
+
+        <!-- Nexus Strategy Briefs (admin-authenticated via /api/nexus/strategy) -->
+        <div class="strategy-panel" id="strategy-panel" style="margin:18px 0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <h2 style="margin:0;font-size:1.05rem;">🧠 Nexus Strategy Briefs</h2>
+                <span style="font-size:0.75rem;color:#7c8db5;" id="strategy-updated"></span>
+            </div>
+            <div id="strategy-list" style="display:grid;gap:10px;">
+                <div class="strategy-empty">Зареждане на стратегически брифи…</div>
             </div>
         </div>
 
@@ -778,6 +805,43 @@ scheduleNextDiscovery();
 setInterval(() => {
     document.getElementById('footer-time').textContent = new Date().toLocaleTimeString('bg-BG');
 }, 1000);
+
+// ── Nexus Strategy Briefs (admin-authenticated) ─────────────────────────
+async function fetchStrategy() {
+    const list = document.getElementById('strategy-list');
+    try {
+        const token = sessionStorage.getItem('admin_token');
+        const headers = token ? { 'X-Admin-Token': token } : {};
+        const resp = await fetch('/api/nexus/strategy', { headers });
+        if (resp.status === 401) {
+            list.innerHTML = '<div class="strategy-empty">🔒 Влез като admin (X-Admin-Token / sales admin session) за стратегическите брифи.</div>';
+            return;
+        }
+        const data = await resp.json();
+        const briefs = data.briefs || [];
+        document.getElementById('strategy-updated').textContent =
+            'обновено: ' + new Date(data.generated_at || Date.now()).toLocaleTimeString('bg-BG');
+        if (!briefs.length) {
+            list.innerHTML = '<div class="strategy-empty">Няма стратегически пропуски — системата работи в рамките на целевите си метрики.</div>';
+            return;
+        }
+        list.innerHTML = briefs.map(b => `
+            <div class="strategy-brief ${b.priority}">
+                <div class="sb-head">
+                    <span class="sb-priority ${b.priority}">${b.priority.toUpperCase()}</span>
+                    <strong>${b.title}</strong>
+                </div>
+                <div class="sb-rationale">${b.rationale}</div>
+                <ul class="sb-actions">${(b.recommended_actions || []).map(a => `<li>${a}</li>`).join('')}</ul>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.log('Nexus strategy fetch deferred:', e);
+        list.innerHTML = '<div class="strategy-empty">Nexus Engine все още се затопля…</div>';
+    }
+}
+fetchStrategy();
+setInterval(fetchStrategy, 60000);
 
 // Refresh real data every 30s
 setInterval(fetchRealData, 30000);

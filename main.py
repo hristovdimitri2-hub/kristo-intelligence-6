@@ -1599,6 +1599,17 @@ def _x402_paywall():
 from app.blueprints.discovery import discovery_bp
 app.register_blueprint(discovery_bp)
 
+# ── Nexus Intelligence Engine ────────────────────────────────────────────────
+# Unified autonomous intelligence loop: aggregates x402-catalog performance,
+# sales-funnel and processed research intelligence, cross-references it with
+# the project parameters (pricing tiers, paid endpoints, free tier) and
+# synthesizes strategic briefs for the dashboard. Secure internal read
+# endpoint: GET /api/nexus/strategy (admin-authenticated). No background
+# threads, no external paid dependencies — the loop builds on demand.
+from src.nexus import mount_nexus_engine
+
+mount_nexus_engine(app)
+
 
 @app.route("/api/arb/opportunities")
 def api_arb_opportunities():
