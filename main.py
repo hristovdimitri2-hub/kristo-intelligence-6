@@ -887,7 +887,9 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
             "payTo": X402_RECEIVER_ADDRESS,
             "asset": X402_USDC_CONTRACT,
             "maxTimeoutSeconds": 60,
-            "extra": {"name": "USDC", "version": "2"},
+            # EIP-712 token domain: Base USDC reports name() = "USD Coin" —
+            # PayAPI Market's validator requires this exact value here.
+            "extra": {"name": "USD Coin", "version": "2"},
         }
     ]
     resource = {
