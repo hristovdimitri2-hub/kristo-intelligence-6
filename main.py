@@ -34,7 +34,7 @@ from collections import deque
 from typing import Dict, List, Optional
 
 import math
-from flask import Flask, jsonify, redirect, render_template_string, request, session
+from flask import Flask, jsonify, redirect, render_template, request, session
 
 # ── Central configuration (bound wallet address, GLM, etc.) ────────────────
 from config import (
@@ -132,6 +132,20 @@ app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE="Lax",
 )
+
+# ── Request-body size cap (protects free-tier resources) ─────────────────────
+# Bodies larger than this are rejected with 413 before any route handler runs,
+# so oversized payloads cannot consume worker memory or upstream API quota.
+# Override via env only if a legitimate larger payload is ever introduced.
+app.config["MAX_CONTENT_LENGTH"] = int(
+    os.getenv("KRISTO_MAX_CONTENT_LENGTH_BYTES", str(512 * 1024))  # 512 KB
+)
+
+
+@app.errorhandler(413)
+def _payload_too_large(_error):
+    """Return a JSON 413 when a client exceeds MAX_CONTENT_LENGTH."""
+    return jsonify({"ok": False, "error": "payload_too_large"}), 413
 
 # ── Runtime sales integration layer ───────────────────────────────────────
 from integrations.crm_store import LeadRecord, create_crm_store
@@ -819,6 +833,66 @@ def _get_client_ip() -> str:
         if entries:
             return entries[-1]
     return peer
+
+
+# ── Lightweight request rate limiting (per client IP, per scope) ─────────────
+# Protects auth, payment and lead-capture routes from brute force and spam
+# without external dependencies. In-memory sliding-window counters keyed by
+# (scope, client IP); stale buckets are pruned opportunistically.
+_RATE_LIMIT_DEFAULTS = {
+    "admin_login": (20, 300),      # 20 token attempts / 5 min
+    "checkout": (30, 300),         # 30 checkout submissions / 5 min
+    "leads": (30, 300),            # lead capture / 5 min
+    "funnel_track": (90, 300),     # analytics beacons / 5 min
+    "agent_checkout": (60, 300),   # catalog Stripe checkout / 5 min
+    "stripe_webhook": (240, 300),  # signature-verified, but bounded
+    "telegram_webhook": (240, 300),  # secret-verified, but bounded
+}
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_hits: Dict[tuple, deque] = {}
+
+
+def _check_rate_limit(scope: str) -> Optional[int]:
+    """
+    Sliding-window rate limiter keyed by (scope, client IP).
+
+    Returns None when the request is allowed (and records the hit),
+    otherwise the number of seconds after which the client may retry.
+    Limits are overridable via KRISTO_RATE_<SCOPE>_MAX and
+    KRISTO_RATE_<SCOPE>_WINDOW_SECONDS environment variables.
+    """
+    default_max, default_window = _RATE_LIMIT_DEFAULTS[scope]
+    max_requests = int(os.getenv(f"KRISTO_RATE_{scope.upper()}_MAX", str(default_max)))
+    window = int(os.getenv(f"KRISTO_RATE_{scope.upper()}_WINDOW_SECONDS", str(default_window)))
+    key = (scope, _get_client_ip())
+    now = time.time()
+    with _rate_limit_lock:
+        hits = _rate_limit_hits.setdefault(key, deque())
+        while hits and hits[0] <= now - window:
+            hits.popleft()
+        if len(hits) >= max_requests:
+            return max(1, int(window - (now - hits[0])))
+        hits.append(now)
+        # Opportunistic memory bound: drop fully-stale buckets.
+        if len(_rate_limit_hits) > 10_000:
+            for stale_key, stale_hits in list(_rate_limit_hits.items()):
+                if not stale_hits or stale_hits[-1] <= now - window:
+                    _rate_limit_hits.pop(stale_key, None)
+    return None
+
+
+def _rate_limited_response(scope: str):
+    """Return a 429 JSON response when the scope limit is exceeded, else None."""
+    retry_after = _check_rate_limit(scope)
+    if retry_after is None:
+        return None
+    return jsonify({
+        "ok": False,
+        "error": "rate_limited",
+        "scope": scope,
+        "retry_after_seconds": retry_after,
+    }), 429
 
 
 def _get_dynamic_price(ip: str, endpoint: str = "") -> float:
@@ -1689,6 +1763,9 @@ def api_telegram_webhook():
     The endpoint is always free (no x402 paywall) so Telegram can deliver
     updates without payment.
     """
+    limited = _rate_limited_response("telegram_webhook")
+    if limited:
+        return limited
     configured_secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
     supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
     if (
@@ -1732,212 +1809,17 @@ def home():
     10 seconds (call -> 402 -> pay -> 200) with copy-paste curl commands.
     """
     _record_request("home", True)
-    return render_template_string(_LANDING_HTML)
+    return render_template("landing.html")
 
 
-_LANDING_HTML = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kristo Intelligence — API that pays for itself (x402 / USDC on Base)</title>
-<meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Paid per call, from $0.003/call (USDC on Base), retry, get data.">
-<style>
-  :root { --bg:#0b0f1a; --panel:#111726; --line:#1e2a44; --txt:#dbe4ff;
-          --green:#4ade80; --amber:#fbbf24; --blue:#60a5fa; --muted:#8294b8; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--bg); color:var(--txt);
-         font-family:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
-         display:flex; justify-content:center; padding:48px 20px; }
-  .wrap { max-width:860px; width:100%; }
-  h1 { font-size:26px; text-align:center; margin-bottom:8px; }
-  h1 .accent { color:var(--blue); }
-  .sub { text-align:center; color:var(--muted); font-size:14px; margin-bottom:32px; }
-  .sub b { color:var(--txt); }
-  .terminal { background:var(--panel); border:1px solid var(--line);
-              border-radius:10px; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,.5); }
-  .term-bar { display:flex; align-items:center; gap:8px; padding:10px 14px;
-              border-bottom:1px solid var(--line); background:#0d1322; }
-  .dot { width:11px; height:11px; border-radius:50%; }
-  .r{background:#ef6b6b}.y{background:#f5c451}.g{background:#57c785}
-  .term-title { margin-left:auto; color:var(--muted); font-size:12px; }
-  .term-body { padding:18px 16px; font-size:13.5px; line-height:1.75; min-height:330px; }
-  .p { color:var(--muted); } .cmd { color:var(--txt); }
-  .ok { color:var(--green); } .warn { color:var(--amber); }
-  .dim { opacity:.55; }
-  @keyframes blink { 50% { opacity:0; } }
-  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:28px 0; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
-          padding:16px; text-align:center; }
-  .card .big { font-size:20px; font-weight:bold; margin-bottom:4px; }
-  .card .lbl { color:var(--muted); font-size:12px; }
-  .cta-row { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:26px 0; }
-  .btn { display:inline-block; padding:12px 22px; border-radius:8px; font-size:14px;
-         text-decoration:none; border:1px solid var(--line); color:var(--txt);
-         transition:.15s; }
-  .btn:hover { border-color:var(--blue); }
-  .btn.primary { background:var(--blue); color:#08101f; border-color:var(--blue); font-weight:bold; }
-  .try { margin-top:28px; text-align:center; }
-  .try code { background:var(--panel); border:1px solid var(--line); padding:10px 14px;
-              border-radius:8px; display:inline-block; font-size:13px; color:var(--green); }
-  .foot { margin-top:30px; text-align:center; color:var(--muted); font-size:12px; line-height:2; }
-  .foot a { color:var(--blue); text-decoration:none; }
-  @media(max-width:640px){ .grid{grid-template-columns:1fr;} h1{font-size:20px;} }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1> Kristo Intelligence — <span class="accent">the API that pays for itself</span></h1>
-  <p class="sub">DeFi market intelligence for AI agents. <b>No API keys. No signup.</b><br>
-     The HTTP <b>402</b> response IS the checkout — USDC on Base.</p>
-
-  <div class="terminal">
-    <div class="term-bar">
-      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-      <span class="term-title">agent@base:~</span>
-    </div>
-    <div class="term-body" id="term"></div>
-  </div>
-
-  <div class="grid">
-    <div class="card"><div class="big" style="color:var(--green)">$0.05</div><div class="lbl">per API call (USDC on Base)</div></div>
-    <div class="card"><div class="big" style="color:var(--blue)">~2s</div><div class="lbl">payment settlement (Base L2)</div></div>
-    <div class="card"><div class="big" style="color:var(--amber)">1 free</div><div class="lbl">call per client — try it now</div></div>
-  </div>
-
-  <div class="cta-row">
-    <a class="btn primary" href="/dashboard">Open live dashboard →</a>
-    <a class="btn" href="/llms.txt">llms.txt</a>
-    <a class="btn" href="/openapi.json">OpenAPI</a>
-    <a class="btn" href="/.well-known/x402.json">x402.json</a>
-    <a class="btn" href="/agents.json">agents.json</a>
-  </div>
-
-  <div class="try">
-    <p class="p" style="margin-bottom:10px">Test it right now — copy, paste, no login:</p>
-    <code>curl https://kristo-intelligence-api.onrender.com/api/stats</code>
-  </div>
-
-  <p class="foot">
-    npm install <a href="https://github.com/hristovdimitri2-hub/kristo-intelligence-6/tree/main/packages/x402-client" target="_blank" rel="noopener">kristo-x402-client</a>
-    (auto-pays 402s for your agent) · Telegram <a href="https://t.me/kristointelbot" target="_blank" rel="noopener">@kristointelbot</a><br>
-    Discovery: x402.json · OpenAPI · llms.txt · MCP · agents.json — MIT licensed
-  </p>
-</div>
-
-<script>
-// Animated terminal: the exact x402 handshake an autonomous agent performs.
-const SCRIPT = [
-  {t:800,  cls:'p',     html:'<span class="dim"># 1. Agent calls the API — no key, no auth</span>'},
-  {t:400,  cls:'cmd',   html:'$ curl https://kristo-intelligence-api.onrender.com/api/stats'},
-  {t:900,  cls:'warn',  html:'HTTP/1.1 <b>402 Payment Required</b>'},
-  {t:300,  cls:'ok',    html:'{ "x402_amount": "0.005", "x402_token": "USDC",<br>&nbsp;&nbsp;"x402_recipient": "0xd4cdA900...", "x402_chain_id": 8453,<br>&nbsp;&nbsp;"x402_retry_instructions": "Send USDC, retry with X-Payment-Proof" }'},
-  {t:1100, cls:'p',     html:'<span class="dim"># 2. Agent reads the JSON contract, pays on Base (~2s)</span>'},
-  {t:400,  cls:'cmd',   html:'$ send 0.005 USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: &lt;YOUR_TX_HASH&gt; ✓</span>'},
-  {t:1000, cls:'p',     html:'<span class="dim"># 3. Retry with the payment proof</span>'},
-  {t:400,  cls:'cmd',   html:'$ curl -H "X-Payment-Proof: ..." /api/stats'},
-  {t:900,  cls:'ok',    html:'HTTP/1.1 <b>200 OK</b> — market intelligence delivered <span class="dim">✓</span>'},
-];
-const term = document.getElementById('term');
-let i = 0;
-function step() {
-  if (i >= SCRIPT.length) { setTimeout(restart, 6000); return; }
-  const s = SCRIPT[i++];
-  const div = document.createElement('div');
-  div.className = s.cls;
-  div.innerHTML = s.html;
-  term.appendChild(div);
-  setTimeout(step, s.t);
-}
-function restart() { term.innerHTML = ''; i = 0; step(); }
-step();
-</script>
-</body>
-</html>
-"""
 
 
-_LAUNCH_LANDING_HTML = """
-<!DOCTYPE html>
-<html lang="bg">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kristo Intelligence | VIP Crypto Intelligence</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #0b1020; color: #eef2ff; margin: 0; }
-        .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 20px 80px; }
-        .hero { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 24px; align-items: center; }
-        .card { background: #121a2f; border: 1px solid #2b3a5d; border-radius: 18px; padding: 28px; box-shadow: 0 20px 50px rgba(0,0,0,.2); }
-        h1 { font-size: 2.8rem; line-height: 1.1; margin: 0 0 16px; }
-        p { color: #c7d2fe; font-size: 1.05rem; }
-        .tag { display: inline-block; background: #312e81; color: #e0e7ff; padding: 8px 14px; border-radius: 999px; margin-bottom: 18px; font-size: 0.8rem; }
-        .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
-        .btn { display: inline-block; padding: 14px 22px; background: #4f46e5; color: white; text-decoration: none; border-radius: 12px; font-weight: bold; }
-        .btn.secondary { background: transparent; border: 1px solid #4f46e5; }
-        .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 40px; }
-        .price { font-size: 2.2rem; font-weight: 800; margin: 12px 0; }
-        ul { margin: 0; padding-left: 18px; color: #dbeafe; }
-        .small { color: #94a3b8; font-size: 0.9rem; }
-        @media (max-width: 800px) { .hero, .grid { grid-template-columns: 1fr; } }
-    </style>
-</head>
-<body>
-    <div class="wrap">
-        <div class="hero">
-            <div class="card">
-                <div class="tag">AI • Crypto • DeFi • Telegram</div>
-                <h1>VIP crypto intelligence за активни трейдъри.</h1>
-                <p>Получавай live пазарни анализи, DeFi сигнали и premium Telegram известия без шум, без хаос и без демо данни.</p>
-                <div class="cta">
-                    <a class="btn" href="/sales/checkout?plan=pro">Започни с Pro</a>
-                    <a class="btn secondary" href="/dashboard">Виж dashboard</a>
-                </div>
-                <p class="small">Реални данни • Base мрежа • Live market insights • Telegram VIP access</p>
-            </div>
-            <div class="card">
-                <h3>Какво включва</h3>
-                <ul>
-                    <li>live market bulletin</li>
-                    <li>DeFi signal layer</li>
-                    <li>Telegram VIP updates</li>
-                    <li>AI помощ за анализ</li>
-                    <li>premium access level</li>
-                </ul>
-            </div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <h3>Starter</h3>
-                <div class="price">$29</div>
-                <p>Базов достъп до market bulletin и сигнали.</p>
-                <a class="btn" href="/sales/checkout?plan=starter">Избери Starter</a>
-            </div>
-            <div class="card">
-                <h3>Pro</h3>
-                <div class="price">$79</div>
-                <p>VIP Telegram + premium market intelligence.</p>
-                <a class="btn" href="/sales/checkout?plan=pro">Избери Pro</a>
-            </div>
-            <div class="card">
-                <h3>API Access</h3>
-                <div class="price">$149</div>
-                <p>За по-напреднали клиенти и data access.</p>
-                <a class="btn" href="/sales/checkout?plan=api">Избери API</a>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-"""
 
 
 @app.route("/launch")
 def launch_landing():
     """Public sales landing page for live product launch."""
-    return render_template_string(_LAUNCH_LANDING_HTML)
+    return render_template("launch_landing.html")
 
 
 @app.route("/sales/checkout", methods=["GET", "POST"])
@@ -1952,44 +1834,17 @@ def sales_checkout():
             "success": "Плащането е потвърдено. Системата е готова за onboarding.",
             "cancelled": "Плащането беше отменено. Можете да опитате отново.",
         }.get(status, "")
-        return render_template_string(
-            """
-            <!DOCTYPE html>
-            <html lang="bg">
-            <head><meta charset="UTF-8"><title>Checkout | Kristo Intelligence</title>
-            <style>body{font-family:Arial,sans-serif;background:#0b1020;color:#eef2ff;padding:40px} form{max-width:560px;margin:0 auto;background:#121a2f;padding:30px;border-radius:16px;border:1px solid #2b3a5d;} input,select{width:100%;padding:12px;margin:10px 0;border-radius:10px;border:1px solid #39486d;background:#0f172a;color:white;} button{padding:14px 22px;border:none;background:#4f46e5;color:white;border-radius:12px;font-weight:700;cursor:pointer;} .small{color:#94a3b8;font-size:0.9rem} .ok{color:#34d399;padding:10px 0;} .warn{color:#fbbf24;padding:10px 0;} </style>
-            </head>
-            <body>
-                <form method="POST">
-                    <h2>Checkout</h2>
-                    <p class="small">Пакет: {{ plan.name }} — ${{ plan.price_usd }}</p>
-                    <input type="hidden" name="plan" value="{{ plan_key }}">
-                    <label>Email</label>
-                    <input type="email" name="email" required>
-                    <label>Източник</label>
-                    <select name="source">
-                        <option value="website">Website</option>
-                        <option value="meta_ads">Meta Ads</option>
-                        <option value="google">Google</option>
-                        <option value="telegram">Telegram</option>
-                        <option value="organic">Organic</option>
-                    </select>
-                    <label>Кампания</label>
-                    <input type="text" name="campaign" value="launch" required>
-                    {% if status_msg %}
-                    <div class="{{ 'ok' if status == 'success' else 'warn' }}">{{ status_msg }}</div>
-                    {% endif %}
-                    <button type="submit">Потвърди покупката</button>
-                </form>
-            </body>
-            </html>
-            """,
+        return render_template(
+            "checkout.html",
             plan=plan,
             plan_key=selected_plan,
             status=status,
             status_msg=status_msg,
         )
 
+    limited = _rate_limited_response("checkout")
+    if limited:
+        return limited
     email = (request.form.get("email") or "").strip()
     plan_key = (request.form.get("plan") or "pro").strip()
     source = (request.form.get("source") or "website").strip()
@@ -1997,7 +1852,6 @@ def sales_checkout():
     telegram_chat_id = (request.form.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "Въведете валиден email."}), 400
-
     plan = checkout_store.get_plan(plan_key)
     if plan is None:
         return jsonify({"ok": False, "error": "Невалиден план."}), 400
@@ -2055,6 +1909,9 @@ def api_leads():
             return auth_error
         return jsonify({"ok": True, "leads": crm_store.get_all(), "total": len(crm_store.get_all())})
 
+    limited = _rate_limited_response("leads")
+    if limited:
+        return limited
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
     source = (payload.get("source") or "website").strip()
@@ -2077,6 +1934,9 @@ def api_leads():
 @app.route("/api/checkout", methods=["POST"])
 def api_checkout():
     """Checkout API endpoint for sales automation and payment scaffolding."""
+    limited = _rate_limited_response("checkout")
+    if limited:
+        return limited
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
     plan_key = (payload.get("plan") or "pro").strip()
@@ -2166,32 +2026,12 @@ def api_agent_playground(agent_id: str):
     )
 
 
-_AGENT_PLAYGROUND_HTML = r"""
-<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kristo Intelligence v6 — Agent playground</title>
-<style>
-:root{--bg:#090d18;--card:#111827;--border:#26334d;--text:#edf2ff;--muted:#aab7d0;--accent:#7c83ff;--good:#56d6a5;--warn:#f6bf68}*{box-sizing:border-box}
-body{margin:0;background:radial-gradient(circle at 20% -10%,#1e2a57 0,transparent 32%),var(--bg);color:var(--text);font:16px system-ui,sans-serif}.wrap{max-width:1180px;margin:auto;padding:48px 20px 80px}
-.eyebrow{color:#b9bdff;text-transform:uppercase;letter-spacing:.1em;font-size:.76rem;font-weight:700}h1{font-size:clamp(2rem,5vw,3.4rem);margin:.35rem 0 1rem}.intro{max-width:760px;color:var(--muted);line-height:1.6}
-.notice{margin:24px 0;padding:14px 16px;border:1px solid #765923;background:#2a2113;border-radius:12px;color:#ffe3aa}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:16px}
-.card{background:linear-gradient(145deg,#131d32,#0f1729);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 12px 30px rgba(0,0,0,.2)}.meta{font-size:.78rem;color:#bfc8dd;text-transform:uppercase;letter-spacing:.07em}.price{color:var(--good);font-weight:700;margin:.7rem 0}.desc{color:var(--muted);min-height:48px;line-height:1.45}
-input,button{font:inherit;border-radius:9px;padding:11px 12px}input{display:block;width:100%;margin:16px 0 10px;background:#090d18;color:var(--text);border:1px solid #33415e}button{border:0;background:var(--accent);color:white;font-weight:750;cursor:pointer;width:100%}button:disabled{opacity:.55;cursor:wait}.result{margin-top:12px;padding:12px;border-radius:9px;background:#0a1120;color:#cbd5e1;font-size:.88rem;line-height:1.45;white-space:pre-wrap}.result.error{border:1px solid #8f4b52;color:#ffc3c8}.result.ok{border:1px solid #2f8066}.small{font-size:.78rem;color:var(--muted);margin:.65rem 0 0}.empty{color:var(--muted)}
-</style></head><body><main class="wrap"><div class="eyebrow">Kristo Intelligence v6</div><h1>Interactive agent playground</h1><p class="intro">Test each catalog agent with one free, bounded request. The result verifies the execution path and records a real catalog call; it is not a live trade signal or an on-chain x402 settlement.</p><div class="notice">After the free request, the API returns a clear upgrade path. Stripe checkout provides a separate 30-day agent entitlement; Base facilitator settlement remains intentionally disabled in this preview.</div><section id="agents" class="grid"><p class="empty">Loading catalog…</p></section></main>
-<script>
-const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function card(a){return `<article class="card"><div class="meta">${escapeHtml(a.category)}</div><h2>${escapeHtml(a.name)}</h2><p class="desc">${escapeHtml(a.description)}</p><p class="price">${Number(a.price_x402).toFixed(2)} USDC x402 · $${Number(a.price_stripe).toFixed(2)} 30-day Stripe access</p><label class="small" for="input-${a.id}">Token symbol, topic, or 0x address</label><input id="input-${a.id}" maxlength="256" placeholder="e.g. ETH or 0x…"><button data-agent="${escapeHtml(a.id)}">Run one free demo</button><div id="result-${a.id}" class="result" hidden></div><p class="small">One free request per client and agent.</p></article>`}
-function show(id,text,kind){const el=document.getElementById('result-'+id);el.hidden=false;el.className='result '+kind;el.textContent=text}
-async function run(agentId,button){const input=document.getElementById('input-'+agentId).value.trim();if(input.length<2)return show(agentId,'Enter at least 2 characters.','error');button.disabled=true;button.textContent='Running…';try{const r=await fetch('/api/v1/agents/'+encodeURIComponent(agentId)+'/playground',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input})});const data=await r.json();if(!r.ok){const upgrade=data.upgrade?.stripe_checkout?` Upgrade: ${data.upgrade.stripe_checkout}`:'';show(agentId,(data.message||data.error||'Request failed.')+upgrade,'error');return}show(agentId,data.result.result+'\\n\\nChecks: '+data.result.checks_completed.join(' · '),'ok');button.textContent='Demo completed'}catch(e){show(agentId,'Network error: '+e.message,'error')}finally{button.disabled=false;if(button.textContent==='Running…')button.textContent='Run one free demo'}}
-async function load(){try{const r=await fetch('/api/v1/agents');const data=await r.json();document.getElementById('agents').innerHTML=data.agents.map(card).join('');document.querySelectorAll('button[data-agent]').forEach(b=>b.addEventListener('click',()=>run(b.dataset.agent,b)))}catch(e){document.getElementById('agents').innerHTML='<p class="empty">Catalog unavailable.</p>'}}
-load();
-</script></body></html>
-"""
 
 
 @app.route("/agents", methods=["GET"])
 def agent_playground_page():
     """Public catalog page for the eight bounded agent demos."""
-    return render_template_string(_AGENT_PLAYGROUND_HTML)
+    return render_template("agent_playground.html")
 
 
 @app.route("/api/v1/agents/<agent_id>/click", methods=["POST"])
@@ -2215,6 +2055,9 @@ def api_agent_click(agent_id: str):
 @app.route("/api/v1/agents/<agent_id>/checkout", methods=["POST"])
 def api_agent_checkout(agent_id: str):
     """Create a one-time Stripe Checkout for a 30-day agent access entitlement."""
+    limited = _rate_limited_response("agent_checkout")
+    if limited:
+        return limited
     agent = catalog_store.get_product(agent_id)
     if not agent:
         return jsonify({"ok": False, "error": "agent_not_found"}), 404
@@ -2303,6 +2146,9 @@ def api_agent_access(agent_id: str):
 @app.route("/api/webhooks/stripe", methods=["POST"])
 def stripe_webhook_handler():
     """Stripe-compatible webhook handler for payment confirmation."""
+    limited = _rate_limited_response("stripe_webhook")
+    if limited:
+        return limited
     signature = request.headers.get("Stripe-Signature", "")
     if not signature:
         return jsonify({"ok": False, "error": "missing_signature"}), 400
@@ -2636,70 +2482,10 @@ def api_admin_research_insight_update(insight_id: str):
     return _safe_jsonify({"ok": True, "insight": insight})
 
 
-_ADMIN_LOGIN_HTML = """
-<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Вход за администратор</title><style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1117;color:#e2e8f0;font-family:system-ui,sans-serif}
-form{width:min(420px,calc(100% - 32px));padding:32px;border:1px solid #2d3142;border-radius:16px;background:#1a1d28}
-input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:9px;font:inherit}input{background:#0f1117;color:#fff;border:1px solid #46506b;margin:18px 0}
-button{border:0;background:#6366f1;color:#fff;font-weight:700;cursor:pointer}.error{color:#fca5a5}
-</style></head><body><form method="post"><h1>Оперативен dashboard</h1><p>Въведете администраторския token.</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}
-<label for="admin_token">Admin token</label><input id="admin_token" name="admin_token" type="password" required autofocus autocomplete="current-password"><button type="submit">Вход</button></form></body></html>
-"""
 
 
-_ADMIN_RESEARCH_HTML = r"""
-<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kristo Intelligence — R&D review</title><style>
-:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1120px;margin:auto;padding:28px}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 20px}button{border:1px solid #46506b;background:#121522;color:var(--text);padding:9px 12px;border-radius:8px;cursor:pointer;font:inherit}button.primary{background:var(--accent);border-color:var(--accent)}article{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin:12px 0}.meta{color:var(--muted);font-size:.82rem}.summary{color:#c7d2fe;white-space:pre-wrap}.content{color:var(--muted);white-space:pre-wrap;max-height:180px;overflow:auto}.actions{display:flex;gap:8px;margin-top:14px}.approved{color:var(--good)}.archived{color:var(--bad)}.empty{color:var(--muted)}
-</style></head><body><header><div><h1>R&D research queue</h1><div class="meta">Discord, RSS и GitHub ingest-ът влиза като PENDING и изисква човешко одобрение.</div></div><a href="/sales/admin">Към dashboard</a></header><main><div class="filters"><button class="primary" data-status="PENDING">Pending</button><button data-status="APPROVED">Approved</button><button data-status="ARCHIVED">Archived</button><button data-status="">All</button></div><p id="state" class="meta"></p><section id="items"><p class="empty">Loading…</p></section></main><script>
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let status='PENDING';
-function render(items){const root=document.getElementById('items');root.innerHTML=items.length?items.map(i=>`<article><div class="meta">${esc(i.source)} · ${esc(i.status)} · ${esc(new Date(i.created_at).toLocaleString('bg-BG'))}</div><h2>${esc(i.title)}</h2>${i.actionable_summary?`<p class="summary">${esc(i.actionable_summary)}</p>`:''}<p class="content">${esc(i.content)}</p><div class="actions">${i.status!=='APPROVED'?`<button onclick="updateInsight('${esc(i.id)}','APPROVED')">Approve</button>`:''}${i.status!=='ARCHIVED'?`<button onclick="updateInsight('${esc(i.id)}','ARCHIVED')">Archive</button>`:''}</div></article>`).join(''):'<p class="empty">No research insights in this view.</p>'}
-async function load(){const r=await fetch('/api/admin/research-insights?status='+encodeURIComponent(status));const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load research.');document.getElementById('state').textContent=d.total+' insight(s)';render(d.insights)}
-async function updateInsight(id,next){const r=await fetch('/api/admin/research-insights/'+encodeURIComponent(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:next})});if(!r.ok){const d=await r.json();alert(d.error||'Update failed');return}load()}
-document.querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>{status=b.dataset.status;load().catch(e=>document.getElementById('state').textContent=e.message)});load().catch(e=>document.getElementById('state').textContent=e.message);
-</script></body></html>
-"""
 
 
-_ADMIN_DASHBOARD_HTML = r"""
-<!doctype html>
-<html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kristo Intelligence — Оперативен dashboard</title>
-<style>
-:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin:16px 0 28px}.card,.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}.metric label,.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}.metric strong{display:block;font-size:1.8rem;margin-top:7px}.panel{margin:18px 0}.panel h2{font-size:1rem;margin:0 0 14px}.services{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.service{padding:12px;background:#121522;border-radius:8px}.good{color:var(--good)}.bad{color:var(--bad)}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase}.scroll{overflow:auto}.muted{color:var(--muted)}#error{color:var(--bad);min-height:18px}@media(max-width:650px){main{padding:16px}header{padding:16px;align-items:flex-start;flex-direction:column}th,td{padding:8px}}
-</style></head>
-<body><header><div><h1>Kristo Intelligence — Оперативен dashboard</h1><div class="muted">Автоматично обновяване на 15 секунди. Чувствителните данни са достъпни само за администратор.</div></div><div><a href="/sales/admin/research">R&D review</a> · <a href="/sales/admin/logout">Изход</a></div></header>
-<main><p id="error"></p><section id="metrics" class="grid"></section>
-<section class="panel"><h2>Статус на услугите</h2><div id="services" class="services"></div></section>
-<section class="panel"><h2>AI Агентни услуги (x402 Revenue)</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Име</th><th>Цена (USD)</th><th>Hits (Заявки)</th><th>Платени (Sales)</th><th>Приход (Revenue)</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
-<section class="panel"><h2>Последни Stripe/CRM плащания</h2><p id="payment-source" class="muted"></p><div class="scroll"><table><thead><tr><th>Време</th><th>Клиент</th><th>План</th><th>Сума</th><th>Статус</th><th>Източник</th></tr></thead><tbody id="payments"></tbody></table></div></section>
-<section class="panel"><h2>Активни платени VIP планове</h2><div class="scroll"><table><thead><tr><th>Активиран</th><th>Клиент</th><th>План</th><th>Сума</th><th>Telegram</th></tr></thead><tbody id="vips"></tbody></table></div></section>
-<section class="panel"><h2>Запитвания и логове</h2><p class="muted">Показват се последните 100 заявки без headers, token-и или параметри.</p><div class="scroll"><table><thead><tr><th>Време</th><th>Източник</th><th>Метод</th><th>Път</th><th>Статус</th></tr></thead><tbody id="requests"></tbody></table></div></section>
-</main>
-<script>
-const escapeHtml = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money = value => '$' + Number(value || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const date = value => { if (!value) return '—'; const stamp = typeof value === 'number' ? value * 1000 : value; const parsed = new Date(stamp); return Number.isNaN(parsed) ? '—' : parsed.toLocaleString('bg-BG'); };
-function rows(id, values, makeRow, colspan) { const target=document.getElementById(id); target.innerHTML=values.length?values.map(makeRow).join(''):`<tr><td colspan="${colspan}" class="muted">Все още няма данни.</td></tr>`; }
-function render(data) {
-  const metricLabels={'total_revenue_usd':'Общ приход','catalog_revenue_24h_usd':'Агентен приход (24ч)','catalog_hits_24h':'Агентни заявки (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'Платени записи','active_vip_plans':'Активни VIP планове','active_telegram_users':'Активни Telegram потребители'};
-  document.getElementById('metrics').innerHTML=Object.entries(metricLabels).map(([key,label])=>`<div class="card metric"><label>${label}</label><strong>${key.includes('revenue')?money(data.metrics[key]):escapeHtml(data.metrics[key])}</strong></div>`).join('');
-  document.getElementById('services').innerHTML=Object.entries(data.services).map(([name,service])=>{const ready=service.ready ?? service.running ?? service.configured;return `<div class="service"><strong class="${ready?'good':'bad'}">${ready?'● Работи':'● Нужна проверка'}</strong><br><span class="label">${escapeHtml(name)}</span><span class="muted">${escapeHtml(service.backend || service.detail || '')}</span></div>`}).join('');
-  const catalog=data.agent_catalog||{products:[],totals:{},top_selling_agent:null};
-  const top=catalog.top_selling_agent;
-  document.getElementById('catalog-summary').textContent='Показват се само durable, потвърдени catalog events за последните 24 часа. x402 settlement остава discovery-only, докато Base facilitator не бъде активиран.';
-  rows('catalog',catalog.products,p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.category)}</span></td><td>${money(p.price_x402)} USDC</td><td>${escapeHtml(p.hits_24h)}</td><td>${escapeHtml(p.sales_24h)}</td><td>${money(p.revenue_24h)}</td></tr>`,5);
-  document.getElementById('payment-source').textContent=data.payment_source==='stripe_checkout'?'Данни от Stripe Checkout.':'Stripe listing не е наличен; показани са потвърдени CRM payment events.';
-  rows('payments',data.payments,p=>`<tr><td>${date(p.created)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td class="good">${escapeHtml(p.payment_status)}</td><td>${escapeHtml(p.provider)}</td></tr>`,6);
-  rows('vips',data.vip_plans,p=>`<tr><td>${date(p.activated_at)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td>${p.telegram_linked?'Свързан':'Не е свързан'}</td></tr>`,5);
-  rows('requests',data.request_log,r=>`<tr><td>${date(r.timestamp)}</td><td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.method)}</td><td>${escapeHtml(r.path)}</td><td class="${r.status_code<400?'good':'bad'}">${escapeHtml(r.status_code)}</td></tr>`,5);
-}
-async function refresh(){try{const response=await fetch('/api/admin/overview');if(!response.ok)throw new Error('Администраторската сесия е изтекла.');render(await response.json());document.getElementById('error').textContent='';}catch(error){document.getElementById('error').textContent=error.message;}}
-refresh();setInterval(refresh,15000);
-</script></body></html>
-"""
 
 
 @app.route("/sales/admin/login", methods=["GET", "POST"])
@@ -2708,6 +2494,9 @@ def sales_admin_login():
     """Create a signed browser session from the existing admin token."""
     error = ""
     if request.method == "POST":
+        limited = _rate_limited_response("admin_login")
+        if limited:
+            return limited
         configured = _get_admin_token()
         supplied = (request.form.get("admin_token") or "").strip()
         if configured and supplied and hmac.compare_digest(supplied, configured):
@@ -2716,7 +2505,7 @@ def sales_admin_login():
             return redirect("/sales/admin")
         _log_admin_token_mismatch(configured, supplied)
         error = "Невалиден admin token."
-    return render_template_string(_ADMIN_LOGIN_HTML, error=error)
+    return render_template("admin_login.html", error=error)
 
 
 @app.route("/sales/admin/logout", methods=["GET"])
@@ -2729,7 +2518,7 @@ def sales_admin_logout():
 def sales_admin():
     """Protected browser dashboard for sales, VIP operations and service health."""
     if session.get("admin_authenticated"):
-        return render_template_string(_ADMIN_DASHBOARD_HTML)
+        return render_template("admin_dashboard.html")
 
     configured = _get_admin_token()
     supplied = request.headers.get("X-Admin-Token", "").strip()
@@ -2742,19 +2531,19 @@ def sales_admin():
         return redirect("/sales/admin/login")
 
     session["admin_authenticated"] = True
-    return render_template_string(_ADMIN_DASHBOARD_HTML)
+    return render_template("admin_dashboard.html")
 
 
 @app.route("/sales/admin/research", methods=["GET"])
 def sales_admin_research():
     """Protected browser view for approving or archiving R&D research insights."""
     if session.get("admin_authenticated"):
-        return render_template_string(_ADMIN_RESEARCH_HTML)
+        return render_template("admin_research.html")
     auth_error = _require_admin_access()
     if auth_error:
         return redirect("/sales/admin/login")
     session["admin_authenticated"] = True
-    return render_template_string(_ADMIN_RESEARCH_HTML)
+    return render_template("admin_research.html")
 
 
 @app.route("/api/launch/health", methods=["GET"])
@@ -2781,6 +2570,9 @@ def launch_health():
 @app.route("/api/funnel/track", methods=["POST"])
 def funnel_track():
     """Capture UTM campaign data for conversion analytics."""
+    limited = _rate_limited_response("funnel_track")
+    if limited:
+        return limited
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
     if not email or "@" not in email:
@@ -2808,1534 +2600,24 @@ def funnel_track():
 
 # ── Dashboard HTML ────────────────────────────────────────────────────────
 
-_DASHBOARD_HTML = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kristo Intelligence Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <style>
-        :root {
-            --bg: #0f1117;
-            --card: #1a1d28;
-            --accent: #6366f1;
-            --accent2: #10b981;
-            --accent3: #f59e0b;
-            --accent4: #ef4444;
-            --text: #e2e8f0;
-            --muted: #94a3b8;
-            --border: #2d3142;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-        }
-        header {
-            background: linear-gradient(135deg, #1e1b4b 0%, #0f1117 100%);
-            padding: 1.5rem 2rem;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        header h1 {
-            font-size: 1.6rem;
-            background: linear-gradient(135deg, var(--accent), var(--accent2));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        header .badge {
-            background: var(--accent2);
-            color: #fff;
-            padding: 0.3rem 0.8rem;
-            border-radius: 999px;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .metric-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .metric-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-        }
-        .metric-card .label {
-            color: var(--muted);
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.5rem;
-        }
-        .metric-card .value {
-            font-size: 2rem;
-            font-weight: 700;
-        }
-        .metric-card .sub {
-            color: var(--muted);
-            font-size: 0.8rem;
-            margin-top: 0.3rem;
-            word-break: break-all;
-        }
-        .charts-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        @media (max-width: 900px) {
-            .charts-grid { grid-template-columns: 1fr; }
-        }
-        .chart-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-        }
-        .chart-card h3 {
-            font-size: 1rem;
-            color: var(--muted);
-            margin-bottom: 1rem;
-        }
-        .chart-container {
-            position: relative;
-            height: 280px;
-        }
-        .table-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .table-card h3 {
-            font-size: 1rem;
-            color: var(--muted);
-            margin-bottom: 1rem;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            text-align: left;
-            padding: 0.7rem 1rem;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85rem;
-        }
-        th {
-            color: var(--muted);
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
-        }
-        tr:hover { background: rgba(99,102,241,0.05); }
-        .status-dot {
-            display: inline-block;
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            margin-right: 6px;
-        }
-        .dot-green { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
-        .dot-red { background: var(--accent4); }
-        .empty-state {
-            text-align: center;
-            padding: 3rem;
-            color: var(--muted);
-        }
-        .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
-        .pricing-section {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .pricing-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 2rem;
-            text-align: center;
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-        }
-        .pricing-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 30px rgba(0,0,0,0.4);
-        }
-        .pricing-card.featured {
-            border-color: var(--accent);
-            box-shadow: 0 0 20px rgba(99,102,241,0.15);
-        }
-        .pricing-card .tier-name {
-            font-size: 1.2rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        .pricing-card .tier-price {
-            font-size: 2.5rem;
-            font-weight: 800;
-            margin: 1rem 0;
-        }
-        .pricing-card .tier-price .currency { font-size: 1.2rem; color: var(--muted); }
-        .pricing-card .tier-desc {
-            color: var(--muted);
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-        }
-        .pricing-card .tier-features {
-            list-style: none;
-            text-align: left;
-            margin-bottom: 1.5rem;
-        }
-        .pricing-card .tier-features li {
-            padding: 0.5rem 0;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85rem;
-            color: var(--text);
-        }
-        .pricing-card .tier-features li:last-child { border-bottom: none; }
-        .pricing-card .badge-popular {
-            position: absolute;
-            top: -10px;
-            right: 20px;
-            background: var(--accent);
-            color: #fff;
-            padding: 0.2rem 0.8rem;
-            border-radius: 999px;
-            font-size: 0.7rem;
-            font-weight: 600;
-        }
-        .section-title {
-            font-size: 1.3rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            color: var(--text);
-        }
-        .payment-info {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .payment-info .addr {
-            font-family: monospace;
-            color: var(--accent);
-            word-break: break-all;
-            font-size: 0.9rem;
-        }
-        .products-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .product-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.2rem;
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-            overflow: hidden;
-        }
-        .product-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-        }
-        .product-card.engine {
-            border-color: var(--accent);
-            box-shadow: 0 0 15px rgba(99,102,241,0.1);
-        }
-        .product-card .pc-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 0.8rem;
-        }
-        .product-card .pc-name {
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--text);
-        }
-        .product-card .pc-cat {
-            font-size: 0.65rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            padding: 0.15rem 0.5rem;
-            border-radius: 999px;
-            background: rgba(99,102,241,0.15);
-            color: var(--accent);
-        }
-        .product-card .pc-cat.engine {
-            background: rgba(245,158,11,0.15);
-            color: var(--accent3);
-        }
-        .product-card .pc-stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 0.5rem;
-        }
-        .product-card .pc-stat {
-            text-align: center;
-        }
-        .product-card .pc-stat .pc-stat-val {
-            font-size: 1.3rem;
-            font-weight: 700;
-        }
-        .product-card .pc-stat .pc-stat-label {
-            font-size: 0.65rem;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .product-card .pc-price {
-            position: absolute;
-            top: 0;
-            right: 0;
-            background: rgba(16,185,129,0.1);
-            color: var(--accent2);
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.2rem 0.6rem;
-            border-bottom-left-radius: 8px;
-        }
-        footer {
-            text-align: center;
-            color: var(--muted);
-            font-size: 0.8rem;
-            padding: 2rem;
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <h1>🚀 Kristo Intelligence Dashboard</h1>
-        <span class="badge" id="live-badge">● LIVE</span>
-    </header>
-
-    <div class="container">
-        <!-- Wallet Info Banner -->
-        <div class="metric-card" style="margin-bottom: 1.5rem; border-color: var(--accent);">
-            <div class="label">🔗 Base Wallet (Real On-Chain)</div>
-            <div class="value" style="font-size: 1rem; color: var(--accent);" id="wallet-address">Loading...</div>
-            <div class="sub" id="wallet-details">Fee receiver: ... | USDC Balance: ... | Last block: ...</div>
-        </div>
-
-        <!-- Metric Cards -->
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="label">Real Sales Volume (USDC)</div>
-                <div class="value" style="color: var(--accent2)" id="m-volume">$0.00</div>
-                <div class="sub" id="m-sales-count">0 on-chain sales</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Today's Requests</div>
-                <div class="value" style="color: var(--accent)" id="m-requests">0</div>
-                <div class="sub" id="m-requests-sub">API calls today</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Today's Sales</div>
-                <div class="value" style="color: var(--accent3)" id="m-today-sales">0</div>
-                <div class="sub" id="m-today-volume">$0.00 volume</div>
-            </div>
-            <div class="metric-card">
-                <div class="label">Telegram Bot</div>
-                <div class="value" style="font-size:1.3rem;" id="m-bot-status">
-                    <span class="status-dot dot-green"></span> Online
-                </div>
-                <div class="sub" id="m-bot-commands">0 commands processed</div>
-            </div>
-        </div>
-
-        <!-- Charts -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>📈 Daily Sales Volume (USDC)</h3>
-                <div class="chart-container"><canvas id="chartVolume"></canvas></div>
-            </div>
-            <div class="chart-card">
-                <h3>🪙 Sales by Token</h3>
-                <div class="chart-container"><canvas id="chartTokens"></canvas></div>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>📊 Daily API Requests</h3>
-                <div class="chart-container"><canvas id="chartRequests"></canvas></div>
-            </div>
-            <div class="chart-card">
-                <h3>📋 Recent Activity</h3>
-                <div class="chart-container"><canvas id="chartActivity"></canvas></div>
-            </div>
-        </div>
-
-        <!-- Pricing Section -->
-        <h2 class="section-title">💎 Предлагани продукти и ценоразпис</h2>
-        <div class="pricing-section">
-            <div class="pricing-card">
-                <div class="tier-name">🔧 Микро-заявка</div>
-                <div class="tier-price"><span class="currency">$</span>0.10<span class="currency"> USDC</span></div>
-                <div class="tier-desc">Pay-per-call — плащаш само за това, което използваш</div>
-                <ul class="tier-features">
-                    <li>✅ 1 API заявка (stats / sales / bot-status)</li>
-                    <li>✅ Real-time DeFi сигнали</li>
-                    <li>✅ On-chain продажби история</li>
-                    <li>✅ MCP/x402 съвместимост</li>
-                </ul>
-            </div>
-            <div class="pricing-card featured">
-                <span class="badge-popular">⭐ ПОПУЛЯРЕН</span>
-                <div class="tier-name">👑 Месечен VIP</div>
-                <div class="tier-price"><span class="currency">$</span>29.00<span class="currency"> USDC</span></div>
-                <div class="tier-desc">Неограничен достъп + Telegram VIP група</div>
-                <ul class="tier-features">
-                    <li>✅ Неограничени API заявки (30 дни)</li>
-                    <li>✅ Telegram VIP група поканителен код</li>
-                    <li>✅ Priority DeFi сигнали</li>
-                    <li>✅ AI Agent machine-to-machine достъп</li>
-                    <li>✅ Real-time blockchain мониторинг</li>
-                    <li>✅ VIP поддръжка 24/7</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- Payment Info -->
-        <div class="payment-info">
-            <h3 style="color: var(--muted); margin-bottom: 1rem;">💳 Как да платите</h3>
-            <p style="margin-bottom: 0.5rem;">Изпратете <strong>USDC</strong> към следния адрес в <strong>Base</strong> мрежата:</p>
-            <div class="addr" id="payment-addr">Loading payment address...</div>
-            <p style="margin-top: 1rem; color: var(--muted); font-size: 0.85rem;">
-                💡 Плащанията се верифицират автоматично on-chain. Цени: от <strong>$0.003</strong> на заявка (зависи от endpoint-а). Без абонаменти — плащаш само за това, което ползваш.
-            </p>
-        </div>
-
-        <!-- Official eight-agent catalog breakdown -->
-        <div class="table-card">
-            <h3>🧠 Официален каталог: 8 AI агента</h3>
-            <table id="products-table">
-                <thead>
-                    <tr>
-                        <th>Име</th>
-                        <th>Категория</th>
-                        <th>Цена (USDC)</th>
-                        <th>Търсения (Hits)</th>
-                        <th>Продажби (Sales)</th>
-                        <th>Приход ($ Volume)</th>
-                    </tr>
-                </thead>
-                <tbody id="products-table-body"></tbody>
-                <tfoot>
-                    <tr style="font-weight:700;border-top:2px solid var(--accent);">
-                        <td colspan="3">ОБЩО</td>
-                        <td id="products-total-hits">0</td>
-                        <td id="products-total-sales">0</td>
-                        <td id="products-total-volume">$0.00</td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-
-        <!-- NEXUS Engine Link -->
-        <div class="payment-info" style="text-align:center;">
-            <h3 style="color: var(--muted); margin-bottom: 1rem;">🔗 NEXUS Discovery Engine</h3>
-            <p style="margin-bottom: 1rem;">Отвори NEXUS платформата за пълно откриване на продукти и агенти:</p>
-            <a href="/nexus" target="_blank" rel="noopener"
-               style="display:inline-block;background:var(--accent);color:#fff;padding:0.8rem 2rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.95rem;">
-                🚀 Отвори NEXUS Engine
-            </a>
-        </div>
-
-        <!-- Recent Sales Table -->
-        <div class="table-card">
-            <h3>🧾 Real On-Chain Sales (USDC Transfers)</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Token</th>
-                        <th>Amount (USDC)</th>
-                        <th>From</th>
-                        <th>Tx Hash</th>
-                        <th>Block</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody id="sales-table-body"></tbody>
-            </table>
-            <div class="empty-state" id="empty-sales">
-                <div class="icon">⛓️</div>
-                <p>No real on-chain sales yet. Send USDC to the fee receiver address to see data appear here.</p>
-            </div>
-        </div>
-    </div>
-
-    <footer>
-        Kristo Intelligence API v6 &mdash; Real Blockchain Data &mdash; <span id="footer-time"></span>
-    </footer>
-
-<script>
-let charts = {};
-
-async function fetchJSON(url) {
-    const resp = await fetch(url);
-    return resp.json();
-}
-
-function fmtMoney(v) {
-    return '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 6});
-}
-
-function fmtTime(iso) {
-    const d = new Date(iso);
-    return d.toLocaleString('en-GB', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-}
-
-function shortAddr(addr) {
-    if (!addr) return '—';
-    return addr.substring(0,8) + '...' + addr.substring(addr.length-6);
-}
-
-async function loadSales() {
-    const data = await fetchJSON('/api/dashboard-stats');
-    document.getElementById('m-volume').textContent = fmtMoney(data.total_volume_usd);
-    document.getElementById('m-sales-count').textContent = data.total_sales + ' on-chain sales';
-
-    // Token doughnut chart
-    const tokenLabels = Object.keys(data.by_token);
-    const tokenValues = Object.values(data.by_token);
-    const ctxT = document.getElementById('chartTokens').getContext('2d');
-    if (charts.tokens) charts.tokens.destroy();
-    if (tokenLabels.length > 0) {
-        charts.tokens = new Chart(ctxT, {
-            type: 'doughnut',
-            data: {
-                labels: tokenLabels,
-                datasets: [{
-                    data: tokenValues,
-                    backgroundColor: ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'],
-                    borderWidth: 0,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
-            }
-        });
-    }
-
-    // Recent sales table
-    const tbody = document.getElementById('sales-table-body');
-    const emptyState = document.getElementById('empty-sales');
-    tbody.innerHTML = '';
-    if (data.history.length === 0) {
-        emptyState.style.display = 'block';
-    } else {
-        emptyState.style.display = 'none';
-        data.history.slice(-15).reverse().forEach(s => {
-            const row = `<tr>
-                <td>${fmtTime(s.timestamp)}</td>
-                <td><strong>${s.token}</strong></td>
-                <td style="color:#10b981">${fmtMoney(s.amount_usd)}</td>
-                <td style="font-family:monospace;font-size:0.75rem;color:#64748b">${shortAddr(s.sender)}</td>
-                <td style="font-family:monospace;font-size:0.75rem;color:#64748b">${shortAddr(s.tx_hash)}</td>
-                <td>${s.block_number || '—'}</td>
-                <td><span class="status-dot dot-green"></span>${s.status}</td>
-            </tr>`;
-            tbody.insertAdjacentHTML('beforeend', row);
-        });
-    }
-}
-
-async function loadStats() {
-    const data = await fetchJSON('/api/dashboard-stats');
-    document.getElementById('m-requests').textContent = data.today.requests;
-    document.getElementById('m-requests-sub').textContent = data.total_requests + ' total API calls';
-    document.getElementById('m-today-sales').textContent = data.today.sales_count;
-    document.getElementById('m-today-volume').textContent = fmtMoney(data.today.sales_volume_usd);
-
-    // Official eight-agent catalog table
-    const products = data.products || [];
-    const pBody = document.getElementById('products-table-body');
-    pBody.innerHTML = '';
-    let totalHits = 0, totalSales = 0, totalVolume = 0;
-    products.forEach(p => {
-        totalHits += p.hits;
-        totalSales += p.sales_count;
-        totalVolume += p.sales_volume_usd;
-        const catLabel = p.category === 'engine' ? '⚙️ Engine' : '🤖 Agent';
-        // Show micro-prices honestly: 0.003 must NEVER round down to $0.00.
-        const fmtPrice = v => '$' + (Number(v) < 0.01 ? Number(v).toFixed(4) : Number(v).toFixed(2));
-        const row = `<tr>
-            <td><strong>${p.name}</strong></td>
-            <td style="color:var(--muted);font-size:0.8rem;">${catLabel}</td>
-            <td style="color:var(--accent2);">${fmtPrice(p.price_usdc)}</td>
-            <td>${p.hits}</td>
-            <td>${p.sales_count}</td>
-            <td style="color:var(--accent2);">${fmtMoney(p.sales_volume_usd)}</td>
-        </tr>`;
-        pBody.insertAdjacentHTML('beforeend', row);
-    });
-    document.getElementById('products-total-hits').textContent = totalHits;
-    document.getElementById('products-total-sales').textContent = totalSales;
-    document.getElementById('products-total-volume').textContent = fmtMoney(totalVolume);
-
-    // Wallet info
-    const w = data.wallet || {};
-    document.getElementById('wallet-address').textContent = w.wallet_address || 'Wallet not configured';
-    document.getElementById('wallet-details').textContent =
-        `Fee Receiver: ${shortAddr(w.fee_receiver)} | USDC Balance: ${fmtMoney(w.usdc_balance || 0)} | Last block: ${w.last_block_checked || 0} | Last check: ${w.last_check_time ? fmtTime(w.last_check_time) : '—'}`;
-
-    const daily = data.daily;
-    const dates = Object.keys(daily).slice(-14);
-    const volumes = dates.map(d => daily[d].sales_volume);
-    const requests = dates.map(d => daily[d].requests);
-
-    // Volume bar chart
-    const ctxV = document.getElementById('chartVolume').getContext('2d');
-    if (charts.volume) charts.volume.destroy();
-    charts.volume = new Chart(ctxV, {
-        type: 'bar',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'Volume (USDC)',
-                data: volumes,
-                backgroundColor: 'rgba(16,185,129,0.6)',
-                borderColor: '#10b981',
-                borderWidth: 1,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-                x: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } },
-                y: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } }
-            }
-        }
-    });
-
-    // Requests line chart
-    const ctxR = document.getElementById('chartRequests').getContext('2d');
-    if (charts.requests) charts.requests.destroy();
-    charts.requests = new Chart(ctxR, {
-        type: 'line',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'API Requests',
-                data: requests,
-                borderColor: '#6366f1',
-                backgroundColor: 'rgba(99,102,241,0.15)',
-                fill: true,
-                tension: 0.3,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-                x: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } },
-                y: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } }
-            }
-        }
-    });
-
-    // Recent activity
-    const recent = data.recent_requests || [];
-    const endpointCounts = {};
-    recent.forEach(r => {
-        endpointCounts[r.endpoint] = (endpointCounts[r.endpoint] || 0) + 1;
-    });
-    const ctxA = document.getElementById('chartActivity').getContext('2d');
-    if (charts.activity) charts.activity.destroy();
-    if (Object.keys(endpointCounts).length > 0) {
-        charts.activity = new Chart(ctxA, {
-            type: 'polarArea',
-            data: {
-                labels: Object.keys(endpointCounts),
-                datasets: [{
-                    data: Object.values(endpointCounts),
-                    backgroundColor: ['rgba(99,102,241,0.6)','rgba(16,185,129,0.6)','rgba(245,158,11,0.6)','rgba(239,68,68,0.6)','rgba(139,92,246,0.6)'],
-                    borderWidth: 0,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } },
-                scales: { r: { ticks: { color: '#64748b', backdropColor: 'transparent' }, grid: { color: '#2d3142' } } }
-            }
-        });
-    }
-}
-
-async function loadBotStatus() {
-    const data = await fetchJSON('/api/dashboard-stats');
-    const isOnline = data.telegram_bot_running;
-    const dotClass = isOnline ? 'dot-green' : 'dot-red';
-    const statusText = isOnline ? 'Online' : 'Offline';
-    document.getElementById('m-bot-status').innerHTML =
-        `<span class="status-dot ${dotClass}"></span> ${statusText}`;
-    document.getElementById('m-bot-commands').textContent =
-        data.commands_processed + ' commands processed';
-
-    // Update payment address in pricing section.
-    // CRITICAL: show the FEE RECEIVER (where customers pay), never the
-    // operator hot wallet derived from WALLET_PRIVATE_KEY — the hot wallet
-    // is the PAYER side and its address must not be advertised as payable.
-    const payAddr = data.payment_receiver || data.fee_receiver;
-    if (payAddr) {
-        document.getElementById('payment-addr').textContent = payAddr;
-    }
-}
-
-async function refreshAll() {
-    try {
-        await Promise.all([loadSales(), loadStats(), loadBotStatus()]);
-    } catch (e) {
-        console.error('Refresh error:', e);
-    }
-    document.getElementById('footer-time').textContent = new Date().toLocaleTimeString();
-}
-
-refreshAll();
-setInterval(refreshAll, 30000);
-</script>
-</body>
-</html>
-"""
 
 
 @app.route("/dashboard")
 def dashboard():
     """Beautiful HTML dashboard with charts and metrics — real on-chain data only."""
     _record_request("dashboard", True)
-    return render_template_string(_DASHBOARD_HTML, nexus_url=NEXUS_URL)
+    return render_template("dashboard.html", nexus_url=NEXUS_URL)
 
 
 # ── NEXUS Engine Visual Dashboard ─────────────────────────────────────────
 
-_NEXUS_DASHBOARD_HTML = r"""
-<!DOCTYPE html>
-<html lang="bg">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEXUS Engine — Live Dashboard</title>
-    <style>
-        :root {
-            --bg: #0a0e1a;
-            --bg2: #0d1320;
-            --card: #131a2b;
-            --card2: #1a2340;
-            --accent: #00d4ff;
-            --accent2: #00ff88;
-            --accent3: #ffaa00;
-            --accent4: #ff3366;
-            --accent5: #b366ff;
-            --text: #e8f0ff;
-            --muted: #6b7a99;
-            --border: #1e2a45;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-        /* Animated background grid */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-image:
-                linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
-            background-size: 50px 50px;
-            pointer-events: none;
-            z-index: 0;
-        }
-        header {
-            position: relative;
-            z-index: 1;
-            background: linear-gradient(135deg, #0a0e1a 0%, #131a2b 50%, #0a0e1a 100%);
-            padding: 1.5rem 2rem;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-        header .logo {
-            display: flex;
-            align-items: center;
-            gap: 0.8rem;
-        }
-        header .logo .icon {
-            width: 40px; height: 40px;
-            background: linear-gradient(135deg, var(--accent), var(--accent5));
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.4rem;
-            font-weight: 800;
-            color: #fff;
-            box-shadow: 0 0 20px rgba(0,212,255,0.3);
-        }
-        header h1 {
-            font-size: 1.5rem;
-            background: linear-gradient(135deg, var(--accent), var(--accent5));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        header .status-pill {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(0,255,136,0.1);
-            border: 1px solid rgba(0,255,136,0.3);
-            color: var(--accent2);
-            padding: 0.5rem 1.2rem;
-            border-radius: 999px;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-        .pulse-dot {
-            width: 10px; height: 10px;
-            background: var(--accent2);
-            border-radius: 50%;
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(0,255,136,0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(0,255,136,0); }
-            100% { box-shadow: 0 0 0 0 rgba(0,255,136,0); }
-        }
-        .container {
-            position: relative;
-            z-index: 1;
-            max-width: 1500px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        /* Status Banner */
-        .status-banner {
-            background: linear-gradient(135deg, var(--card) 0%, var(--card2) 100%);
-            border: 1px solid var(--border);
-            border-left: 4px solid var(--accent2);
-            border-radius: 12px;
-            padding: 1.5rem 2rem;
-            margin-bottom: 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-        .status-banner .status-text {
-            font-size: 1.3rem;
-            font-weight: 700;
-        }
-        .status-banner .status-text .green { color: var(--accent2); }
-        .status-banner .scan-info {
-            color: var(--muted);
-            font-size: 0.85rem;
-            display: flex;
-            gap: 1.5rem;
-            flex-wrap: wrap;
-        }
-        .status-banner .scan-info span strong { color: var(--accent); }
-        /* Metrics Grid */
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .metric-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .metric-card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 3px;
-            background: var(--accent);
-        }
-        .metric-card.green::before { background: var(--accent2); }
-        .metric-card.orange::before { background: var(--accent3); }
-        .metric-card.purple::before { background: var(--accent5); }
-        .metric-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
-        }
-        .metric-card .icon {
-            font-size: 1.8rem;
-            margin-bottom: 0.5rem;
-        }
-        .metric-card .label {
-            color: var(--muted);
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.3rem;
-        }
-        .metric-card .value {
-            font-size: 2.2rem;
-            font-weight: 800;
-        }
-        .metric-card .sub {
-            color: var(--muted);
-            font-size: 0.75rem;
-            margin-top: 0.3rem;
-        }
-        /* Two-column layout */
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1.5fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        @media (max-width: 1000px) {
-            .main-grid { grid-template-columns: 1fr; }
-        }
-        /* Live Feed */
-        .feed-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            height: 600px;
-            display: flex;
-            flex-direction: column;
-        }
-        .feed-card h3 {
-            font-size: 1.1rem;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .feed-card h3 .live-badge {
-            background: var(--accent4);
-            color: #fff;
-            font-size: 0.65rem;
-            padding: 0.15rem 0.6rem;
-            border-radius: 999px;
-            font-weight: 700;
-            animation: blink 1s infinite;
-        }
-        @keyframes blink {
-            50% { opacity: 0.5; }
-        }
-        .feed-list {
-            flex: 1;
-            overflow-y: auto;
-            padding-right: 0.5rem;
-        }
-        .feed-list::-webkit-scrollbar { width: 6px; }
-        .feed-list::-webkit-scrollbar-track { background: var(--bg2); }
-        .feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-        .feed-item {
-            background: var(--bg2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 0.8rem;
-            border-left: 3px solid var(--accent);
-            animation: slideIn 0.4s ease;
-        }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-20px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        .feed-item.whale { border-left-color: var(--accent3); }
-        .feed-item.x402 { border-left-color: var(--accent5); }
-        .feed-item.opportunity { border-left-color: var(--accent2); }
-        .feed-item .fi-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.4rem;
-        }
-        .feed-item .fi-type {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-weight: 700;
-            padding: 0.15rem 0.6rem;
-            border-radius: 999px;
-        }
-        .feed-item .fi-type.whale { background: rgba(255,170,0,0.15); color: var(--accent3); }
-        .feed-item .fi-type.x402 { background: rgba(179,102,255,0.15); color: var(--accent5); }
-        .feed-item .fi-type.opportunity { background: rgba(0,255,136,0.15); color: var(--accent2); }
-        .feed-item .fi-type.signal { background: rgba(0,212,255,0.15); color: var(--accent); }
-        .feed-item .fi-time {
-            color: var(--muted);
-            font-size: 0.7rem;
-        }
-        .feed-item .fi-title {
-            font-size: 0.9rem;
-            font-weight: 600;
-            margin-bottom: 0.3rem;
-        }
-        .feed-item .fi-desc {
-            color: var(--muted);
-            font-size: 0.8rem;
-            line-height: 1.4;
-        }
-        .feed-item .fi-meta {
-            display: flex;
-            gap: 1rem;
-            margin-top: 0.5rem;
-            font-size: 0.75rem;
-        }
-        .feed-item .fi-meta span {
-            color: var(--muted);
-        }
-        .feed-item .fi-meta span strong {
-            color: var(--text);
-        }
-        /* Agents Panel */
-        .agents-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            height: 600px;
-            display: flex;
-            flex-direction: column;
-        }
-        .agents-card h3 {
-            font-size: 1.1rem;
-            margin-bottom: 1rem;
-        }
-        .agents-list {
-            flex: 1;
-            overflow-y: auto;
-            padding-right: 0.5rem;
-        }
-        .agents-list::-webkit-scrollbar { width: 6px; }
-        .agents-list::-webkit-scrollbar-track { background: var(--bg2); }
-        .agents-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-        .agent-item {
-            background: var(--bg2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 0.8rem;
-            display: flex;
-            align-items: center;
-            gap: 0.8rem;
-            transition: border-color 0.2s;
-        }
-        .agent-item:hover { border-color: var(--accent); }
-        .agent-item .ai-icon {
-            width: 36px; height: 36px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            font-weight: 700;
-            flex-shrink: 0;
-        }
-        .agent-item .ai-info {
-            flex: 1;
-            min-width: 0;
-        }
-        .agent-item .ai-name {
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-bottom: 0.2rem;
-        }
-        .agent-item .ai-desc {
-            color: var(--muted);
-            font-size: 0.7rem;
-        }
-        .agent-item .ai-status {
-            display: flex;
-            align-items: center;
-            gap: 0.3rem;
-            font-size: 0.7rem;
-            font-weight: 600;
-            flex-shrink: 0;
-        }
-        .agent-item .ai-status .dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-        }
-        .agent-item .ai-status .dot.active {
-            background: var(--accent2);
-            box-shadow: 0 0 6px var(--accent2);
-        }
-        .agent-item .ai-status .dot.idle {
-            background: var(--accent3);
-        }
-        .agent-item .ai-status .dot.offline {
-            background: var(--accent4);
-        }
-        .agent-item .ai-status.active { color: var(--accent2); }
-        .agent-item .ai-status.idle { color: var(--accent3); }
-        .agent-item .ai-status.offline { color: var(--accent4); }
-        /* AI Bridges section */
-        .bridges-section {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .bridges-section h3 {
-            font-size: 1.1rem;
-            margin-bottom: 1rem;
-        }
-        .bridges-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-        .bridge-card {
-            background: var(--bg2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            text-align: center;
-        }
-        .bridge-card .bc-icon { font-size: 1.5rem; margin-bottom: 0.3rem; }
-        .bridge-card .bc-name { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.2rem; }
-        .bridge-card .bc-status { font-size: 0.7rem; color: var(--accent2); }
-        .bridge-card .bc-latency { font-size: 0.65rem; color: var(--muted); margin-top: 0.2rem; }
-        /* Back link */
-        .back-link {
-            display: inline-block;
-            color: var(--muted);
-            text-decoration: none;
-            font-size: 0.85rem;
-            margin-bottom: 1rem;
-            transition: color 0.2s;
-        }
-        .back-link:hover { color: var(--accent); }
-        footer {
-            text-align: center;
-            color: var(--muted);
-            font-size: 0.8rem;
-            padding: 2rem;
-            position: relative;
-            z-index: 1;
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="logo">
-            <div class="icon">N</div>
-            <h1>NEXUS Engine</h1>
-        </div>
-        <div class="status-pill">
-            <div class="pulse-dot"></div>
-            Активен — Сканира мрежата
-        </div>
-    </header>
-
-    <div class="container">
-        <a href="/dashboard" class="back-link">← Обратно към главен дашборд</a>
-
-        <!-- Status Banner -->
-        <div class="status-banner">
-            <div class="status-text">
-                NEXUS Engine: <span class="green">Активен</span> (Сканира мрежата)
-            </div>
-            <div class="scan-info">
-                <span>🔍 Сканиране: <strong id="scan-target">Base / DeFi</strong></span>
-                <span>⏱️ Интервал: <strong>30s</strong></span>
-                <span>🌐 Мрежа: <strong>Base (8453)</strong></span>
-                <span>📦 Блок: <strong id="current-block">—</strong></span>
-            </div>
-        </div>
-
-        <!-- Metrics -->
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="icon">🔍</div>
-                <div class="label">Общо сканирания</div>
-                <div class="value" id="m-scans">0</div>
-                <div class="sub">от стартиране</div>
-            </div>
-            <div class="metric-card green">
-                <div class="icon">💎</div>
-                <div class="label">Открити ниши</div>
-                <div class="value" id="m-niches">0</div>
-                <div class="sub">пазарни възможности</div>
-            </div>
-            <div class="metric-card orange">
-                <div class="icon">🐋</div>
-                <div class="label">Китови движения</div>
-                <div class="value" id="m-whales">0</div>
-                <div class="sub">засечени транзакции</div>
-            </div>
-            <div class="metric-card purple">
-                <div class="icon">⚡</div>
-                <div class="label">x402 Сигнали</div>
-                <div class="value" id="m-x402">0</div>
-                <div class="sub">платежни протоколи</div>
-            </div>
-            <div class="metric-card">
-                <div class="icon">🌉</div>
-                <div class="label">Активни AI мостове</div>
-                <div class="value" id="m-bridges">0</div>
-                <div class="sub">свързани агенти</div>
-            </div>
-        </div>
-
-        <!-- Main Grid: Feed + Agents -->
-        <div class="main-grid">
-            <!-- Live Discoveries Feed -->
-            <div class="feed-card">
-                <h3>📡 Live Discoveries Feed <span class="live-badge">● LIVE</span></h3>
-                <div class="feed-list" id="feed-list">
-                    <div class="feed-item">
-                        <div class="fi-header">
-                            <span class="fi-type signal">Signal</span>
-                            <span class="fi-time">стартиране</span>
-                        </div>
-                        <div class="fi-title">NEXUS Engine инициализиран</div>
-                        <div class="fi-desc">Сканирането на мрежата започна. Засичане на пазарни възможности, китови движения и x402 сигнали...</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- AI Agents List -->
-            <div class="agents-card">
-                <h3>🤖 Свързани AI Агенти (8)</h3>
-                <div class="agents-list" id="agents-list"></div>
-            </div>
-        </div>
-
-        <!-- AI Bridges -->
-        <div class="bridges-section">
-            <h3>🌉 Активни AI Мостове</h3>
-            <div class="bridges-grid" id="bridges-grid"></div>
-        </div>
-    </div>
-
-    <footer>
-        NEXUS Discovery Engine &mdash; Kristo Intelligence v6 &mdash; <span id="footer-time"></span>
-    </footer>
-
-<script>
-// ── 8 AI Agents definition ──────────────────────────────────────────────
-const AI_AGENTS = [
-    {id:'market_evaluator', name:'Market Evaluator', icon:'📊', color:'#00d4ff', desc:'Анализ на пазарни тенденции', status:'active'},
-    {id:'defi_signals', name:'DeFi Signals', icon:'📡', color:'#00ff88', desc:'DeFi протокол сигнали', status:'active'},
-    {id:'trading_agent', name:'Trading Agent', icon:'🎯', color:'#ffaa00', desc:'Автоматизирани търговски решения', status:'active'},
-    {id:'coingecko_data', name:'CoinGecko Data', icon:'🦎', color:'#10b981', desc:'Цени и пазарни данни', status:'active'},
-    {id:'wallet_monitor', name:'Wallet Monitor', icon:'👛', color:'#b366ff', desc:'Проследяване на портфейли', status:'active'},
-    {id:'telegram_bot', name:'Telegram Bot', icon:'✈️', color:'#00d4ff', desc:'Telegram интеграция и известия', status:'active'},
-    {id:'blockchain_monitor', name:'Blockchain Monitor', icon:'⛓️', color:'#ff3366', desc:'On-chain мониторинг (Base)', status:'active'},
-    {id:'vip_manager', name:'VIP Manager', icon:'👑', color:'#ffaa00', desc:'VIP абонаменти и покани', status:'active'},
-];
-
-// ── AI Bridges definition ───────────────────────────────────────────────
-const AI_BRIDGES = [
-    {name:'Base Blockchain', icon:'⛓️', status:'connected', latency:'120ms'},
-    {name:'CoinGecko API', icon:'🦎', status:'connected', latency:'85ms'},
-    {name:'Telegram Bot API', icon:'✈️', status:'connected', latency:'210ms'},
-    {name:'x402 Protocol', icon:'⚡', status:'connected', latency:'5ms'},
-    {name:'DeFi Protocols', icon:'🏦', status:'connected', latency:'150ms'},
-    {name:'MCP Manifest', icon:'🤖', status:'connected', latency:'8ms'},
-];
-
-// ── Discovery feed templates ────────────────────────────────────────────
-const DISCOVERY_TYPES = [
-    {
-        type:'opportunity',
-        label:'Opportunity',
-        titles:[
-            'Открита нова DeFi ниша: {protocol} — APY {apy}%',
-            'Пазарна възможност: {token} показа ръст {change}% за 24ч',
-            'Арбитражна възможност засечена между {dex1} и {dex2}',
-            'Нова ликвидност добавена в {protocol} — ${amount}M',
-        ],
-        descs:[
-            'NEXUS засече необичайна активност в DeFi протокол с потенциал за висок доход.',
-            'Ценови дисбаланс открит — възможност за арбитраж с минимален риск.',
-            'Нова ниша с растящ обем — препоръчителен мониторинг.',
-        ]
-    },
-    {
-        type:'whale',
-        label:'Whale Move',
-        titles:[
-            '🐋 Кит премести {amount}M {token} към {exchange}',
-            'Голяма транзакция: {amount}K USDC от неизвестен портфейл',
-            'Китово движение: {token} трансфер на стойност ${amount}M',
-            'Whale alert: {amount}M {token} депозиран в {protocol}',
-        ],
-        descs:[
-            'Засечено е голямо движение на средства, което може да повлияе на цената.',
-            'Трансферът е потвърден on-chain — следете реакцията на пазара.',
-            'Възможен индикатор за предстоящо продажба/купуване.',
-        ]
-    },
-    {
-        type:'x402',
-        label:'x402 Signal',
-        titles:[
-            '⚡ x402 плащане получено: ${amount} USDC',
-            'Нов x402 микротранзакция — {endpoint} достъп',
-            'x402 протокол: AI агент плати {amount} USDC за данни',
-            'VIP абонамент активиран чрез x402 — ${amount} USDC',
-        ],
-        descs:[
-            'On-chain плащане засечено и верифицирано чрез x402 протокола.',
-            'AI агент извърши микроплащане за достъп до API ресурси.',
-            'Плащането е автоматично потвърдено и достъпът е предоставен.',
-        ]
-    },
-    {
-        type:'signal',
-        label:'Signal',
-        titles:[
-            '📈 {token} проби ключово ниво — RSI {rsi}',
-            'DeFi сигнал: {protocol} показа волатилност {vol}%',
-            'Пазарен индикатор: {token} MACD кръстосване засечено',
-            'Volume spike: {token} обем +{vol}% над средния',
-        ],
-        descs:[
-            'Технически индикатор показва възможна смяна на тенденцията.',
-            'NEXUS Engine анализа показа значителен сигнал за този актив.',
-            'Препоръчително следене на следващите 4-8 часа.',
-        ]
-    },
-];
-
-const PROTOCOLS = ['Aerodrome', 'Compound', 'Uniswap V3', 'Curve', 'Morpho', 'Spark'];
-const TOKENS = ['ETH', 'USDC', 'DEGEN', 'BRETT', 'AERO', 'cbETH'];
-const DEXES = ['Aerodrome', 'Uniswap', 'SushiSwap', 'BaseSwap'];
-const EXCHANGES = ['Binance', 'Coinbase', 'OKX', 'Bybit', 'unknown портфейл'];
-
-let scanCount = 0;
-let nicheCount = 0;
-let whaleCount = 0;
-let x402Count = 0;
-let feedItems = [];
-
-function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-function randFloat(min, max) { return (Math.random() * (max - min) + min).toFixed(2); }
-function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-
-function generateDiscovery() {
-    const tmpl = rand(DISCOVERY_TYPES);
-    let title = rand(tmpl.titles);
-    let desc = rand(tmpl.descs);
-
-    title = title
-        .replace('{protocol}', rand(PROTOCOLS))
-        .replace('{token}', rand(TOKENS))
-        .replace('{dex1}', rand(DEXES))
-        .replace('{dex2}', rand(DEXES))
-        .replace('{exchange}', rand(EXCHANGES))
-        .replace('{amount}', randFloat(0.5, 50))
-        .replace('{apy}', randFloat(15, 85))
-        .replace('{change}', randFloat(5, 35))
-        .replace('{rsi}', randInt(20, 80))
-        .replace('{vol}', randInt(10, 200))
-        .replace('{endpoint}', rand(['/api/stats', '/api/sales', '/api/bot-status']));
-
-    return {
-        type: tmpl.type,
-        label: tmpl.label,
-        title: title,
-        desc: desc,
-        time: new Date().toLocaleTimeString('bg-BG', {hour:'2-digit', minute:'2-digit', second:'2-digit'}),
-        meta: {
-            chain: 'Base',
-            block: randInt(20000000, 28000000),
-            confidence: randInt(60, 99) + '%',
-        }
-    };
-}
-
-function addFeedItem() {
-    const discovery = generateDiscovery();
-    feedItems.unshift(discovery);
-    if (feedItems.length > 30) feedItems.pop();
-
-    // Update counters
-    scanCount++;
-    if (discovery.type === 'opportunity') nicheCount++;
-    if (discovery.type === 'whale') whaleCount++;
-    if (discovery.type === 'x402') x402Count++;
-
-    renderFeed();
-    updateMetrics();
-}
-
-function renderFeed() {
-    const list = document.getElementById('feed-list');
-    list.innerHTML = feedItems.map(item => `
-        <div class="feed-item ${item.type}">
-            <div class="fi-header">
-                <span class="fi-type ${item.type}">${item.label}</span>
-                <span class="fi-time">${item.time}</span>
-            </div>
-            <div class="fi-title">${item.title}</div>
-            <div class="fi-desc">${item.desc}</div>
-            <div class="fi-meta">
-                <span>🔗 <strong>${item.meta.chain}</strong></span>
-                <span>📦 Блок: <strong>${item.meta.block.toLocaleString()}</strong></span>
-                <span>🎯 Увереност: <strong>${item.meta.confidence}</strong></span>
-            </div>
-        </div>
-    `).join('');
-}
-
-function updateMetrics() {
-    document.getElementById('m-scans').textContent = scanCount.toLocaleString();
-    document.getElementById('m-niches').textContent = nicheCount.toLocaleString();
-    document.getElementById('m-whales').textContent = whaleCount.toLocaleString();
-    document.getElementById('m-x402').textContent = x402Count.toLocaleString();
-    document.getElementById('m-bridges').textContent = AI_BRIDGES.filter(b => b.status === 'connected').length;
-    document.getElementById('current-block').textContent = randInt(28000000, 28500000).toLocaleString();
-}
-
-function renderAgents() {
-    const list = document.getElementById('agents-list');
-    list.innerHTML = AI_AGENTS.map(agent => `
-        <div class="agent-item">
-            <div class="ai-icon" style="background:${agent.color}22;color:${agent.color};">${agent.icon}</div>
-            <div class="ai-info">
-                <div class="ai-name">${agent.name}</div>
-                <div class="ai-desc">${agent.desc}</div>
-            </div>
-            <div class="ai-status ${agent.status}">
-                <div class="dot ${agent.status}"></div>
-                ${agent.status === 'active' ? 'Активен' : agent.status === 'idle' ? 'Idle' : 'Offline'}
-            </div>
-        </div>
-    `).join('');
-}
-
-function renderBridges() {
-    const grid = document.getElementById('bridges-grid');
-    grid.innerHTML = AI_BRIDGES.map(b => `
-        <div class="bridge-card">
-            <div class="bc-icon">${b.icon}</div>
-            <div class="bc-name">${b.name}</div>
-            <div class="bc-status">● ${b.status === 'connected' ? 'Свързан' : 'Изключен'}</div>
-            <div class="bc-latency">Latency: ${b.latency}</div>
-        </div>
-    `).join('');
-}
-
-// ── Fetch real data from API ────────────────────────────────────────────
-async function fetchRealData() {
-    try {
-        const resp = await fetch('/api/dashboard-stats');
-        const data = await resp.json();
-
-        // Use real request count as base for scans
-        if (scanCount === 0 && data.total_requests > 0) {
-            scanCount = data.total_requests;
-        }
-
-        // Use real product hits for agent activity
-        const products = data.products || [];
-        products.forEach(p => {
-            const agent = AI_AGENTS.find(a => a.id === p.id);
-            if (agent) {
-                agent.status = p.hits > 0 ? 'active' : 'idle';
-            }
-        });
-
-        // Update block number from wallet state
-        if (data.wallet && data.wallet.last_block_checked) {
-            document.getElementById('current-block').textContent = data.wallet.last_block_checked.toLocaleString();
-        }
-
-        renderAgents();
-        updateMetrics();
-    } catch (e) {
-        console.log('API fetch deferred:', e);
-    }
-}
-
-// ── Initialize ──────────────────────────────────────────────────────────
-renderAgents();
-renderBridges();
-updateMetrics();
-fetchRealData();
-
-// Generate discoveries every 4-8 seconds
-function scheduleNextDiscovery() {
-    const delay = randInt(4000, 8000);
-    setTimeout(() => {
-        addFeedItem();
-        scheduleNextDiscovery();
-    }, delay);
-}
-
-// Initial discoveries
-setTimeout(() => addFeedItem(), 1000);
-setTimeout(() => addFeedItem(), 2500);
-setTimeout(() => addFeedItem(), 4000);
-scheduleNextDiscovery();
-
-// Update footer time
-setInterval(() => {
-    document.getElementById('footer-time').textContent = new Date().toLocaleTimeString('bg-BG');
-}, 1000);
-
-// Refresh real data every 30s
-setInterval(fetchRealData, 30000);
-</script>
-</body>
-</html>
-"""
 
 
 @app.route("/nexus")
 def nexus_dashboard():
     """NEXUS Engine visual live dashboard — discoveries feed, metrics, and AI agents."""
     _record_request("dashboard", True)
-    return render_template_string(_NEXUS_DASHBOARD_HTML, nexus_url=NEXUS_URL)
+    return render_template("nexus_dashboard.html", nexus_url=NEXUS_URL)
 
 
 # ── Telegram Bot (webhook-only, no polling) ────────────────────────────────

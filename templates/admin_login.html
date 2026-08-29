@@ -1,0 +1,8 @@
+<!doctype html><html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Вход за администратор</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1117;color:#e2e8f0;font-family:system-ui,sans-serif}
+form{width:min(420px,calc(100% - 32px));padding:32px;border:1px solid #2d3142;border-radius:16px;background:#1a1d28}
+input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:9px;font:inherit}input{background:#0f1117;color:#fff;border:1px solid #46506b;margin:18px 0}
+button{border:0;background:#6366f1;color:#fff;font-weight:700;cursor:pointer}.error{color:#fca5a5}
+</style></head><body><form method="post"><h1>Оперативен dashboard</h1><p>Въведете администраторския token.</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<label for="admin_token">Admin token</label><input id="admin_token" name="admin_token" type="password" required autofocus autocomplete="current-password"><button type="submit">Вход</button></form></body></html>

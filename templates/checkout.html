@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head><meta charset="UTF-8"><title>Checkout | Kristo Intelligence</title>
+<style>body{font-family:Arial,sans-serif;background:#0b1020;color:#eef2ff;padding:40px} form{max-width:560px;margin:0 auto;background:#121a2f;padding:30px;border-radius:16px;border:1px solid #2b3a5d;} input,select{width:100%;padding:12px;margin:10px 0;border-radius:10px;border:1px solid #39486d;background:#0f172a;color:white;} button{padding:14px 22px;border:none;background:#4f46e5;color:white;border-radius:12px;font-weight:700;cursor:pointer;} .small{color:#94a3b8;font-size:0.9rem} .ok{color:#34d399;padding:10px 0;} .warn{color:#fbbf24;padding:10px 0;} </style>
+</head>
+<body>
+    <form method="POST">
+        <h2>Checkout</h2>
+        <p class="small">Пакет: {{ plan.name }} — ${{ plan.price_usd }}</p>
+        <input type="hidden" name="plan" value="{{ plan_key }}">
+        <label>Email</label>
+        <input type="email" name="email" required>
+        <label>Източник</label>
+        <select name="source">
+            <option value="website">Website</option>
+            <option value="meta_ads">Meta Ads</option>
+            <option value="google">Google</option>
+            <option value="telegram">Telegram</option>
+            <option value="organic">Organic</option>
+        </select>
+        <label>Кампания</label>
+        <input type="text" name="campaign" value="launch">
+        {% if status_msg %}
+        <div class="{{ 'ok' if status == 'success' else 'warn' }}">{{ status_msg }}</div>
+        {% endif %}
+        <button type="submit">Потвърди покупката</button>
+    </form>
+</body>
+</html>

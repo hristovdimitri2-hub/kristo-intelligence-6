@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="bg"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kristo Intelligence — Оперативен dashboard</title>
+<style>
+:root{--bg:#0f1117;--card:#1a1d28;--border:#2d3142;--text:#e2e8f0;--muted:#94a3b8;--accent:#818cf8;--good:#34d399;--bad:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:16px;align-items:center}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:14px;margin:16px 0 28px}.card,.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}.metric label,.label{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}.metric strong{display:block;font-size:1.8rem;margin-top:7px}.panel{margin:18px 0}.panel h2{font-size:1rem;margin:0 0 14px}.services{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.service{padding:12px;background:#121522;border-radius:8px}.good{color:var(--good)}.bad{color:var(--bad)}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase}.scroll{overflow:auto}.muted{color:var(--muted)}#error{color:var(--bad);min-height:18px}@media(max-width:650px){main{padding:16px}header{padding:16px;align-items:flex-start;flex-direction:column}th,td{padding:8px}}
+</style></head>
+<body><header><div><h1>Kristo Intelligence — Оперативен dashboard</h1><div class="muted">Автоматично обновяване на 15 секунди. Чувствителните данни са достъпни само за администратор.</div></div><div><a href="/sales/admin/research">R&D review</a> · <a href="/sales/admin/logout">Изход</a></div></header>
+<main><p id="error"></p><section id="metrics" class="grid"></section>
+<section class="panel"><h2>Статус на услугите</h2><div id="services" class="services"></div></section>
+<section class="panel"><h2>AI Агентни услуги (x402 Revenue)</h2><p id="catalog-summary" class="muted"></p><div class="scroll"><table><thead><tr><th>Име</th><th>Цена (USD)</th><th>Hits (Заявки)</th><th>Платени (Sales)</th><th>Приход (Revenue)</th></tr></thead><tbody id="catalog"></tbody></table></div></section>
+<section class="panel"><h2>Последни Stripe/CRM плащания</h2><p id="payment-source" class="muted"></p><div class="scroll"><table><thead><tr><th>Време</th><th>Клиент</th><th>План</th><th>Сума</th><th>Статус</th><th>Източник</th></tr></thead><tbody id="payments"></tbody></table></div></section>
+<section class="panel"><h2>Активни платени VIP планове</h2><div class="scroll"><table><thead><tr><th>Активиран</th><th>Клиент</th><th>План</th><th>Сума</th><th>Telegram</th></tr></thead><tbody id="vips"></tbody></table></div></section>
+<section class="panel"><h2>Запитвания и логове</h2><p class="muted">Показват се последните 100 заявки без headers, token-и или параметри.</p><div class="scroll"><table><thead><tr><th>Време</th><th>Източник</th><th>Метод</th><th>Път</th><th>Статус</th></tr></thead><tbody id="requests"></tbody></table></div></section>
+</main>
+<script>
+const escapeHtml = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = value => '$' + Number(value || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const date = value => { if (!value) return '—'; const stamp = typeof value === 'number' ? value * 1000 : value; const parsed = new Date(stamp); return Number.isNaN(parsed) ? '—' : parsed.toLocaleString('bg-BG'); };
+function rows(id, values, makeRow, colspan) { const target=document.getElementById(id); target.innerHTML=values.length?values.map(makeRow).join(''):`<tr><td colspan="${colspan}" class="muted">Все още няма данни.</td></tr>`; }
+function render(data) {
+  const metricLabels={'total_revenue_usd':'Общ приход','catalog_revenue_24h_usd':'Агентен приход (24ч)','catalog_hits_24h':'Агентни заявки (24ч)','active_agent_entitlements':'Активни agent достъпи','research_pending_review':'R&D за review','paid_payments':'Платени записи','active_vip_plans':'Активни VIP планове','active_telegram_users':'Активни Telegram потребители'};
+  document.getElementById('metrics').innerHTML=Object.entries(metricLabels).map(([key,label])=>`<div class="card metric"><label>${label}</label><strong>${key.includes('revenue')?money(data.metrics[key]):escapeHtml(data.metrics[key])}</strong></div>`).join('');
+  document.getElementById('services').innerHTML=Object.entries(data.services).map(([name,service])=>{const ready=service.ready ?? service.running ?? service.configured;return `<div class="service"><strong class="${ready?'good':'bad'}">${ready?'● Работи':'● Нужна проверка'}</strong><br><span class="label">${escapeHtml(name)}</span><span class="muted">${escapeHtml(service.backend || service.detail || '')}</span></div>`}).join('');
+  const catalog=data.agent_catalog||{products:[],totals:{},top_selling_agent:null};
+  const top=catalog.top_selling_agent;
+  document.getElementById('catalog-summary').textContent='Показват се само durable, потвърдени catalog events за последните 24 часа. x402 settlement остава discovery-only, докато Base facilitator не бъде активиран.';
+  rows('catalog',catalog.products,p=>`<tr><td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.category)}</span></td><td>${money(p.price_x402)} USDC</td><td>${escapeHtml(p.hits_24h)}</td><td>${escapeHtml(p.sales_24h)}</td><td>${money(p.revenue_24h)}</td></tr>`,5);
+  document.getElementById('payment-source').textContent=data.payment_source==='stripe_checkout'?'Данни от Stripe Checkout.':'Stripe listing не е наличен; показани са потвърдени CRM payment events.';
+  rows('payments',data.payments,p=>`<tr><td>${date(p.created)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td class="good">${escapeHtml(p.payment_status)}</td><td>${escapeHtml(p.provider)}</td></tr>`,6);
+  rows('vips',data.vip_plans,p=>`<tr><td>${date(p.activated_at)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.plan)}</td><td>${money(p.amount_usd)}</td><td>${p.telegram_linked?'Свързан':'Не е свързан'}</td></tr>`,5);
+  rows('requests',data.request_log,r=>`<tr><td>${date(r.timestamp)}</td><td>${escapeHtml(r.source)}</td><td>${escapeHtml(r.method)}</td><td>${escapeHtml(r.path)}</td><td class="${r.status_code<400?'good':'bad'}">${escapeHtml(r.status_code)}</td></tr>`,5);
+}
+async function refresh(){try{const response=await fetch('/api/admin/overview');if(!response.ok)throw new Error('Администраторската сесия е изтекла.');render(await response.json());document.getElementById('error').textContent='';}catch(error){document.getElementById('error').textContent=error.message;}}
+refresh();setInterval(refresh,15000);
+</script></body></html>

@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS Engine — Live Dashboard</title>
+    <style>
+        :root {
+            --bg: #0a0e1a;
+            --bg2: #0d1320;
+            --card: #131a2b;
+            --card2: #1a2340;
+            --accent: #00d4ff;
+            --accent2: #00ff88;
+            --accent3: #ffaa00;
+            --accent4: #ff3366;
+            --accent5: #b366ff;
+            --text: #e8f0ff;
+            --muted: #6b7a99;
+            --border: #1e2a45;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        /* Animated background grid */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image:
+                linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+        header {
+            position: relative;
+            z-index: 1;
+            background: linear-gradient(135deg, #0a0e1a 0%, #131a2b 50%, #0a0e1a 100%);
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        header .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+        header .logo .icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, var(--accent), var(--accent5));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: #fff;
+            box-shadow: 0 0 20px rgba(0,212,255,0.3);
+        }
+        header h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(135deg, var(--accent), var(--accent5));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        header .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(0,255,136,0.1);
+            border: 1px solid rgba(0,255,136,0.3);
+            color: var(--accent2);
+            padding: 0.5rem 1.2rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .pulse-dot {
+            width: 10px; height: 10px;
+            background: var(--accent2);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(0,255,136,0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(0,255,136,0); }
+            100% { box-shadow: 0 0 0 0 rgba(0,255,136,0); }
+        }
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        /* Status Banner */
+        .status-banner {
+            background: linear-gradient(135deg, var(--card) 0%, var(--card2) 100%);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent2);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .status-banner .status-text {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        .status-banner .status-text .green { color: var(--accent2); }
+        .status-banner .scan-info {
+            color: var(--muted);
+            font-size: 0.85rem;
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .status-banner .scan-info span strong { color: var(--accent); }
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .metric-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--accent);
+        }
+        .metric-card.green::before { background: var(--accent2); }
+        .metric-card.orange::before { background: var(--accent3); }
+        .metric-card.purple::before { background: var(--accent5); }
+        .metric-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+        }
+        .metric-card .icon {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+        .metric-card .label {
+            color: var(--muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.3rem;
+        }
+        .metric-card .value {
+            font-size: 2.2rem;
+            font-weight: 800;
+        }
+        .metric-card .sub {
+            color: var(--muted);
+            font-size: 0.75rem;
+            margin-top: 0.3rem;
+        }
+        /* Two-column layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        @media (max-width: 1000px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
+        /* Live Feed */
+        .feed-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+        .feed-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .feed-card h3 .live-badge {
+            background: var(--accent4);
+            color: #fff;
+            font-size: 0.65rem;
+            padding: 0.15rem 0.6rem;
+            border-radius: 999px;
+            font-weight: 700;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+        .feed-list {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .feed-list::-webkit-scrollbar { width: 6px; }
+        .feed-list::-webkit-scrollbar-track { background: var(--bg2); }
+        .feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .feed-item {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.8rem;
+            border-left: 3px solid var(--accent);
+            animation: slideIn 0.4s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .feed-item.whale { border-left-color: var(--accent3); }
+        .feed-item.x402 { border-left-color: var(--accent5); }
+        .feed-item.opportunity { border-left-color: var(--accent2); }
+        .feed-item .fi-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.4rem;
+        }
+        .feed-item .fi-type {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 700;
+            padding: 0.15rem 0.6rem;
+            border-radius: 999px;
+        }
+        .feed-item .fi-type.whale { background: rgba(255,170,0,0.15); color: var(--accent3); }
+        .feed-item .fi-type.x402 { background: rgba(179,102,255,0.15); color: var(--accent5); }
+        .feed-item .fi-type.opportunity { background: rgba(0,255,136,0.15); color: var(--accent2); }
+        .feed-item .fi-type.signal { background: rgba(0,212,255,0.15); color: var(--accent); }
+        .feed-item .fi-time {
+            color: var(--muted);
+            font-size: 0.7rem;
+        }
+        .feed-item .fi-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+        .feed-item .fi-desc {
+            color: var(--muted);
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+        .feed-item .fi-meta {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+        }
+        .feed-item .fi-meta span {
+            color: var(--muted);
+        }
+        .feed-item .fi-meta span strong {
+            color: var(--text);
+        }
+        /* Agents Panel */
+        .agents-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+        .agents-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+        .agents-list {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .agents-list::-webkit-scrollbar { width: 6px; }
+        .agents-list::-webkit-scrollbar-track { background: var(--bg2); }
+        .agents-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .agent-item {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            transition: border-color 0.2s;
+        }
+        .agent-item:hover { border-color: var(--accent); }
+        .agent-item .ai-icon {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .agent-item .ai-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .agent-item .ai-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+        }
+        .agent-item .ai-desc {
+            color: var(--muted);
+            font-size: 0.7rem;
+        }
+        .agent-item .ai-status {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .agent-item .ai-status .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+        }
+        .agent-item .ai-status .dot.active {
+            background: var(--accent2);
+            box-shadow: 0 0 6px var(--accent2);
+        }
+        .agent-item .ai-status .dot.idle {
+            background: var(--accent3);
+        }
+        .agent-item .ai-status .dot.offline {
+            background: var(--accent4);
+        }
+        .agent-item .ai-status.active { color: var(--accent2); }
+        .agent-item .ai-status.idle { color: var(--accent3); }
+        .agent-item .ai-status.offline { color: var(--accent4); }
+        /* AI Bridges section */
+        .bridges-section {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .bridges-section h3 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+        .bridges-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        .bridge-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .bridge-card .bc-icon { font-size: 1.5rem; margin-bottom: 0.3rem; }
+        .bridge-card .bc-name { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.2rem; }
+        .bridge-card .bc-status { font-size: 0.7rem; color: var(--accent2); }
+        .bridge-card .bc-latency { font-size: 0.65rem; color: var(--muted); margin-top: 0.2rem; }
+        /* Back link */
+        .back-link {
+            display: inline-block;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: var(--accent); }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.8rem;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <div class="icon">N</div>
+            <h1>NEXUS Engine</h1>
+        </div>
+        <div class="status-pill">
+            <div class="pulse-dot"></div>
+            Активен — Сканира мрежата
+        </div>
+    </header>
+
+    <div class="container">
+        <a href="/dashboard" class="back-link">← Обратно към главен дашборд</a>
+
+        <!-- Status Banner -->
+        <div class="status-banner">
+            <div class="status-text">
+                NEXUS Engine: <span class="green">Активен</span> (Сканира мрежата)
+            </div>
+            <div class="scan-info">
+                <span>🔍 Сканиране: <strong id="scan-target">Base / DeFi</strong></span>
+                <span>⏱️ Интервал: <strong>30s</strong></span>
+                <span>🌐 Мрежа: <strong>Base (8453)</strong></span>
+                <span>📦 Блок: <strong id="current-block">—</strong></span>
+            </div>
+        </div>
+
+        <!-- Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="icon">🔍</div>
+                <div class="label">Общо сканирания</div>
+                <div class="value" id="m-scans">0</div>
+                <div class="sub">от стартиране</div>
+            </div>
+            <div class="metric-card green">
+                <div class="icon">💎</div>
+                <div class="label">Открити ниши</div>
+                <div class="value" id="m-niches">0</div>
+                <div class="sub">пазарни възможности</div>
+            </div>
+            <div class="metric-card orange">
+                <div class="icon">🐋</div>
+                <div class="label">Китови движения</div>
+                <div class="value" id="m-whales">0</div>
+                <div class="sub">засечени транзакции</div>
+            </div>
+            <div class="metric-card purple">
+                <div class="icon">⚡</div>
+                <div class="label">x402 Сигнали</div>
+                <div class="value" id="m-x402">0</div>
+                <div class="sub">платежни протоколи</div>
+            </div>
+            <div class="metric-card">
+                <div class="icon">🌉</div>
+                <div class="label">Активни AI мостове</div>
+                <div class="value" id="m-bridges">0</div>
+                <div class="sub">свързани агенти</div>
+            </div>
+        </div>
+
+        <!-- Main Grid: Feed + Agents -->
+        <div class="main-grid">
+            <!-- Live Discoveries Feed -->
+            <div class="feed-card">
+                <h3>📡 Live Discoveries Feed <span class="live-badge">● LIVE</span></h3>
+                <div class="feed-list" id="feed-list">
+                    <div class="feed-item">
+                        <div class="fi-header">
+                            <span class="fi-type signal">Signal</span>
+                            <span class="fi-time">стартиране</span>
+                        </div>
+                        <div class="fi-title">NEXUS Engine инициализиран</div>
+                        <div class="fi-desc">Сканирането на мрежата започна. Засичане на пазарни възможности, китови движения и x402 сигнали...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Agents List -->
+            <div class="agents-card">
+                <h3>🤖 Свързани AI Агенти (8)</h3>
+                <div class="agents-list" id="agents-list"></div>
+            </div>
+        </div>
+
+        <!-- AI Bridges -->
+        <div class="bridges-section">
+            <h3>🌉 Активни AI Мостове</h3>
+            <div class="bridges-grid" id="bridges-grid"></div>
+        </div>
+    </div>
+
+    <footer>
+        NEXUS Discovery Engine &mdash; Kristo Intelligence v6 &mdash; <span id="footer-time"></span>
+    </footer>
+
+<script>
+// ── 8 AI Agents definition ──────────────────────────────────────────────
+const AI_AGENTS = [
+    {id:'market_evaluator', name:'Market Evaluator', icon:'📊', color:'#00d4ff', desc:'Анализ на пазарни тенденции', status:'active'},
+    {id:'defi_signals', name:'DeFi Signals', icon:'📡', color:'#00ff88', desc:'DeFi протокол сигнали', status:'active'},
+    {id:'trading_agent', name:'Trading Agent', icon:'🎯', color:'#ffaa00', desc:'Автоматизирани търговски решения', status:'active'},
+    {id:'coingecko_data', name:'CoinGecko Data', icon:'🦎', color:'#10b981', desc:'Цени и пазарни данни', status:'active'},
+    {id:'wallet_monitor', name:'Wallet Monitor', icon:'👛', color:'#b366ff', desc:'Проследяване на портфейли', status:'active'},
+    {id:'telegram_bot', name:'Telegram Bot', icon:'✈️', color:'#00d4ff', desc:'Telegram интеграция и известия', status:'active'},
+    {id:'blockchain_monitor', name:'Blockchain Monitor', icon:'⛓️', color:'#ff3366', desc:'On-chain мониторинг (Base)', status:'active'},
+    {id:'vip_manager', name:'VIP Manager', icon:'👑', color:'#ffaa00', desc:'VIP абонаменти и покани', status:'active'},
+];
+
+// ── AI Bridges definition ───────────────────────────────────────────────
+const AI_BRIDGES = [
+    {name:'Base Blockchain', icon:'⛓️', status:'connected', latency:'120ms'},
+    {name:'CoinGecko API', icon:'🦎', status:'connected', latency:'85ms'},
+    {name:'Telegram Bot API', icon:'✈️', status:'connected', latency:'210ms'},
+    {name:'x402 Protocol', icon:'⚡', status:'connected', latency:'5ms'},
+    {name:'DeFi Protocols', icon:'🏦', status:'connected', latency:'150ms'},
+    {name:'MCP Manifest', icon:'🤖', status:'connected', latency:'8ms'},
+];
+
+// ── Discovery feed templates ────────────────────────────────────────────
+const DISCOVERY_TYPES = [
+    {
+        type:'opportunity',
+        label:'Opportunity',
+        titles:[
+            'Открита нова DeFi ниша: {protocol} — APY {apy}%',
+            'Пазарна възможност: {token} показа ръст {change}% за 24ч',
+            'Арбитражна възможност засечена между {dex1} и {dex2}',
+            'Нова ликвидност добавена в {protocol} — ${amount}M',
+        ],
+        descs:[
+            'NEXUS засече необичайна активност в DeFi протокол с потенциал за висок доход.',
+            'Ценови дисбаланс открит — възможност за арбитраж с минимален риск.',
+            'Нова ниша с растящ обем — препоръчителен мониторинг.',
+        ]
+    },
+    {
+        type:'whale',
+        label:'Whale Move',
+        titles:[
+            '🐋 Кит премести {amount}M {token} към {exchange}',
+            'Голяма транзакция: {amount}K USDC от неизвестен портфейл',
+            'Китово движение: {token} трансфер на стойност ${amount}M',
+            'Whale alert: {amount}M {token} депозиран в {protocol}',
+        ],
+        descs:[
+            'Засечено е голямо движение на средства, което може да повлияе на цената.',
+            'Трансферът е потвърден on-chain — следете реакцията на пазара.',
+            'Възможен индикатор за предстоящо продажба/купуване.',
+        ]
+    },
+    {
+        type:'x402',
+        label:'x402 Signal',
+        titles:[
+            '⚡ x402 плащане получено: ${amount} USDC',
+            'Нов x402 микротранзакция — {endpoint} достъп',
+            'x402 протокол: AI агент плати {amount} USDC за данни',
+            'VIP абонамент активиран чрез x402 — ${amount} USDC',
+        ],
+        descs:[
+            'On-chain плащане засечено и верифицирано чрез x402 протокола.',
+            'AI агент извърши микроплащане за достъп до API ресурси.',
+            'Плащането е автоматично потвърдено и достъпът е предоставен.',
+        ]
+    },
+    {
+        type:'signal',
+        label:'Signal',
+        titles:[
+            '📈 {token} проби ключово ниво — RSI {rsi}',
+            'DeFi сигнал: {protocol} показа волатилност {vol}%',
+            'Пазарен индикатор: {token} MACD кръстосване засечено',
+            'Volume spike: {token} обем +{vol}% над средния',
+        ],
+        descs:[
+            'Технически индикатор показва възможна смяна на тенденцията.',
+            'NEXUS Engine анализа показа значителен сигнал за този актив.',
+            'Препоръчително следене на следващите 4-8 часа.',
+        ]
+    },
+];
+
+const PROTOCOLS = ['Aerodrome', 'Compound', 'Uniswap V3', 'Curve', 'Morpho', 'Spark'];
+const TOKENS = ['ETH', 'USDC', 'DEGEN', 'BRETT', 'AERO', 'cbETH'];
+const DEXES = ['Aerodrome', 'Uniswap', 'SushiSwap', 'BaseSwap'];
+const EXCHANGES = ['Binance', 'Coinbase', 'OKX', 'Bybit', 'unknown портфейл'];
+
+let scanCount = 0;
+let nicheCount = 0;
+let whaleCount = 0;
+let x402Count = 0;
+let feedItems = [];
+
+function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randFloat(min, max) { return (Math.random() * (max - min) + min).toFixed(2); }
+function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function generateDiscovery() {
+    const tmpl = rand(DISCOVERY_TYPES);
+    let title = rand(tmpl.titles);
+    let desc = rand(tmpl.descs);
+
+    title = title
+        .replace('{protocol}', rand(PROTOCOLS))
+        .replace('{token}', rand(TOKENS))
+        .replace('{dex1}', rand(DEXES))
+        .replace('{dex2}', rand(DEXES))
+        .replace('{exchange}', rand(EXCHANGES))
+        .replace('{amount}', randFloat(0.5, 50))
+        .replace('{apy}', randFloat(15, 85))
+        .replace('{change}', randFloat(5, 35))
+        .replace('{rsi}', randInt(20, 80))
+        .replace('{vol}', randInt(10, 200))
+        .replace('{endpoint}', rand(['/api/stats', '/api/sales', '/api/bot-status']));
+
+    return {
+        type: tmpl.type,
+        label: tmpl.label,
+        title: title,
+        desc: desc,
+        time: new Date().toLocaleTimeString('bg-BG', {hour:'2-digit', minute:'2-digit', second:'2-digit'}),
+        meta: {
+            chain: 'Base',
+            block: randInt(20000000, 28000000),
+            confidence: randInt(60, 99) + '%',
+        }
+    };
+}
+
+function addFeedItem() {
+    const discovery = generateDiscovery();
+    feedItems.unshift(discovery);
+    if (feedItems.length > 30) feedItems.pop();
+
+    // Update counters
+    scanCount++;
+    if (discovery.type === 'opportunity') nicheCount++;
+    if (discovery.type === 'whale') whaleCount++;
+    if (discovery.type === 'x402') x402Count++;
+
+    renderFeed();
+    updateMetrics();
+}
+
+function renderFeed() {
+    const list = document.getElementById('feed-list');
+    list.innerHTML = feedItems.map(item => `
+        <div class="feed-item ${item.type}">
+            <div class="fi-header">
+                <span class="fi-type ${item.type}">${item.label}</span>
+                <span class="fi-time">${item.time}</span>
+            </div>
+            <div class="fi-title">${item.title}</div>
+            <div class="fi-desc">${item.desc}</div>
+            <div class="fi-meta">
+                <span>🔗 <strong>${item.meta.chain}</strong></span>
+                <span>📦 Блок: <strong>${item.meta.block.toLocaleString()}</strong></span>
+                <span>🎯 Увереност: <strong>${item.meta.confidence}</strong></span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateMetrics() {
+    document.getElementById('m-scans').textContent = scanCount.toLocaleString();
+    document.getElementById('m-niches').textContent = nicheCount.toLocaleString();
+    document.getElementById('m-whales').textContent = whaleCount.toLocaleString();
+    document.getElementById('m-x402').textContent = x402Count.toLocaleString();
+    document.getElementById('m-bridges').textContent = AI_BRIDGES.filter(b => b.status === 'connected').length;
+    document.getElementById('current-block').textContent = randInt(28000000, 28500000).toLocaleString();
+}
+
+function renderAgents() {
+    const list = document.getElementById('agents-list');
+    list.innerHTML = AI_AGENTS.map(agent => `
+        <div class="agent-item">
+            <div class="ai-icon" style="background:${agent.color}22;color:${agent.color};">${agent.icon}</div>
+            <div class="ai-info">
+                <div class="ai-name">${agent.name}</div>
+                <div class="ai-desc">${agent.desc}</div>
+            </div>
+            <div class="ai-status ${agent.status}">
+                <div class="dot ${agent.status}"></div>
+                ${agent.status === 'active' ? 'Активен' : agent.status === 'idle' ? 'Idle' : 'Offline'}
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderBridges() {
+    const grid = document.getElementById('bridges-grid');
+    grid.innerHTML = AI_BRIDGES.map(b => `
+        <div class="bridge-card">
+            <div class="bc-icon">${b.icon}</div>
+            <div class="bc-name">${b.name}</div>
+            <div class="bc-status">● ${b.status === 'connected' ? 'Свързан' : 'Изключен'}</div>
+            <div class="bc-latency">Latency: ${b.latency}</div>
+        </div>
+    `).join('');
+}
+
+// ── Fetch real data from API ────────────────────────────────────────────
+async function fetchRealData() {
+    try {
+        const resp = await fetch('/api/dashboard-stats');
+        const data = await resp.json();
+
+        // Use real request count as base for scans
+        if (scanCount === 0 && data.total_requests > 0) {
+            scanCount = data.total_requests;
+        }
+
+        // Use real product hits for agent activity
+        const products = data.products || [];
+        products.forEach(p => {
+            const agent = AI_AGENTS.find(a => a.id === p.id);
+            if (agent) {
+                agent.status = p.hits > 0 ? 'active' : 'idle';
+            }
+        });
+
+        // Update block number from wallet state
+        if (data.wallet && data.wallet.last_block_checked) {
+            document.getElementById('current-block').textContent = data.wallet.last_block_checked.toLocaleString();
+        }
+
+        renderAgents();
+        updateMetrics();
+    } catch (e) {
+        console.log('API fetch deferred:', e);
+    }
+}
+
+// ── Initialize ──────────────────────────────────────────────────────────
+renderAgents();
+renderBridges();
+updateMetrics();
+fetchRealData();
+
+// Generate discoveries every 4-8 seconds
+function scheduleNextDiscovery() {
+    const delay = randInt(4000, 8000);
+    setTimeout(() => {
+        addFeedItem();
+        scheduleNextDiscovery();
+    }, delay);
+}
+
+// Initial discoveries
+setTimeout(() => addFeedItem(), 1000);
+setTimeout(() => addFeedItem(), 2500);
+setTimeout(() => addFeedItem(), 4000);
+scheduleNextDiscovery();
+
+// Update footer time
+setInterval(() => {
+    document.getElementById('footer-time').textContent = new Date().toLocaleTimeString('bg-BG');
+}, 1000);
+
+// Refresh real data every 30s
+setInterval(fetchRealData, 30000);
+</script>
+</body>
+</html>

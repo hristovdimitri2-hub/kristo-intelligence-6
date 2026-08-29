@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Read-only check of the project wallet's ETH (gas) and USDC balances on Base."""
+import os
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -10,11 +11,17 @@ w3 = Web3(Web3.HTTPProvider("https://mainnet.base.org", request_kwargs={"timeout
 print("RPC connected:", w3.is_connected())
 print("Chain ID:", w3.eth.chain_id)
 
+# NOTE: addresses come from the environment (or config defaults). The known
+# burned/published operator wallet is intentionally NOT hardcoded here —
+# never fund or transact from it.
 for label, addr in [
-    ("RECEIVER  ", "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"),
-    ("PAYER-NOW ", "0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f"),
+    ("RECEIVER  ", os.getenv("BASE_FEE_RECEIVER", "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f")),
+    ("PAYER-NOW ", os.getenv("WALLET_ADDRESS", "")),
     ("OLD-RENDER", "0x298268446cb8f5387258655527c7b70f876b7493"),
 ]:
+    if not addr:
+        print(f"{label} (not configured — set the corresponding env var to check)")
+        continue
     a = Web3.to_checksum_address(addr)
     eth_raw = w3.eth.get_balance(a)
     print(f"{label} {addr}")

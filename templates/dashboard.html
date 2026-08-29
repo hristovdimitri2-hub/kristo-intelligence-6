@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kristo Intelligence Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --card: #1a1d28;
+            --accent: #6366f1;
+            --accent2: #10b981;
+            --accent3: #f59e0b;
+            --accent4: #ef4444;
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+            --border: #2d3142;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        header {
+            background: linear-gradient(135deg, #1e1b4b 0%, #0f1117 100%);
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 {
+            font-size: 1.6rem;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        header .badge {
+            background: var(--accent2);
+            color: #fff;
+            padding: 0.3rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .metric-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .metric-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        .metric-card .label {
+            color: var(--muted);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+        .metric-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .metric-card .sub {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 0.3rem;
+            word-break: break-all;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        @media (max-width: 900px) {
+            .charts-grid { grid-template-columns: 1fr; }
+        }
+        .chart-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        .chart-card h3 {
+            font-size: 1rem;
+            color: var(--muted);
+            margin-bottom: 1rem;
+        }
+        .chart-container {
+            position: relative;
+            height: 280px;
+        }
+        .table-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .table-card h3 {
+            font-size: 1rem;
+            color: var(--muted);
+            margin-bottom: 1rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 0.7rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+        th {
+            color: var(--muted);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+        tr:hover { background: rgba(99,102,241,0.05); }
+        .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .dot-green { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+        .dot-red { background: var(--accent4); }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--muted);
+        }
+        .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+        .pricing-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .pricing-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+        .pricing-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+        }
+        .pricing-card.featured {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(99,102,241,0.15);
+        }
+        .pricing-card .tier-name {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .pricing-card .tier-price {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin: 1rem 0;
+        }
+        .pricing-card .tier-price .currency { font-size: 1.2rem; color: var(--muted); }
+        .pricing-card .tier-desc {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+        .pricing-card .tier-features {
+            list-style: none;
+            text-align: left;
+            margin-bottom: 1.5rem;
+        }
+        .pricing-card .tier-features li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+        .pricing-card .tier-features li:last-child { border-bottom: none; }
+        .pricing-card .badge-popular {
+            position: absolute;
+            top: -10px;
+            right: 20px;
+            background: var(--accent);
+            color: #fff;
+            padding: 0.2rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+        .payment-info {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .payment-info .addr {
+            font-family: monospace;
+            color: var(--accent);
+            word-break: break-all;
+            font-size: 0.9rem;
+        }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .product-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .product-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        .product-card.engine {
+            border-color: var(--accent);
+            box-shadow: 0 0 15px rgba(99,102,241,0.1);
+        }
+        .product-card .pc-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.8rem;
+        }
+        .product-card .pc-name {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+        .product-card .pc-cat {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            background: rgba(99,102,241,0.15);
+            color: var(--accent);
+        }
+        .product-card .pc-cat.engine {
+            background: rgba(245,158,11,0.15);
+            color: var(--accent3);
+        }
+        .product-card .pc-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 0.5rem;
+        }
+        .product-card .pc-stat {
+            text-align: center;
+        }
+        .product-card .pc-stat .pc-stat-val {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        .product-card .pc-stat .pc-stat-label {
+            font-size: 0.65rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .product-card .pc-price {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: rgba(16,185,129,0.1);
+            color: var(--accent2);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.6rem;
+            border-bottom-left-radius: 8px;
+        }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.8rem;
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🚀 Kristo Intelligence Dashboard</h1>
+        <span class="badge" id="live-badge">● LIVE</span>
+    </header>
+
+    <div class="container">
+        <!-- Wallet Info Banner -->
+        <div class="metric-card" style="margin-bottom: 1.5rem; border-color: var(--accent);">
+            <div class="label">🔗 Base Wallet (Real On-Chain)</div>
+            <div class="value" style="font-size: 1rem; color: var(--accent);" id="wallet-address">Loading...</div>
+            <div class="sub" id="wallet-details">Fee receiver: ... | USDC Balance: ... | Last block: ...</div>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="label">Real Sales Volume (USDC)</div>
+                <div class="value" style="color: var(--accent2)" id="m-volume">$0.00</div>
+                <div class="sub" id="m-sales-count">0 on-chain sales</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Today's Requests</div>
+                <div class="value" style="color: var(--accent)" id="m-requests">0</div>
+                <div class="sub" id="m-requests-sub">API calls today</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Today's Sales</div>
+                <div class="value" style="color: var(--accent3)" id="m-today-sales">0</div>
+                <div class="sub" id="m-today-volume">$0.00 volume</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">Telegram Bot</div>
+                <div class="value" style="font-size:1.3rem;" id="m-bot-status">
+                    <span class="status-dot dot-green"></span> Online
+                </div>
+                <div class="sub" id="m-bot-commands">0 commands processed</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>📈 Daily Sales Volume (USDC)</h3>
+                <div class="chart-container"><canvas id="chartVolume"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>🪙 Sales by Token</h3>
+                <div class="chart-container"><canvas id="chartTokens"></canvas></div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>📊 Daily API Requests</h3>
+                <div class="chart-container"><canvas id="chartRequests"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>📋 Recent Activity</h3>
+                <div class="chart-container"><canvas id="chartActivity"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Pricing Section -->
+        <h2 class="section-title">💎 Предлагани продукти и ценоразпис</h2>
+        <div class="pricing-section">
+            <div class="pricing-card">
+                <div class="tier-name">🔧 Микро-заявка</div>
+                <div class="tier-price"><span class="currency">$</span>0.10<span class="currency"> USDC</span></div>
+                <div class="tier-desc">Pay-per-call — плащаш само за това, което използваш</div>
+                <ul class="tier-features">
+                    <li>✅ 1 API заявка (stats / sales / bot-status)</li>
+                    <li>✅ Real-time DeFi сигнали</li>
+                    <li>✅ On-chain продажби история</li>
+                    <li>✅ MCP/x402 съвместимост</li>
+                </ul>
+            </div>
+            <div class="pricing-card featured">
+                <span class="badge-popular">⭐ ПОПУЛЯРЕН</span>
+                <div class="tier-name">👑 Месечен VIP</div>
+                <div class="tier-price"><span class="currency">$</span>29.00<span class="currency"> USDC</span></div>
+                <div class="tier-desc">Неограничен достъп + Telegram VIP група</div>
+                <ul class="tier-features">
+                    <li>✅ Неограничени API заявки (30 дни)</li>
+                    <li>✅ Telegram VIP група поканителен код</li>
+                    <li>✅ Priority DeFi сигнали</li>
+                    <li>✅ AI Agent machine-to-machine достъп</li>
+                    <li>✅ Real-time blockchain мониторинг</li>
+                    <li>✅ VIP поддръжка 24/7</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Payment Info -->
+        <div class="payment-info">
+            <h3 style="color: var(--muted); margin-bottom: 1rem;">💳 Как да платите</h3>
+            <p style="margin-bottom: 0.5rem;">Изпратете <strong>USDC</strong> към следния адрес в <strong>Base</strong> мрежата:</p>
+            <div class="addr" id="payment-addr">Loading payment address...</div>
+            <p style="margin-top: 1rem; color: var(--muted); font-size: 0.85rem;">
+                💡 Плащанията се верифицират автоматично on-chain. Цени: от <strong>$0.003</strong> на заявка (зависи от endpoint-а). Без абонаменти — плащаш само за това, което ползваш.
+            </p>
+        </div>
+
+        <!-- Official eight-agent catalog breakdown -->
+        <div class="table-card">
+            <h3>🧠 Официален каталог: 8 AI агента</h3>
+            <table id="products-table">
+                <thead>
+                    <tr>
+                        <th>Име</th>
+                        <th>Категория</th>
+                        <th>Цена (USDC)</th>
+                        <th>Търсения (Hits)</th>
+                        <th>Продажби (Sales)</th>
+                        <th>Приход ($ Volume)</th>
+                    </tr>
+                </thead>
+                <tbody id="products-table-body"></tbody>
+                <tfoot>
+                    <tr style="font-weight:700;border-top:2px solid var(--accent);">
+                        <td colspan="3">ОБЩО</td>
+                        <td id="products-total-hits">0</td>
+                        <td id="products-total-sales">0</td>
+                        <td id="products-total-volume">$0.00</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- NEXUS Engine Link -->
+        <div class="payment-info" style="text-align:center;">
+            <h3 style="color: var(--muted); margin-bottom: 1rem;">🔗 NEXUS Discovery Engine</h3>
+            <p style="margin-bottom: 1rem;">Отвори NEXUS платформата за пълно откриване на продукти и агенти:</p>
+            <a href="/nexus" target="_blank" rel="noopener"
+               style="display:inline-block;background:var(--accent);color:#fff;padding:0.8rem 2rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.95rem;">
+                🚀 Отвори NEXUS Engine
+            </a>
+        </div>
+
+        <!-- Recent Sales Table -->
+        <div class="table-card">
+            <h3>🧾 Real On-Chain Sales (USDC Transfers)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Token</th>
+                        <th>Amount (USDC)</th>
+                        <th>From</th>
+                        <th>Tx Hash</th>
+                        <th>Block</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="sales-table-body"></tbody>
+            </table>
+            <div class="empty-state" id="empty-sales">
+                <div class="icon">⛓️</div>
+                <p>No real on-chain sales yet. Send USDC to the fee receiver address to see data appear here.</p>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        Kristo Intelligence API v6 &mdash; Real Blockchain Data &mdash; <span id="footer-time"></span>
+    </footer>
+
+<script>
+let charts = {};
+
+async function fetchJSON(url) {
+    const resp = await fetch(url);
+    return resp.json();
+}
+
+function fmtMoney(v) {
+    return '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 6});
+}
+
+function fmtTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleString('en-GB', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+
+function shortAddr(addr) {
+    if (!addr) return '—';
+    return addr.substring(0,8) + '...' + addr.substring(addr.length-6);
+}
+
+async function loadSales() {
+    const data = await fetchJSON('/api/dashboard-stats');
+    document.getElementById('m-volume').textContent = fmtMoney(data.total_volume_usd);
+    document.getElementById('m-sales-count').textContent = data.total_sales + ' on-chain sales';
+
+    // Token doughnut chart
+    const tokenLabels = Object.keys(data.by_token);
+    const tokenValues = Object.values(data.by_token);
+    const ctxT = document.getElementById('chartTokens').getContext('2d');
+    if (charts.tokens) charts.tokens.destroy();
+    if (tokenLabels.length > 0) {
+        charts.tokens = new Chart(ctxT, {
+            type: 'doughnut',
+            data: {
+                labels: tokenLabels,
+                datasets: [{
+                    data: tokenValues,
+                    backgroundColor: ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+            }
+        });
+    }
+
+    // Recent sales table
+    const tbody = document.getElementById('sales-table-body');
+    const emptyState = document.getElementById('empty-sales');
+    tbody.innerHTML = '';
+    if (data.history.length === 0) {
+        emptyState.style.display = 'block';
+    } else {
+        emptyState.style.display = 'none';
+        data.history.slice(-15).reverse().forEach(s => {
+            const row = `<tr>
+                <td>${fmtTime(s.timestamp)}</td>
+                <td><strong>${s.token}</strong></td>
+                <td style="color:#10b981">${fmtMoney(s.amount_usd)}</td>
+                <td style="font-family:monospace;font-size:0.75rem;color:#64748b">${shortAddr(s.sender)}</td>
+                <td style="font-family:monospace;font-size:0.75rem;color:#64748b">${shortAddr(s.tx_hash)}</td>
+                <td>${s.block_number || '—'}</td>
+                <td><span class="status-dot dot-green"></span>${s.status}</td>
+            </tr>`;
+            tbody.insertAdjacentHTML('beforeend', row);
+        });
+    }
+}
+
+async function loadStats() {
+    const data = await fetchJSON('/api/dashboard-stats');
+    document.getElementById('m-requests').textContent = data.today.requests;
+    document.getElementById('m-requests-sub').textContent = data.total_requests + ' total API calls';
+    document.getElementById('m-today-sales').textContent = data.today.sales_count;
+    document.getElementById('m-today-volume').textContent = fmtMoney(data.today.sales_volume_usd);
+
+    // Official eight-agent catalog table
+    const products = data.products || [];
+    const pBody = document.getElementById('products-table-body');
+    pBody.innerHTML = '';
+    let totalHits = 0, totalSales = 0, totalVolume = 0;
+    products.forEach(p => {
+        totalHits += p.hits;
+        totalSales += p.sales_count;
+        totalVolume += p.sales_volume_usd;
+        const catLabel = p.category === 'engine' ? '⚙️ Engine' : '🤖 Agent';
+        // Show micro-prices honestly: 0.003 must NEVER round down to $0.00.
+        const fmtPrice = v => '$' + (Number(v) < 0.01 ? Number(v).toFixed(4) : Number(v).toFixed(2));
+        const row = `<tr>
+            <td><strong>${p.name}</strong></td>
+            <td style="color:var(--muted);font-size:0.8rem;">${catLabel}</td>
+            <td style="color:var(--accent2);">${fmtPrice(p.price_usdc)}</td>
+            <td>${p.hits}</td>
+            <td>${p.sales_count}</td>
+            <td style="color:var(--accent2);">${fmtMoney(p.sales_volume_usd)}</td>
+        </tr>`;
+        pBody.insertAdjacentHTML('beforeend', row);
+    });
+    document.getElementById('products-total-hits').textContent = totalHits;
+    document.getElementById('products-total-sales').textContent = totalSales;
+    document.getElementById('products-total-volume').textContent = fmtMoney(totalVolume);
+
+    // Wallet info
+    const w = data.wallet || {};
+    document.getElementById('wallet-address').textContent = w.wallet_address || 'Wallet not configured';
+    document.getElementById('wallet-details').textContent =
+        `Fee Receiver: ${shortAddr(w.fee_receiver)} | USDC Balance: ${fmtMoney(w.usdc_balance || 0)} | Last block: ${w.last_block_checked || 0} | Last check: ${w.last_check_time ? fmtTime(w.last_check_time) : '—'}`;
+
+    const daily = data.daily;
+    const dates = Object.keys(daily).slice(-14);
+    const volumes = dates.map(d => daily[d].sales_volume);
+    const requests = dates.map(d => daily[d].requests);
+
+    // Volume bar chart
+    const ctxV = document.getElementById('chartVolume').getContext('2d');
+    if (charts.volume) charts.volume.destroy();
+    charts.volume = new Chart(ctxV, {
+        type: 'bar',
+        data: {
+            labels: dates,
+            datasets: [{
+                label: 'Volume (USDC)',
+                data: volumes,
+                backgroundColor: 'rgba(16,185,129,0.6)',
+                borderColor: '#10b981',
+                borderWidth: 1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            scales: {
+                x: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } },
+                y: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } }
+            }
+        }
+    });
+
+    // Requests line chart
+    const ctxR = document.getElementById('chartRequests').getContext('2d');
+    if (charts.requests) charts.requests.destroy();
+    charts.requests = new Chart(ctxR, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [{
+                label: 'API Requests',
+                data: requests,
+                borderColor: '#6366f1',
+                backgroundColor: 'rgba(99,102,241,0.15)',
+                fill: true,
+                tension: 0.3,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            scales: {
+                x: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } },
+                y: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } }
+            }
+        }
+    });
+
+    // Recent activity
+    const recent = data.recent_requests || [];
+    const endpointCounts = {};
+    recent.forEach(r => {
+        endpointCounts[r.endpoint] = (endpointCounts[r.endpoint] || 0) + 1;
+    });
+    const ctxA = document.getElementById('chartActivity').getContext('2d');
+    if (charts.activity) charts.activity.destroy();
+    if (Object.keys(endpointCounts).length > 0) {
+        charts.activity = new Chart(ctxA, {
+            type: 'polarArea',
+            data: {
+                labels: Object.keys(endpointCounts),
+                datasets: [{
+                    data: Object.values(endpointCounts),
+                    backgroundColor: ['rgba(99,102,241,0.6)','rgba(16,185,129,0.6)','rgba(245,158,11,0.6)','rgba(239,68,68,0.6)','rgba(139,92,246,0.6)'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } },
+                scales: { r: { ticks: { color: '#64748b', backdropColor: 'transparent' }, grid: { color: '#2d3142' } } }
+            }
+        });
+    }
+}
+
+async function loadBotStatus() {
+    const data = await fetchJSON('/api/dashboard-stats');
+    const isOnline = data.telegram_bot_running;
+    const dotClass = isOnline ? 'dot-green' : 'dot-red';
+    const statusText = isOnline ? 'Online' : 'Offline';
+    document.getElementById('m-bot-status').innerHTML =
+        `<span class="status-dot ${dotClass}"></span> ${statusText}`;
+    document.getElementById('m-bot-commands').textContent =
+        data.commands_processed + ' commands processed';
+
+    // Update payment address in pricing section.
+    // CRITICAL: show the FEE RECEIVER (where customers pay), never the
+    // operator hot wallet derived from WALLET_PRIVATE_KEY — the hot wallet
+    // is the PAYER side and its address must not be advertised as payable.
+    const payAddr = data.payment_receiver || data.fee_receiver;
+    if (payAddr) {
+        document.getElementById('payment-addr').textContent = payAddr;
+    }
+}
+
+async function refreshAll() {
+    try {
+        await Promise.all([loadSales(), loadStats(), loadBotStatus()]);
+    } catch (e) {
+        console.error('Refresh error:', e);
+    }
+    document.getElementById('footer-time').textContent = new Date().toLocaleTimeString();
+}
+
+refreshAll();
+setInterval(refreshAll, 30000);
+</script>
+</body>
+</html>

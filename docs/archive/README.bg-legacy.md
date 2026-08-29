@@ -185,7 +185,7 @@ python main.py --loop
 | `BASE_CHAIN_ID` | `8453` | Base mainnet (8453) или Sepolia (84532) |
 | `BASE_USDC_CONTRACT` | `0x833589fCD6...` | USDC контракт на Base |
 | `BASE_FEE_AMOUNT_USDC` | `0.10` | Такса за заявка в USDC |
-| `BASE_FEE_RECEIVER` | `0xd4cdA980...` | Адрес на получател на таксата |
+| `BASE_FEE_RECEIVER` | `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` | Адрес на получател на таксата (активен; старият операторски `0xd4cdA980…` е изгорен и НЕ трябва да се използва) |
 | `AGENT_AUTO_EXECUTE` | `false` | Автоматично изпълнение на транзакции |
 | `AGENT_MAX_POSITION_USD` | `1000` | Максимален размер на една позиция |
 | `AGENT_MAX_EXPOSURE_USD` | `5000` | Максимална обща експозиция |
