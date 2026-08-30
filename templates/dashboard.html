@@ -315,6 +315,68 @@
             font-size: 0.8rem;
             padding: 2rem;
         }
+
+        /* ===== NEXUS-aligned interactive additions ===== */
+        .onb-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1.6rem; }
+        .onb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 0.7rem; }
+        .onb-head .t { font-size: 0.9rem; color: var(--text); font-weight: 600; }
+        .onb-close { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1rem; }
+        .onb-close:hover { color: var(--text); }
+        .onb-steps { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 4px; }
+        .onb-step {
+            display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 0.5rem 0.8rem; border-radius: 8px;
+            background: rgba(99,102,241,0.06); border: 1px solid var(--border); cursor: pointer; transition: all .15s; color: var(--text);
+        }
+        .onb-step:hover { border-color: var(--accent); background: rgba(99,102,241,0.12); }
+        .onb-num { width: 20px; height: 20px; border-radius: 50%; background: rgba(99,102,241,0.2); color: var(--accent); font-size: 0.65rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .onb-step .lbl { font-size: 0.78rem; white-space: nowrap; }
+        .onb-step .chev { color: var(--muted); font-size: 0.7rem; }
+        .tip-note { font-size: 0.68rem; color: var(--muted); margin-top: 0.5rem; }
+
+        .metric-card.clickable { cursor: pointer; }
+        .metric-card .go-hint { font-size: 0.68rem; color: var(--muted); margin-top: 0.5rem; opacity: 0; transition: opacity .15s; display: flex; align-items: center; gap: 4px; }
+        .metric-card:hover .go-hint { opacity: 1; }
+
+        .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+        .agent-card {
+            background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 1rem;
+            cursor: pointer; transition: all .15s; text-align: left; color: var(--text); position: relative;
+        }
+        .agent-card:hover { border-color: var(--accent); background: rgba(99,102,241,0.06); transform: translateY(-2px); }
+        .agent-card .a-name { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.3rem; padding-right: 3.2rem; }
+        .agent-card .a-desc { font-size: 0.72rem; color: var(--muted); line-height: 1.5; margin-bottom: 0.6rem; }
+        .agent-card .a-stats { display: flex; gap: 0.9rem; font-size: 0.65rem; color: var(--muted); }
+        .agent-card .a-stats b { color: var(--text); font-size: 0.8rem; display: block; }
+        .agent-card .a-price { position: absolute; top: 0; right: 0; background: rgba(16,185,129,0.1); color: var(--accent2); font-size: 0.65rem; font-weight: 600; padding: 0.2rem 0.55rem; border-bottom-left-radius: 8px; }
+        .badge { display: inline-block; font-size: 0.65rem; padding: 0.1rem 0.5rem; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+        .badge.src { color: var(--accent); border-color: rgba(99,102,241,0.35); }
+
+        .sig-row {
+            display: flex; align-items: flex-start; gap: 0.8rem; padding: 0.7rem 0.8rem; border-radius: 8px;
+            background: rgba(255,255,255,0.02); border: 1px solid transparent; cursor: pointer; transition: all .15s;
+        }
+        .sig-row + .sig-row { margin-top: 0.4rem; }
+        .sig-row:hover { background: rgba(99,102,241,0.05); border-color: var(--border); }
+        .sig-row .s-pair { font-size: 0.85rem; font-weight: 600; }
+        .sig-row .s-sub { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+        .sig-row .s-right { margin-left: auto; text-align: right; flex-shrink: 0; }
+        .sig-row .s-profit { font-size: 0.95rem; font-weight: 700; color: var(--accent2); }
+        .sig-row .s-spread { font-size: 0.65rem; color: var(--muted); }
+
+        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.2rem; backdrop-filter: blur(2px); }
+        .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: 100%; max-width: 620px; max-height: 85vh; overflow-y: auto; padding: 1.5rem; position: relative; animation: mpop .18s ease; }
+        @keyframes mpop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .modal h3 { font-size: 1.05rem; margin-bottom: 0.3rem; padding-right: 2rem; }
+        .modal .m-sub { font-size: 0.72rem; color: var(--muted); margin-bottom: 1rem; }
+        .modal .m-close { position: absolute; top: 0.9rem; right: 1rem; background: none; border: 0; color: var(--muted); font-size: 1.15rem; cursor: pointer; }
+        .modal .m-close:hover { color: var(--text); }
+        .m-lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 1rem 0 0.35rem; }
+        .m-txt { font-size: 0.82rem; line-height: 1.65; color: var(--text); }
+        .m-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; }
+        .m-kv .kv { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; text-align: center; }
+        .m-kv .kv .n { font-size: 0.95rem; font-weight: 700; }
+        .m-kv .kv .k { font-size: 0.62rem; color: var(--muted); margin-top: 2px; }
+        #ki6-tooltip { position: fixed; z-index: 2000; background: #1e2230; border: 1px solid var(--border); color: var(--text); font-size: 0.7rem; line-height: 1.5; padding: 0.5rem 0.65rem; border-radius: 8px; max-width: 240px; pointer-events: none; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
     </style>
 </head>
 <body>
@@ -331,29 +393,43 @@
             <div class="sub" id="wallet-details">Fee receiver: ... | USDC Balance: ... | Last block: ...</div>
         </div>
 
+        <!-- Onboarding flow (NEXUS-aligned) -->
+        <div class="onb-card" id="ki6-onboarding" style="display:none">
+            <div class="onb-head">
+                <div class="t">◈ Как работи Kristo Intelligence 6 — от агент до печалба</div>
+                <button class="onb-close" id="ki6-onb-close" aria-label="Затвори">✕</button>
+            </div>
+            <div class="onb-steps" id="ki6-onb-steps"></div>
+            <p class="tip-note">Кликнете върху всяка стъпка, за да я разгледате в детайл. Този панел може да бъде затворен.</p>
+        </div>
+
         <!-- Metric Cards -->
         <div class="metrics-grid">
-            <div class="metric-card">
+            <div class="metric-card clickable" id="mc-volume" title="Реален USDC обем, верифициран on-chain в Base мрежата. Кликнете за историята на продажбите.">
                 <div class="label">Real Sales Volume (USDC)</div>
                 <div class="value" style="color: var(--accent2)" id="m-volume">$0.00</div>
                 <div class="sub" id="m-sales-count">0 on-chain sales</div>
+                <div class="go-hint">Виж on-chain продажбите →</div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card clickable" id="mc-requests" title="API заявки днес от всички клиенти (включително NEXUS Discovery Engine). Кликнете за графика.">
                 <div class="label">Today's Requests</div>
                 <div class="value" style="color: var(--accent)" id="m-requests">0</div>
                 <div class="sub" id="m-requests-sub">API calls today</div>
+                <div class="go-hint">Виж графика →</div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card clickable" id="mc-today-sales" title="Продажби днес: брой и обем в USDC. Кликнете за историята.">
                 <div class="label">Today's Sales</div>
                 <div class="value" style="color: var(--accent3)" id="m-today-sales">0</div>
                 <div class="sub" id="m-today-volume">$0.00 volume</div>
+                <div class="go-hint">Виж историята →</div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card clickable" id="mc-bot" title="Статус на Telegram sales бота: онлайн ли е, колко команди е обработил. Кликнете за детайли.">
                 <div class="label">Telegram Bot</div>
                 <div class="value" style="font-size:1.3rem;" id="m-bot-status">
                     <span class="status-dot dot-green"></span> Online
                 </div>
                 <div class="sub" id="m-bot-commands">0 commands processed</div>
+                <div class="go-hint">Детайли за бота →</div>
             </div>
         </div>
 
@@ -378,6 +454,19 @@
                 <h3>📋 Recent Activity</h3>
                 <div class="chart-container"><canvas id="chartActivity"></canvas></div>
             </div>
+        </div>
+
+        <!-- Agents in action (NEXUS-aligned) -->
+        <h2 class="section-title" id="agents-panel">🧠 Агенти в действие <span class="badge" id="ki6-agents-count">8 AI агента</span></h2>
+        <div class="agents-grid" id="ki6-agents-grid"></div>
+        <p class="tip-note" style="margin-bottom: 2rem;">Всеки агент е независим x402 микросервис — кликнете върху картата, за да видите описанието, цената, търсенето и продажбите му. Търсения/продажби са за последните 24 часа.</p>
+
+        <!-- Live signals / discoveries with attribution (NEXUS-aligned) -->
+        <h2 class="section-title" id="signals-panel">⚡ Сигнали в реално време <span class="badge src">от Arb Radar · DEXScreener</span></h2>
+        <div class="table-card" style="margin-bottom: 2rem;">
+            <h3>Топ арбитражни възможности на Base — кликнете за детайли</h3>
+            <div id="ki6-signals"></div>
+            <p class="tip-note">Всяка възможност е открита от Arb Radar (крос-DEX скенер) и е атрибутирана автоматично. Спредът е ориентировъчен — проверете on-chain преди изпълнение.</p>
         </div>
 
         <!-- Pricing Section -->
@@ -716,5 +805,246 @@ async function refreshAll() {
 refreshAll();
 setInterval(refreshAll, 30000);
 </script>
+<script>
+/* ===== NEXUS-aligned interactive layer ===== */
+(function () {
+    'use strict';
+    var ONB_KEY = 'ki6-onboarding-dismissed';
+    var SPREAD_TIP = 'Spread % = разликата в цената между двата DEX. Положителен спред след покриване на газ = потенциална арбитражна възможност. Ориентировъчно — проверете on-chain.';
+    var CATEGORY_META = {
+        onchain_intelligence: { icon: '🐋', color: '#06b6d4' },
+        market_intelligence:  { icon: '📊', color: '#6366f1' },
+        token_security:       { icon: '🛡️', color: '#f59e0b' },
+        defi:                 { icon: '🌾', color: '#10b981' },
+        infrastructure:       { icon: '⛽', color: '#a78bfa' },
+        arbitrage:            { icon: '⚡', color: '#ef4444' },
+        trading:              { icon: '🎯', color: '#34d399' },
+        monitoring:           { icon: '📡', color: '#f472b6' }
+    };
+    function catMeta(cat) { return CATEGORY_META[cat] || { icon: '🤖', color: '#6366f1' }; }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+    // ===== Tooltip =====
+    var tip = null;
+    function bindTooltip() {
+        tip = document.getElementById('ki6-tooltip');
+        document.addEventListener('mouseover', function (e) {
+            var t = e.target.closest('[title]'); if (!t || !t.getAttribute('title')) return;
+            tip.textContent = t.getAttribute('title'); tip.style.display = 'block'; place(t);
+        });
+        document.addEventListener('mouseout', function (e) { if (e.target.closest('[title]')) tip.style.display = 'none'; });
+    }
+    function place(el) {
+        var r = el.getBoundingClientRect();
+        tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 260)) + 'px';
+        tip.style.top = (r.bottom + 8 > window.innerHeight - 90 ? r.top - tip.offsetHeight - 8 : r.bottom + 8) + 'px';
+    }
+
+    // ===== Onboarding flow =====
+    var STEPS = [
+        { n: 1, label: '8-те AI агента', desc: 'Специализирани агенти (WhaleFlow Radar, Rug Scanner, Arb Radar…) — всеки следи различен сигнал в Base екосистемата.', target: '#agents-panel' },
+        { n: 2, label: 'x402 API', desc: 'Всяка заявка се монетизира чрез x402 micro-payments в USDC — плащате само за това, което използвате.', target: '.pricing-section' },
+        { n: 3, label: 'On-chain верификация', desc: 'Плащанията се верифицират директно на Base blockchain — всяка продажба е реален USDC трансфер.', target: '#sales-table-body' },
+        { n: 4, label: 'Интелигентност', desc: 'Arb Radar сканира DEX-ове 24/7 и генерира търговски сигнали със спред и оценка на печалба.', target: '#signals-panel' },
+        { n: 5, label: 'NEXUS интеграция', desc: 'NEXUS Discovery Engine консумира този API — двете платформи споделят агентния каталог и сигнали.', target: '#nexus-link' }
+    ];
+    function initOnboarding() {
+        var dismissed = false;
+        try { dismissed = localStorage.getItem(ONB_KEY) === '1'; } catch (e) {}
+        if (!dismissed) document.getElementById('ki6-onboarding').style.display = '';
+        document.getElementById('ki6-onb-steps').innerHTML = STEPS.map(function (s, i) {
+            return '<button class="onb-step" data-step="' + i + '"><span class="onb-num">' + s.n + '</span>' +
+                '<span class="lbl">' + esc(s.label) + '</span>' +
+                (i < STEPS.length - 1 ? '<span class="chev">›</span>' : '') + '</button>';
+        }).join('');
+        document.getElementById('ki6-onb-steps').addEventListener('click', function (e) {
+            var b = e.target.closest('[data-step]'); if (!b) return;
+            var s = STEPS[Number(b.getAttribute('data-step'))];
+            var el = document.querySelector(s.target);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        document.getElementById('ki6-onb-close').addEventListener('click', function () {
+            document.getElementById('ki6-onboarding').style.display = 'none';
+            try { localStorage.setItem(ONB_KEY, '1'); } catch (e) {}
+        });
+    }
+
+    // ===== Modal =====
+    function openModal(inner) {
+        var root = document.getElementById('ki6-modal-root');
+        root.innerHTML = '<div class="overlay" id="ki6-overlay"><div class="modal">' +
+            '<button class="m-close" aria-label="Затвори">✕</button>' + inner + '</div></div>';
+        document.getElementById('ki6-overlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+        root.querySelector('.m-close').addEventListener('click', closeModal);
+    }
+    function closeModal() { document.getElementById('ki6-modal-root').innerHTML = ''; }
+    window.closeKi6Modal = closeModal;
+    // exposed for the second interactive block
+    window.__ki6 = { esc: esc, catMeta: catMeta, openModal: openModal, closeModal: closeModal, fmtUsd: function (v) { return '$' + (Math.round((v || 0) * 100) / 100).toFixed(2); } };
+
+    // ===== Кликабелни метрики (drill-down) =====
+    function bindMetricDrilldown() {
+        document.getElementById('mc-volume').addEventListener('click', function () {
+            document.getElementById('sales-table-body').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        document.getElementById('mc-requests').addEventListener('click', function () {
+            document.getElementById('chartRequests').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        document.getElementById('mc-today-sales').addEventListener('click', function () {
+            document.getElementById('sales-table-body').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        document.getElementById('mc-bot').addEventListener('click', function () {
+            fetch('/api/bot-status').then(function (r) { return r.json(); }).then(function (b) {
+                openModal(
+                    '<h3>📡 Telegram Sales Bot</h3>' +
+                    '<div class="m-sub">Автоматизиран sales агент в Telegram</div>' +
+                    '<div class="m-kv">' +
+                    '<div class="kv"><div class="n" style="color:' + (b.telegram_bot_running ? 'var(--accent2)' : 'var(--accent4)') + '">' + (b.telegram_bot_running ? 'Онлайн' : 'Офлайн') + '</div><div class="k">статус</div></div>' +
+                    '<div class="kv"><div class="n">' + (b.commands_processed || 0) + '</div><div class="k">обработени команди</div></div>' +
+                    '<div class="kv"><div class="n">' + esc(b.uptime_started ? String(b.uptime_started).slice(0, 10) : '—') + '</div><div class="k">работи от</div></div>' +
+                    '</div>' +
+                    '<div class="m-lbl">Какво прави</div>' +
+                    '<div class="m-txt">Ботът изпраща DeFi сигнали и VIP оферти в Telegram, обработва /start, /help, /bulletin, /price и inline бутони за отключване на VIP достъп срещу USDC.</div>'
+                );
+            }).catch(function () {});
+        });
+    }
+
+    // ===== Инициализация (част А) =====
+    document.addEventListener('DOMContentLoaded', function () {
+        bindTooltip(); initOnboarding(); bindMetricDrilldown();
+    });
+})();
+</script>
+<!-- __JSC__ -->
+<script>
+(function () {
+    'use strict';
+    var K = window.__ki6;
+    var AGENTS = [];
+
+    // ===== Агенти в действие =====
+    function loadAgents() {
+        return fetch('/api/v1/agents').then(function (r) { return r.json(); }).then(function (j) {
+            AGENTS = (j && j.agents) || [];
+            return fetch('/api/stats').then(function (r) { return r.json(); }).then(function (s) {
+                var statsBy = {};
+                ((s && s.products) || []).forEach(function (p) { statsBy[p.id] = p; });
+                renderAgents(statsBy);
+                loadSignals();
+            });
+        }).catch(function () {
+            document.getElementById('ki6-agents-grid').innerHTML =
+                '<div class="empty-state" style="padding:1.5rem"><p>Агентният каталог не е достъпен в момента.</p></div>';
+        });
+    }
+    function renderAgents(statsBy) {
+        document.getElementById('ki6-agents-count').textContent = AGENTS.length + ' AI агента';
+        document.getElementById('ki6-agents-grid').innerHTML = AGENTS.map(function (a) {
+            var st = statsBy[a.id] || {};
+            var cm = K.catMeta(a.category);
+            return '<button class="agent-card" data-agent="' + K.esc(a.id) + '" title="Кликнете за пълни детайли за агента: какво прави, цена, търсене и продажби за 24 часа.">' +
+                '<span class="a-price">' + K.esc(a.price_x402) + ' USDC</span>' +
+                '<div class="a-name">' + cm.icon + ' ' + K.esc(a.name) + '</div>' +
+                '<div class="a-desc">' + K.esc(a.description || '') + '</div>' +
+                '<div class="a-stats">' +
+                '<span><b>' + (st.hits || 0) + '</b> hits 24h</span>' +
+                '<span><b>' + (st.sales_count || 0) + '</b> sales 24h</span>' +
+                '<span><b>' + K.fmtUsd(st.sales_volume_usd) + '</b> vol 24h</span>' +
+                '</div></button>';
+        }).join('');
+        document.getElementById('ki6-agents-grid').addEventListener('click', function (e) {
+            var b = e.target.closest('[data-agent]'); if (!b) return;
+            var a = AGENTS.filter(function (x) { return x.id === b.getAttribute('data-agent'); })[0];
+            if (a) agentDialog(a, statsBy[a.id] || {});
+        });
+    }
+    function agentDialog(a, st) {
+        var cm = K.catMeta(a.category);
+        K.openModal(
+            '<h3>' + cm.icon + ' ' + K.esc(a.name) + '</h3>' +
+            '<div class="m-sub"><span class="badge" style="color:' + cm.color + ';border-color:' + cm.color + '">' + K.esc(a.category) + '</span> ' +
+            '<span class="badge src">x402 микросервис · Kristo Intelligence 6</span></div>' +
+            '<div class="m-lbl">Какво прави агентът</div><div class="m-txt">' + K.esc(a.description || '—') + '</div>' +
+            '<div class="m-lbl">Статистика (24 часа)</div><div class="m-kv">' +
+            '<div class="kv"><div class="n">' + (st.hits || 0) + '</div><div class="k">hits (търсения)</div></div>' +
+            '<div class="kv"><div class="n">' + (st.sales_count || 0) + '</div><div class="k">продажби</div></div>' +
+            '<div class="kv"><div class="n">' + K.fmtUsd(st.sales_volume_usd) + '</div><div class="k">обем USDC</div></div>' +
+            '<div class="kv"><div class="n">' + K.esc(a.price_x402) + '</div><div class="k">USDC / заявка (x402)</div></div>' +
+            '<div class="kv"><div class="n">$' + K.esc(a.price_stripe) + '</div><div class="k">месечен достъп (Stripe)</div></div>' +
+            '</div>' +
+            '<div class="m-lbl">Как да го използвате</div>' +
+            '<div class="m-txt">Демо: <b>POST /api/v1/agents/' + K.esc(a.id) + '/playground</b> (първата заявка е безплатна). Машинен достъп: x402 плащане или Stripe VIP.</div>' +
+            '<div style="margin-top:1rem;display:flex;gap:0.6rem;flex-wrap:wrap">' +
+            '<a class="btn ghost" href="/agents" target="_blank" rel="noopener">🎮 Опитайте в Playground</a>' +
+            '<button class="btn" onclick="closeKi6Modal()" style="background:var(--border)">Затвори</button>' +
+            '</div>'
+        );
+    }
+})();
+</script>
+<!-- __JSD__ -->
+<script>
+(function () {
+    'use strict';
+    var K = window.__ki6;
+
+    // ===== Сигнали (Arb Radar) с атрибуция =====
+    function loadSignals() {
+        return fetch('/api/arb/opportunities').then(function (r) { return r.json(); }).then(function (j) {
+            var opps = (j && j.opportunities) || [];
+            var el = document.getElementById('ki6-signals');
+            if (!el) return;
+            if (!opps.length) {
+                el.innerHTML = '<div class="empty-state" style="padding:1.2rem"><p>Няма активни арбитражни възможности в момента — Arb Radar сканира непрекъснато.</p></div>';
+                return;
+            }
+            el.innerHTML = opps.slice(0, 6).map(function (o, i) {
+                return '<div class="sig-row" data-opp="' + i + '" title="Кликнете за детайли: цени, ликвидност, обем и оценка на печалба.">' +
+                    '<div><div class="s-pair">' + K.esc(o.pair) + '</div>' +
+                    '<div class="s-sub">купи: <b>' + K.esc(o.buy_dex) + '</b> @ $' + K.esc(o.buy_price_usd) + ' → продай: <b>' + K.esc(o.sell_dex) + '</b> @ $' + K.esc(o.sell_price_usd) + '</div>' +
+                    '<div class="s-sub"><span class="badge src">от Arb Radar · DEXScreener</span> <span class="badge">Base</span></div></div>' +
+                    '<div class="s-right"><div class="s-profit">+' + K.fmtUsd(o.est_profit_usd) + '</div>' +
+                    '<div class="s-spread">спред ' + K.esc(o.spread_pct) + '% · обем $' + K.esc(o.volume_24h) + '</div></div></div>';
+            }).join('');
+            el.addEventListener('click', function (e) {
+                var r = e.target.closest('[data-opp]'); if (!r) return;
+                oppDialog(opps[Number(r.getAttribute('data-opp'))]);
+            });
+        }).catch(function () {
+            document.getElementById('ki6-signals').innerHTML =
+                '<div class="empty-state" style="padding:1.2rem"><p>Сигналите не са достъпни в момента.</p></div>';
+        });
+    }
+    function oppDialog(o) {
+        K.openModal(
+            '<h3>⚡ ' + K.esc(o.pair) + '</h3>' +
+            '<div class="m-sub"><span class="badge src">открито от Arb Radar</span> <span class="badge">Base мрежа</span> <span class="badge">DEXScreener данни</span></div>' +
+            '<div class="m-lbl">Арбитражна възможност</div><div class="m-kv">' +
+            '<div class="kv"><div class="n">$' + K.esc(o.buy_price_usd) + '</div><div class="k">купува на ' + K.esc(o.buy_dex) + '</div></div>' +
+            '<div class="kv"><div class="n">$' + K.esc(o.sell_price_usd) + '</div><div class="k">продава на ' + K.esc(o.sell_dex) + '</div></div>' +
+            '<div class="kv"><div class="n" style="color:var(--accent2)">+' + K.fmtUsd(o.est_profit_usd) + '</div><div class="k">ест. печалба след газ</div></div>' +
+            '<div class="kv"><div class="n">' + K.esc(o.spread_pct) + '%</div><div class="k">спред</div></div>' +
+            '<div class="kv"><div class="n">$' + K.esc(o.est_trade_usd) + '</div><div class="k">ест. обем на сделката</div></div>' +
+            '<div class="kv"><div class="n">$' + K.esc(o.volume_24h) + '</div><div class="k">24ч обем</div></div>' +
+            '<div class="kv"><div class="n">$' + K.esc(o.liquidity_usd_buy) + '</div><div class="k">ликвидност (купува)</div></div>' +
+            '<div class="kv"><div class="n">$' + K.esc(o.liquidity_usd_sell) + '</div><div class="k">ликвидност (продава)</div></div>' +
+            '</div>' +
+            '<div class="m-lbl">Атрибуция</div>' +
+            '<div class="m-txt">Възможността е открита автоматично от <b>Arb Radar</b> — фоновия крос-DEX скенер на Kristo Intelligence 6, базиран на DEXScreener агрегирани цени. Сканирано: ' + K.esc((o.scanned_at || '').replace('T', ' ').slice(0, 19)) + ' UTC.</div>' +
+            '<div class="m-lbl">Отговорност</div>' +
+            '<div class="m-txt" style="color:var(--muted)">Оценките са ориентировъчни. Проверете on-chain цените и ликвидността преди изпълнение.</div>'
+        );
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadSignals();
+        setInterval(loadSignals, 60000);
+    });
+})();
+</script>
+
+<div id="ki6-modal-root"></div>
+<div id="ki6-tooltip"></div>
 </body>
 </html>
