@@ -535,6 +535,24 @@
             </table>
         </div>
 
+        <!-- Integration connectors panel -->
+        <div class="table-card">
+            <h3>🔌 Интеграции и конектори</h3>
+            <table id="connectors-table">
+                <thead>
+                    <tr>
+                        <th>КОНЕКТОР</th>
+                        <th>ПРОТОКОЛ</th>
+                        <th>ПОСОКА</th>
+                        <th>СТАТУС</th>
+                        <th>ПОСЛЕДНА АКТИВНОСТ (UTC)</th>
+                    </tr>
+                </thead>
+                <tbody id="connectors-table-body"></tbody>
+            </table>
+            <p id="connectors-summary" style="color:var(--muted);font-size:0.85rem;margin-top:0.5rem;"></p>
+        </div>
+
         <!-- NEXUS Engine Link -->
         <div class="payment-info" style="text-align:center;">
             <h3 style="color: var(--muted); margin-bottom: 1rem;">🔗 NEXUS Discovery Engine</h3>
@@ -793,9 +811,35 @@ async function loadBotStatus() {
     }
 }
 
+async function loadConnectors() {
+    try {
+        const data = await fetchJSON('/api/connectors');
+        const body = document.getElementById('connectors-table-body');
+        body.innerHTML = '';
+        (data.connectors || []).forEach(cn => {
+            const dot = cn.status === 'active' ? 'dot-green' : 'dot-red';
+            const label = cn.status === 'active' ? 'АКТИВЕН' : 'НЕАКТИВЕН';
+            const arrow = cn.direction === 'inbound' ? '⬅ входяща' : '➡ изходяща';
+            const ts = (cn.last_activity || '').replace('T', ' ').slice(0, 19);
+            const row = `<tr>
+                <td><strong>${cn.name}</strong><br><span style="color:var(--muted);font-size:0.75rem;">${cn.id}</span></td>
+                <td style="color:var(--muted);font-size:0.8rem;">${cn.protocol}</td>
+                <td style="font-size:0.8rem;">${arrow}</td>
+                <td><span class="status-dot ${dot}"></span> ${label}</td>
+                <td style="color:var(--muted);font-size:0.8rem;">${ts}</td>
+            </tr>`;
+            body.insertAdjacentHTML('beforeend', row);
+        });
+        document.getElementById('connectors-summary').textContent =
+            `${data.active}/${data.count} конектора активни — платежна инфраструктура под постоянно наблюдение`;
+    } catch (e) {
+        console.error('connectors load failed:', e);
+    }
+}
+
 async function refreshAll() {
     try {
-        await Promise.all([loadSales(), loadStats(), loadBotStatus()]);
+        await Promise.all([loadSales(), loadStats(), loadBotStatus(), loadConnectors()]);
     } catch (e) {
         console.error('Refresh error:', e);
     }

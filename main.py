@@ -105,6 +105,7 @@ X402_FREE_ENDPOINTS = {
     "/.well-known/x402.json", "/.well-known/ai-plugin.json", "/openapi.json",
     "/llms.txt", "/agents.json", "/robots.txt", "/sitemap.xml",
     "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
+    "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
 }
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -1518,6 +1519,48 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str) -> bool:
     return True
 
 
+def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
+    """
+    Standard x402 v2 rail: the client sends the X-PAYMENT header (base64url
+    EIP-3009 payload) exactly like every ecosystem-standard client (x402-fetch,
+    x402scan embedded wallet, agentcash router). Verify + settle through the
+    facilitator, record the sale, and grant one call. True = paid.
+    """
+    from services import connectors
+
+    payment_header = (request.headers.get("X-PAYMENT") or "").strip()
+    if not payment_header:
+        return False
+    accepts, resource, _ext = _x402_challenge_core(path, price)
+    requirements = dict(accepts[0])
+    requirements["resource"] = resource.get("url")
+    requirements["description"] = resource.get("description")
+    requirements["mimeType"] = resource.get("mimeType")
+
+    ok, payer, detail = connectors.verify_standard_payment(payment_header, requirements)
+    if not ok:
+        log.info("standard x402 payment rejected: path=%s detail=%s", path, detail)
+        return False
+
+    tx_hash, settle_detail = connectors.settle_standard_payment(payment_header, requirements)
+    if not tx_hash:
+        log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
+        return False
+
+    with _lock:
+        _verified_payments.add(tx_hash)
+        _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
+    _record_real_sale(
+        token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
+        sender=payer or "unknown",
+    )
+    connectors.touch("x402-eip3009")
+    connectors.touch("base-usdc-receiver")
+    log.info("standard x402 payment settled: tx=%s payer=%s amount=$%.4f",
+             tx_hash, payer, price)
+    return True
+
+
 @app.before_request
 def _x402_paywall():
     """
@@ -1556,6 +1599,25 @@ def _x402_paywall():
         else:
             # Free tier exhausted — accept a valid on-chain payment proof
             # (X-Payment-Proof header) before demanding a new payment.
+
+            # Rail 1: STANDARD x402 v2 clients (X-PAYMENT / EIP-3009 via
+            # facilitator) — x402scan wallet, x402-fetch SDK, agentcash router.
+            std_header = (request.headers.get("X-PAYMENT") or "").strip()
+            if std_header:
+                price = _get_dynamic_price(ip, path)
+                if _try_consume_standard_payment(path, price, ip):
+                    return None  # paid via the standard rail — allow through
+                return jsonify({
+                    "ok": False,
+                    "error": "invalid_standard_payment",
+                    "message": (
+                        "The X-PAYMENT payload was not accepted by the x402 "
+                        "facilitator: invalid signature, unsupported scheme, or "
+                        "insufficient amount. Retry with a fresh payment."
+                    ),
+                }), 401
+
+            # Rail 2: legacy self-describing proof (X-Payment-Proof header)
             proof_header = (request.headers.get("X-Payment-Proof") or "").strip()
             if proof_header:
                 proof = _decode_payment_proof(proof_header)
@@ -1736,6 +1798,81 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
 def dashboard_stats():
     """Return free, read-only aggregate data required by the public dashboard."""
     return _safe_jsonify(_statistics_payload(include_recent_requests=False))
+
+
+@app.route("/api/connectors")
+def api_connectors():
+    """Live integration-connector registry (dashboard integrations panel)."""
+    with _lock:
+        wallet_info = dict(_wallet_state)
+    # The fee receiver is ALWAYS bound (config hard fallback) — the receiver
+    # connector must never look inactive just because no hot wallet is loaded.
+    wallet_info["fee_receiver"] = wallet_info.get("fee_receiver") or X402_RECEIVER_ADDRESS
+    from services.connectors import registry_status
+
+    entries = registry_status(wallet_info)
+    return _safe_jsonify({
+        "count": len(entries),
+        "active": sum(1 for e in entries if e["status"] == "active"),
+        "connectors": entries,
+    })
+
+
+@app.route("/api/v1/quickstart")
+def api_quickstart():
+    """Zero-friction onboarding: copy-paste first-call snippets per language.
+
+    BlockRun-style practice — the first call already works: one free GET
+    returns the self-describing 402 challenge, payment is a single USDC
+    transfer, retry carries the proof. No signup, no keys, no docs needed.
+    """
+    base_url = request.host_url.rstrip("/")
+    return _safe_jsonify({
+        "service": "Kristo Intelligence",
+        "protocol": "x402 v2",
+        "network": "base",
+        "usdc_contract": X402_USDC_CONTRACT,
+        "receiver": X402_RECEIVER_ADDRESS,
+        "cheapest_call": {
+            "endpoint": f"{base_url}/api/stats",
+            "amount_usdc": 0.005,
+            "note": "paid per call — no subscription, no signup, no API key",
+        },
+        "steps": [
+            "GET /api/stats -> 402 challenge (fully self-describing)",
+            "send the challenge amount in USDC (Base) to the receiver",
+            "retry with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
+        ],
+        "curl": f"curl -i {base_url}/api/stats   # 402 -> read accepts[0].amount / payTo",
+        "python": (
+            "import httpx, base64, json\n"
+            f"r = httpx.get('{base_url}/api/stats')\n"
+            "assert r.status_code == 402\n"
+            "req = r.json()['accepts'][0]   # scheme / network / amount / payTo\n"
+            "# 1) pay int(req['amount'])/1e6 USDC to req['payTo'] on Base\n"
+            "# 2) retry with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
+        ),
+        "node": (
+            "const r = await fetch('" + base_url + "/api/stats');\n"
+            "if (r.status === 402) {\n"
+            "  const { accepts } = await r.json();\n"
+            "  // pay accepts[0].amount raw units (USDC, 6 decimals) to accepts[0].payTo on Base\n"
+            "  // then retry with header X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))\n"
+            "}"
+        ),
+        "standard_client": (
+            "Any x402 v2 ecosystem client (x402-fetch SDK, x402scan embedded "
+            "wallet, agentcash router) works out of the box: the challenge "
+            "served here is canonical v2 and the X-PAYMENT rail is verified "
+            "and settled through the Coinbase x402 facilitator."
+        ),
+        "discovery": {
+            "well_known": f"{base_url}/.well-known/x402",
+            "openapi": f"{base_url}/openapi.json",
+            "mcp_manifest": f"{base_url}/api/mcp/manifest",
+            "connectors": f"{base_url}/api/connectors",
+        },
+    })
 
 
 @app.route("/api/stats")
