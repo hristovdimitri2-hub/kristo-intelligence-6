@@ -199,6 +199,16 @@ python main.py --loop
 | `GLM_MODEL` | `openai/gpt-4o-mini` | AI model identifier |
 | `ADMIN_API_TOKEN` | — | Token required in `X-Admin-Token` for CRM/admin routes |
 
+## 🌍 Дистрибуция в x402 екосистемата
+
+Kristo Intelligence е пуснат в live x402 маркетплейсите: **x402scan** (11 resources,
+0 errors), **PayAPI Market** (в преглед — v2-ready, settlement-verified), **nohumans.directory**
+(3× VERIFIED), BlockRun data-source заявка изпратена. Всички 4 платени endpoints
+и discovery линковете са верифицирани live и преминават mystery-agent одит 23/23.
+
+Пълен статус и история: **[docs/DISTRIBUTION_STATUS.md](docs/DISTRIBUTION_STATUS.md)**
+· Outreach план: **[docs/OUTREACH_KIT.md](docs/OUTREACH_KIT.md)**
+
 ## ⚠️ Предупреждение
 
 Този софтуер изпълнява **реални транзакции** на Base мрежата, ако `AGENT_AUTO_EXECUTE=true`.
