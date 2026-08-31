@@ -1,4 +1,11 @@
-# PROJECT STATUS (frozen 2026-08-27)
+# PROJECT STATUS (frozen 2026-08-27 — RESUMED 2026-08-29)
+## Session 2026-08-29 (growth sprint)
+- Storefront fixes LIVE: dashboard advertises receiver (not hot wallet), honest micro-prices, favicon
+- x402scan: 11 resources registered; mystery-agent audit 23/23 (docs/MYSTERY_AGENT_REPORT.md)
+- NEW: services/connectors.py — connector registry (9 connectors, 8 active) + STANDARD x402 EIP-3009 rail (X-PAYMENT via facilitator verify+settle) + L402 bridge parser + /api/connectors panel + /api/v1/quickstart onboarding (108/108 tests)
+- PayAPI: resubmission IN REVIEW; extra.name fixed to "USD Coin" per validator
+- Outreach kit ready: docs/OUTREACH_KIT.md (BlockRun data-source listing = top priority)
+- ⚠️ COORDINATION: two AI sessions push to this repo — agree on one session at a time
 ## Resume checklist (in order)
 1. Render → Resume service, verify /health = 200
 2. CRITICAL: receiver wallet 0xd4cdA900...08f has NO confirmed private key owner → rotate BOUND_BASE_FEE_RECEIVER to owned MetaMask address + redeploy BEFORE accepting any payment
