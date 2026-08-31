@@ -54,7 +54,7 @@ GLM_MODEL = os.getenv("GLM_MODEL", "openai/gpt-4o-mini")
 # Single source of pricing truth for all endpoints.
 # These defaults can be overridden via environment variables.
 KRISTO_STATS_PRICE = float(os.getenv("KRISTO_STATS_PRICE", "0.005"))       # /api/stats
-KRISTO_SALES_PRICE = float(os.getenv("KRISTO_SALES_PRICE", "0.05"))        # /api/sales
+KRISTO_SALES_PRICE = float(os.getenv("KRISTO_SALES_PRICE", "0.005"))       # /api/sales
 KRISTO_ARB_PRICE = float(os.getenv("KRISTO_ARB_PRICE", "0.005"))         # /api/arb/opportunities
 KRISTO_RUG_PRICE = float(os.getenv("KRISTO_RUG_PRICE", "0.003"))          # rug-risk endpoint
 KRISTO_WHALE_PRICE = float(os.getenv("KRISTO_WHALE_PRICE", "0.01"))      # whale activity endpoint

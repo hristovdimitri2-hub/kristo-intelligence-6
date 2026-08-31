@@ -123,6 +123,88 @@ def test_standard_xpay_invalid_payload_rejected_with_401(client, monkeypatch):
     assert r.get_json()["error"] == "invalid_standard_payment"
 
 
+def test_payment_signature_header_v2_unlocks_paid_call(client, monkeypatch):
+    """x402 v2 spec clients send PAYMENT-SIGNATURE (not X-PAYMENT) — accepted."""
+    import main
+    from services import connectors
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+
+    def fake_verify(header, requirements):
+        assert requirements["scheme"] == "exact"
+        assert requirements["network"] == "eip155:8453"
+        assert requirements["amount"] == "5000"
+        return True, "0xABCDEF1234567890abcdef1234567890abcdef12", "verified"
+
+    tx = "0x" + "cd" * 32
+    monkeypatch.setattr(connectors, "verify_standard_payment", fake_verify)
+    monkeypatch.setattr(connectors, "settle_standard_payment",
+                        lambda h, req: (tx, "settled"))
+    recorded = []
+    monkeypatch.setattr(main, "_record_real_sale",
+                        lambda **kw: recorded.append(kw))
+
+    header = base64.urlsafe_b64encode(json.dumps({"x402Version": 2}).encode()).decode()
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": header})
+    assert r.status_code == 200, \
+        f"PAYMENT-SIGNATURE must unlock the call: {r.status_code}"
+    assert len(recorded) == 1 and recorded[0]["tx_hash"] == tx
+    # Spec-compliant settlement receipt header.
+    assert "PAYMENT-RESPONSE" in r.headers
+    settlement = json.loads(r.headers["PAYMENT-RESPONSE"])
+    assert settlement["success"] is True
+    assert settlement["transaction"] == tx
+
+
+def test_payment_signature_takes_priority_over_x_payment(client, monkeypatch):
+    """When both headers are present the v2 PAYMENT-SIGNATURE wins."""
+    import main
+    from services import connectors
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    seen = []
+    monkeypatch.setattr(connectors, "verify_standard_payment",
+                        lambda h, req: (seen.append(h) or (True, None, "verified")))
+    monkeypatch.setattr(connectors, "settle_standard_payment",
+                        lambda h, req: ("0x" + "ee" * 32, "settled"))
+    monkeypatch.setattr(main, "_record_real_sale", lambda **kw: None)
+
+    v2 = base64.urlsafe_b64encode(b"v2-payload").decode()
+    v1 = base64.urlsafe_b64encode(b"v1-payload").decode()
+    r = client.get("/api/stats", headers={
+        "PAYMENT-SIGNATURE": v2, "X-PAYMENT": v1,
+    })
+    assert r.status_code == 200
+    assert seen and seen[0] == v2
+
+
+def test_402_advertises_payment_required_header(client, monkeypatch):
+    """402 must carry the spec PAYMENT-REQUIRED header (base64url challenge)."""
+    import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    r = client.get("/api/stats")
+    assert r.status_code == 402
+    raw = r.headers["PAYMENT-REQUIRED"]
+    payload = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+    assert payload["x402Version"] == 2
+    assert payload["accepts"][0]["network"] == "eip155:8453"
+    assert payload["accepts"][0]["payTo"] == main.X402_RECEIVER_ADDRESS
+
+
+def test_api_sales_price_is_flat_0_005(client, monkeypatch):
+    """PayAPI review: /api/sales must challenge at $0.005 (5000 atomic)."""
+    import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    r = client.get("/api/sales")
+    assert r.status_code == 402
+    body = r.get_json()
+    assert body["accepts"][0]["amount"] == "5000"
+    assert float(body["x402_amount"]) == pytest.approx(0.005)
+    assert float(body["payment"]["amount_usdc"]) == pytest.approx(0.005)
+
+
 def test_l402_challenge_parser():
     from services.connectors import l402_parse_challenge, l402_ready
     ch = l402_parse_challenge(

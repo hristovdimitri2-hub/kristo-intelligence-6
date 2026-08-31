@@ -34,7 +34,7 @@ from collections import deque
 from typing import Dict, List, Optional
 
 import math
-from flask import Flask, jsonify, redirect, render_template, request, session
+from flask import Flask, g, jsonify, redirect, render_template, request, session
 
 # ── Central configuration (bound wallet address, GLM, etc.) ────────────────
 from config import (
@@ -1041,9 +1041,14 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         # accepts / accepts[] / x402_accepts are defined at the top of the
         # body (canonical x402 v1 payment requirements, x402scan-parseable).
         "x402_retry_instructions": (
-            "Send the amount in USDC on Base to x402_recipient, then repeat "
-            "this request with header 'X-Payment-Proof: "
-            "base64url(JSON({payer, transaction_hash, amount_usdc}))'."
+            "STANDARD x402 clients: sign the challenge below (EIP-3009 / "
+            "exact scheme) and repeat this request with the base64url payload "
+            "in the 'PAYMENT-SIGNATURE' header — settlement runs through the "
+            "x402 facilitator automatically and the call returns 200 with "
+            "data. MANUAL fallback: send the amount in USDC on Base to "
+            "x402_recipient, then repeat this request with header "
+            "'X-Payment-Proof: base64url(JSON({payer, transaction_hash, "
+            "amount_usdc}))'."
         ),
         "message": (
             f"Payment required. Send {amount} USDC on Base to "
@@ -1089,6 +1094,19 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         f'receiver="{X402_RECEIVER_ADDRESS}", amount="{amount}", '
         f'accepts="tx_hash"'
     )
+    # x402 v2 spec: the canonical PaymentRequired payload rides in the
+    # PAYMENT-REQUIRED response header (base64url JSON). Spec clients read
+    # this header (not the body) to build their PAYMENT-SIGNATURE retry.
+    payment_required_payload = json.dumps({
+        "x402Version": 2,
+        "error": "payment_required",
+        "accepts": accepts,
+        "resource": resource,
+        "extensions": extensions,
+    })
+    resp.headers["PAYMENT-REQUIRED"] = base64.urlsafe_b64encode(
+        payment_required_payload.encode()
+    ).decode().rstrip("=")
     return resp
 
 
@@ -1519,16 +1537,34 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str) -> bool:
     return True
 
 
+def _get_standard_payment_header() -> str:
+    """
+    Read the standard x402 payment payload header.
+
+    x402 v2 spec clients (x402-fetch, x402scan wallet, PayAPI verifier) send
+    the signed EIP-3009 payload in the `PAYMENT-SIGNATURE` header; earlier
+    ecosystem clients use `X-PAYMENT`. Both are accepted, v2 name first.
+    """
+    return (
+        (request.headers.get("PAYMENT-SIGNATURE") or "").strip()
+        or (request.headers.get("X-PAYMENT") or "").strip()
+    )
+
+
 def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     """
-    Standard x402 v2 rail: the client sends the X-PAYMENT header (base64url
-    EIP-3009 payload) exactly like every ecosystem-standard client (x402-fetch,
-    x402scan embedded wallet, agentcash router). Verify + settle through the
+    Standard x402 v2 rail: the client sends the signed EIP-3009 payload
+    (PAYMENT-SIGNATURE / X-PAYMENT header, base64url) exactly like every
+    ecosystem-standard client (x402-fetch, x402scan embedded wallet,
+    agentcash router, PayAPI verifier). Verify + settle through the
     facilitator, record the sale, and grant one call. True = paid.
+
+    On success the settlement is stashed on flask.g so the after_request
+    hook can emit the spec-compliant PAYMENT-RESPONSE header.
     """
     from services import connectors
 
-    payment_header = (request.headers.get("X-PAYMENT") or "").strip()
+    payment_header = _get_standard_payment_header()
     if not payment_header:
         return False
     accepts, resource, _ext = _x402_challenge_core(path, price)
@@ -1556,9 +1592,25 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     )
     connectors.touch("x402-eip3009")
     connectors.touch("base-usdc-receiver")
+    # Spec-compliant v2 settlement receipt (emitted by _emit_payment_response).
+    g.x402_settlement = json.dumps({
+        "success": True,
+        "transaction": tx_hash,
+        "network": "eip155:8453",
+        "payer": payer or "unknown",
+    })
     log.info("standard x402 payment settled: tx=%s payer=%s amount=$%.4f",
              tx_hash, payer, price)
     return True
+
+
+@app.after_request
+def _emit_payment_response(response):
+    """Emit the x402 v2 PAYMENT-RESPONSE header after a standard-rail settle."""
+    settlement = getattr(g, "x402_settlement", None)
+    if settlement:
+        response.headers["PAYMENT-RESPONSE"] = settlement
+    return response
 
 
 @app.before_request
@@ -1600,9 +1652,10 @@ def _x402_paywall():
             # Free tier exhausted — accept a valid on-chain payment proof
             # (X-Payment-Proof header) before demanding a new payment.
 
-            # Rail 1: STANDARD x402 v2 clients (X-PAYMENT / EIP-3009 via
-            # facilitator) — x402scan wallet, x402-fetch SDK, agentcash router.
-            std_header = (request.headers.get("X-PAYMENT") or "").strip()
+            # Rail 1: STANDARD x402 clients (EIP-3009 via facilitator) —
+            # v2 spec header PAYMENT-SIGNATURE (x402-fetch, x402scan wallet,
+            # PayAPI verifier) and legacy X-PAYMENT (v1-era clients).
+            std_header = _get_standard_payment_header()
             if std_header:
                 price = _get_dynamic_price(ip, path)
                 if _try_consume_standard_payment(path, price, ip):
@@ -1611,9 +1664,10 @@ def _x402_paywall():
                     "ok": False,
                     "error": "invalid_standard_payment",
                     "message": (
-                        "The X-PAYMENT payload was not accepted by the x402 "
-                        "facilitator: invalid signature, unsupported scheme, or "
-                        "insufficient amount. Retry with a fresh payment."
+                        "The signed payment payload (PAYMENT-SIGNATURE / "
+                        "X-PAYMENT header) was not accepted by the x402 "
+                        "facilitator: invalid signature, unsupported scheme, "
+                        "or insufficient amount. Retry with a fresh payment."
                     ),
                 }), 401
 
