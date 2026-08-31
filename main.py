@@ -1575,11 +1575,13 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
 
     ok, payer, detail = connectors.verify_standard_payment(payment_header, requirements)
     if not ok:
+        g.x402_reject_reason = detail
         log.info("standard x402 payment rejected: path=%s detail=%s", path, detail)
         return False
 
     tx_hash, settle_detail = connectors.settle_standard_payment(payment_header, requirements)
     if not tx_hash:
+        g.x402_reject_reason = f"settlement_failed: {settle_detail}"
         log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
         return False
 
@@ -1663,11 +1665,17 @@ def _x402_paywall():
                 return jsonify({
                     "ok": False,
                     "error": "invalid_standard_payment",
+                    # Precise cause: precheck problem, signature mismatch, or
+                    # the facilitator's structured rejection — full
+                    # observability (requested by PayAPI review).
+                    "reason": getattr(g, "x402_reject_reason",
+                                      "verification_error"),
                     "message": (
                         "The signed payment payload (PAYMENT-SIGNATURE / "
-                        "X-PAYMENT header) was not accepted by the x402 "
-                        "facilitator: invalid signature, unsupported scheme, "
-                        "or insufficient amount. Retry with a fresh payment."
+                        "X-PAYMENT header) was not accepted. See 'reason' "
+                        "for the exact cause: invalid signature, wrong "
+                        "amount/receiver, expired authorization window, "
+                        "or insufficient buyer USDC balance."
                     ),
                 }), 401
 

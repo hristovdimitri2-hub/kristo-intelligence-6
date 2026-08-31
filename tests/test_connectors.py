@@ -5,6 +5,7 @@ X-PAYMENT) payment rail, and the quickstart onboarding endpoint.
 """
 import base64
 import json
+import secrets
 
 import pytest
 
@@ -203,6 +204,114 @@ def test_api_sales_price_is_flat_0_005(client, monkeypatch):
     assert body["accepts"][0]["amount"] == "5000"
     assert float(body["x402_amount"]) == pytest.approx(0.005)
     assert float(body["payment"]["amount_usdc"]) == pytest.approx(0.005)
+
+
+# ── EIP-3009 layered verification (PayAPI review round 2) ───────────────────
+
+def _build_signed_payload(authorization_overrides=None, tamper_from=False):
+    """Real EIP-3009 payload signed with eth_account (offline)."""
+    import time as _time
+    from eth_account import Account
+    from eth_account.messages import encode_typed_data
+
+    usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    acct = Account.from_key("0x" + secrets.token_hex(32))
+    now = int(_time.time())
+    auth = {
+        "from": acct.address, "to": receiver, "value": "5000",
+        "validAfter": str(now - 60), "validBefore": str(now + 600),
+        "nonce": "0x" + secrets.token_hex(32),
+    }
+    if authorization_overrides:
+        auth.update(authorization_overrides)
+    domain = {"name": "USD Coin", "version": "2", "chainId": 8453,
+              "verifyingContract": usdc}
+    types = {"TransferWithAuthorization": [
+        {"name": "from", "type": "address"}, {"name": "to", "type": "address"},
+        {"name": "value", "type": "uint256"}, {"name": "validAfter", "type": "uint256"},
+        {"name": "validBefore", "type": "uint256"}, {"name": "nonce", "type": "bytes32"}]}
+    sm = encode_typed_data(domain_data=domain, message_types=types, message_data=auth)
+    sig = Account.sign_message(sm, acct.key)["signature"].hex()
+    if not sig.startswith("0x"):
+        sig = "0x" + sig
+    if tamper_from:
+        # Tamper AFTER signing: signature no longer recovers to auth.from.
+        auth["from"] = "0x000000000000000000000000000000000000dead"
+    accepted = {"scheme": "exact", "network": "eip155:8453", "amount": "5000",
+                "payTo": receiver, "asset": usdc, "maxTimeoutSeconds": 60,
+                "extra": {"name": "USD Coin", "version": "2"}}
+    payload = {"x402Version": 2, "accepted": accepted,
+               "payload": {"signature": sig, "authorization": auth}}
+    return acct, payload, accepted
+
+
+def test_precheck_catches_structural_problems():
+    from services.connectors import precheck_payment_payload
+    _, payload, requirements = _build_signed_payload()
+    reqs = dict(requirements)  # independent copy — precheck must compare
+    # Clean payload -> no problems
+    assert precheck_payment_payload(payload, reqs) == []
+    # Underpayment -> caught
+    payload["accepted"]["amount"] = "1"
+    payload["payload"]["authorization"]["value"] = "1"
+    problems = precheck_payment_payload(payload, reqs)
+    assert any("amount below price" in p for p in problems)
+    # Wrong receiver -> caught
+    _, payload2, _ = _build_signed_payload(
+        authorization_overrides={"to": "0x000000000000000000000000000000000000dead"})
+    problems2 = precheck_payment_payload(payload2, reqs)
+    assert any("authorization.to != payTo" in p for p in problems2)
+    # Expired window -> caught
+    _, payload3, _ = _build_signed_payload(
+        authorization_overrides={"validBefore": "1000"})
+    problems3 = precheck_payment_payload(payload3, reqs)
+    assert any("expired" in p for p in problems3)
+
+
+def test_local_recovery_detects_signature_from_mismatch():
+    from services.connectors import _local_recover_signer
+    _, payload, _ = _build_signed_payload(tamper_from=True)
+    recovered, err = _local_recover_signer(payload)
+    # The signature is valid but recovers to the ORIGINAL signer, not the
+    # tampered authorization.from — the mismatch check must catch it.
+    assert recovered is not None
+    assert str(recovered).lower() != "0x000000000000000000000000000000000000dead"
+
+
+def test_verify_rejects_with_precise_reason_not_generic(client, monkeypatch):
+    """401 body must carry the exact rejection reason (PayAPI observability)."""
+    import main
+    from services import connectors
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    monkeypatch.setattr(connectors, "verify_standard_payment",
+                        lambda h, req: (False, "0xABC",
+                                        "payai:invalid_exact_evm_signature"))
+    header = base64.urlsafe_b64encode(b"garbage").decode()
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": header})
+    assert r.status_code == 401
+    body = r.get_json()
+    assert body["error"] == "invalid_standard_payment"
+    assert "payai:invalid_exact_evm_signature" in body["reason"]
+
+
+def test_verify_standard_payment_full_chain_with_fake_facilitator(monkeypatch):
+    """decode → precheck → local EIP-712 → facilitator verify, all wired."""
+    from services import connectors
+    _, payload, accepted = _build_signed_payload()
+    header = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+    def fake_post(base_url, endpoint, body):
+        assert endpoint == "verify"
+        assert body["paymentPayload"]["payload"]["authorization"]["value"] == "5000"
+        return 200, {"isValid": True, "payer": payload["payload"]["authorization"]["from"]}, ""
+
+    monkeypatch.setattr(connectors, "_facilitator_post", fake_post)
+    ok, payer, detail = connectors.verify_standard_payment(header, dict(accepted))
+    assert ok is True
+    assert detail.startswith("verified_by_")
+    assert payer == payload["payload"]["authorization"]["from"]
 
 
 def test_l402_challenge_parser():
