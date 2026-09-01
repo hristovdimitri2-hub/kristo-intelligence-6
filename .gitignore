@@ -49,3 +49,5 @@ tests/test_results.json
 *.log
 *.tmp
 *.bak
+
+secrets/
