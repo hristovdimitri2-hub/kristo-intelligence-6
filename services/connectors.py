@@ -403,7 +403,16 @@ def _cdp_jwt(host: str):
             label = m.group(1)
             b64_payload = _re.sub(r"\s+", "", m.group(2))
             try:
-                der = _b64.b64decode(b64_payload, validate=True)
+                # PEM base64 has '=' padding ONLY at the very end — truncate
+                # anything after the first '=' (handles paste junk appended
+                # to the secret), then re-pad to a multiple of 4.
+                first_pad = b64_payload.find("=")
+                if first_pad != -1:
+                    b64_payload = b64_payload[:first_pad]
+                core = b64_payload.rstrip("=")
+                der = _b64.b64decode(
+                    core + "=" * ((-len(core)) % 4)
+                )
             except Exception as e:
                 return None, (
                     f"CDP_API_KEY_SECRET base64 payload is not decodable: "
