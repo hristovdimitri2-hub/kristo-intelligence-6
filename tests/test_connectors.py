@@ -399,6 +399,13 @@ def test_cdp_jwt_supports_pem_and_legacy_secret(monkeypatch):
     assert token_esc and token_esc.count(".") == 2, \
         "PEM with literal \\n escapes must build a JWT"
 
+    # WORST CASE (the live failure from canary 3): newlines flattened to
+    # spaces -> one long line with '=' padding mid-line.
+    monkeypatch.setenv("CDP_API_KEY_SECRET", pem.replace("\n", " "))
+    token_flat, detail_flat = _cdp_jwt("api.cdp.coinbase.com")
+    assert token_flat and token_flat.count(".") == 2, \
+        f"single-line PEM must build a JWT, got: {detail_flat}"
+
     monkeypatch.setenv("CDP_API_KEY_SECRET", legacy_b64)
     token2, _ = _cdp_jwt("api.cdp.coinbase.com")
     assert token2 and token2.count(".") == 2, "legacy secret must also build"

@@ -389,9 +389,33 @@ def _cdp_jwt(host: str):
         secret = secret.strip()
 
         if "-----BEGIN" in secret:
-            priv = serialization.load_pem_private_key(
-                secret.encode(), password=None
-            )
+            # Rebuild a CANONICAL PEM from whatever mangling the env var
+            # suffered (newlines stripped to spaces, single-line paste, etc.):
+            # extract the base64 payload between the markers, remove ALL
+            # whitespace, re-encode as proper 64-char-line DER PEM.
+            import re as _re
+            m = _re.search(r"-----BEGIN ([A-Z ]+)-----(.*?)-----END", secret, _re.S)
+            if not m:
+                return None, (
+                    "CDP_API_KEY_SECRET looks like a PEM but has no "
+                    "BEGIN/END markers we can parse"
+                )
+            label = m.group(1)
+            b64_payload = _re.sub(r"\s+", "", m.group(2))
+            try:
+                der = _b64.b64decode(b64_payload, validate=True)
+            except Exception as e:
+                return None, (
+                    f"CDP_API_KEY_SECRET base64 payload is not decodable: "
+                    f"{type(e).__name__}: {e}"
+                )
+            try:
+                priv = serialization.load_der_private_key(der, password=None)
+            except Exception as e:
+                return None, (
+                    f"CDP_API_KEY_SECRET DER parse failed: "
+                    f"{type(e).__name__}: {e}"
+                )
             if not isinstance(priv, ec.EllipticCurvePrivateKey):
                 return None, (
                     "CDP_API_KEY_SECRET is not an EC private key "
