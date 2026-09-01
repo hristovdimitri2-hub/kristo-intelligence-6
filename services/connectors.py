@@ -70,18 +70,22 @@ def _facilitator_chain():
     return chain
 
 
-def _facilitator_post(base_url: str, endpoint: str, body: dict):
+def _facilitator_post(base_url: str, endpoint: str, body: dict,
+                      token: str | None = None):
     """
     POST JSON to a facilitator; returns (http_status, parsed_dict_or_None,
     raw_text). Logs every attempt and every failure reason clearly — this is
     the observability PayAPI's review asked for.
     """
     url = f"{base_url}/{endpoint}"
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
         method="POST",
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=FACILITATOR_TIMEOUT) as resp:
@@ -219,13 +223,154 @@ def _merged_requirements(payload: dict, requirements: dict) -> dict:
     return merged
 
 
+def _split_signature(signature_hex: str):
+    """
+    Split a 65-byte hex signature into (v, r, s). Handles both v=27/28 and
+    yParity 0/1 encodings. Returns (v:int, r:bytes, s:bytes) or None.
+    """
+    try:
+        raw = signature_hex[2:] if signature_hex.startswith("0x") else signature_hex
+        sig = bytes.fromhex(raw)
+        if len(sig) != 65:
+            return None
+        r, s, v = sig[:32], sig[32:64], sig[64]
+        v = v if v >= 27 else v + 27
+        return v, r, s
+    except (ValueError, TypeError):
+        return None
+
+
+# ERC-20 transferWithAuthorization (EIP-3009) selector on USDC:
+# transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,uint8,bytes32,bytes32)
+_TWA_SELECTOR = "e3ee160b"
+
+
+def _self_broadcast_settlement(payload: dict):
+    """
+    Broadcast the buyer's transferWithAuthorization ourselves — we ARE the
+    facilitator. Our wallet only pays gas; funds flow buyer → receiver and
+    nobody can alter amount or destination (they are signed by the buyer).
+    Requires WALLET_PRIVATE_KEY with a dust of Base ETH for gas (~$0.001
+    per settlement). Returns (tx_hash | None, detail).
+    """
+    key = (os.getenv("WALLET_PRIVATE_KEY") or "").strip()
+    if not key:
+        return None, "self_broadcast: no WALLET_PRIVATE_KEY configured"
+    try:
+        from web3 import Web3
+        from eth_account import Account
+        from eth_abi import encode as abi_encode
+
+        rpc = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+        w3 = Web3(Web3.HTTPProvider(rpc, {"timeout": 20}))
+        if not w3.is_connected():
+            return None, "self_broadcast: RPC not reachable"
+        acct = Account.from_key(key if key.startswith("0x") else "0x" + key)
+
+        inner = payload.get("payload") or {}
+        auth = inner.get("authorization") or {}
+        parts = _split_signature(inner.get("signature", ""))
+        if not parts:
+            return None, "self_broadcast: signature is not a 65-byte hex"
+        v, r, s = parts
+
+        gas_balance = w3.eth.get_balance(acct.address)
+        if gas_balance < 10**12:  # < 0.000001 ETH — cannot pay gas
+            return None, (
+                f"self_broadcast: gas wallet {acct.address} has "
+                f"{gas_balance / 1e18:.8f} ETH — fund with ~0.0002 Base ETH"
+            )
+
+        data = bytes.fromhex(_TWA_SELECTOR) + abi_encode(
+            ["address", "address", "uint256", "uint256", "uint256",
+             "bytes32", "uint8", "bytes32", "bytes32"],
+            [auth["from"], auth["to"], int(auth["value"]),
+             int(auth["validAfter"]), int(auth["validBefore"]),
+             bytes.fromhex(auth["nonce"][2:] if auth["nonce"].startswith("0x")
+                           else auth["nonce"]),
+             v, r, s],
+        )
+        tx = {
+            "from": acct.address,
+            "to": Web3.to_checksum_address(os.getenv(
+                "BASE_USDC_CONTRACT",
+                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
+            "data": data,
+            "nonce": w3.eth.get_transaction_count(acct.address),
+            "chainId": 8453,
+            "maxFeePerGas": w3.eth.gas_price * 2,
+            "maxPriorityFeePerGas": w3.to_wei(0.001, "gwei"),
+            "gas": 120000,
+        }
+        signed = acct.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        hex_tx = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+        log.info("self-broadcast settlement sent: tx=%s broadcaster=%s",
+                 hex_tx, acct.address)
+        return hex_tx, "settled_self_broadcast"
+    except Exception as e:
+        log.warning("self-broadcast settlement failed: %s: %s",
+                    type(e).__name__, e)
+        return None, f"self_broadcast_error: {type(e).__name__}: {e}"
+
+
+def _cdp_jwt(host: str):
+    """
+    Build a Coinbase CDP JWT (ES256) when CDP_API_KEY_ID + CDP_API_KEY_SECRET
+    are configured. Returns the bearer token or None (with a clear log).
+    """
+    key_id = (os.getenv("CDP_API_KEY_ID") or
+              os.getenv("X402_FACILITATOR_API_KEY_ID") or "").strip()
+    secret = (os.getenv("CDP_API_KEY_SECRET") or
+              os.getenv("X402_FACILITATOR_API_KEY_SECRET") or "").strip()
+    if not key_id or not secret:
+        return None
+    try:
+        import base64 as _b64
+        import uuid
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            decode_dss_signature,
+        )
+
+        priv = ec.derive_private_key(
+            int.from_bytes(_b64.b64decode(secret), "big"), ec.SECP256R1()
+        )
+        header = {"alg": "ES256", "kid": key_id, "nonce": str(uuid.uuid4())}
+        now = int(time.time())
+        claims = {"sub": key_id, "iss": "cdp", "aud": [host],
+                  "nbf": now, "exp": now + 120, "iat": now}
+
+        def b64(obj):
+            return _b64.urlsafe_b64encode(
+                obj if isinstance(obj, bytes) else json.dumps(obj).encode()
+            ).rstrip(b"=")
+
+        inp = b64(header) + b"." + b64(claims)
+        der_sig = priv.sign(inp, ec.ECDSA(hashes.SHA256()))
+        r, s = decode_dss_signature(der_sig)
+        jwt_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        return (inp + b"." + b64(jwt_sig)).decode()
+    except Exception as e:
+        log.warning("CDP JWT build failed: %s: %s", type(e).__name__, e)
+        return None
+
+
 def verify_standard_payment(payment_header, requirements: dict):
     """
     Verify a STANDARD x402 payment (PAYMENT-SIGNATURE / X-PAYMENT, EIP-3009).
 
-    Layers: decode → structural pre-check → local EIP-712 recovery →
-    facilitator chain. Returns (ok: bool, payer: str | None, detail: str)
-    where detail is ALWAYS precise enough to debug a rejection.
+    Verification is LOCAL and canonical (no third party involved):
+      1. decode → structural pre-check (amount, receiver, asset, window)
+      2. EIP-712 recovery over the Base USDC domain (USD Coin / v2) — the
+         signature must recover exactly to authorization.from
+
+    This is cryptographically complete. Settlement (the actual on-chain
+    transfer) is a separate concern — see settle_standard_payment.
+
+    Returns (ok: bool, payer: str | None, detail: str) where detail is
+    ALWAYS precise enough to debug a rejection.
     """
     payload = decode_payment_payload(payment_header)
     if not isinstance(payload, dict):
@@ -255,50 +400,45 @@ def verify_standard_payment(payment_header, requirements: dict):
         )
         log.warning("standard x402 signature mismatch: %s", detail)
         return False, recovered, detail
-    log.info("standard x402 local verification OK: payer=%s", recovered)
 
-    payment_requirements = _merged_requirements(payload, requirements)
-    last_detail = "no_facilitator_attempted"
-    for name, base_url in _facilitator_chain():
-        body = {
-            "x402Version": 2,
-            "paymentHeader": payment_header
-            if isinstance(payment_header, str) else None,
-            "paymentPayload": payload,
-            "paymentRequirements": payment_requirements,
-        }
-        status, resp, _raw = _facilitator_post(base_url, "verify", body)
-        if not isinstance(resp, dict):
-            last_detail = f"{name}_unreachable(status={status})"
-            continue  # transport/auth problem → try next facilitator
-        if resp.get("isValid") is True:
-            touch("x402-eip3009")
-            payer = resp.get("payer") or recovered
-            log.info("standard x402 verified via %s: payer=%s", name, payer)
-            return True, payer, f"verified_by_{name}"
-        # Structured rejection — authoritative, do not retry elsewhere.
-        touch("x402-eip3009")
-        reason = resp.get("invalidReason", "invalid_payment")
-        msg = resp.get("invalidMessage", "")
-        detail = f"{name}:{reason}" + (f" ({msg})" if msg else "")
-        log.warning("standard x402 rejected by %s: payer=%s reason=%s",
-                    name, resp.get("payer"), detail)
-        return False, resp.get("payer") or recovered, detail
-    log.warning("standard x402 verify: all facilitators unreachable (%s)",
-                last_detail)
-    return False, recovered, last_detail
+    touch("x402-eip3009")
+    log.info("standard x402 locally verified: payer=%s (canonical EIP-712, "
+             "no facilitator needed for verification)", recovered)
+    return True, recovered, "verified_locally"
 
 
 def settle_standard_payment(payment_header, requirements: dict):
     """
-    Settle a verified standard x402 payment through the facilitator chain.
-    The facilitator broadcasts the transferWithAuthorization on-chain (it
-    pays the gas) and returns the tx hash. Returns (tx_hash | None, detail).
+    Settle a locally-verified standard x402 payment ON-CHAIN.
+
+    Chain (first that settles wins):
+      1. self-broadcast — our wallet pays gas (~$0.001/settlement); funds
+         flow buyer → receiver exactly as the buyer signed. No third party.
+      2. Coinbase CDP facilitator — when CDP_API_KEY_ID/SECRET are set.
+      3. PayAI public facilitator — fallback (v1-era; noisy on some v2
+         payloads, so it goes last).
+
+    Returns (tx_hash | None, detail).
     """
     payload = decode_payment_payload(payment_header)
     payment_requirements = _merged_requirements(payload, requirements)
-    last_detail = "no_facilitator_attempted"
+
+    # 1) Self-broadcast: we are the facilitator.
+    tx_hash, detail = _self_broadcast_settlement(payload or {})
+    if tx_hash:
+        touch("base-usdc-receiver")
+        touch("x402-eip3009")
+        return tx_hash, detail
+    last_detail = detail
+
+    # 2) + 3) Facilitator chain.
     for name, base_url in _facilitator_chain():
+        token = None
+        if name == "cdp":
+            token = _cdp_jwt("api.cdp.coinbase.com")
+            if not token:
+                last_detail = "cdp: no CDP_API_KEY_ID/CDP_API_KEY_SECRET set"
+                continue
         body = {
             "x402Version": 2,
             "paymentHeader": payment_header
@@ -306,7 +446,8 @@ def settle_standard_payment(payment_header, requirements: dict):
             "paymentPayload": payload,
             "paymentRequirements": payment_requirements,
         }
-        status, resp, _raw = _facilitator_post(base_url, "settle", body)
+        status, resp, _raw = _facilitator_post(base_url, "settle", body,
+                                               token=token)
         if not isinstance(resp, dict):
             last_detail = f"{name}_unreachable(status={status})"
             continue
@@ -317,9 +458,9 @@ def settle_standard_payment(payment_header, requirements: dict):
             return resp["transaction"], "settled"
         reason = resp.get("errorReason",
                           resp.get("invalidReason", "settle_failed"))
-        detail = f"{name}:{reason}"
-        log.warning("standard x402 settle failed via %s: %s", name, detail)
-        return None, detail
+        last_detail = f"{name}:{reason}"
+        log.warning("standard x402 settle failed via %s: %s",
+                    name, last_detail)
     return None, last_detail
 
 
@@ -376,11 +517,16 @@ def registry_status(wallet_state: dict) -> list:
         },
         {
             "id": "x402-eip3009",
-            "name": "Standard x402 client rail (X-PAYMENT / EIP-3009)",
-            "protocol": "x402 v2 via facilitator verify+settle",
+            "name": "Standard x402 client rail (PAYMENT-SIGNATURE / EIP-3009)",
+            "protocol": "local EIP-712 verify + self-broadcast settle (CDP/PayAI fallback)",
             "direction": "inbound",
             "status": "active" if FACILITATOR_URL else "inactive",
-            "detail": f"facilitator={FACILITATOR_URL}",
+            "detail": (
+                f"verify=local canonical; settle=self-broadcast "
+                f"(gas={bool(os.getenv('WALLET_PRIVATE_KEY'))}) → "
+                f"CDP (keys={bool(os.getenv('CDP_API_KEY_ID'))}) → "
+                f"payai"
+            ),
         },
         {
             "id": "x402-outbound-buyer",

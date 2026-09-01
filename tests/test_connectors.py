@@ -296,22 +296,73 @@ def test_verify_rejects_with_precise_reason_not_generic(client, monkeypatch):
     assert "payai:invalid_exact_evm_signature" in body["reason"]
 
 
-def test_verify_standard_payment_full_chain_with_fake_facilitator(monkeypatch):
-    """decode → precheck → local EIP-712 → facilitator verify, all wired."""
+def test_verify_standard_payment_is_local_and_canonical(monkeypatch):
+    """Verification is purely local (canonical EIP-712) — no facilitator call."""
     from services import connectors
     _, payload, accepted = _build_signed_payload()
     header = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
-    def fake_post(base_url, endpoint, body):
-        assert endpoint == "verify"
-        assert body["paymentPayload"]["payload"]["authorization"]["value"] == "5000"
-        return 200, {"isValid": True, "payer": payload["payload"]["authorization"]["from"]}, ""
+    def forbidden(*a, **kw):
+        raise AssertionError("facilitator must NOT be needed for verification")
 
-    monkeypatch.setattr(connectors, "_facilitator_post", fake_post)
+    monkeypatch.setattr(connectors, "_facilitator_post", forbidden)
     ok, payer, detail = connectors.verify_standard_payment(header, dict(accepted))
     assert ok is True
-    assert detail.startswith("verified_by_")
+    assert detail == "verified_locally"
     assert payer == payload["payload"]["authorization"]["from"]
+
+
+def test_settle_prefers_self_broadcast(monkeypatch):
+    """Settle chain: self-broadcast first (we are the facilitator)."""
+    from services import connectors
+    _, payload, accepted = _build_signed_payload()
+    header = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "11" * 32)
+
+    def fake_broadcast(p):
+        assert p["payload"]["authorization"]["value"] == "5000"
+        return "0x" + "ff" * 32, "settled_self_broadcast"
+
+    monkeypatch.setattr(connectors, "_self_broadcast_settlement", fake_broadcast)
+
+    def forbidden(*a, **kw):
+        raise AssertionError("facilitator must not be tried after self-broadcast")
+
+    monkeypatch.setattr(connectors, "_facilitator_post", forbidden)
+    tx, detail = connectors.settle_standard_payment(header, dict(accepted))
+    assert tx == "0x" + "ff" * 32
+    assert detail == "settled_self_broadcast"
+
+
+def test_settle_falls_back_to_facilitator_when_no_wallet(monkeypatch):
+    """Without WALLET_PRIVATE_KEY the settle chain falls through to PayAI."""
+    from services import connectors
+    _, payload, accepted = _build_signed_payload()
+    header = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("CDP_API_KEY_ID", raising=False)
+    monkeypatch.delenv("CDP_API_KEY_SECRET", raising=False)
+
+    seen = []
+    def fake_post(base_url, endpoint, body, token=None):
+        seen.append((base_url, endpoint))
+        return 200, {"success": True, "transaction": "0x" + "ab" * 32}, ""
+
+    monkeypatch.setattr(connectors, "_facilitator_post", fake_post)
+    tx, detail = connectors.settle_standard_payment(header, dict(accepted))
+    assert tx == "0x" + "ab" * 32
+    assert any("payai" in u for u, _ in seen) and all(
+        e == "settle" for _, e in seen)
+
+
+def test_split_signature_handles_y_parity():
+    from services.connectors import _split_signature
+    raw = "ab" * 32 + "cd" * 32 + "00"          # v = 0 (yParity)
+    v, r, s = _split_signature("0x" + raw)
+    assert v == 27 and r == bytes.fromhex("ab" * 32) and s == bytes.fromhex("cd" * 32)
+    v2, _, _ = _split_signature("0x" + "ab" * 32 + "cd" * 32 + "1c")  # v = 28
+    assert v2 == 28
+    assert _split_signature("0x1234") is None   # malformed
 
 
 def test_l402_challenge_parser():
