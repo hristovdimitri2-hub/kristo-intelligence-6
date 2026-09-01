@@ -387,13 +387,20 @@ def test_cdp_jwt_supports_pem_and_legacy_secret(monkeypatch):
 
     monkeypatch.setenv("CDP_API_KEY_ID", kid)
     monkeypatch.setenv("CDP_API_KEY_SECRET", pem)
-    token = _cdp_jwt("api.cdp.coinbase.com")
+    token, detail = _cdp_jwt("api.cdp.coinbase.com")
     assert token and token.count(".") == 2, "PEM secret must build a JWT"
+    assert detail == "ok"
     hdr = json.loads(base64.urlsafe_b64decode(token.split(".")[0] + "=="))
     assert hdr["alg"] == "ES256" and hdr["kid"] == kid
 
+    # Render paste artifact: literal \n escapes must be normalized.
+    monkeypatch.setenv("CDP_API_KEY_SECRET", pem.replace("\n", "\\n"))
+    token_esc, detail_esc = _cdp_jwt("api.cdp.coinbase.com")
+    assert token_esc and token_esc.count(".") == 2, \
+        "PEM with literal \\n escapes must build a JWT"
+
     monkeypatch.setenv("CDP_API_KEY_SECRET", legacy_b64)
-    token2 = _cdp_jwt("api.cdp.coinbase.com")
+    token2, _ = _cdp_jwt("api.cdp.coinbase.com")
     assert token2 and token2.count(".") == 2, "legacy secret must also build"
 
 
@@ -406,7 +413,8 @@ def test_cdp_jwt_rejects_wrong_curve_and_missing(monkeypatch):
     # No credentials -> None (chain skips CDP gracefully)
     monkeypatch.delenv("CDP_API_KEY_ID", raising=False)
     monkeypatch.delenv("CDP_API_KEY_SECRET", raising=False)
-    assert _cdp_jwt("api.cdp.coinbase.com") is None
+    token, detail = _cdp_jwt("api.cdp.coinbase.com")
+    assert token is None and "missing env" in detail
 
     # Wrong curve (secp256k1) -> None with clear skip
     k1 = ec.generate_private_key(ec.SECP256K1())
@@ -417,7 +425,8 @@ def test_cdp_jwt_rejects_wrong_curve_and_missing(monkeypatch):
     ).decode()
     monkeypatch.setenv("CDP_API_KEY_ID", "organizations/x/apiKeys/y")
     monkeypatch.setenv("CDP_API_KEY_SECRET", pem_k1)
-    assert _cdp_jwt("api.cdp.coinbase.com") is None
+    token2, detail2 = _cdp_jwt("api.cdp.coinbase.com")
+    assert token2 is None and "curve is secp256k1" in detail2
 
 
 def test_l402_challenge_parser():

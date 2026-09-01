@@ -356,14 +356,22 @@ def _cdp_jwt(host: str):
     are configured. Supports BOTH CDP secret formats:
       - PEM EC private key ("-----BEGIN EC PRIVATE KEY-----") — current portal
       - legacy base64-encoded raw 32-byte key
-    Returns the bearer token or None (with a clear log).
+    Handles Render-style pasting artifacts: literal "\\n" escapes in the PEM,
+    surrounding quotes and whitespace.
+    Returns (token | None, detail) where detail explains a failure precisely
+    (missing keys vs unparseable PEM vs wrong curve).
     """
     key_id = (os.getenv("CDP_API_KEY_ID") or
               os.getenv("X402_FACILITATOR_API_KEY_ID") or "").strip()
     secret = (os.getenv("CDP_API_KEY_SECRET") or
               os.getenv("X402_FACILITATOR_API_KEY_SECRET") or "").strip()
     if not key_id or not secret:
-        return None
+        missing = []
+        if not key_id:
+            missing.append("CDP_API_KEY_ID")
+        if not secret:
+            missing.append("CDP_API_KEY_SECRET")
+        return None, f"missing env: {', '.join(missing)}"
     try:
         import base64 as _b64
         import uuid
@@ -373,18 +381,28 @@ def _cdp_jwt(host: str):
             decode_dss_signature,
         )
 
+        # Normalize common paste artifacts before parsing.
+        if secret.startswith('"') and secret.endswith('"'):
+            secret = secret[1:-1]
+        if "\\n" in secret:
+            secret = secret.replace("\\n", "\n")
+        secret = secret.strip()
+
         if "-----BEGIN" in secret:
             priv = serialization.load_pem_private_key(
                 secret.encode(), password=None
             )
             if not isinstance(priv, ec.EllipticCurvePrivateKey):
-                log.warning("CDP_API_KEY_SECRET is not an EC private key")
-                return None
+                return None, (
+                    "CDP_API_KEY_SECRET is not an EC private key "
+                    f"(got {type(priv).__name__})"
+                )
             if priv.curve.name != "secp256r1":
-                log.warning(
-                    "CDP_API_KEY_SECRET curve is %s — ES256 requires "
-                    "secp256r1 (P-256)", priv.curve.name)
-                return None
+                return None, (
+                    f"CDP_API_KEY_SECRET curve is {priv.curve.name} — ES256 "
+                    f"requires secp256r1 (P-256); create an EC (not Ed25519) "
+                    f"key in the CDP portal"
+                )
         else:
             priv = ec.derive_private_key(
                 int.from_bytes(_b64.b64decode(secret), "big"), ec.SECP256R1()
@@ -406,10 +424,11 @@ def _cdp_jwt(host: str):
         token = (inp + b"." + b64(jwt_sig)).decode()
         log.info("CDP JWT built successfully (kid=%s…, PEM=%s)",
                  key_id[:24], "-----BEGIN" in secret)
-        return token
+        return token, "ok"
     except Exception as e:
-        log.warning("CDP JWT build failed: %s: %s", type(e).__name__, e)
-        return None
+        detail = f"jwt_build_failed: {type(e).__name__}: {e}"
+        log.warning("CDP JWT build failed: %s", detail)
+        return None, detail
 
 
 def verify_standard_payment(payment_header, requirements: dict):
@@ -490,9 +509,9 @@ def settle_standard_payment(payment_header, requirements: dict):
     for name, base_url in _facilitator_chain():
         token = None
         if name == "cdp":
-            token = _cdp_jwt("api.cdp.coinbase.com")
+            token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com")
             if not token:
-                last_detail = "cdp: no CDP_API_KEY_ID/CDP_API_KEY_SECRET set"
+                last_detail = f"cdp: {cdp_detail}"
                 continue
         body = {
             "x402Version": 2,
@@ -546,6 +565,25 @@ def l402_ready() -> bool:
 
 
 # ── Registry status (consumed by /api/connectors + dashboard) ───────────────
+def _eip3009_detail() -> str:
+    """
+    Live health of the standard rail: checks the CDP JWT build for real
+    (not just env presence) so a bad PEM shows up HERE instead of failing
+    a canary with a misleading reason.
+    """
+    gas = bool(os.getenv("WALLET_PRIVATE_KEY"))
+    key_id = (os.getenv("CDP_API_KEY_ID") or "").strip()
+    if not key_id:
+        cdp = "keys missing"
+    else:
+        token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com")
+        cdp = "JWT OK" if token else f"JWT FAIL ({cdp_detail})"
+    return (
+        f"verify=local canonical; settle=self-broadcast "
+        f"(gas={gas}) → CDP ({cdp}) → payai"
+    )
+
+
 def registry_status(wallet_state: dict) -> list:
     """Build the live connector list for the dashboard / API."""
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -576,12 +614,7 @@ def registry_status(wallet_state: dict) -> list:
             "protocol": "local EIP-712 verify + self-broadcast settle (CDP/PayAI fallback)",
             "direction": "inbound",
             "status": "active" if FACILITATOR_URL else "inactive",
-            "detail": (
-                f"verify=local canonical; settle=self-broadcast "
-                f"(gas={bool(os.getenv('WALLET_PRIVATE_KEY'))}) → "
-                f"CDP (keys={bool(os.getenv('CDP_API_KEY_ID'))}) → "
-                f"payai"
-            ),
+            "detail": _eip3009_detail(),
         },
         {
             "id": "x402-outbound-buyer",
