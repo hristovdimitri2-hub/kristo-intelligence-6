@@ -418,11 +418,22 @@ def _cdp_jwt(host: str):
                     f"CDP_API_KEY_SECRET base64 payload is not decodable: "
                     f"{type(e).__name__}: {e}"
                 )
+
+            # Double-encoded case (new CDP export): base64(PEM). If the
+            # decoded bytes ARE PEM text, retry with them.
+            if der[:10] == b"-----BEGIN":
+                env_backup = os.environ.get("CDP_API_KEY_SECRET")
+                os.environ["CDP_API_KEY_SECRET"] = der.decode(errors="replace")
+                try:
+                    return _cdp_jwt(host)
+                finally:
+                    os.environ["CDP_API_KEY_SECRET"] = env_backup
             try:
                 priv = serialization.load_der_private_key(der, password=None)
             except Exception as e:
                 return None, (
-                    f"CDP_API_KEY_SECRET DER parse failed: "
+                    f"CDP_API_KEY_SECRET DER parse failed "
+                    f"(len={len(der)}B, not a valid DER EC key): "
                     f"{type(e).__name__}: {e}"
                 )
             if not isinstance(priv, ec.EllipticCurvePrivateKey):
