@@ -275,10 +275,15 @@ def _self_broadcast_settlement(payload: dict):
         v, r, s = parts
 
         gas_balance = w3.eth.get_balance(acct.address)
-        if gas_balance < 10**12:  # < 0.000001 ETH — cannot pay gas
+        gas_price = w3.eth.gas_price
+        max_fee_per_gas = gas_price * 2
+        gas_cap = 120000
+        required_wei = max_fee_per_gas * gas_cap
+        if gas_balance <= required_wei:
             return None, (
                 f"self_broadcast: gas wallet {acct.address} has "
-                f"{gas_balance / 1e18:.8f} ETH — fund with ~0.0002 Base ETH"
+                f"{gas_balance / 1e18:.8f} ETH but one settlement needs up to "
+                f"~{required_wei / 1e18:.8f} ETH — fund it with Base ETH"
             )
 
         data = bytes.fromhex(_TWA_SELECTOR) + abi_encode(
@@ -296,18 +301,49 @@ def _self_broadcast_settlement(payload: dict):
                 "BASE_USDC_CONTRACT",
                 "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
             "data": data,
+            "value": 0,
             "nonce": w3.eth.get_transaction_count(acct.address),
             "chainId": 8453,
-            "maxFeePerGas": w3.eth.gas_price * 2,
+            "maxFeePerGas": max_fee_per_gas,
             "maxPriorityFeePerGas": w3.to_wei(0.001, "gwei"),
-            "gas": 120000,
+            "gas": gas_cap,
         }
         signed = acct.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
         hex_tx = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
         log.info("self-broadcast settlement sent: tx=%s broadcaster=%s",
                  hex_tx, acct.address)
-        return hex_tx, "settled_self_broadcast"
+
+        # Confirm the receipt — a revert means the buyer's USDC did NOT move,
+        # so we must NOT grant the call (this is exactly what a canary checks).
+        deadline = time.time() + 24
+        while time.time() < deadline:
+            try:
+                receipt = w3.eth.get_transaction_receipt(tx_hash)
+                status = receipt.get("status")
+                if status == 1:
+                    block = receipt.get("blockNumber")
+                    log.info("self-broadcast settlement CONFIRMED: tx=%s block=%s",
+                             hex_tx, block)
+                    return hex_tx, "settled_self_broadcast"
+                if status == 0:
+                    log.warning("self-broadcast settlement REVERTED: tx=%s "
+                                "(buyer USDC balance or replay?)", hex_tx)
+                    return None, (
+                        f"self_broadcast_reverted: tx {hex_tx} — the on-chain "
+                        f"transferWithAuthorization failed (insufficient buyer "
+                        f"USDC balance or authorization already used)"
+                    )
+            except Exception:
+                pass  # not yet mined — keep polling
+            time.sleep(2)
+        # Not confirmed within 24s — do NOT grant; the monitor may reconcile
+        # the transfer later, but this request fails closed.
+        return None, (
+            f"self_broadcast_pending: tx {hex_tx} not confirmed within 24s — "
+            f"retry the same PAYMENT-SIGNATURE shortly (one-time-use nonce "
+            f"protects against double settle)"
+        )
     except Exception as e:
         log.warning("self-broadcast settlement failed: %s: %s",
                     type(e).__name__, e)
