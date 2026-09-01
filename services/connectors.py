@@ -353,7 +353,10 @@ def _self_broadcast_settlement(payload: dict):
 def _cdp_jwt(host: str):
     """
     Build a Coinbase CDP JWT (ES256) when CDP_API_KEY_ID + CDP_API_KEY_SECRET
-    are configured. Returns the bearer token or None (with a clear log).
+    are configured. Supports BOTH CDP secret formats:
+      - PEM EC private key ("-----BEGIN EC PRIVATE KEY-----") — current portal
+      - legacy base64-encoded raw 32-byte key
+    Returns the bearer token or None (with a clear log).
     """
     key_id = (os.getenv("CDP_API_KEY_ID") or
               os.getenv("X402_FACILITATOR_API_KEY_ID") or "").strip()
@@ -364,15 +367,28 @@ def _cdp_jwt(host: str):
     try:
         import base64 as _b64
         import uuid
-        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives.asymmetric.utils import (
             decode_dss_signature,
         )
 
-        priv = ec.derive_private_key(
-            int.from_bytes(_b64.b64decode(secret), "big"), ec.SECP256R1()
-        )
+        if "-----BEGIN" in secret:
+            priv = serialization.load_pem_private_key(
+                secret.encode(), password=None
+            )
+            if not isinstance(priv, ec.EllipticCurvePrivateKey):
+                log.warning("CDP_API_KEY_SECRET is not an EC private key")
+                return None
+            if priv.curve.name != "secp256r1":
+                log.warning(
+                    "CDP_API_KEY_SECRET curve is %s — ES256 requires "
+                    "secp256r1 (P-256)", priv.curve.name)
+                return None
+        else:
+            priv = ec.derive_private_key(
+                int.from_bytes(_b64.b64decode(secret), "big"), ec.SECP256R1()
+            )
         header = {"alg": "ES256", "kid": key_id, "nonce": str(uuid.uuid4())}
         now = int(time.time())
         claims = {"sub": key_id, "iss": "cdp", "aud": [host],
@@ -387,7 +403,10 @@ def _cdp_jwt(host: str):
         der_sig = priv.sign(inp, ec.ECDSA(hashes.SHA256()))
         r, s = decode_dss_signature(der_sig)
         jwt_sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
-        return (inp + b"." + b64(jwt_sig)).decode()
+        token = (inp + b"." + b64(jwt_sig)).decode()
+        log.info("CDP JWT built successfully (kid=%s…, PEM=%s)",
+                 key_id[:24], "-----BEGIN" in secret)
+        return token
     except Exception as e:
         log.warning("CDP JWT build failed: %s: %s", type(e).__name__, e)
         return None

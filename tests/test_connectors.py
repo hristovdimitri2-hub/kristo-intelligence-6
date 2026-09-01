@@ -365,6 +365,61 @@ def test_split_signature_handles_y_parity():
     assert _split_signature("0x1234") is None   # malformed
 
 
+def test_cdp_jwt_supports_pem_and_legacy_secret(monkeypatch):
+    """CDP JWT must build from BOTH portal formats (PEM and legacy base64)."""
+    from services.connectors import _cdp_jwt
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    import base64 as _b64
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ).decode()
+    legacy_b64 = _b64.b64encode(
+        key.private_numbers().private_value.to_bytes(32, "big")
+    ).decode()
+
+    kid = "organizations/3dc43ce6-05e8-4cb4-b9ad-cafcfd155082/apiKeys/53a0d0e5-c35a-4a5b-a0c5-ddb14205659c"
+
+    monkeypatch.setenv("CDP_API_KEY_ID", kid)
+    monkeypatch.setenv("CDP_API_KEY_SECRET", pem)
+    token = _cdp_jwt("api.cdp.coinbase.com")
+    assert token and token.count(".") == 2, "PEM secret must build a JWT"
+    hdr = json.loads(base64.urlsafe_b64decode(token.split(".")[0] + "=="))
+    assert hdr["alg"] == "ES256" and hdr["kid"] == kid
+
+    monkeypatch.setenv("CDP_API_KEY_SECRET", legacy_b64)
+    token2 = _cdp_jwt("api.cdp.coinbase.com")
+    assert token2 and token2.count(".") == 2, "legacy secret must also build"
+
+
+def test_cdp_jwt_rejects_wrong_curve_and_missing(monkeypatch):
+    from services.connectors import _cdp_jwt
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization
+
+    # No credentials -> None (chain skips CDP gracefully)
+    monkeypatch.delenv("CDP_API_KEY_ID", raising=False)
+    monkeypatch.delenv("CDP_API_KEY_SECRET", raising=False)
+    assert _cdp_jwt("api.cdp.coinbase.com") is None
+
+    # Wrong curve (secp256k1) -> None with clear skip
+    k1 = ec.generate_private_key(ec.SECP256K1())
+    pem_k1 = k1.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ).decode()
+    monkeypatch.setenv("CDP_API_KEY_ID", "organizations/x/apiKeys/y")
+    monkeypatch.setenv("CDP_API_KEY_SECRET", pem_k1)
+    assert _cdp_jwt("api.cdp.coinbase.com") is None
+
+
 def test_l402_challenge_parser():
     from services.connectors import l402_parse_challenge, l402_ready
     ch = l402_parse_challenge(
