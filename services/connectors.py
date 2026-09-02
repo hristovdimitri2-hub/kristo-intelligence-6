@@ -26,6 +26,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+from config import get_base_fee_receiver
+
 log = logging.getLogger(__name__)
 
 # ── Activity ledger (in-memory, per-process) ────────────────────────────────
@@ -350,10 +352,19 @@ def _self_broadcast_settlement(payload: dict):
         return None, f"self_broadcast_error: {type(e).__name__}: {e}"
 
 
-def _cdp_jwt(host: str):
+def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
+             method: str = "POST"):
     """
-    Build a Coinbase CDP JWT (ES256) when CDP_API_KEY_ID + CDP_API_KEY_SECRET
-    are configured. Supports BOTH CDP secret formats:
+    Build a CDP Platform JWT for the x402 facilitator endpoints.
+
+    Claims format VERIFIED against the live CDP gateway (2026-09-01, HTTP 400
+    = auth accepted) using the official cdp-sdk as ground truth:
+      header : {alg: ES256, kid: <KEY_ID>, nonce, typ: JWT}
+      claims : {sub: <KEY_ID>, iss: 'cdp', nbf, exp,
+                uris: ['<METHOD> <host><path>']}
+    NOTE: 'aud' and 'iat' are NOT part of CDP's accepted claims — including
+    them caused silent 401s. 'uris' (method + host + path, no scheme) is
+    the auth discriminator. Supports BOTH CDP secret formats:
       - PEM EC private key ("-----BEGIN EC PRIVATE KEY-----") — current portal
       - legacy base64-encoded raw 32-byte key
     Handles Render-style pasting artifacts: literal "\\n" escapes in the PEM,
@@ -425,7 +436,7 @@ def _cdp_jwt(host: str):
                 env_backup = os.environ.get("CDP_API_KEY_SECRET")
                 os.environ["CDP_API_KEY_SECRET"] = der.decode(errors="replace")
                 try:
-                    return _cdp_jwt(host)
+                    return _cdp_jwt(host, path, method)
                 finally:
                     os.environ["CDP_API_KEY_SECRET"] = env_backup
             try:
@@ -453,8 +464,9 @@ def _cdp_jwt(host: str):
             )
         header = {"alg": "ES256", "kid": key_id, "nonce": str(uuid.uuid4())}
         now = int(time.time())
-        claims = {"sub": key_id, "iss": "cdp", "aud": [host],
-                  "nbf": now, "exp": now + 120, "iat": now}
+        claims = {"sub": key_id, "iss": "cdp",
+                  "nbf": now, "exp": now + 120,
+                  "uris": [f"{method} {host}{path}"]}
 
         def b64(obj):
             return _b64.urlsafe_b64encode(
@@ -473,6 +485,117 @@ def _cdp_jwt(host: str):
         detail = f"jwt_build_failed: {type(e).__name__}: {e}"
         log.warning("CDP JWT build failed: %s", detail)
         return None, detail
+
+
+def _local_verify_transaction_payload(pl: dict, requirements: dict):
+    """
+    Verify a v2 transaction-shape payload (newest x402 v2 'exact' scheme):
+      payload: {transaction: <signed raw tx hex>, from: <buyer address>}
+    The client signs a full USDC.transfer(payTo, amount) transaction; the
+    facilitator broadcasts it. Checks:
+      1. signature recovers to 'from'
+      2. chainId == Base (8453)
+      3. tx.to == USDC contract
+      4. tx.data == transfer(receiver, amount >= price)
+    Returns (ok, payer, detail).
+    """
+    from eth_account import Account
+    from eth_utils import keccak as _keccak
+
+    inner = pl.get("payload") or {}
+    raw_tx = inner.get("transaction")
+    declared_from = inner.get("from") or pl.get("from")
+    if not raw_tx or not declared_from:
+        return False, None, "transaction payload missing 'transaction'/'from'"
+    raw_hex = raw_tx[2:] if raw_tx.startswith("0x") else raw_tx
+    try:
+        signer = Account.recover_transaction("0x" + raw_hex)
+    except Exception as e:
+        return False, declared_from or None, f"tx_recovery_failed: {e}"
+    if str(signer).lower() != str(declared_from).lower():
+        return False, signer, f"tx signer {signer} != declared from {declared_from}"
+    try:
+        from eth_account.typed_transactions.typed_transaction import (
+            TypedTransaction,
+        )
+        from hexbytes import HexBytes
+        raw_bytes = bytes.fromhex(raw_hex)
+        tt = TypedTransaction.from_bytes(HexBytes(raw_bytes))
+        as_dict = tt.as_dict()
+        tx_to = as_dict.get("to")
+        tx_data = as_dict.get("data") or b""
+        chain_id = as_dict.get("chainId") or as_dict.get("chain_id")
+    except Exception as e:
+        return False, signer, f"tx_decode_failed: {e}"
+    if chain_id and int(chain_id) != 8453:
+        return False, signer, f"tx chainId {chain_id} != Base 8453"
+    to_s = ("0x" + tx_to.hex()) if isinstance(tx_to, (bytes, bytearray)) else str(tx_to)
+    usdc = (os.getenv("BASE_USDC_CONTRACT",
+                      "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")).lower()
+    if str(to_s).lower() != usdc:
+        return False, signer, f"tx.to {to_s} is not the USDC contract"
+    data_hex = tx_data.hex() if isinstance(tx_data, (bytes, bytearray)) else str(tx_data)
+    if data_hex.startswith("0x"):
+        data_hex = data_hex[2:]
+    receiver = (requirements.get("payTo") or requirements.get("receiver")
+                or get_base_fee_receiver()).lower().replace("0x", "")
+    selector = _keccak(text="transfer(address,uint256)")[:4].hex()
+    expected_prefix = selector + receiver.rjust(64, "0")
+    if not data_hex.startswith(expected_prefix):
+        return False, signer, (
+            f"tx.data is not transfer({receiver}, …) — got {data_hex[:74]}…"
+        )
+    try:
+        tx_amount = int(data_hex[72:136], 16)
+    except ValueError:
+        return False, signer, "tx amount not parseable"
+    price_src = (requirements.get("amount")
+                 or requirements.get("maxAmountRequired") or "0")
+    try:
+        price_atomic = int(str(price_src))
+    except ValueError:
+        price_atomic = int(float(price_src) * 1_000_000)
+    if tx_amount < price_atomic:
+        return False, signer, (f"tx amount {amount_usd_repr(tx_amount)} below "
+                               f"price {amount_usd_repr(price_atomic)}")
+    log.info("standard x402 tx-payload verified: buyer=%s amount=%s atomic",
+             signer, tx_amount)
+    return True, signer, "verified_transaction_payload"
+
+
+def amount_usd_repr(atomic: int) -> str:
+    return f"{atomic} atomic ({atomic / 1_000_000:.6f} USDC)"
+
+
+def _broadcast_client_transaction(raw_tx_hex: str):
+    """Broadcast the CLIENT's signed transfer tx (buyer pays gas).
+    Returns (tx_hash | None, detail). Fail-closed on revert/timeout."""
+    from web3 import Web3
+    w3 = Web3(Web3.HTTPProvider(
+        os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
+        request_kwargs={"timeout": 30}))
+    if not w3.is_connected():
+        return None, "client_tx_broadcast_failed: RPC unreachable"
+    raw = bytes.fromhex(raw_tx_hex[2:] if raw_tx_hex.startswith("0x") else raw_tx_hex)
+    try:
+        tx_hash = w3.eth.send_raw_transaction(raw)
+    except Exception as e:
+        return None, f"client_tx_broadcast_failed: {type(e).__name__}: {e}"
+    hex_tx = tx_hash.hex() if isinstance(tx_hash, (bytes, bytearray)) else str(tx_hash)
+    deadline = time.time() + 24
+    while time.time() < deadline:
+        try:
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+            status = receipt.get("status")
+            if status == 1:
+                return hex_tx, "settled"
+            return None, (f"client_tx_reverted: tx {hex_tx} status=0 — "
+                          f"buyer wallet likely lacks Base ETH for gas")
+        except Exception:
+            pass
+        time.sleep(2)
+    return None, (f"client_tx_pending: tx {hex_tx} not confirmed within 24s — "
+                  f"retry the same PAYMENT-SIGNATURE shortly")
 
 
 def verify_standard_payment(payment_header, requirements: dict):
@@ -494,6 +617,14 @@ def verify_standard_payment(payment_header, requirements: dict):
     if not isinstance(payload, dict):
         touch("x402-eip3009")
         return False, None, "payload_undecodable"
+
+    # Shape detection: newest v2 'exact' scheme carries a signed TRANSACTION
+    # ({payload: {transaction, from}}) instead of EIP-3009 authorization.
+    inner_pl = payload.get("payload") or {}
+    if isinstance(inner_pl, dict) and "transaction" in inner_pl:
+        ok, payer, detail = _local_verify_transaction_payload(payload, requirements)
+        touch("x402-eip3009")
+        return ok, payer, detail
 
     problems = precheck_payment_payload(payload, requirements)
     if problems:
@@ -541,6 +672,34 @@ def settle_standard_payment(payment_header, requirements: dict):
     payload = decode_payment_payload(payment_header)
     payment_requirements = _merged_requirements(payload, requirements)
 
+    # Shape detection: transaction-shape → broadcast the CLIENT's signed tx
+    inner_pl = (payload or {}).get("payload") or {}
+    if isinstance(inner_pl, dict) and "transaction" in inner_pl:
+        tx_hash, detail = _broadcast_client_transaction(inner_pl["transaction"])
+        if tx_hash:
+            touch("base-usdc-receiver")
+            touch("x402-eip3009")
+            return tx_hash, detail
+        last_detail = detail
+        # CDP fallback: pass the v2 transaction payload through untouched.
+        token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
+                                     "/platform/v2/x402/settle")
+        if token:
+            body = {"x402Version": 2,
+                    "paymentPayload": payload,
+                    "paymentRequirements": payment_requirements}
+            status, resp, _raw = _facilitator_post(
+                "https://api.cdp.coinbase.com/platform/v2/x402", "settle",
+                body, token=token)
+            if isinstance(resp, dict) and resp.get("success") is True \
+                    and resp.get("transaction"):
+                touch("base-usdc-receiver")
+                touch("x402-eip3009")
+                return resp["transaction"], "settled"
+            reason = (resp or {}).get("errorReason", f"cdp_settle(status={status})")
+            last_detail = f"cdp:{reason}"
+        return None, last_detail
+
     # 1) Self-broadcast: we are the facilitator.
     tx_hash, detail = _self_broadcast_settlement(payload or {})
     if tx_hash:
@@ -553,17 +712,18 @@ def settle_standard_payment(payment_header, requirements: dict):
     for name, base_url in _facilitator_chain():
         token = None
         if name == "cdp":
-            token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com")
+            token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
+                                         "/platform/v2/x402/settle")
             if not token:
                 last_detail = f"cdp: {cdp_detail}"
                 continue
-        body = {
-            "x402Version": 2,
-            "paymentHeader": payment_header
-            if isinstance(payment_header, str) else None,
-            "paymentPayload": payload,
-            "paymentRequirements": payment_requirements,
-        }
+        body = {"x402Version": 2,
+                "paymentPayload": payload,
+                "paymentRequirements": payment_requirements}
+        if name != "cdp":
+            # legacy facilitators (PayAI) also accept the raw header field
+            body["paymentHeader"] = (payment_header
+                                     if isinstance(payment_header, str) else None)
         status, resp, _raw = _facilitator_post(base_url, "settle", body,
                                                token=token)
         if not isinstance(resp, dict):
@@ -620,7 +780,8 @@ def _eip3009_detail() -> str:
     if not key_id:
         cdp = "keys missing"
     else:
-        token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com")
+        token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
+                                     "/platform/v2/x402/verify")
         cdp = "JWT OK" if token else f"JWT FAIL ({cdp_detail})"
     return (
         f"verify=local canonical; settle=self-broadcast "

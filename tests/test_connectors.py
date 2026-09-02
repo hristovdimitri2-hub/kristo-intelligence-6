@@ -452,3 +452,70 @@ def test_l402_challenge_parser():
     assert l402_parse_challenge("Basic realm=x") is None
     assert l402_parse_challenge("") is None
     assert l402_ready() is False  # no LND credentials in test env
+
+# ── v2 transaction-shape payloads (newest x402 v2 'exact' scheme) ──────────
+import base64 as _b64
+import json as _json
+
+USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+
+def _make_signed_transfer_tx(receiver, amount_atomic, key_hex, to_usdc=True):
+    from eth_account import Account
+    from eth_utils import keccak
+    acct = Account.from_key(key_hex)
+    data = "0x" + keccak(text="transfer(address,uint256)")[:4].hex() \
+        + receiver.lower().replace("0x", "").rjust(64, "0") \
+        + hex(amount_atomic)[2:].zfill(64)
+    to = USDC_CONTRACT if to_usdc else "0x" + "ee" * 20
+    tx = {"to": to, "data": data, "chainId": 8453, "gas": 100_000,
+          "maxFeePerGas": 1_000_000_000, "maxPriorityFeePerGas": 100_000_000,
+          "nonce": 0, "type": 2}
+    signed = acct.sign_transaction(tx)
+    return signed.raw_transaction.hex(), acct.address
+
+
+def test_transaction_shape_verify_ok():
+    from services.connectors import verify_standard_payment
+    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    raw, addr = _make_signed_transfer_tx(receiver, 5000, "0x" + "31" * 32)
+    header = _b64.urlsafe_b64encode(_json.dumps({
+        "x402Version": 2, "scheme": "exact", "network": "eip155:8453",
+        "payload": {"transaction": raw, "from": addr},
+    }).encode()).decode().rstrip("=")
+    ok, payer, detail = verify_standard_payment(header, {
+        "payTo": receiver, "amount": "5000", "asset": USDC_CONTRACT,
+    })
+    assert ok is True
+    assert payer and payer.lower() == addr.lower()
+    assert detail == "verified_transaction_payload"
+
+
+def test_transaction_shape_wrong_recipient_rejected():
+    from services.connectors import verify_standard_payment
+    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    raw, addr = _make_signed_transfer_tx("0x" + "99" * 20, 5000, "0x" + "32" * 32)
+    header = _b64.urlsafe_b64encode(_json.dumps({
+        "x402Version": 2, "scheme": "exact", "network": "eip155:8453",
+        "payload": {"transaction": raw, "from": addr},
+    }).encode()).decode().rstrip("=")
+    ok, payer, detail = verify_standard_payment(header, {
+        "payTo": receiver, "amount": "5000", "asset": USDC_CONTRACT,
+    })
+    assert ok is False
+    assert "tx.data is not transfer" in detail
+
+
+def test_transaction_shape_underpayment_rejected():
+    from services.connectors import verify_standard_payment
+    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    raw, addr = _make_signed_transfer_tx(receiver, 1, "0x" + "33" * 32)
+    header = _b64.urlsafe_b64encode(_json.dumps({
+        "x402Version": 2, "scheme": "exact", "network": "eip155:8453",
+        "payload": {"transaction": raw, "from": addr},
+    }).encode()).decode().rstrip("=")
+    ok, payer, detail = verify_standard_payment(header, {
+        "payTo": receiver, "amount": "5000", "asset": USDC_CONTRACT,
+    })
+    assert ok is False
+    assert "below price" in detail
