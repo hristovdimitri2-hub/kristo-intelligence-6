@@ -4,6 +4,8 @@
 - Reviewer fixes shipped: `price_usd` was always null (publish layer read `d["price"]` instead of `d["price_usd"]`) and signals carried no `reasoning` (note only repeated the price)
 - NEW: `TradingAgent.evaluate()` emits one-line `reasoning` per decision (narrative driver + live-data state + first risk flag); publish layer factored into `main._publish_agent_signals()` (numeric `price_usd`, `reasoning`, sorted by confidence) — 130/130 tests (3 new in tests/test_signal_route.py)
 - Next: deploy to Render, reply to Chet (draft ready), confirm he re-runs the canary; x402scan re-index of /api/v1/signal still pending
+- Ops complete (02.09): Render API keys ROTATED (old chat-exposed keys deleted; new key in secrets/render_api_key.txt, gitignored, verified via API); BlockRun founder contacted directly on Telegram (@1bcmax) with endpoint + on-chain proof; Outreach Day 1 done (GitHub Issue #1 on AnthonWinther/Trading_bot)
+- Full Render audit passed: latest deploy fcb4f96 LIVE, service not_suspended, 20 env vars intact (incl. CDP pair, WALLET_PRIVATE_KEY, ADMIN_API_TOKEN), /health ok, /api/v1/signal 402-armed, openapi 11 paths
 ## Session 2026-08-29 (growth sprint)
 - Storefront fixes LIVE: dashboard advertises receiver (not hot wallet), honest micro-prices, favicon
 - x402scan: 11 resources registered; mystery-agent audit 23/23 (docs/MYSTERY_AGENT_REPORT.md)

@@ -11,7 +11,7 @@
 | **x402scan** | ✅ РЕГИСТРИРАН | 11 resources, 3 платени routes. Каноничен x402 v2 challenge (CAIP-2 `eip155:8453`, atomic-unit amounts, bazaar schema) — валидиран срещу `@agentcash/discovery` 1.7.5. |
 | **PayAPI Market** | 🟡 В ПРЕГЛЕД | Заявката е подадена (Provider Dashboard: "чакащ преглед"). v2-ready. Бележка към ревюиращия + платежни инструкции изпратени на hello@payapi.market. |
 | **nohumans.directory** | ✅ 3× VERIFIED | Листинги активни. |
-| **BlockRun (data source)** | 📨 ИЗПРАТЕН ИМЕЙЛ | Официален запрос за "List a data source" — whale flow, arb radar, rug scanner, market stats като BlockRun data tools. Очаква отговор. |
+| **BlockRun (data source)** | 📨 ИЗПРАТЕН (02.09) | Директен контакт с основателя в Telegram (@1bcmax) — изпратени x402 endpoint детайли + settlement-verified on-chain доказателства (2 платени canary tx-а). Очаква отговор. |
 | **MCP Registry / PulseMCP / mcp.so / Smithery / Glama** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
 | **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #12799)** | ⏳ Отворени PR-и | Чакат review. |
 
@@ -61,7 +61,10 @@
 
 ## 6. Отворени action items
 
+- [x] Render API ключове ротирани (02.09): старите компрометирани в чат ключове изтрити, нов `rnd_VYr1…` записан локално в secrets/render_api_key.txt (gitignored) — верифициран през API
+- [x] BlockRun контакт (02.09): основател @1bcmax в Telegram — endpoint + on-chain proof изпратени
+- [x] Outreach Ден 1 (02.09): GitHub Issue #1 в AnthonWinther/Trading_bot (шаблон a)
 - [ ] PayAPI одобрение → редакция на листинговата цена $0.10 → $0.005
 - [ ] BlockRun отговор → интеграционен договор (data-tool contract / rev-share)
 - [ ] MCP Registry submission (през PayAPI одобрение или директно)
-- [ ] Outreach кампания: 1 персонализирано съобщение/ден (виж [OUTREACH_KIT.md](OUTREACH_KIT.md))
+- [ ] Outreach кампания: 1 персонализирано съобщение/ден (виж [OUTREACH_KIT.md](OUTREACH_KIT.md)) — Ден 2: Telegram crypto-dev канал (шаблон b)
