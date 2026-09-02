@@ -1,4 +1,9 @@
 # PROJECT STATUS (frozen 2026-08-27 — RESUMED 2026-08-29)
+## Session 2026-09-02 (second verified route + reviewer fixes)
+- 🏆 PayAPI ran a SECOND paid canary on GET /api/v1/signal: 0.003 USDC settled on-chain, tx `0xf5cff040a181876efd3434f63c55cbafba970e3dd0860edd36c06c17e6993016` (block 50787936) → listing now has TWO verified routes (/api/stats + /api/v1/signal), status stays live
+- Reviewer fixes shipped: `price_usd` was always null (publish layer read `d["price"]` instead of `d["price_usd"]`) and signals carried no `reasoning` (note only repeated the price)
+- NEW: `TradingAgent.evaluate()` emits one-line `reasoning` per decision (narrative driver + live-data state + first risk flag); publish layer factored into `main._publish_agent_signals()` (numeric `price_usd`, `reasoning`, sorted by confidence) — 130/130 tests (3 new in tests/test_signal_route.py)
+- Next: deploy to Render, reply to Chet (draft ready), confirm he re-runs the canary; x402scan re-index of /api/v1/signal still pending
 ## Session 2026-08-29 (growth sprint)
 - Storefront fixes LIVE: dashboard advertises receiver (not hot wallet), honest micro-prices, favicon
 - x402scan: 11 resources registered; mystery-agent audit 23/23 (docs/MYSTERY_AGENT_REPORT.md)

@@ -145,6 +145,20 @@ class TradingAgent:
             if not self.auto_execute and approved and final_action not in ("monitor", "hold", "avoid", "wait"):
                 final_action = f"recommend_{final_action}"
 
+            # ── One-line buyer-facing reason (PayAPI reviewer feedback) ──
+            # Names the MAIN driver behind the action instead of repeating
+            # the price.  The narrative is the primary driver; live-data
+            # state and the first risk flag are appended when they change
+            # the call.  Kept to one line for easy agent consumption.
+            narrative = (signal.get("narrative") or "").strip()
+            reasoning = narrative or f"{bias.lower()} bias at {conf:.0%} confidence"
+            if price is None:
+                reasoning += "; live price unavailable — confidence reduced"
+            elif price_status.get("state") == "stale":
+                reasoning += "; price from stale cache — verify before sizing"
+            if risk_flags:
+                reasoning += "; " + risk_flags[0]
+
             total_estimated_exposure += suggested_position_usd
 
             decisions[token] = {
@@ -158,6 +172,7 @@ class TradingAgent:
                 "risk_flags": risk_flags,
                 "suggested_position_usd": round(suggested_position_usd, 2),
                 "narrative": signal.get("narrative", ""),
+                "reasoning": reasoning,
                 "note": note,
                 "market_data_status": price_status.get("state"),
                 "source": signal.get("source", "baseline"),

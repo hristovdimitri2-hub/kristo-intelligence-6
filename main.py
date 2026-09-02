@@ -676,6 +676,35 @@ def _record_real_sale(token: str, amount_usd: float, tx_hash: str, sender: str =
 _latest_signals: dict = {"generated_at": None, "signals": []}
 
 
+def _publish_agent_signals(decisions) -> None:
+    """Map raw trading-agent decisions into the published signal schema for
+    GET /api/v1/signal.
+
+    PayAPI reviewer feedback (second verified route, 2026-02):
+      * `price_usd` must be a real number, not null — an agent should not
+        have to parse "price=$2387.7800" out of the note string.
+      * each signal carries a one-line `reasoning` naming the main driver,
+        so the buyer gets something /api/stats never offered.
+    """
+    published = []
+    for token, d in (decisions or {}).items():
+        d = d if isinstance(d, dict) else {}
+        price = d.get("price_usd")
+        published.append({
+            "token": token,
+            "action": d.get("final_action") or d.get("action", "monitor"),
+            "confidence": d.get("confidence"),
+            "price_usd": float(price) if price is not None else None,
+            "reasoning": (d.get("reasoning") or "").strip(),
+            "note": d.get("note") or d.get("reason") or "",
+        })
+    published.sort(key=lambda s: (s.get("confidence") or 0), reverse=True)
+    with _lock:
+        _latest_signals["generated_at"] = datetime.now(
+            timezone.utc).isoformat()
+        _latest_signals["signals"] = published
+
+
 def _background_agent_loop():
     """Run the trading agent in a background thread (non-blocking)."""
     log.info("Background trading-agent thread started.")
@@ -693,21 +722,7 @@ def _background_agent_loop():
             decisions = agent.evaluate()
 
             # Publish the latest decisions for GET /api/v1/signal.
-            published = []
-            for token, d in (decisions or {}).items():
-                d = d if isinstance(d, dict) else {}
-                published.append({
-                    "token": token,
-                    "action": d.get("final_action") or d.get("action", "monitor"),
-                    "confidence": d.get("confidence"),
-                    "price_usd": d.get("price"),
-                    "note": d.get("note") or d.get("reason") or "",
-                })
-            published.sort(key=lambda s: (s.get("confidence") or 0), reverse=True)
-            with _lock:
-                _latest_signals["generated_at"] = datetime.now(
-                    timezone.utc).isoformat()
-                _latest_signals["signals"] = published
+            _publish_agent_signals(decisions)
 
             _record_request("agent_cycle", decisions is not None)
             log.info("Agent cycle complete: %d decisions.", len(decisions))
