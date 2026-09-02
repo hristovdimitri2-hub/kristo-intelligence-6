@@ -215,6 +215,7 @@ _wallet_state = {
     "wallet_address": None,
     "fee_receiver": None,
     "usdc_balance": 0.0,
+    "receiver_usdc_balance": 0.0,
     "rpc_connected": False,
     "chain_id": None,
     "network": "Base Mainnet",
@@ -439,6 +440,34 @@ def _init_wallet() -> Optional[object]:
     return None
 
 
+def _fetch_receiver_usdc_balance():
+    """
+    On-chain USDC balance of the FEE RECEIVER (0xd4cdA900…08f) — where client
+    payments land. Distinct from the gas-payer wallet's balance: PayAPI's
+    review correctly flagged that the dashboard showed an empty hot-wallet
+    balance next to a receiver that had just been paid.
+    Returns float | None on any failure.
+    """
+    try:
+        from web3 import Web3
+        w3 = Web3(Web3.HTTPProvider(
+            os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
+            request_kwargs={"timeout": 20}))
+        if not w3.is_connected():
+            return None
+        usdc = os.getenv("BASE_USDC_CONTRACT",
+                         "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+        receiver = get_base_fee_receiver()
+        selector = "0x70a08231"  # balanceOf(address)
+        padded = receiver.lower().replace("0x", "").rjust(64, "0")
+        result = w3.eth.call({"to": Web3.to_checksum_address(usdc),
+                              "data": selector + padded})
+        return int(result.hex(), 16) / 1e6
+    except Exception as exc:
+        log.debug("receiver USDC balance fetch: %s", exc)
+        return None
+
+
 # ── Blockchain monitor: detect incoming USDC transfers ───────────────────
 def _blockchain_monitor_loop():
     """
@@ -496,6 +525,18 @@ def _blockchain_monitor_loop():
                     _wallet_state["usdc_balance"] = round(balance, 4)
             except Exception as exc:
                 log.debug("Balance fetch failed: %s", exc)
+
+            # Update the FEE RECEIVER's USDC balance (the meaningful figure:
+            # this is where client payments land — the gas-payer wallet is
+            # incidental and shows 0.0, which PayAPI's review flagged).
+            try:
+                receiver_balance = _fetch_receiver_usdc_balance()
+                if receiver_balance is not None:
+                    with _lock:
+                        _wallet_state["receiver_usdc_balance"] = round(
+                            receiver_balance, 6)
+            except Exception as exc:
+                log.debug("Receiver balance fetch failed: %s", exc)
 
             # Scan blocks for Transfer events to our receiver
             from_block = last_block + 1
@@ -1588,9 +1629,22 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     with _lock:
         _verified_payments.add(tx_hash)
         _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
+    # Populate the real block number from the settlement receipt — PayAPI's
+    # review flagged history entries reporting block_number 0 (field never
+    # populated on the settle path).
+    block_number = 0
+    try:
+        from web3 import Web3 as _W3
+        _w3 = _W3(_W3.HTTPProvider(
+            os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
+            request_kwargs={"timeout": 20}))
+        receipt = _w3.eth.get_transaction_receipt(tx_hash)
+        block_number = int(receipt.get("blockNumber", 0) or 0)
+    except Exception as exc:
+        log.info("settlement receipt block fetch failed (non-fatal): %s", exc)
     _record_real_sale(
         token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
-        sender=payer or "unknown",
+        sender=payer or "unknown", block_number=block_number,
     )
     connectors.touch("x402-eip3009")
     connectors.touch("base-usdc-receiver")

@@ -698,11 +698,16 @@ async function loadStats() {
     document.getElementById('products-total-sales').textContent = totalSales;
     document.getElementById('products-total-volume').textContent = fmtMoney(totalVolume);
 
-    // Wallet info
+    // Wallet info — the FEE RECEIVER is the meaningful address: it is where
+    // client payments land. The gas-payer hot wallet is incidental (always
+    // near-zero) and confused PayAPI's reviewer (block_number/balance note).
     const w = data.wallet || {};
-    document.getElementById('wallet-address').textContent = w.wallet_address || 'Wallet not configured';
+    const primaryAddr = w.fee_receiver || w.wallet_address || 'Wallet not configured';
+    const receiverBal = (w.receiver_usdc_balance !== undefined)
+        ? w.receiver_usdc_balance : (w.usdc_balance || 0);
+    document.getElementById('wallet-address').textContent = primaryAddr;
     document.getElementById('wallet-details').textContent =
-        `Fee Receiver: ${shortAddr(w.fee_receiver)} | USDC Balance: ${fmtMoney(w.usdc_balance || 0)} | Last block: ${w.last_block_checked || 0} | Last check: ${w.last_check_time ? fmtTime(w.last_check_time) : '—'}`;
+        `Fee Receiver (USDC payments land here): Balance ${fmtMoney(receiverBal)} | Gas wallet: ${shortAddr(w.wallet_address)} | Last block: ${w.last_block_checked || 0} | Last check: ${w.last_check_time ? fmtTime(w.last_check_time) : '—'}`;
 
     const daily = data.daily;
     const dates = Object.keys(daily).slice(-14);
