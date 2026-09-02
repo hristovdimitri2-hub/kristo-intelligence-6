@@ -47,6 +47,7 @@ from config import (
     KRISTO_ARB_PRICE,
     KRISTO_RUG_PRICE,
     KRISTO_WHALE_PRICE,
+    KRISTO_SIGNAL_PRICE,
 )
 
 # ── Real-time market data integration ─────────────────────────────────────
@@ -83,6 +84,7 @@ X402_PRICE_MAP = {
     "/api/sales": KRISTO_SALES_PRICE,
     "/api/bot-status": KRISTO_STATS_PRICE,
     "/api/arb/opportunities": KRISTO_ARB_PRICE,
+    "/api/v1/signal": KRISTO_SIGNAL_PRICE,
 }
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
@@ -97,7 +99,8 @@ NEXUS_URL = "/nexus"
 FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 
 # Endpoints that require x402 payment (after free tier exhausted)
-X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status", "/api/arb/opportunities"}
+X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
+                       "/api/arb/opportunities", "/api/v1/signal"}
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
@@ -624,10 +627,13 @@ def _record_real_sale(token: str, amount_usd: float, tx_hash: str, sender: str =
     ts = timestamp or datetime.now(timezone.utc)
     date_str = ts.strftime("%Y-%m-%d")
     with _lock:
-        # Avoid duplicates: check if tx_hash already recorded
+        # Avoid duplicates: check if tx_hash already recorded (case-insensitive —
+        # settle path and blockchain monitor may format the hash differently,
+        # which caused the dashboard to double-count PayAPI's first payment).
+        tx_norm = (tx_hash or "").lower()
         for s in _sales_history:
-            if s["tx_hash"] == tx_hash:
-                log.debug("Duplicate tx %s — skipping.", tx_hash)
+            if (s.get("tx_hash") or "").lower() == tx_norm:
+                log.debug("Duplicate tx %s — skipping.", tx_norm)
                 return
 
         _sales_history.append({
@@ -664,6 +670,12 @@ def _record_real_sale(token: str, amount_usd: float, tx_hash: str, sender: str =
 
 
 # ── Background trading agent thread ───────────────────────────────────────
+# Latest live agent signals (populated by the background agent loop, served
+# by GET /api/v1/signal — PayAPI's reviewer asked for a cheap route that
+# returns an actual SIGNAL instead of operational stats).
+_latest_signals: dict = {"generated_at": None, "signals": []}
+
+
 def _background_agent_loop():
     """Run the trading agent in a background thread (non-blocking)."""
     log.info("Background trading-agent thread started.")
@@ -679,6 +691,23 @@ def _background_agent_loop():
             signals = DeFiSignalGenerator(api_key=api_key).generate_signals()
             agent = TradingAgent(coingecko_client=cg, signals=signals)
             decisions = agent.evaluate()
+
+            # Publish the latest decisions for GET /api/v1/signal.
+            published = []
+            for token, d in (decisions or {}).items():
+                d = d if isinstance(d, dict) else {}
+                published.append({
+                    "token": token,
+                    "action": d.get("final_action") or d.get("action", "monitor"),
+                    "confidence": d.get("confidence"),
+                    "price_usd": d.get("price"),
+                    "note": d.get("note") or d.get("reason") or "",
+                })
+            published.sort(key=lambda s: (s.get("confidence") or 0), reverse=True)
+            with _lock:
+                _latest_signals["generated_at"] = datetime.now(
+                    timezone.utc).isoformat()
+                _latest_signals["signals"] = published
 
             _record_request("agent_cycle", decisions is not None)
             log.info("Agent cycle complete: %d decisions.", len(decisions))
@@ -2238,6 +2267,32 @@ def api_checkout():
         "payment_provider": payment_session.get("provider", "mock"),
         "payment_session": payment_session,
         "plan": plan.name,
+    })
+
+
+@app.route("/api/v1/signal", methods=["GET"])
+def api_signal():
+    """
+    Cheap paid route returning an ACTUAL SIGNAL (direction + confidence +
+    reasoning) from the live trading-agent engine — PayAPI's reviewer noted
+    that /api/stats undersells the signals work. Refreshed every
+    AGENT_POLL_INTERVAL seconds by the background agent.
+    """
+    with _lock:
+        snapshot = {
+            "generated_at": _latest_signals.get("generated_at"),
+            "signals": list(_latest_signals.get("signals") or []),
+        }
+    return _safe_jsonify({
+        "service": "Kristo Intelligence — live agent signal",
+        "price_usdc": KRISTO_SIGNAL_PRICE,
+        "engine": "8-agent intelligence engine (CoinGecko + DeFi signals + risk overlay)",
+        "generated_at": snapshot["generated_at"],
+        "signal_count": len(snapshot["signals"]),
+        "signals": snapshot["signals"],
+        "refresh_note": "Signals refresh automatically every 5 minutes.",
+        "disclaimer": "Not financial advice. Auto-execution is disabled "
+                      "(AGENT_AUTO_EXECUTE=false) — signals are informational.",
     })
 
 

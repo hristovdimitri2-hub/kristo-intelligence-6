@@ -58,3 +58,4 @@ KRISTO_SALES_PRICE = float(os.getenv("KRISTO_SALES_PRICE", "0.005"))       # /ap
 KRISTO_ARB_PRICE = float(os.getenv("KRISTO_ARB_PRICE", "0.005"))         # /api/arb/opportunities
 KRISTO_RUG_PRICE = float(os.getenv("KRISTO_RUG_PRICE", "0.003"))          # rug-risk endpoint
 KRISTO_WHALE_PRICE = float(os.getenv("KRISTO_WHALE_PRICE", "0.01"))      # whale activity endpoint
+KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.003"))   # /api/v1/signal
