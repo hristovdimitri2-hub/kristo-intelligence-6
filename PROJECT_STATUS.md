@@ -12,6 +12,13 @@
 3. Re-verify all 3 directories (x402scan, nohumans, PayAPI) — x402 v1→v2 migration may have changed validator expectations
 4. E2E self-paid test (external wallet → 0.005 USDC → X-Payment-Proof → 200) — never completed
 5. Compare x402scan vs baseline below — if ecosystem 2x+ grown, open for business
+# 🏆 MILESTONE — FIRST REAL SALE (2026-09-01)
+- PayAPI Market canary PASSED: 0.005 USDC settled on-chain from external tester wallet `0x7e6b6556322c4e26c567a867964ac793f5ee2b1c`, tx `0xb8a52dcd61962af4b2d15d6f166b6c5038bbe9c40c171b37508a199bd40a45e6` (block 50783187)
+- Root-cause chain fixed across 5 canaries: CDP JWT claims (kid/sub = bare key id + `uris` claim), CDP body schema (`paymentPayload`+`paymentRequirements`), v2 exact = signed-transaction payload (not EIP-3009)
+- Server accepts BOTH client shapes: v2 transaction payloads (local signer recovery + broadcast) and EIP-3009 (self-broadcast transferWithAuthorization) — 124/124 tests
+- Known minor: dashboard sales counter double-records settle+monitor for the same tx (dedupe pending — cosmetic)
+- Pending: PayAPI listing approval + price drop to 0.005; BlockRun email; outreach campaign
+
 ## State at freeze
 - Prices: single source config (stats/arb 0.005, rug 0.003, whale 0.01, sales 0.05) — verified live
 - Directories: nohumans 3x VERIFIED, x402scan 11 resources (commits ebb993d..d6eeb12, 77/77 tests), PayAPI pending resubmit (ready)
