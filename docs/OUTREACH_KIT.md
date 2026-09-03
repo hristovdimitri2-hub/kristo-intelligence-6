@@ -124,6 +124,27 @@ Chet потвърди (email 14:15 UTC, 03.09): няма платено слот
 
 ---
 
+## 7. Outreach Дни 3–5 — конкретни текстове (03.09)
+
+**Ден 3 — собствен X пост (НЕ чакаме Chet; merit-ът е наш):**
+> Agents pay for LLM tokens. Why not for market data?
+>
+> Kristo Intelligence: live DeFi signals API on Base — trading-agent calls (action + confidence + price + reasoning for ETH/ONDO/KAITO/DEGEN), cross-DEX arb spreads, whale USDC tracking. x402-native, from $0.003/call, no signup.
+>
+> One GET to see everything: https://kristo-intelligence-api.onrender.com/.well-known/x402
+> Verified: 4 paid canaries settled on-chain via @ParkerChet's PayAPI Market.
+
+**Ден 4 — Telegram crypto-dev канал (шаблон b, персонализиран):**
+> Всеки, който строи бот за Base? Пуснах платено API: trading сигнали (ETH/ONDO/KAITO/DEGEN с reasoning + confidence), arb спредове (60s), rug проверки. x402 плащане, от $0.003/заявка — без регистрация, агентът си плаща сам с USDC.
+> Live: kristo-intelligence-api.onrender.com — discovery с 1 curl: /.well-known/x402
+
+**Ден 5 (07.09) — BlockRun follow-up до @1bcmax (ако мълчи):**
+> Hi Max — following up on the listing question from the other day. No rush on my side: if a data-source listing isn't a priority for BlockRun right now, just say so and I'll close the topic cleanly. If it is, the fastest path is the same endpoints we discussed (whale/arb/rug/signals, x402 v2 verified, 4 on-chain settlement proofs). Either answer works — I'd just rather not leave it hanging.
+
+(Ако и това мълчи — затворена тема, усилието отива в MCP директориите.)
+
+---
+
 ## Правила на кампанията
 - 1 съобщение/ден, персонализирано — спам-маскиране убива репутацията в малка екосистема
 - Всеки отговор → отговори в рамките на час
