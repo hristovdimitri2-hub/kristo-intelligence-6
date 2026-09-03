@@ -193,7 +193,16 @@ class CoinGeckoClient:
             stale = self._cached_prices(cache_key, allow_stale=True)
             if stale is not None:
                 data, age = stale
-                self.last_price_status = {"state": "stale", "age_seconds": age}
+                # A cache entry younger than the normal TTL is NOT stale —
+                # e.g. a concurrent request refreshed it while this upstream
+                # call failed.  Labelling fresh (or age=0) data "stale" made
+                # every consumer tax confidence 10% and tell buyers to verify
+                # numbers that already matched CoinGecko (PayAPI reviewer,
+                # 3rd verified canary).
+                if age < type(self)._cache_ttl_seconds:
+                    self.last_price_status = {"state": "cached", "age_seconds": age}
+                else:
+                    self.last_price_status = {"state": "stale", "age_seconds": age}
                 return data
             self.last_price_status = {"state": "unavailable", "age_seconds": None}
             return {sym: None for sym in tokens}

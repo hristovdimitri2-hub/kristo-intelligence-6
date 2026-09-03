@@ -6,6 +6,8 @@
 - Next: deploy to Render, reply to Chet (draft ready), confirm he re-runs the canary; x402scan re-index of /api/v1/signal still pending
 - Ops complete (02.09): Render API keys ROTATED (old chat-exposed keys deleted; new key in secrets/render_api_key.txt, gitignored, verified via API); BlockRun founder contacted directly on Telegram (@1bcmax) with endpoint + on-chain proof; Outreach Day 1 done (GitHub Issue #1 on AnthonWinther/Trading_bot)
 - Full Render audit passed: latest deploy fcb4f96 LIVE, service not_suspended, 20 env vars intact (incl. CDP pair, WALLET_PRIVATE_KEY, ADMIN_API_TOKEN), /health ok, /api/v1/signal 402-armed, openapi 11 paths
+- 🏆 3rd paid canary (02.09): Chet paid another $0.003 — confirmed price_usd numeric + real reasoning ("the difference between a number and a signal"), prices within 0.13% of CoinGecko; listing stays live, route stays verified
+- Reviewer found follow-up bug: every signal was taxed exactly 10% confidence with note "stale cached price, age=0s" — fresh (age 0) cache entries were labelled "stale". Root cause: get_prices exception-fallback labelled any allow_stale hit as stale without checking age; TradingAgent penalized on state alone. Fixed BOTH layers: coingecko.py now labels sub-TTL fallback entries "cached"; trading_agent has STALE_FLOOR_SECONDS=60 (age<60 is never stale) — 132/132 tests (2 new regression tests replicating his exact observation)
 ## Session 2026-08-29 (growth sprint)
 - Storefront fixes LIVE: dashboard advertises receiver (not hot wallet), honest micro-prices, favicon
 - x402scan: 11 resources registered; mystery-agent audit 23/23 (docs/MYSTERY_AGENT_REPORT.md)

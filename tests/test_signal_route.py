@@ -89,6 +89,29 @@ def test_publish_agent_signals_maps_price_and_reasoning(monkeypatch):
     assert order == ["eth", "degen"]
 
 
+def test_trading_agent_age_zero_is_never_stale():
+    """PayAPI reviewer (3rd canary): a cache that is 0 seconds old is NOT
+    stale.  The old check taxed every confidence by exactly 10% and told
+    buyers to verify prices that already matched CoinGecko."""
+    from services.trading_agent import TradingAgent
+
+    class FreshButMislabelled:
+        last_price_status = {"state": "stale", "age_seconds": 0}
+
+        def get_prices(self, tokens):
+            return {t: 2390.84 for t in tokens}
+
+    signals = {"eth": {"symbol": "ETH", "bias": "BULLISH", "confidence": 0.78,
+                       "narrative": "Core L1 / gas asset on Base",
+                       "action": "monitor"}}
+    d = TradingAgent(coingecko_client=FreshButMislabelled(),
+                     signals=signals).evaluate()["eth"]
+    assert d["confidence"] == pytest.approx(0.78)      # no 10% tax
+    assert d["note"] == "price=$2390.8400"             # honest note
+    assert "stale" not in d["note"].lower()
+    assert "stale" not in d["reasoning"].lower()
+
+
 def test_trading_agent_emits_reasoning_and_numeric_price():
     """TradingAgent itself must emit reasoning + numeric price_usd for live,
     stale, and missing price states."""

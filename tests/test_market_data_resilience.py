@@ -149,6 +149,42 @@ def test_telegram_bulletin_marks_stale_coingecko_data():
     assert "live обновяването е временно ограничено" in bulletin
 
 
+def test_rate_limited_fallback_labels_fresh_cache_as_cached_not_stale(monkeypatch):
+    """Production race (PayAPI 3rd canary): a concurrent request refreshes
+    the class-level cache while this upstream call fails.  Serving that
+    entry must report 'cached' — never 'stale age=0'."""
+    from services.coingecko import CoinGeckoClient
+
+    client = CoinGeckoClient()
+    data = {"eth": 2390.84, "ondo": 0.3407, "kaito": 0.3030, "degen": 0.0010}
+
+    calls = {"n": 0}
+
+    def fake_cached(cache_key, *, allow_stale=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None            # first check misses (pre-refresh state)
+        return dict(data), 0       # fallback finds a just-stored entry
+
+    def failing_get(path, params=None):
+        raise RuntimeError("CoinGecko rate-limit cooldown is active")
+
+    monkeypatch.setattr(client, "_cached_prices", fake_cached)
+    monkeypatch.setattr(client, "_get", failing_get)
+
+    prices = client.get_prices(["eth", "ondo", "kaito", "degen"])
+    assert prices["eth"] == 2390.84
+    assert client.last_price_status == {"state": "cached", "age_seconds": 0}
+
+    # a genuinely old fallback entry (beyond the normal TTL) is still stale
+    monkeypatch.setattr(
+        client, "_cached_prices",
+        lambda cache_key, *, allow_stale=False: (dict(data), 950) if allow_stale else None)
+    client.get_prices(["eth", "ondo", "kaito", "degen"])
+    assert client.last_price_status["state"] == "stale"
+    assert client.last_price_status["age_seconds"] == 950
+
+
 def test_trading_agent_batches_prices_and_labels_stale_cache():
     class CachedClient:
         def __init__(self):

@@ -37,6 +37,10 @@ class TradingAgent:
         self.min_apy = float(os.getenv("AGENT_MIN_APY", "20"))
         self.max_risk = float(os.getenv("AGENT_MAX_RISK", "60"))
         self.max_gas_gwei = float(os.getenv("AGENT_MAX_GAS_GWEI", "0.5"))
+        # Cache data younger than this is never treated as stale — a cache
+        # that is 0 seconds old is fresh by definition (PayAPI reviewer,
+        # 3rd verified canary: age=0 was taxed as stale on every request).
+        self.STALE_FLOOR_SECONDS = 60
 
         log.info(
             "Risk Management config: auto_execute=%s, max_position=$%.0f, "
@@ -84,14 +88,23 @@ class TradingAgent:
             apy = float(signal.get("apy", 0))
 
             # Simple rule overlay: if no price available, downgrade confidence.
+            # NOTE: a cache that is seconds old is NOT stale.  Only a genuinely
+            # old entry (>= STALE_FLOOR_SECONDS) justifies the confidence tax —
+            # labelling age=0 data as stale made every signal lose exactly 10%
+            # confidence and told buyers to verify prices that already matched
+            # CoinGecko (PayAPI reviewer, 3rd verified canary).
+            is_stale = (
+                price_status.get("state") == "stale"
+                and isinstance(price_status.get("age_seconds"), (int, float))
+                and price_status["age_seconds"] >= self.STALE_FLOOR_SECONDS
+            )
             if price is None:
                 conf *= 0.8
                 note = "no live price — reduced confidence"
-            elif price_status.get("state") == "stale":
+            elif is_stale:
                 conf *= 0.9
-                age = price_status.get("age_seconds")
-                age_note = f", age={age}s" if age is not None else ""
-                note = f"stale cached price=${price:.4f}{age_note} — reduced confidence"
+                age = price_status["age_seconds"]
+                note = f"stale cached price=${price:.4f}, age={age}s — reduced confidence"
             else:
                 note = f"price=${price:.4f}"
 
@@ -154,7 +167,7 @@ class TradingAgent:
             reasoning = narrative or f"{bias.lower()} bias at {conf:.0%} confidence"
             if price is None:
                 reasoning += "; live price unavailable — confidence reduced"
-            elif price_status.get("state") == "stale":
+            elif is_stale:
                 reasoning += "; price from stale cache — verify before sizing"
             if risk_flags:
                 reasoning += "; " + risk_flags[0]
