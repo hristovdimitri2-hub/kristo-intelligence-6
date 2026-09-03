@@ -22,8 +22,10 @@ without alerts, so deploys never produce alert spam.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -33,6 +35,28 @@ import requests
 from config import BASE_RPC_URL, BASE_USDC_CONTRACT, get_base_fee_receiver
 
 log = logging.getLogger("kristo.v6.sentinel")
+
+# Persisted across workers/cold starts so a shared Render instance does not
+# double-alert and a cold start does not re-baseline over real revenue.
+STATE_FILE = os.getenv("SENTINEL_STATE_FILE") or os.path.join(
+    tempfile.gettempdir(), "kristo_sentinel_state.json")
+
+
+def _load_persisted() -> dict:
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _persist(data: dict) -> None:
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+    except Exception as exc:
+        log.debug("Sentinel state persist failed: %s", exc)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 HEALTH_INTERVAL = 10 * 60       # 10 min
@@ -122,15 +146,40 @@ def _check_revenue(state: dict) -> None:
         log.warning("Sentinel revenue check failed: %s", exc)
         return
 
+    if not state.get("revenue_baseline_set"):
+        # First observation in this process (deploy or cold start).  Recording
+        # the balance must be SILENT — alerting here sent a bogus "New payment
+        # received" carrying the whole balance on every Render cold start once
+        # real revenue existed (seen live 2026-09-03).
+        persisted = _load_persisted()
+        if persisted.get("baseline_set"):
+            # Another worker on this instance already baselined — adopt its
+            # value so parallel workers do not double-alert the same deposit.
+            state["usdc_balance"] = float(persisted.get("usdc_balance") or 0.0)
+        else:
+            state["usdc_balance"] = balance
+            persisted["baseline_set"] = True
+            persisted["usdc_balance"] = balance
+            _persist(persisted)
+        state["revenue_baseline_set"] = True
+        log.info("Sentinel revenue baseline: %.6f USDC", state["usdc_balance"])
+        return
+
     prev = float(state.get("usdc_balance") or 0.0)
     if balance > prev:
+        # Micro-payments are the norm here (0.003–0.01 USDC), so 2 decimals
+        # would render them as "+0.00" — keep 4.
         _tg_send(
             f"💰 <b>New payment received!</b>\n"
-            f"+{balance - prev:.2f} USDC\n"
-            f"Receiver balance: <b>{balance:.2f} USDC</b>\n"
+            f"+{balance - prev:.4f} USDC\n"
+            f"Receiver balance: <b>{balance:.4f} USDC</b>\n"
             f"Chain: Base mainnet"
         )
     state["usdc_balance"] = balance
+    persisted = _load_persisted()
+    persisted["baseline_set"] = True
+    persisted["usdc_balance"] = balance
+    _persist(persisted)
     log.info("Sentinel revenue check: %.6f USDC", balance)
 
 
@@ -186,7 +235,7 @@ def _build_report(state: dict) -> str:
                      f"(${stats.get('total_volume_usd', 0):.2f})")
     except Exception:
         lines.append("🌐 API stats unavailable")
-    lines.append(f"💰 Receiver balance: <b>{state.get('usdc_balance', 0):.2f} USDC</b>")
+    lines.append(f"💰 Receiver balance: <b>{state.get('usdc_balance', 0):.4f} USDC</b>")
     lines.append(f"⭐ GitHub: {state.get('stars', 0)} stars, "
                  f"{state.get('open_issues', 0)} open issues")
     if state.get("prs"):
@@ -216,8 +265,15 @@ def sentinel_loop() -> None:
     except Exception as exc:
         log.warning("Sentinel baseline cycle failed: %s", exc)
 
-    _tg_send("🛡️ <b>Kristo Sentinel активен</b> — вграден в приложението, "
-             "мониторинг на живо 24/7.")
+    # Startup announcement: once per UTC day across the whole instance —
+    # Render cold starts used to repeat it on every wake-up.
+    persisted = _load_persisted()
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if persisted.get("startup_announced_date") != today_utc:
+        _tg_send("🛡️ <b>Kristo Sentinel активен</b> — вграден в приложението, "
+                 "мониторинг на живо 24/7.")
+        persisted["startup_announced_date"] = today_utc
+        _persist(persisted)
 
     while True:
         try:

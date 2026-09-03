@@ -126,10 +126,11 @@ def test_sentinel_health_alert_only_on_change(monkeypatch):
     assert "🟢" in sent[0]
 
 
-def test_sentinel_revenue_alert_on_payment(monkeypatch):
+def test_sentinel_revenue_alert_on_payment(monkeypatch, tmp_path):
     """A balance increase must produce exactly one payment alert."""
     from services import sentinel
 
+    monkeypatch.setattr(sentinel, "STATE_FILE", str(tmp_path / "sentinel.json"))
     sent: list[str] = []
     monkeypatch.setattr(sentinel, "_tg_send", lambda text: sent.append(text) or True)
 
@@ -148,6 +149,45 @@ def test_sentinel_revenue_alert_on_payment(monkeypatch):
     assert len(sent) == 1
     assert "💰" in sent[0]
     assert state["usdc_balance"] == 0.05
+
+
+def test_sentinel_cold_start_baselines_silently_and_dedupes_workers(monkeypatch, tmp_path):
+    """Production bug (2026-09-03): every Render cold start with real revenue
+    sent a bogus 'New payment received' carrying the whole balance, because
+    the baseline compared against 0.0.  Cold starts must baseline silently,
+    real increases alert exactly once with micro-payment precision, and a
+    second worker must adopt the persisted baseline instead of double-alerting."""
+    from services import sentinel
+
+    monkeypatch.setattr(sentinel, "STATE_FILE", str(tmp_path / "sentinel.json"))
+    sent: list[str] = []
+    monkeypatch.setattr(sentinel, "_tg_send", lambda text: sent.append(text) or True)
+
+    balances = iter([14000, 17000, 17000])  # 0.0140 → 0.0170 (worker B sees same)
+    monkeypatch.setattr(
+        sentinel.requests, "post",
+        lambda url, json=None, timeout=30: type("R", (), {
+            "json": lambda self: {"result": hex(next(balances))}
+        })(),
+    )
+
+    # Worker A cold start: sees 0.0140 — must stay SILENT (no bogus alert)
+    state_a = {"usdc_balance": 0.0}
+    sentinel._check_revenue(state_a)
+    assert sent == []
+    assert state_a["usdc_balance"] == 0.014
+
+    # Real payment: 0.0140 → 0.0170 → exactly one alert, 4-decimal precision
+    sentinel._check_revenue(state_a)
+    assert len(sent) == 1
+    assert "+0.0030 USDC" in sent[0]
+
+    # Worker B (same instance, separate process/thread) cold start: adopts
+    # the persisted baseline → no duplicate alert for the same deposit
+    state_b = {"usdc_balance": 0.0}
+    sentinel._check_revenue(state_b)
+    assert len(sent) == 1
+    assert state_b["usdc_balance"] == 0.017
 
 
 def test_x402_payment_proof_completes_the_handshake(client, monkeypatch):
