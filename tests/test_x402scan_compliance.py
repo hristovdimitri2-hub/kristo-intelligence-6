@@ -82,6 +82,22 @@ def test_well_known_x402_resources_match_paid_endpoints(client):
         f"resources must include /api/stats: {resources}"
 
 
+def test_well_known_x402_lists_flagship_signal_and_arb_routes(client):
+    """/api/v1/signal (the 2x-verified flagship) and /api/arb/opportunities
+    must be discoverable — missing from .well-known they are invisible to
+    every agent that registers the server on x402scan, which is why the
+    x402scan re-index of the signal route was stuck."""
+    r = client.get("/.well-known/x402")
+    data = r.get_json()
+    resources = data["resources"]
+    assert any("api/v1/signal" in r for r in resources), \
+        f"resources must include /api/v1/signal: {resources}"
+    assert any("api/arb/opportunities" in r for r in resources), \
+        f"resources must include /api/arb/opportunities: {resources}"
+    # Legacy rail reference must be gone: instructions point at the real rails.
+    assert "X-Payment-Address header" not in data["instructions"]
+
+
 # ── /openapi.json (OpenAPI-first discovery) ─────────────────────────────────
 
 def test_openapi_has_required_top_level_fields(client):

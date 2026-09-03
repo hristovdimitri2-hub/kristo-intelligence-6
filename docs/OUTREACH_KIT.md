@@ -106,6 +106,24 @@ hristovdimitri2@gmail.com. Редът е по приоритет.
 
 ---
 
+## 6. PayAPI blurb за Chet Parker (@ParkerChet) — по негова покана (03.09)
+
+Chet потвърди (email 14:15 UTC, 03.09): няма платено слот/newsletter; има (а) live каталог + agent search, (б) listing страницата, (в) окупационни X постове от @ParkerChet при ново verified нещо. Blurb „on file" е пожелателен — **tight: какво връща GET /api/v1/signal, цена, Base USDC**. Готов за paste в reply:
+
+> **Kristo Intelligence — DeFi Signals API** (verified, PayAPI Market)
+>
+> GET /api/v1/signal returns the latest output of a live trading agent on Base: for each of ETH, ONDO, KAITO and DEGEN it gives an action (accumulate / monitor / small-allocation style), a 0–1 confidence score, the current USD price, and a one-line reasoning — sorted by confidence, refreshed continuously against live market data. No signup: standard x402 402 challenge, pay per call.
+>
+> Price: $0.003 per call, settled in Base USDC. Verified by two independent paid canaries on this route; discovery at /.well-known/x402.
+
+Кратка версия (ако иска още по-тясна, 1 изречение):
+
+> GET /api/v1/signal — live trading-agent calls (action + confidence + price + reasoning) for ETH/ONDO/KAITO/DEGEN on Base, $0.003/call in Base USDC via x402, no signup: https://payapi.market/api/kristo-intelligence-defi-signals-api
+
+Правило от Chet: постне Kristo в X само ако маршрутът е полезен — не моли за пост, остави blurb-а да говори.
+
+---
+
 ## Правила на кампанията
 - 1 съобщение/ден, персонализирано — спам-маскиране убива репутацията в малка екосистема
 - Всеки отговор → отговори в рамките на час

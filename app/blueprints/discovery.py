@@ -177,7 +177,7 @@ def api_mcp_manifest():
         VIP_MONTHLY_USDC,
         VIP_THRESHOLD_USDC,
     )
-    from config import get_base_fee_receiver
+    from config import get_base_fee_receiver, KRISTO_SIGNAL_PRICE, KRISTO_ARB_PRICE
 
     _record_request("api_mcp_manifest", True)
     fee_receiver = get_base_fee_receiver()
@@ -201,7 +201,8 @@ def api_mcp_manifest():
                     "price_usdc": MICRO_FEE_USDC,
                     "description": f"Pay-per-call: {MICRO_FEE_USDC} USDC per API request",
                     "access": "single API call",
-                    "endpoints": ["/api/stats", "/api/sales", "/api/bot-status"],
+                    "endpoints": ["/api/stats", "/api/sales", "/api/bot-status",
+                                  "/api/arb/opportunities", "/api/v1/signal"],
                 },
                 {
                     "id": "vip_monthly",
@@ -223,6 +224,10 @@ def api_mcp_manifest():
                  "description": "Real on-chain sales history"},
                 {"path": "/api/bot-status", "method": "GET", "cost_usdc": MICRO_FEE_USDC,
                  "description": "Telegram bot status"},
+                {"path": "/api/arb/opportunities", "method": "GET", "cost_usdc": KRISTO_ARB_PRICE,
+                 "description": "Live cross-DEX arbitrage spreads on Base (60s refresh)"},
+                {"path": "/api/v1/signal", "method": "GET", "cost_usdc": KRISTO_SIGNAL_PRICE,
+                 "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
                  "description": "This manifest (free)"},
                 {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0,
@@ -275,12 +280,17 @@ def well_known_x402_scan():
             f"{base_url}/api/stats",
             f"{base_url}/api/sales",
             f"{base_url}/api/bot-status",
+            f"{base_url}/api/arb/opportunities",
+            f"{base_url}/api/v1/signal",
         ],
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
         "instructions": (
-            f"Send {X402_FEE_USDC:g} USDC on Base to " + X402_RECEIVER_ADDRESS +
-            f" {tier_note}. "
-            "Retry the endpoint with X-Payment-Address header set to the sender wallet."
+            "Every unpaid call returns HTTP 402 with a canonical x402 v2 challenge: "
+            "send the exact USDC amount from the 402 body (from $0.003/call, USDC on "
+            "Base, chain 8453) to " + X402_RECEIVER_ADDRESS + f" {tier_note}. "
+            "Retry with the standard X-PAYMENT header (x402 v2, settled via the "
+            "Coinbase x402 facilitator) or X-Payment-Proof: base64url(JSON("
+            "{payer, transaction_hash, amount_usdc}))."
         ),
     })
 
@@ -297,6 +307,7 @@ def mcp_json():
         FREE_TIER_LIMIT,
         VIP_MONTHLY_USDC,
     )
+    from config import KRISTO_SIGNAL_PRICE, KRISTO_ARB_PRICE
 
     base_url = request.host_url.rstrip("/")
     return jsonify({
@@ -641,6 +652,12 @@ def agents_json():
             {"path": "/api/bot-status", "method": "GET",
              "description": "Telegram bot integration status",
              "cost_usdc": X402_FEE_USDC},
+            {"path": "/api/arb/opportunities", "method": "GET",
+             "description": "Live cross-DEX arbitrage spreads on Base (60s refresh)",
+             "cost_usdc": KRISTO_ARB_PRICE},
+            {"path": "/api/v1/signal", "method": "GET",
+             "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN",
+             "cost_usdc": KRISTO_SIGNAL_PRICE},
         ],
         "docs": {
             "llms_txt": f"{base_url}/llms.txt",

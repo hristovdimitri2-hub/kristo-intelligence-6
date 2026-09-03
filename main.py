@@ -1994,8 +1994,8 @@ def api_quickstart():
         "usdc_contract": X402_USDC_CONTRACT,
         "receiver": X402_RECEIVER_ADDRESS,
         "cheapest_call": {
-            "endpoint": f"{base_url}/api/stats",
-            "amount_usdc": 0.005,
+            "endpoint": f"{base_url}/api/v1/signal",
+            "amount_usdc": 0.003,
             "note": "paid per call — no subscription, no signup, no API key",
         },
         "steps": [
