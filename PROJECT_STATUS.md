@@ -1,4 +1,8 @@
 # PROJECT STATUS (frozen 2026-08-27 — RESUMED 2026-08-29)
+## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
+- 4th paid canary CLEAN: $0.003 on GET /api/v1/signal, tx `0x0cc98ef96e5e5d9a12f3021b77e2a67bba9439745b9eaf61efdb414491295a5f` — price_usd + reasoning confirmed in paid body on all 4 tokens, confidences back to 0.78/0.72/0.61/0.45, NO stale note. Fields noted on the existing verification row (not a new product). Listing stays live.
+- Scoreboard: 4/4 paid canaries settled on-chain, 2 verified routes, ZERO payment-layer incidents across all four tests (every finding was data-layer, all fixed)
+- Engineering phase CLOSED for signals route: no proactive work until a paying buyer asks. All effort → distribution (BlockRun decision pending, outreach days 2-5, MCP registry)
 ## Session 2026-09-02 (second verified route + reviewer fixes)
 - 🏆 PayAPI ran a SECOND paid canary on GET /api/v1/signal: 0.003 USDC settled on-chain, tx `0xf5cff040a181876efd3434f63c55cbafba970e3dd0860edd36c06c17e6993016` (block 50787936) → listing now has TWO verified routes (/api/stats + /api/v1/signal), status stays live
 - Reviewer fixes shipped: `price_usd` was always null (publish layer read `d["price"]` instead of `d["price_usd"]`) and signals carried no `reasoning` (note only repeated the price)

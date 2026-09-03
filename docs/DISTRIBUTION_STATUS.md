@@ -9,7 +9,7 @@
 | Платформа | Статус | Детайли |
 |---|---|---|
 | **x402scan** | ✅ РЕГИСТРИРАН | 11 resources, 3 платени routes. Каноничен x402 v2 challenge (CAIP-2 `eip155:8453`, atomic-unit amounts, bazaar schema) — валидиран срещу `@agentcash/discovery` 1.7.5. |
-| **PayAPI Market** | 🟡 В ПРЕГЛЕД | Заявката е подадена (Provider Dashboard: "чакащ преглед"). v2-ready. Бележка към ревюиращия + платежни инструкции изпратени на hello@payapi.market. |
+| **PayAPI Market** | ✅ LIVE + 2 VERIFIED ROUTES | 4 independent paid canaries settled on-chain (2× $0.005 /api/stats + 2× $0.003 /api/v1/signal; last: tx 0x0cc98ef9…). Signal verification row now notes price_usd + reasoning in paid body. Listed price correct. |
 | **nohumans.directory** | ✅ 3× VERIFIED | Листинги активни. |
 | **BlockRun (data source)** | 🟡 ПРЕГОВОРИ (03.09) | Основателят @1bcmax зададе 2 due-diligence въпроса (consistency/quality + стойност спрямо x402) — отговорени 22:06 с аргументите settlement-proofs + curated discovery reach. Очаква решение за листинг; follow-up на Ден 5 ако мълчи. |
 | **MCP Registry / PulseMCP / mcp.so / Smithery / Glama** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
