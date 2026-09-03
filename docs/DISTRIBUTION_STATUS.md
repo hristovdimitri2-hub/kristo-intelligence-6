@@ -11,7 +11,7 @@
 | **x402scan** | ✅ РЕГИСТРИРАН | 11 resources, 3 платени routes. Каноничен x402 v2 challenge (CAIP-2 `eip155:8453`, atomic-unit amounts, bazaar schema) — валидиран срещу `@agentcash/discovery` 1.7.5. |
 | **PayAPI Market** | 🟡 В ПРЕГЛЕД | Заявката е подадена (Provider Dashboard: "чакащ преглед"). v2-ready. Бележка към ревюиращия + платежни инструкции изпратени на hello@payapi.market. |
 | **nohumans.directory** | ✅ 3× VERIFIED | Листинги активни. |
-| **BlockRun (data source)** | 📨 ИЗПРАТЕН (02.09) | Директен контакт с основателя в Telegram (@1bcmax) — изпратени x402 endpoint детайли + settlement-verified on-chain доказателства (2 платени canary tx-а). Очаква отговор. |
+| **BlockRun (data source)** | 🟡 ПРЕГОВОРИ (03.09) | Основателят @1bcmax зададе 2 due-diligence въпроса (consistency/quality + стойност спрямо x402) — отговорени 22:06 с аргументите settlement-proofs + curated discovery reach. Очаква решение за листинг; follow-up на Ден 5 ако мълчи. |
 | **MCP Registry / PulseMCP / mcp.so / Smithery / Glama** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
 | **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #12799)** | ⏳ Отворени PR-и | Чакат review. |
 
@@ -68,3 +68,4 @@
 - [ ] BlockRun отговор → интеграционен договор (data-tool contract / rev-share)
 - [ ] MCP Registry submission (през PayAPI одобрение или директно)
 - [ ] Outreach кампания: 1 персонализирано съобщение/ден (виж [OUTREACH_KIT.md](OUTREACH_KIT.md)) — Ден 2: Telegram crypto-dev канал (шаблон b)
+- [ ] CoinGecko demo key: безплатен ключ от coingecko.com → Render env `COINGECKO_API_KEY` — елиминира 429-ите, които са коренът на stale/bulletin предупрежденията (кода вече го поддържа: `x-cg-demo-api-key` header)
