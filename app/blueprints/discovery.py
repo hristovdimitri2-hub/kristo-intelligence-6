@@ -199,7 +199,7 @@ def api_mcp_manifest():
                     "id": "micro_request",
                     "name": "Micro Request",
                     "price_usdc": MICRO_FEE_USDC,
-                    "description": f"Pay-per-call: {MICRO_FEE_USDC} USDC per API request",
+                    "description": f"Pay-per-call: from {KRISTO_SIGNAL_PRICE} USDC per API request (per-endpoint pricing in 'endpoints.available')",
                     "access": "single API call",
                     "endpoints": ["/api/stats", "/api/sales", "/api/bot-status",
                                   "/api/arb/opportunities", "/api/v1/signal"],
