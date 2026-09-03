@@ -125,6 +125,19 @@ def _coingecko_cooldown_active() -> bool:
         return bool(_COINGECKO_COOLDOWN_UNTIL and _now() < _COINGECKO_COOLDOWN_UNTIL)
 
 
+def _coingecko_headers() -> dict:
+    """CoinGecko request headers.  Attaches the optional demo/pro API key
+    (COINGECKO_API_KEY) so Render's shared egress IP stops tripping the
+    anonymous rate limit — without it the bulletin/dashboard path kept
+    429ing and served 'stale cache' even though the agent's client
+    (services/coingecko.py) was already authenticated."""
+    headers = {"accept": "application/json"}
+    cg_key = (os.getenv("COINGECKO_API_KEY", "") or "").strip()
+    if cg_key:
+        headers["x-cg-demo-api-key"] = cg_key
+    return headers
+
+
 def _coingecko_request(cache_key: str, path: str, *, params: Optional[dict] = None) -> Optional[dict]:
     """
     Fetch one CoinGecko resource with cache-first reads and bounded retries.
@@ -171,7 +184,7 @@ def _coingecko_request(cache_key: str, path: str, *, params: Optional[dict] = No
                 response = requests.get(
                     f"{COINGECKO_BASE}{path}",
                     params=params,
-                    headers={"accept": "application/json"},
+                    headers=_coingecko_headers(),
                     timeout=_COINGECKO_TIMEOUT_SECONDS,
                 )
                 if getattr(response, "status_code", None) == 429:

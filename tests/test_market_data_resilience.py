@@ -185,6 +185,39 @@ def test_rate_limited_fallback_labels_fresh_cache_as_cached_not_stale(monkeypatc
     assert client.last_price_status["age_seconds"] == 950
 
 
+def test_coingecko_request_attaches_demo_api_key(monkeypatch):
+    """The bulletin/dashboard path must authenticate to CoinGecko with
+    COINGECKO_API_KEY (x-cg-demo-api-key) — without it Render's shared IP
+    429s and the bulletin serves 'stale cache' warnings forever."""
+    monkeypatch.setattr(market_data, "_COINGECKO_COOLDOWN_UNTIL", None)
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, **kwargs):
+        captured["headers"] = kwargs.get("headers")
+        return FakeResponse()
+
+    monkeypatch.setattr(market_data.requests, "get", fake_get)
+
+    monkeypatch.setenv("COINGECKO_API_KEY", "CG-test-key")
+    market_data._coingecko_request("cg_demokey_test_1", "/simple/price",
+                                   params={"ids": "ethereum"})
+    assert captured["headers"].get("x-cg-demo-api-key") == "CG-test-key"
+
+    monkeypatch.delenv("COINGECKO_API_KEY", raising=False)
+    market_data._coingecko_request("cg_demokey_test_2", "/simple/price",
+                                   params={"ids": "ethereum"})
+    assert "x-cg-demo-api-key" not in captured["headers"]
+
+
 def test_trading_agent_batches_prices_and_labels_stale_cache():
     class CachedClient:
         def __init__(self):
