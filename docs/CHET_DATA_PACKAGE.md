@@ -31,39 +31,27 @@
 сигнал от Chet (или най-рано следващата седмица — той каза, че compute-ът
 е ръчен, „ когато нов верифициран листинг трябва band").
 
-## C) Драфт — актуализиран (04.09, вечер): статията е ПУБЛИКУВАНА в repo-то
+## C) ФИНАЛЕН ИМЕЙЛ — готов за копи-пейст (04.09, вечер)
 
-Документ: `docs/MARKET_WRITEUP.md` — „The On-Chain Economy of a
-Machine-Payments Marketplace: An Audit" (методология, размер на пазара с
-дати, taxonomy на платците, agent-trader, ranking модел — без wallet
-адреси, неутрално назоваване).
+Статус: статията е публична (repo-то вече е public — проверено, линкът връща
+HTTP 200 без аутентикация). Band още unscored, титлата непроменена — но
+двата реда са достатъчни сами по себе си: доставяме поръчания документ.
 
-**Публичен URL (след visibility switch):**
-`https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/MARKET_WRITEUP.md`
-
-⚠️ **ДОКАДВАЙКА ЗА ВИДИМОСТТА:** repo-то `hristovdimitri2-hub/kristo-intelligence-6`
-е **PRIVATE** (проверено с аутентикиран GitHub API call — `private: true`).
-Линкът дава 404 за Chet, докато собственикът не превърне repo-то в public
-(GitHub → Settings → General → Danger Zone → Change visibility → Public).
-Двете опции:
-1. Направи repo-то public (интел докладите са чисти — без ключове/адреси;
-   проверено: нито един wallet адрес в статията) → прати линка директно.
-2. Ако repo-то остава частно → качи статията другаде (напр. gist или
-   blog post) и пращи този линк.
-
-**Финален имейл-драфт (макс 2 реда — „данна" категория, нула въпроси):**
+**ИМЕЙЛ ЗА КОПИ-ПЕЙСТ (цялото съдържание на имейла):**
 
 ```
+Subject: the write-up, as promised
+
 Hi Chet — the write-up, as promised:
 https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/MARKET_WRITEUP.md
-(contains no wallet addresses; the marketplace is described neutrally — same
-rules for house and third-party is documented as the design, not a promise.)
+
 — Dimitri
 ```
 
-**ПРАВИЛО:** прат само СЛЕД като repo-то е public (или линкът е сменен) —
-и пре-пускни `python scripts/listing_monitor.py`, за да пратиш и свеж band,
-ако междувременно е кацнал.
+*(При изпращане: ако междувременно band-ът е кацнал — виж горната STATUS
+таблица или пусни `python scripts/listing_monitor.py` — добави един ред
+„reliability band: [score/band, computed_at]". Като момента на писане:
+band=unscored, титлата е същата, ранговете идентични с baseline.)*
 
 ## D) Специална проверка (defi): неизпълнима в момента
 Титлата НЕ е сменена → „defi" продължава да идва от името (#1) и description-а
