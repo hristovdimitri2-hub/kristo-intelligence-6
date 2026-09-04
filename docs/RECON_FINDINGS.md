@@ -153,3 +153,41 @@ If sweeps are real: our crawler payment depends on THEIR sweep schedule,
 not our listing age. Tool shipped: `scripts/crawler_cadence.py`
 (90d outgoing histogram of the crawlers + burst-gap → next-sweep date;
 `--first-payment` mode re-checks the left edge).
+
+## Wave 5 (04.09 night): cadence measured — both audit hypotheses answered
+
+### Q2 (left edge): CONFIRMED — the H1 table measured from a false zero
+True first payments (60d window, sequential scans):
+- `0xd6b5…`: **2026-07-06**, 451 txs, 18 payers (not 05.08/109 txs!)
+- `0x0e84…`: **2026-07-06**, **123,029 txs, 683 payers** — and with flows that
+  size it is almost certainly ANOTHER ROUTER, not an API (like `0x480c`)
+- → The "05.08 cohort" was the left edge of the 30d window. The crawler's
+  arrival at d6b5 was ~54 days after its true first payment, not ~24.
+  H1 („just wait") loses even more support: these receivers were long
+  established before any crawler payment.
+
+### Q1 (cadence): NOT sweeps — near-continuous indexing with a ramp
+- `0xC59E` (60d): 2,948 txs; first burst 08-12 (125), GIANT ramp 08-23..08-30
+  (~2,750 txs), then sparse (49 on 09-01, 3 on 09-03)
+- `0x6777` (60d): 1,673 txs; **continuous, every single day 08-14 → 09-04**
+  (124 txs today). Median burst gap ~1.1d. Still running.
+- Verdict: no monthly sweep to wait for. One crawler (6777) indexes
+  CONTINUOUSLY, every day, at 100–250 txs/day.
+
+### The uncomfortable conclusion (H3/H4 promoted)
+We have been live on PayAPI since ~02.09. A continuously-sweeping indexer
+that paid 124–246 receivers per day has run 3 sessions since our listing —
+and still has not paid us. H1 (lag) is nearly dead. The remaining hypotheses:
+- **H4 (source directory):** the crawler's source list may not include PayAPI
+  third-party listings at all (it pays mostly routers/first-party?) —
+  testable: what share of 6777's daily payments go to known PayAPI listings?
+- **H3 (format):** byte-diff of our challenge/manifest vs paid listings.
+- Cheapest next test: pick 3 PayAPI third-party listings paid by 6777 in the
+  last 24h and compare their challenge structure with ours. If identical
+  structure → we're just not in the crawl source → H4.
+
+### Tooling: `scripts/crawler_cadence.py` + a real debugging lesson
+- Fixed a positional-topics bug in `collect_transfer_blocks` (missing `None`
+  placeholder made "incoming" scans filter as FROM → false zeros; three
+  RPCs agreeing on zero was the bug, not throttling — the 7d control test
+  caught it). Lesson encoded: control test before trusting a zero.

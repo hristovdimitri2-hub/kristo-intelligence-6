@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -40,6 +41,8 @@ def collect_transfer_blocks(
     topics = [TRANSFER_TOPIC]
     if from_padded:
         topics.append(from_padded)
+    else:
+        topics.append(None)   # positional placeholder for topic1 (from)
     if to_padded:
         topics.append(to_padded)
     hits: List[Tuple[int, str, str]] = []
@@ -135,6 +138,7 @@ def cadence_report(
         "window_days": days,
         "total_txs": len(hits),
         "distinct_counterparties": len({(f if direction == "out" else t) for _, f, t in hits}),
+        "distinct_receivers": len({t for _, _, t in hits}) if direction == "out" else None,
         "daily_histogram": dict(sorted(days_hist.items())),
         "burst_count": len(burst_info),
         "bursts": burst_info,
