@@ -37,13 +37,19 @@ Two data-hygiene rules the audit taught us, worth stating before the findings:
 
 The largest listing we measured (the settlement address for one platform-side
 offering) recorded **159 paid calls in a 7-day window in early September,
-totalling $0.29 USDC** — about $1.2/month. That address turned out to be
-shared by roughly nine first-party listings, so the per-listing number is
-smaller still. This is not a failure of the marketplace — the agent-payment
-ecosystem around it is genuinely just starting. It is a measurement: **the
-whole observed machine-payments economy is currently worth pocket change,
-and that is the honest baseline** every future claim should be checked
-against.
+totalling $0.29 USDC** — about $1.2/month.
+
+**Addendum (v1.1, corrected after deeper forensics):** that settlement
+address turned out to be a **shared treasury** — inflows into it come from
+the platform's own first-party listings *and* from part of the third-party
+catalogue. We cannot tell from public data whether it functions as a
+platform treasury, an escrow layer, or simply where host-managed listings
+settle; both readings fit the data. Either way, the $0.29/week figure is an
+**aggregate across multiple listings, not a single seller's revenue**, and
+the per-listing number is smaller still. The headline conclusion survives:
+**the whole observed machine-payments economy is currently worth roughly
+$1.2/month, and that is the honest baseline** every future claim should be
+checked against.
 
 ### 2. Most "payers" are infrastructure, not customers
 

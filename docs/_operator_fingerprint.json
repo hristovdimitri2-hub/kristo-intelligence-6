@@ -1,0 +1,155 @@
+{
+ "cd51_out": {
+  "window_days": 30,
+  "txs": 607,
+  "distinct_paytos": 35,
+  "paytos": {
+   "0x6d6e695b09861467c7d462f5aaf31cf3540b9192": {
+    "txs": 263,
+    "total": 1.438
+   },
+   "0x40a8cdd6a10ec1a8cb3dfb2834675e7a2cf4ad8b": {
+    "txs": 70,
+    "total": 0.1
+   },
+   "0x6c0752c09e7f6fa6526fcdf40e456a159ebb5621": {
+    "txs": 43,
+    "total": 0.43
+   },
+   "0x124f620b4f3b53559cd9148c9b1b2773ca104478": {
+    "txs": 35,
+    "total": 0.35
+   },
+   "0x7328a5301ea3b3cd8b979177a8fd85fde9a45d6f": {
+    "txs": 29,
+    "total": 0.0946
+   },
+   "0xda1d6cd52b5d7b83b691bc9a9fbb909120af0928": {
+    "txs": 19,
+    "total": 0.0638
+   },
+   "0x059d091d51a0f011c9872eaa63df538f5ce15945": {
+    "txs": 15,
+    "total": 0.45
+   },
+   "0x325bdf6f7efab24a2210c48c1b64cab2eae1d430": {
+    "txs": 13,
+    "total": 0.78
+   },
+   "0xf4c3e6fc3e9f5f905651132c2a728027c2048854": {
+    "txs": 11,
+    "total": 0.023
+   },
+   "0x402faccc3faeb72351cc2b68c7966faf5f22b0d4": {
+    "txs": 10,
+    "total": 0.01
+   },
+   "0x8fc4006534801c17a3368075a1fb3b3c511edb1f": {
+    "txs": 10,
+    "total": 0.05
+   },
+   "0xdf2467cbac3b16c3449704d03fb686041f56b307": {
+    "txs": 10,
+    "total": 0.0275
+   },
+   "0xcf9223ece895258dea8d288aebcf846ab8e342fb": {
+    "txs": 10,
+    "total": 0.213
+   },
+   "0xe8b25a72dd6aef69515452a61ad231c7df2843b7": {
+    "txs": 6,
+    "total": 0.06
+   },
+   "0xb85c83cc448edca8eb724f5d79b523faff9375a7": {
+    "txs": 6,
+    "total": 0.12
+   },
+   "0x4b580701bdab0e1c442fca9b809218ef2c9217f9": {
+    "txs": 6,
+    "total": 0.198
+   },
+   "0xd4f7249cdba93dc57ce522f84e35a5e90a34a6a7": {
+    "txs": 6,
+    "total": 0.0253
+   },
+   "0xc91ce6291edc0713ec753bafba002506ffb2b95c": {
+    "txs": 6,
+    "total": 0.053
+   },
+   "0x20d74a7b384c790acd13bc3a1593d84733a3f944": {
+    "txs": 5,
+    "total": 0.0099
+   },
+   "0x1538726707212f4db3eb67cec0910422a310475c": {
+    "txs": 5,
+    "total": 0.013
+   },
+   "0x6dccec00d22276d00c72a0b6a91f73fc15e8654f": {
+    "txs": 4,
+    "total": 0.1264
+   },
+   "0x8043d586defe39f2e7b2e57103abbc51d5848388": {
+    "txs": 4,
+    "total": 0.121
+   },
+   "0xafd9d57c7c7d70524a36c281eb0ccd9fffa6d5ef": {
+    "txs": 3,
+    "total": 0.0333
+   },
+   "0x76af964c743b8d6849bb8c86e8b71e20669f3b47": {
+    "txs": 3,
+    "total": 0.0209
+   },
+   "0xa2824b58c9da61fd34ad775afad1528554d383c4": {
+    "txs": 3,
+    "total": 0.0059
+   },
+   "0xb3c2776ce3f99cb3366520c27b4ac5d436942ab6": {
+    "txs": 2,
+    "total": 0.02
+   },
+   "0xcd513d2e063177caa937d70b4d87603a9a4946a9": {
+    "txs": 2,
+    "total": 0.009324
+   },
+   "0x195130fac39977c19cdd7167e0608b0e72b99bc1": {
+    "txs": 1,
+    "total": 0.0033
+   },
+   "0xe266c5fb1a0794bd7050abab0017fdbadc974854": {
+    "txs": 1,
+    "total": 0.00555
+   },
+   "0xd275612bf0bb35638432c4d95eaa8d5d22346ca6": {
+    "txs": 1,
+    "total": 0.002
+   },
+   "0x6e8b64638b24c6d625b045dd353120d850064e2e": {
+    "txs": 1,
+    "total": 0.005
+   },
+   "0x8b29dabd6fbb5a09dacbc7978eaed66a8540721d": {
+    "txs": 1,
+    "total": 0.001
+   },
+   "0x52ab53912d37759b2ad364f22dd06b16714b6c06": {
+    "txs": 1,
+    "total": 0.03
+   },
+   "0xe341add833f9d62082e97ea260baa6546cd09f73": {
+    "txs": 1,
+    "total": 0.001
+   },
+   "0x161dbdd73d025e9aedd4918a67c28e5bf9a87fb9": {
+    "txs": 1,
+    "total": 0.023513
+   }
+  }
+ },
+ "funder_out": {
+  "window_days": 30,
+  "txs": 0,
+  "distinct_recipients": 0,
+  "recipients": {}
+ }
+}
