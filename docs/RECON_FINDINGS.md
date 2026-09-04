@@ -73,3 +73,43 @@ sellers: loopA's seller is contactable (real listing, real traffic) — the
 - `fingerprint_payer()` in `competitor_recon.py`: automatic payer taxonomy
   (crawler ≥50 receivers/week; loop ≤10 receivers & ≥10 txs; human otherwise).
   Launch signal stays: `external_unique_payers > 0` in the HUMAN bucket.
+
+## Wave 3 (04.09): Chet's market-intel answer → search index measured
+
+### What Chet confirmed (email 04.09, 13:34)
+- Agent discovery = `GET /agent/search?q=…` + MCP tools (search_apis/list_apis/
+  get_api at payapi.market/mcp) — human category browsing is secondary
+- No paid slot; marketplace defaults to settlement-verified only; first row is
+  for independent providers, not the storefront
+- **No seller-side analytics yet** (views/impressions don't exist; the
+  "most-used" sort field is still zero in the catalog — his words)
+- Offer on the table: he'll review a ONE-LINE title change
+
+### Search index audit (live, /agent/search)
+| Query | We appear? | Position |
+|---|---|---|
+| q=defi | ✅ | **#1** |
+| q=signals | ✅ | #3 |
+| q=eth | ❌ MISSING | — |
+| q=kaito | ❌ (0 results — nobody lists KAITO!) | — |
+| q=crypto | ❌ MISSING | — |
+
+Root cause confirmed: search matches listing name/description text; our
+description has ZERO tickers → we lose every token search (eth/ondo/kaito/
+degen/crypto). Exactly what Chet predicted ("show the tickers in row one").
+
+### New competitors discovered (q=signals top-3)
+| Listing | Price | Endpoints | Verified |
+|---|---|---|---|
+| Crypto Snapshot Pro – AI Trading Signals | $0.025 | 1 | ✅ (onrender subdomain) |
+| Trend Signals | $0.001–0.05 | 4 | ✅ (custom domain) |
+| **Kristo Intelligence** | **$0.003–0.005** | **11** | ✅ 2 routes |
+
+We are the cheapest signal entry with the deepest endpoint surface — but
+invisible to token searches. Fix = title/description text, zero code.
+
+### Proposed one-line title change (sent to Chet for review)
+`Kristo Intelligence — DeFi Signals API (ETH, ONDO, KAITO, DEGEN on Base)`
+Description line (if he takes it): "Trading-agent signals for ETH, ONDO,
+KAITO and DEGEN on Base — action, confidence, price and reasoning per call.
+Whale USDC tracking, cross-DEX arb spreads and rug checks included."
