@@ -26,3 +26,5 @@ python examples/demo_agent/demo_agent.py --pay                # РЕАЛНО п�
 
 ⚠️ Никога не ползвай production private key. `--pay` е за funded test
 wallet с микро-суми (0.003–0.01 USDC).
+
+**Listing:** [Kristo Intelligence — DeFi Signals API on PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api) — settlement-verified, $0.003/call, USDC on Base.

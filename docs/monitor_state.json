@@ -1,0 +1,45 @@
+{
+  "reliability": {
+    "score": null,
+    "band": "unscored",
+    "computed_at": null,
+    "name": "Kristo Intelligence — DeFi Signals API",
+    "payment_verified": true,
+    "price_min": 0.005,
+    "description": "Live Base DeFi signals, whale USDC tracking, cross-DEX arb spreads & rug checks. x402-native micro-payments, no signup needed."
+  },
+  "ranks": {
+    "eth": {
+      "position": null,
+      "total": 2
+    },
+    "defi": {
+      "position": 1,
+      "total": 3
+    },
+    "signals": {
+      "position": 3,
+      "total": 7
+    },
+    "whale": {
+      "position": 1,
+      "total": 1
+    },
+    "rug": {
+      "position": 2,
+      "total": 2
+    },
+    "ondo": {
+      "position": null,
+      "total": 1
+    },
+    "kaito": {
+      "position": null,
+      "total": 0
+    },
+    "degen": {
+      "position": null,
+      "total": 0
+    }
+  }
+}

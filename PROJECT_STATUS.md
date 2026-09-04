@@ -32,6 +32,9 @@
   - **Големият извод: лидерът на PayAPI прави ~$1.2/МЕСЕЦ.** Микро-пазарът x402 на PayAPI е pre-PMF — реални платци има (15 wallet-а!), но в абсолютни стойности всички сме на нула. Извод: не оптимизирай микро-цени — целта остава 1-5 операторски сделки + позициониране за растежа на екосистемата; листингите са дистрибуционни експерименти, не revenue engine
   - Доклад: docs/_recon_currency_api_7d.json (публични верижни данни). Caveat: payTo може да облужва няколко first-party listing-а
 - 🏷 **KNOWN_PAYERS в recon скрипта:** 0x7e6b…2b1c = `chet_payapi_verification` — канарките се отчитат отделно, `external_unique_payers` винаги показва само реални външни платци (2 нови теста, 142/142)
+- 🔒 **ПЛАТФОРМЕН ИНВАРИАНТ (04.09, по инструкция на PayAPI оператора Chet Parker):** `payTo = 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` и endpoint структура — **НИКОГА не се променят**; reliability score-ът на PayAPI включва „payTo still matches" + health history, а downtime ТРИГЕРВА recompute (провалените samples влизат в band). Keep-alive ping на `/health` на 5–10 мин = постоянна инфраструктура. Всяка промяна по endpoint-а минава през въпроса „чупи ли score-а?"
+- 📊 **`scripts/listing_monitor.py`** — седмичен пулс: reliability band (от `/agent/get`) + ранг по 8-те агенски термина; диф против `docs/monitor_state.json`; аларма при band/ранг/описание промяна. Baseline 04.09: band=unscored (compute за нас предстои), defi **#1**, whale #1, signals #3, eth/ondo/kaito/degen ABSENT (титлата чака Chet). Валидация на модела на Chet: query match доминира — unscored листинг бие scored-69.6 за q=defi благодарение на името
+- ✍️ **Заглавна промяна приета от Chet** (тикери на първия ред); description fix — следващият compute ще ни сложи и band; с това трите слоя на подредбата (query match → verified → band) са адресирани, 2 от тях лично от оператора
 
 
 ## Session 2026-08-29 (growth sprint)
