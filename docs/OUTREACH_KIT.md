@@ -143,6 +143,20 @@ Chet потвърди (email 14:15 UTC, 03.09): няма платено слот
 
 (Ако и това мълчи — затворена тема, усилието отива в MCP директориите.)
 
+**X версия — data-story (актуализирана 04.09; статията е в repo-то):**
+> I audited the on-chain economy of a machine-payments API marketplace.
+>
+> Every paid call settles publicly — so I mapped who pays whom, how ranking works, and when the platform's crawlers run.
+>
+> Findings: top listing = $0.29/week; most "payers" are sampling infrastructure, not customers; exactly ONE real agent-trader (buys data at $0.002/call, routes swaps through a DEX router). Whole observed market: ~$1.2/month.
+>
+> Full audit (no wallet addresses, numbers dated):
+> github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/MARKET_WRITEUP.md
+>
+> (I build one of the listings — DeFi signals, x402/USDC on Base. Demo agent: one command, watch an agent pay.)
+
+*(Опционално — основният канал е линкът към Chet. Същата дисциплина: нула wallet адреси, неутрално към платформата.)*
+
 ---
 
 ## Правила на кампанията
