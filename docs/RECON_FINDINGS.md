@@ -108,7 +108,18 @@ degen/crypto). Exactly what Chet predicted ("show the tickers in row one").
 We are the cheapest signal entry with the deepest endpoint surface — but
 invisible to token searches. Fix = title/description text, zero code.
 
-### Proposed one-line title change (sent to Chet for review)
+### Matcher forensics (04.09 late): substring matching confirmed
+- q=defi #2 is the CMS **Nursing Home** API because its description contains
+  "de**fi**ciencies" — the matcher is substring/fuzzy, not token-exact.
+  Empty-niche terms (kaito/degen) are therefore trivially winnable.
+- Description IS indexed: our whale #1 comes from "whale USDC tracking" in
+  the description (name has no "whale"). All our present terms map to
+  description words; all missing terms are exactly the absent tickers.
+- **Defi-trade risk resolved:** the long brand name ("Kristo Intelligence
+  DeFi Signals API") moves INTO the description with the title change →
+  "defi" keeps matching via both the brand substring and "DeFi" wording.
+  Fallback only if the monitor shows defi=ABSENT: one line to Chet —
+  "fold DeFi into the title: ETH ONDO DEGEN DeFi signals…". Nothing more.
 `Kristo Intelligence — DeFi Signals API (ETH, ONDO, KAITO, DEGEN on Base)`
 Description line (if he takes it): "Trading-agent signals for ETH, ONDO,
 KAITO and DEGEN on Base — action, confidence, price and reasoning per call.
@@ -191,3 +202,5 @@ and still has not paid us. H1 (lag) is nearly dead. The remaining hypotheses:
   placeholder made "incoming" scans filter as FROM → false zeros; three
   RPCs agreeing on zero was the bug, not throttling — the 7d control test
   caught it). Lesson encoded: control test before trusting a zero.
+# # #   P r o p o s e d   o n e - l i n e   t i t l e   c h a n g e   ( d r a f t e d   0 4 . 0 9 ;   C h e t   a c c e p t e d      p e n d i n g   p l a t f o r m   u p d a t e )  
+ 
