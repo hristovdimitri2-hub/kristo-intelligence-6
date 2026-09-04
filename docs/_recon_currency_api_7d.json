@@ -1,0 +1,178 @@
+{
+  "total_txs": 159,
+  "total_usdc": 0.287,
+  "unique_payers": 15,
+  "external_unique_payers": 15,
+  "known_verification_txs": 0,
+  "avg_check_usdc": 0.001805,
+  "repeat_payers": [
+    {
+      "payer": "0x9aDbEE672Bc6B3eE802D92600141dDdd86DD279C",
+      "txs": 2,
+      "total_usdc": 0.08,
+      "avg_usdc": 0.04
+    },
+    {
+      "payer": "0x6777E11fB0A7917b8110B7dab9188AA3F6D23986",
+      "txs": 25,
+      "total_usdc": 0.067,
+      "avg_usdc": 0.00268
+    },
+    {
+      "payer": "0xC59E74ED6386B2a12D892fff2509A6965a0498DC",
+      "txs": 48,
+      "total_usdc": 0.048,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x5f64022f18778fDA1E85ede1DDd313258d535a73",
+      "txs": 42,
+      "total_usdc": 0.042,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x40758B382B620d2BcB1e3E381E7812589bA21A86",
+      "txs": 9,
+      "total_usdc": 0.014,
+      "avg_usdc": 0.001556
+    },
+    {
+      "payer": "0xC533Bf5268A2F64aDDe58dcE380651f70Aa92D7A",
+      "txs": 7,
+      "total_usdc": 0.01,
+      "avg_usdc": 0.001429
+    },
+    {
+      "payer": "0x0874c798c9fa7F8f37d3519c2551849ba4f38210",
+      "txs": 8,
+      "total_usdc": 0.008,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0",
+      "txs": 5,
+      "total_usdc": 0.005,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x06DF1CdeeFff8A777468c6caEE0d269f00FabBA1",
+      "txs": 4,
+      "total_usdc": 0.004,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0xc3b6DFA4f9007d9808DF7A579F3b4e46afe14794",
+      "txs": 3,
+      "total_usdc": 0.003,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0xc3Dd3dEe328831fe12F259Fa20725c2Ce312BF3D",
+      "txs": 2,
+      "total_usdc": 0.002,
+      "avg_usdc": 0.001
+    }
+  ],
+  "payers": [
+    {
+      "payer": "0x9aDbEE672Bc6B3eE802D92600141dDdd86DD279C",
+      "txs": 2,
+      "total_usdc": 0.08,
+      "avg_usdc": 0.04
+    },
+    {
+      "payer": "0x6777E11fB0A7917b8110B7dab9188AA3F6D23986",
+      "txs": 25,
+      "total_usdc": 0.067,
+      "avg_usdc": 0.00268
+    },
+    {
+      "payer": "0xC59E74ED6386B2a12D892fff2509A6965a0498DC",
+      "txs": 48,
+      "total_usdc": 0.048,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x5f64022f18778fDA1E85ede1DDd313258d535a73",
+      "txs": 42,
+      "total_usdc": 0.042,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x40758B382B620d2BcB1e3E381E7812589bA21A86",
+      "txs": 9,
+      "total_usdc": 0.014,
+      "avg_usdc": 0.001556
+    },
+    {
+      "payer": "0xC533Bf5268A2F64aDDe58dcE380651f70Aa92D7A",
+      "txs": 7,
+      "total_usdc": 0.01,
+      "avg_usdc": 0.001429
+    },
+    {
+      "payer": "0x0874c798c9fa7F8f37d3519c2551849ba4f38210",
+      "txs": 8,
+      "total_usdc": 0.008,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0",
+      "txs": 5,
+      "total_usdc": 0.005,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x06DF1CdeeFff8A777468c6caEE0d269f00FabBA1",
+      "txs": 4,
+      "total_usdc": 0.004,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0xc3b6DFA4f9007d9808DF7A579F3b4e46afe14794",
+      "txs": 3,
+      "total_usdc": 0.003,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0xc3Dd3dEe328831fe12F259Fa20725c2Ce312BF3D",
+      "txs": 2,
+      "total_usdc": 0.002,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0xF9Eb7Ceab43a5bAB35001AeEbdF4D4d66E22E9D0",
+      "txs": 1,
+      "total_usdc": 0.001,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x02b43334F675E02636816E6f5c0EC6072be2df8c",
+      "txs": 1,
+      "total_usdc": 0.001,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0xe3Badbd4f38214b9Eae528a1a5398f6678f63fB3",
+      "txs": 1,
+      "total_usdc": 0.001,
+      "avg_usdc": 0.001
+    },
+    {
+      "payer": "0x37FAcA44Ce50802a8b1490802182894E848238a8",
+      "txs": 1,
+      "total_usdc": 0.001,
+      "avg_usdc": 0.001
+    }
+  ],
+  "known_verifications": [],
+  "noise": {
+    "large_txs": [],
+    "large_tx_count": 0
+  },
+  "address": "0xFFc458dB291b4ABcE020fE3de4f91F2770E537b1",
+  "window_days": 7,
+  "from_block": 50560440,
+  "to_block": 50862840,
+  "generated_at": "2026-09-04T09:44:20.414416+00:00"
+}

@@ -26,6 +26,12 @@
   - `examples/demo_agent/` — ПУБЛИЧЕН reference x402 клиент (discovery → 402 challenge → pay & retry с X-Payment-Proof; --pay = реален settle с test wallet). Smoke тестван live: discovery 200/5 ресурса, challenge = каноничен v2 (exact, eip155:8453, 3000 атомни). Двoен роля: trust-артефакт за билдъри + E2E self-paid тестът, който никога не беше завършен
   - Атрибуция в main.py: `_live_request_log` сега пази user_agent/referer/funnel; НОВА `/f/<канал>` route (302 → storefront, каналът се логва) — каналите започват да се разграничават от краулери шум
   - VIP $29 tier остана (корекция на одита): Stripe checkout flow реално grants 30-дневен unlimited — manifest-ът не лъже
+- 🔬 **ПЪРВО ON-CHAIN РАЗУЗНАВАНЕ — изпълнено (04.09), цел: „Currency & Crypto API" (first-party PayAPI листинг, $0.001/call):**
+  - payTo `0xFFc458dB291b4ABcE020fE3de4f91F2770E537b1` — получен БЕЗПЛАТНО през 402 challenge-а им (POST без плащане → каноничен v2 отговор с accepts[0].payTo). Техниката: „пътуване до касата без пазуване"
+  - **Резултат (7 дни, ~302k блока): 159 микроплащания / 0.287 USDC общо / 15 уникални платци / среден чек $0.0018 / 11 repeat-payers.** Топ-3 платци (48+42+25 tx) = 72% от транзакциите — концентрационната хипотеза от одита потвърдена
+  - **Големият извод: лидерът на PayAPI прави ~$1.2/МЕСЕЦ.** Микро-пазарът x402 на PayAPI е pre-PMF — реални платци има (15 wallet-а!), но в абсолютни стойности всички сме на нула. Извод: не оптимизирай микро-цени — целта остава 1-5 операторски сделки + позициониране за растежа на екосистемата; листингите са дистрибуционни експерименти, не revenue engine
+  - Доклад: docs/_recon_currency_api_7d.json (публични верижни данни). Caveat: payTo може да облужва няколко first-party listing-а
+- 🏷 **KNOWN_PAYERS в recon скрипта:** 0x7e6b…2b1c = `chet_payapi_verification` — канарките се отчитат отделно, `external_unique_payers` винаги показва само реални външни платци (2 нови теста, 142/142)
 
 
 ## Session 2026-08-29 (growth sprint)

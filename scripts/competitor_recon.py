@@ -33,6 +33,13 @@ TRANSFER_TOPIC = (
 )
 USDC_DECIMALS = 6
 
+# Known non-customer payers: market reviewers running verification canaries.
+# They are real on-chain settlements (kept in totals) but they are NOT
+# operators — labelled so operator stats never overstate the customer base.
+KNOWN_PAYERS = {
+    "0x7e6b6556322c4e26c567a867964ac793f5ee2b1c": "chet_payapi_verification",
+}
+
 # Transfers above this are almost certainly not per-call x402 payments
 # (settlements, treasury moves, exchange flows) — flagged as noise, not hidden.
 LARGE_TX_NOISE_THRESHOLD_USDC = 1000.0
@@ -120,17 +127,25 @@ def classify_transfers(
     transfers: List[dict],
     *,
     large_threshold_usdc: float = LARGE_TX_NOISE_THRESHOLD_USDC,
+    known_payers: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Pure aggregation: who pays, how often, how much — with noise flags.
 
     Noise policy: transfers >= large_threshold_usdc are NOT per-call x402
     payments (treasury/exchange/settlement flows); they go into a separate
     bucket so headline operator stats stay honest.
+
+    Known payers (market reviewers running verification canaries) are real
+    settlements but NOT operators: they are split into their own bucket so
+    external-customer stats never overstate the customer base.
     """
+    known = {k.lower(): v for k, v in (known_payers if known_payers is not None else KNOWN_PAYERS).items()}
     if not transfers:
         return {
             "total_txs": 0, "total_usdc": 0.0, "unique_payers": 0,
+            "external_unique_payers": 0, "known_verification_txs": 0,
             "avg_check_usdc": 0.0, "repeat_payers": [], "payers": [],
+            "known_verifications": [],
             "noise": {"large_txs": [], "large_tx_count": 0},
         }
 
@@ -143,6 +158,22 @@ def classify_transfers(
             continue
         by_payer.setdefault(t["payer"], []).append(amount)
 
+    # Split known verifiers out of the operator bucket.
+    known_txs = 0
+    known_bucket = []
+    operators: Dict[str, List[float]] = {}
+    for payer, amounts in by_payer.items():
+        if payer.lower() in known:
+            known_txs += len(amounts)
+            known_bucket.append({
+                "payer": payer,
+                "label": known[payer.lower()],
+                "txs": len(amounts),
+                "total_usdc": round(sum(amounts), 6),
+            })
+        else:
+            operators[payer] = amounts
+
     payers = [
         {
             "payer": payer,
@@ -150,22 +181,22 @@ def classify_transfers(
             "total_usdc": round(sum(amounts), 6),
             "avg_usdc": round(sum(amounts) / len(amounts), 6),
         }
-        for payer, amounts in by_payer.items()
+        for payer, amounts in operators.items()
     ]
     payers.sort(key=lambda e: (-e["total_usdc"], -e["txs"]))
 
-    paid_txs = len(transfers) - len(large)
-    total = sum(
-        t["amount_usdc"] for t in transfers
-        if t["amount_usdc"] < large_threshold_usdc
-    )
+    paid_txs = len(transfers) - len(large) - known_txs
+    total = sum(sum(v) for v in operators.values())
     return {
         "total_txs": paid_txs,
         "total_usdc": round(total, 6),
         "unique_payers": len(by_payer),
+        "external_unique_payers": len(operators),
+        "known_verification_txs": known_txs,
         "avg_check_usdc": round(total / paid_txs, 6) if paid_txs else 0.0,
         "repeat_payers": [e for e in payers if e["txs"] >= 2],
         "payers": payers,
+        "known_verifications": known_bucket,
         "noise": {
             "large_txs": [
                 {"tx_hash": t["tx_hash"], "payer": t["payer"],
@@ -190,6 +221,10 @@ def _summary(report: dict, address: str, days: int) -> str:
             lines.append(f"  {e['payer']}  {e['txs']} txs, {e['total_usdc']} USDC total")
     else:
         lines.append("Repeat payers: none in window")
+    if report.get("known_verification_txs"):
+        for e in report.get("known_verifications", []):
+            lines.append(f"Known verifications (excluded from operator stats): "
+                         f"{e['label']}: {e['txs']} txs, {e['total_usdc']} USDC")
     if report["noise"]["large_tx_count"]:
         lines.append(
             f"Noise: {report['noise']['large_tx_count']} large transfer(s) "

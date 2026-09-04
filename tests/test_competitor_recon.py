@@ -71,3 +71,30 @@ def test_pad_topic_rejects_bad_address():
 def test_decode_amount_usdc_decimals():
     raw = (5000).to_bytes(32, "big")                  # 5000 raw units = 0.005 USDC
     assert recon._decode_amount(raw) == 0.005
+
+
+def test_known_verifiers_split_from_operator_stats():
+    """Market reviewers' canaries are real settlements but NOT customers —
+    they must never inflate the external-operator numbers."""
+    CHET = "0x7E6b6556322c4e26c567a867964ac793f5ee2b1c"   # case-check: label lookup is case-insensitive
+    OPERATOR = "0x" + "d" * 40
+    transfers = [
+        _t(CHET, 0.003), _t(CHET, 0.003), _t(CHET, 0.005),  # would look like an operator...
+        _t(OPERATOR, 0.003),
+    ]
+    report = recon.classify_transfers(transfers)
+    assert report["unique_payers"] == 2
+    assert report["known_verification_txs"] == 3
+    assert report["external_unique_payers"] == 1
+    assert report["total_txs"] == 1
+    assert report["total_usdc"] == 0.003
+    assert report["repeat_payers"] == []                  # canaries never appear as operators
+    assert report["known_verifications"][0]["label"] == "chet_payapi_verification"
+
+
+def test_known_payers_param_overrides_default():
+    A = "0x" + "a" * 40
+    transfers = [_t(A, 0.003)]
+    report = recon.classify_transfers(transfers, known_payers={A.lower(): "test_reviewer"})
+    assert report["external_unique_payers"] == 0
+    assert report["known_verifications"][0]["label"] == "test_reviewer"
