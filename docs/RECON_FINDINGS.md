@@ -33,6 +33,11 @@ thermometer must be built by summing the top listings' payTo addresses instead.
 1. `competitor_recon.py` on 2–3 most visible listings, one at 30d window
 2. `payer_lookup.py` + outgoing-transfer fingerprint on new repeat payers
 3. Re-scan our own receiver — first `external_unique_payers > 0` is the launch signal
+4. **x402scan presence check** — verify our card is visible and complete
+   (all resources, correct prices, no stale fields). If the site doesn't
+   parse automatically, note it and check manually — don't force it.
+   (Weekly bonus: `listing_monitor.py` now includes the receiver scan and
+   prints the launch signal automatically.)
 
 ## Wave 2 (04.09 late): H1 measured, loop de-masked, taxonomy shipped
 

@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+from typing import Optional
 
 import requests
 
@@ -29,6 +30,47 @@ OUR_SLUG = "kristo-intelligence-defi-signals-api"
 TERMS = ["eth", "defi", "signals", "whale", "rug", "ondo", "kaito", "degen"]
 STATE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "docs", "monitor_state.json")
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scripts.competitor_recon import (  # noqa: E402
+    DEFAULT_RECEIVER,
+    KNOWN_PAYERS,
+    classify_transfers,
+    fetch_incoming_transfers,
+)
+
+
+def receiver_scan() -> Optional[dict]:
+    """Incoming USDC to OUR payTo, last 7 days, classified by taxonomy.
+
+    Prints ONLY on the launch signal (external human payer > 0 — any payer
+    that is not a known market verifier). Silence = nothing to report.
+    """
+    try:
+        from web3 import Web3
+        rpc_url = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        latest = w3.eth.block_number
+        from_b = max(1, latest - int(7 * 86400 / 2))
+        transfers = fetch_incoming_transfers(
+            rpc_url, DEFAULT_RECEIVER, from_block=from_b, to_block=latest)
+        report = classify_transfers(transfers, known_payers=KNOWN_PAYERS)
+        external = report.get("payers", [])
+        if report.get("external_unique_payers", 0) > 0:
+            total = report.get("total_usdc", 0)
+            print("\n*** LAUNCH SIGNAL: external human/unknown payer detected ***")
+            print(f"    external payers: {report['external_unique_payers']}  "
+                  f"| payments: {report['total_txs']}  | total {total} USDC")
+            for p in external[:10]:
+                print(f"    {p['payer']}  {p['txs']} txs, {p['total_usdc']} USDC "
+                      f"(avg {p['avg_usdc']})")
+            if report.get("known_verifications"):
+                print("    (known verifier canaries excluded from the above)")
+            return report
+        return None
+    except Exception as exc:
+        print(f"[receiver scan skipped: {str(exc)[:80]}]")
+        return None
 
 
 def fetch_state() -> dict:
@@ -113,6 +155,10 @@ def main() -> int:
     with open(STATE_PATH, "w", encoding="utf-8") as fh:
         json.dump(cur, fh, indent=2, ensure_ascii=False)
     print(f"state saved: {STATE_PATH}")
+
+    # Launch-signal scan: silent unless an external human payer shows up.
+    receiver_scan()
+
     return 1 if (args.quiet and changes) else 0
 
 
