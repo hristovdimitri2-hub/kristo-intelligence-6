@@ -1477,12 +1477,31 @@ def _capture_live_request(response):
                     "path": path,
                     "source": source,
                     "status_code": response.status_code,
+                        # Attribution (03.09): which acquisition funnel and
+                        # what kind of client — separates operator
+                        # traffic from crawler noise, no PII stored.
+                        "user_agent": (request.headers.get("User-Agent") or "")[:120],
+                        "referer": (request.headers.get("Referer") or "")[:160],
+                        "funnel": g.get("funnel_channel"),
                 }
             )
     except Exception:
         # Observability must never affect the application response.
         pass
     return response
+
+
+@app.route("/f/<channel>")
+def funnel_redirect(channel):
+    """Marketing attribution hop: /f/<channel> 302s to the storefront.
+
+    The after_request hook records the channel, so every later request
+    from a client acquired through it traces back to the channel.
+    """
+    if len(channel) > 32 or not all(c.isalnum() or c in "-_" for c in channel):
+        return jsonify({"error": "invalid channel"}), 404
+    g.funnel_channel = channel
+    return redirect("/", code=302)
 
 
 # ── x402 payment proof verification (completes the payment handshake) ───────
