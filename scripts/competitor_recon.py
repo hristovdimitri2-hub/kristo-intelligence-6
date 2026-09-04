@@ -33,6 +33,16 @@ TRANSFER_TOPIC = (
 )
 USDC_DECIMALS = 6
 
+# ── Payer taxonomy (behavioral, automatic) ─────────────────────────────────
+# A payer's *outgoing fan-out* tells us what it is:
+#   crawler  — pays >= 50 distinct receivers/week (ecosystem probe/router)
+#   loop     — <= 10 receivers, high cadence (benchmark bot / machine cycle)
+#   human    — everything else (unknown until proven)
+# The launch signal stays: external_unique_payers in the HUMAN bucket.
+CRAWLER_MIN_RECEIVERS = 50
+LOOP_MAX_RECEIVERS = 10
+LOOP_MIN_TXS = 10
+
 # Known non-customer payers: market reviewers running verification canaries.
 # They are real on-chain settlements (kept in totals) but they are NOT
 # operators — labelled so operator stats never overstate the customer base.
@@ -121,6 +131,80 @@ def fetch_incoming_transfers(
         if start <= to_block:
             time.sleep(pause_seconds)
     return transfers
+
+
+def fingerprint_payer(
+    rpc_url: str,
+    payer: str,
+    usdc_contract: str = USDC_BASE,
+    days: int = 7,
+    chunk_size: int = 5000,
+) -> dict:
+    """Behavioral fingerprint: WHERE ELSE does this payer send USDC?
+
+    Outgoing fan-out classifies the payer automatically:
+      crawler (>= CRAWLER_MIN_RECEIVERS receivers) — ecosystem probe; pays
+      every x402 service it indexes, arrives regardless of price (H2 refuted
+      04.09: it pays across the whole price range).
+      loop (<= LOOP_MAX_RECEIVERS, >= LOOP_MIN_TXS) — benchmark/machine cycle;
+      the ONLY observed comparative shopping on the market.
+      human — everything else; this bucket feeds external_unique_payers.
+    """
+    from web3 import Web3
+
+    w3 = Web3(Web3.HTTPProvider(
+        os.getenv("BASE_RPC_URL", DEFAULT_RPC), request_kwargs={"timeout": 30}
+    ))
+    to_block = w3.eth.block_number
+    from_block = max(1, to_block - int(days * 86400 / BLOCK_TIME_SECONDS))
+    padded = "0x" + "0" * 24 + payer.lower().replace("0x", "")
+    receivers: Dict[str, List[float]] = {}
+    start = from_block
+    while start <= to_block:
+        end = min(start + chunk_size - 1, to_block)
+        try:
+            logs = w3.eth.get_logs({
+                "fromBlock": start, "toBlock": end,
+                "address": Web3.to_checksum_address(usdc_contract),
+                "topics": [TRANSFER_TOPIC, padded, None],
+            })
+            for lg in logs:
+                recv = "0x" + bytes(lg.topics[2]).hex()[-40:]
+                amt = _decode_amount(lg["data"])
+                receivers.setdefault(recv, []).append(amt)
+        except Exception:
+            pass
+        start = end + 1
+        if start <= to_block:
+            time.sleep(0.05)
+
+    n_recv = len(receivers)
+    n_tx = sum(len(v) for v in receivers.values())
+    if n_recv >= CRAWLER_MIN_RECEIVERS:
+        kind = "crawler"
+    elif n_recv <= LOOP_MAX_RECEIVERS and n_tx >= LOOP_MIN_TXS:
+        kind = "loop"
+    else:
+        kind = "human"
+    return {
+        "payer": payer,
+        "window_days": days,
+        "distinct_receivers": n_recv,
+        "total_txs": n_tx,
+        "total_usdc": round(sum(sum(v) for v in receivers.values()), 6),
+        "top_receivers": sorted(
+            (
+                {"receiver": r, "txs": len(v), "total_usdc": round(sum(v), 6)}
+                for r, v in receivers.items()
+            ),
+            key=lambda e: (-e["txs"], -e["total_usdc"]),
+        )[:10],
+        "classification": kind,
+    }
+
+
+def recv_addr(lg) -> str:  # pragma: no cover - helper
+    return "0x" + bytes(lg.topics[2]).hex()[-40:]
 
 
 def classify_transfers(
