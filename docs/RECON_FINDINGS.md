@@ -113,3 +113,43 @@ invisible to token searches. Fix = title/description text, zero code.
 Description line (if he takes it): "Trading-agent signals for ETH, ONDO,
 KAITO and DEGEN on Base — action, confidence, price and reasoning per call.
 Whale USDC tracking, cross-DEX arb spreads and rug checks included."
+
+## Wave 4 (04.09 evening): full term map → finalized title draft
+
+### Complete search-term map (live /agent/search, 15 queries)
+| Term | Total results | Our position |
+|---|---|---|
+| defi | 3 | **#1** |
+| whale | 1 | **#1** (we own the term) |
+| rug | 2 | #2 |
+| signals | 7 | #3 |
+| eth | 2 | ❌ missing |
+| ondo | 1 | ❌ missing |
+| kaito / degen | 0 | ❌ EMPTY NICHE, we're missing |
+| crypto | 7 | ❌ missing |
+| **trading** | 4 | ❌ missing (Crypto Snapshot Pro #1) |
+| **trading signals** | 1 | ❌ only Crypto Snapshot Pro |
+| **ai signals** | 3 | ❌ missing |
+| market data / price feed | 12 / 1 | ❌ missing (Trend Signals owns price feed) |
+
+### Finalized title draft (merged from Chet's read + term map)
+**Title:** `ETH ONDO KAITO DEGEN trading signals — whale flow, rug risk, arb`
+(adds "trading" — currently owned by Crypto Snapshot Pro — plus all 4 tickers;
+"signals" we already rank #3 on, "defi"/"whale" we own)
+
+**Description:** "Kristo Intelligence DeFi Signals API: live trading-agent
+signals for ETH, ONDO, KAITO and DEGEN on Base — action, confidence, price
+and reasoning per call. Whale USDC tracking, cross-DEX arbitrage spreads and
+rug risk checks. Pay per call, x402 USDC on Base. Route: GET /api/v1/signal."
+(long brand name moves to description, for humans; "ai signals" term covered
+by "trading-agent signals")
+
+### Sweeps hypothesis (from the audit — pending cadence data)
+Two red flags in the H1 table: (1) all five sampled "first payments" were
+2026-08-05/06 — either a real launch cohort or the LEFT EDGE of our 30d
+window; (2) the crawler arrived at all five within 2.8d (27–29.08) —
+consistent with ONE catalog-wide sweep, not per-listing discovery.
+If sweeps are real: our crawler payment depends on THEIR sweep schedule,
+not our listing age. Tool shipped: `scripts/crawler_cadence.py`
+(90d outgoing histogram of the crawlers + burst-gap → next-sweep date;
+`--first-payment` mode re-checks the left edge).
