@@ -98,3 +98,31 @@ def test_known_payers_param_overrides_default():
     report = recon.classify_transfers(transfers, known_payers={A.lower(): "test_reviewer"})
     assert report["external_unique_payers"] == 0
     assert report["known_verifications"][0]["label"] == "test_reviewer"
+
+
+def test_market_samplers_are_heartbeat_never_launch_signal():
+    """The two fingerprinted crawler wallets (RECON_FINDINGS) must be
+    classified as known infrastructure: their payments are a heartbeat
+    ('in the crawl set'), NEVER a launch signal."""
+    C59E = "0xC59E74ED6386B2a12D892fff2509A6965a0498DC"   # 158 receivers/week
+    C6777 = "0x6777E11fB0A7917b8110B7dab9188AA3F6D23986"  # 386 receivers/week
+    transfers = [
+        _t(C59E, 0.001), _t(C59E, 0.002),
+        _t(C6777, 0.001),
+    ]
+    report = recon.classify_transfers(transfers)  # default KNOWN_PAYERS applies
+    assert report["external_unique_payers"] == 0
+    assert report["known_verification_txs"] == 3
+    labels = {k["label"] for k in report["known_verifications"]}
+    assert labels == {"market_sampler_c59e", "market_crawler_6777"}
+    assert report["repeat_payers"] == []  # samplers never look like customers
+
+
+def test_unknown_new_payer_still_fires_launch_signal():
+    """A genuinely NEW payer (human or new infra) must count as external —
+    the launch signal survives the sampler exclusion."""
+    NEW = "0x" + "e" * 40
+    transfers = [_t(NEW, 0.003), _t(NEW, 0.005)]
+    report = recon.classify_transfers(transfers)
+    assert report["external_unique_payers"] == 1
+    assert report["repeat_payers"][0]["payer"] == NEW

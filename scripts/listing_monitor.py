@@ -64,9 +64,13 @@ def receiver_scan() -> Optional[dict]:
             for p in external[:10]:
                 print(f"    {p['payer']}  {p['txs']} txs, {p['total_usdc']} USDC "
                       f"(avg {p['avg_usdc']})")
-            if report.get("known_verifications"):
-                print("    (known verifier canaries excluded from the above)")
             return report
+        if report.get("known_verification_txs", 0) > 0:
+            # Known infrastructure (canaries, samplers) paying us = heartbeat:
+            # we're IN the crawl set. Never a launch signal.
+            for k in report.get("known_verifications", []):
+                print(f"HEARTBEAT (в набора): {k['label']} — {k['txs']} txs, "
+                      f"{k['total_usdc']} USDC за 7d. Не е launch сигнал.")
         return None
     except Exception as exc:
         print(f"[receiver scan skipped: {str(exc)[:80]}]")

@@ -1,5 +1,15 @@
 # PROJECT STATUS (frozen 2026-08-27 — RESUMED 2026-08-29)
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
+
+## 📌 ПОСТОЯННИ ОТБЕЛЕЖКИ (05.09, инструкция на собственика — валидни за цялата оставаща история на проекта)
+- ✅ **ИЗПЪЛНЕНО И ПОТВЪРДЕНО:** разписката на Chet + линкът към статията — изпратени. НЕ се включват повече в „остава за човека".
+- ❌ **ПРЕМАХНАТО:** X постът — обявен за мъртъв от собственика. Не се споменава в планове/табла.
+- 🗄 **ПАРКИРАНО:** loopA мостът — готов текст в `LOOPEEMAIL_PACKAGE.md`, чака канал. Не е мъртъв, но не е активен ход.
+- ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
+- ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
+- ⏳ **PulseMCP:** чака сайтът да отвори за подавания.
+- **Правило за докладите:** под „остава за човека" се пишат САМО неща, които реално не са свършени.
+- **LAUNCH SIGNAL дефиниция (в кода):** САМО нов/неизвестен платец. Известните sampler/crawler wallet-и (`0xC59E…`, `0x6777…`, канарките `0x7e6b…`) = HEARTBEAT „в набора", никога launch сигнал.
 - 4th paid canary CLEAN: $0.003 on GET /api/v1/signal, tx `0x0cc98ef96e5e5d9a12f3021b77e2a67bba9439745b9eaf61efdb414491295a5f` — price_usd + reasoning confirmed in paid body on all 4 tokens, confidences back to 0.78/0.72/0.61/0.45, NO stale note. Fields noted on the existing verification row (not a new product). Listing stays live.
 - Scoreboard: 4/4 paid canaries settled on-chain, 2 verified routes, ZERO payment-layer incidents across all four tests (every finding was data-layer, all fixed)
 - Engineering phase CLOSED for signals route: no proactive work until a paying buyer asks. All effort → distribution (BlockRun decision pending, outreach days 2-5, MCP registry)

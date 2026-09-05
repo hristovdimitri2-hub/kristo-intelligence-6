@@ -46,8 +46,14 @@ LOOP_MIN_TXS = 10
 # Known non-customer payers: market reviewers running verification canaries.
 # They are real on-chain settlements (kept in totals) but they are NOT
 # operators — labelled so operator stats never overstate the customer base.
+# Plus the market's known sampling infrastructure (fingerprinted 04.09 —
+# see docs/RECON_FINDINGS.md): they pay EVERY endpoint continuously, so a
+# payment from them is a HEARTBEAT (we're in the crawl set), never a
+# launch signal.
 KNOWN_PAYERS = {
     "0x7e6b6556322c4e26c567a867964ac793f5ee2b1c": "chet_payapi_verification",
+    "0xc59e74ed6386b2a12d892fff2509a6965a0498dc": "market_sampler_c59e",
+    "0x6777e11fb0a7917b8110b7dab9188aa3f6d23986": "market_crawler_6777",
 }
 
 # Transfers above this are almost certainly not per-call x402 payments
