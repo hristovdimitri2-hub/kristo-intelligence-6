@@ -1,221 +1,104 @@
-# Kristo Intelligence v6
+# Kristo Intelligence — DeFi Signals API on Base
 
-**Автоматизиран trading агент за Base DeFi екосистема**
+**Paid DeFi market intelligence for AI agents. x402-native: agents pay per
+call in USDC, from $0.003 — no signup, no API keys, no subscriptions.**
 
-Kristo Intelligence комбинира точно изчисляване на такси за Base мрежата (L2 на Coinbase), ценови данни от CoinGecko и DeFi сигнали за вземане на информирани търговски решения.
+Live API: https://kristo-intelligence-api.onrender.com
+Marketplace listing (settlement-verified): https://payapi.market/api/kristo-intelligence-defi-signals-api
 
-## Архитектура
+## What it is
 
-```
-kristo-intelligence-v6/
-├── blockchain/
-│   ├── __init__.py
-│   └── wallet.py          # Base портфейл, USDC трансфери, такса за заявка
-├── services/
-│   ├── __init__.py
-│   ├── coingecko.py       # CoinGecko API клиент (цени, Base44 proxy + fallback)
-│   ├── defi_signals.py    # DeFi сигнали (Base44-guided, ETH/ONDO/KAITO/DEGEN)
-│   └── trading_agent.py   # Оркестратор: анализ → решения → risk management
-├── lib/
-│   └── agents/
-│       └── market_evaluator.js  # Market Demand & Auto-Evolution Agent (независим)
-├── main.py                # CLI entry point (argparse)
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+Kristo Intelligence is a live trading-agent API on the Base network (Coinbase's
+L2). Every call returns machine-readable market intelligence:
 
-### 5. Market Demand & Auto-Evolution Agent (`lib/agents/market_evaluator.js`)
+- **Trading-agent signals** — for ETH, ONDO, KAITO and DEGEN: action,
+  0–1 confidence score, current USD price, and one-line reasoning
+- **Whale flow** — large USDC transfer tracking on Base
+- **Arbitrage radar** — cross-DEX spreads, refreshed every 60 seconds
+- **Rug-risk checks** — pre-trade safety screening
+- **Market stats** — aggregated activity (CoinGecko, DEXScreener,
+  Fear & Greed)
 
-**Независим Node.js модул** за сканиране на пазарното търсене на x402 микро-услуги.
-Не променя базовата структура нито съществуващите 8 агента — стартира се отделно.
+## Payment (x402)
 
-- Сканира CoinGecko Trending, DeFiLlama протоколи и GitHub x402 репозитории
-- При нов тренд изпраща Telegram известие с inline бутони (✅ Approve / ❌ Reject)
-- След одобрение записва тренда в `market_state.json` за подаване към основния агент
+The API speaks the [x402](https://www.x402scan.com) payment standard. The
+flow is three steps and works from any HTTP client:
+
+1. `GET` any paid endpoint → **HTTP 402** with a self-describing challenge
+   (exact USDC amount, receiver address, chain)
+2. Send that USDC amount on Base to the listed receiver
+3. Retry the call with the payment header → `200` with your data
+
+No keys. No accounts. Prices from **$0.003 per call** (the cheapest route is
+`GET /api/v1/signal`). Settled in USDC on Base (chain 8453).
+
+## MCP (Model Context Protocol)
+
+The API is exposed as an MCP server for Claude Desktop, Cursor, Continue,
+LangChain and any MCP-compatible client:
+
+- **SSE transport:** `https://kristo-intelligence-api.onrender.com/mcp/sse`
+- **Streamable HTTP transport:** `POST https://kristo-intelligence-api.onrender.com/mcp`
+  (JSON-RPC 2.0 — `initialize`, `tools/list`, `tools/call`, `ping`)
+
+**MCP tools:**
+
+| Tool | What it returns | Price (USDC/call) |
+|---|---|---|
+| `get_market_stats` | Market activity, daily stats, live market data | 0.005 |
+| `get_onchain_sales` | Real on-chain sales history (USDC transfers) | 0.005 |
+| `get_bot_status` | Telegram bot integration status | 0.005 |
+
+Each tool advertises its x402 price inline, so an agent can decide and pay
+without reading docs.
+
+## Try it — one command
+
+The public reference client walks the full payment path (discovery → 402
+challenge → paid retry) with no wallet required in demo mode:
 
 ```bash
-# Единичен цикъл
-node lib/agents/market_evaluator.js --once
-
-# Непрекъснат режим
-node lib/agents/market_evaluator.js --loop
+python examples/demo_agent/demo_agent.py --endpoint /api/v1/signal
 ```
 
-| Променлива | По подразбиране | Описание |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | — | Telegram bot token за известия |
-| `TELEGRAM_CHAT_ID` | — | Chat ID на оператора |
-| `MARKET_SCAN_INTERVAL` | `600` | Интервал между сканиранията (секунди) |
-| `MARKET_STATE_FILE` | `./market_state.json` | Път до state файл |
+Free discovery surfaces (no payment needed):
 
-## Компоненти
+- x402 discovery: `/.well-known/x402`
+- OpenAPI 3.0: `/openapi.json`
+- MCP manifest: `/api/mcp/manifest`
+- Quickstart snippets (curl/Python/Node): `/api/v1/quickstart`
+- Health: `/health`
 
-### 1. Base портфейл (`blockchain/wallet.py`)
+## Repository layout
 
-Клас **`Wallet`** — лек wrapper около web3.py за USDC плащания на Base:
-
-- USDC трансфери (ERC-20 `transfer`)
-- Баланс проверки (ETH и USDC)
-- Такса за заявка: 0.10 USDC на Base mainnet
-- Non-blocking изпълнение с bounded receipt wait
-- Поддръжка на web3.py v6+ и v7+
-
-```python
-from blockchain.wallet import Wallet
-
-wallet = Wallet.from_env()  # Чете WALLET_PRIVATE_KEY от .env
-if wallet:
-    usdc_bal = wallet.get_usdc_balance()
-    fee_ok = wallet.pay_request_fee()  # Плаща 0.10 USDC такса
+```
+main.py                  # Flask app: API, x402 paywall, agents, transports
+app/blueprints/discovery.py  # Discovery surfaces (.well-known, MCP, llms.txt)
+services/                # CoinGecko client, DeFi signals, trading agent
+blockchain/wallet.py     # Base wallet, USDC transfers, on-chain verification
+scripts/                 # On-chain recon tools, demo agent, E2E helpers
+examples/demo_agent/     # Public reference x402 client
+docs/                    # Audit reports, recon findings, outreach docs
+tests/                   # Test suite (152 tests)
 ```
 
-**Важно:** `BASE_FEE_RECEIVER` в `.env` трябва да е реален адрес (не zero address),
-иначе `pay_request_fee()` ще прескача плащането.
+## Verification
 
-### 2. CoinGecko клиент (`services/coingecko.py`)
+- **Settlement-verified** on [PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api):
+  4 independent paid canaries settled on-chain, zero payment incidents
+- **x402 registered**: 11 resources on [x402scan](https://www.x402scan.com),
+  canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
+- **23/23 adversarial audit** (mystery-agent simulation, see `docs/`)
+- **152 automated tests** in this repository
 
-Клас **`CoinGeckoClient`** — resilient клиент с Base44 proxy + public fallback:
+## Docs
 
-- Цени в реално време за: ETH, ONDO, KAITO, DEGEN
-- Base44 proxy ако е наличен API key (за по-високи rate limits)
-- Автоматичен fallback към публичния CoinGecko API
-- Опционален CoinGecko Demo/Pro API key
+- `docs/MARKET_WRITEUP.md` — on-chain audit of the machine-payments market
+- `docs/PAYER_ORIGIN.md` — who actually pays on this market
+- `docs/MYSTERY_AGENT_REPORT.md` — adversarial buyer simulation
+- `docs/RECON_FINDINGS.md` — ongoing on-chain recon notes
 
-```python
-from services.coingecko import CoinGeckoClient
+## License
 
-client = CoinGeckoClient(api_key="your_base44_key")
-prices = client.get_prices(["eth", "ondo", "kaito", "degen"])
-eth_price = client.get_price("eth")
-```
-
-### 3. DeFi сигнали (`services/defi_signals.py`)
-
-Клас **`DeFiSignalGenerator`** — генерира сигнали за 4 токена:
-
-| Токен | Bias | Confidence | Action |
-|-------|------|------------|--------|
-| ETH | BULLISH | 0.78 | accumulate_on_dips |
-| ONDO | BULLISH | 0.72 | hold_or_add |
-| KAITO | NEUTRAL-BULLISH | 0.61 | monitor |
-| DEGEN | SPECULATIVE | 0.45 | small_allocation_only |
-
-Сигналите могат да бъдат обогатени с live данни от Base44 API, ако е наличен ключ.
-
-```python
-from services.defi_signals import DeFiSignalGenerator
-
-generator = DeFiSignalGenerator(api_key="your_base44_key")
-signals = generator.generate_signals()
-for token, signal in signals.items():
-    print(f"{signal['symbol']}: {signal['bias']} (conf={signal['confidence']})")
-```
-
-### 4. Trading агент (`services/trading_agent.py`)
-
-Клас **`TradingAgent`** — оркестрира всички компоненти с **risk management**:
-
-1. **Събира данни** — цени от CoinGecko, сигнали от DeFiSignalGenerator
-2. **Анализира** — прилага risk management филтри
-3. **Решава** — генерира action: buy / hold / monitor / avoid / recommend_*
-4. **Логира** — пълна история с risk flags и portfolio статус
-
-**Risk Management параметтери (от .env):**
-
-| Параметър | По подразбиране | Описание |
-|---|---|---|
-| `AGENT_AUTO_EXECUTE` | `false` | Автоматично изпълнение на транзакции |
-| `AGENT_MAX_POSITION_USD` | `1000` | Максимален размер на една позиция |
-| `AGENT_MAX_EXPOSURE_USD` | `5000` | Максимална обща експозиция |
-| `AGENT_MIN_APY` | `20` | Минимален APY за влизане в yield позиция |
-| `AGENT_MAX_RISK` | `60` | Максимален риск score (0-100) |
-| `AGENT_MAX_GAS_GWEI` | `0.5` | Максимален gas price в Gwei |
-| `AGENT_POLL_INTERVAL` | `300` | Интервал между циклите (секунди) |
-
-```python
-from services.trading_agent import TradingAgent
-
-agent = TradingAgent(coingecko_client=client, signals=signals)
-decisions = agent.evaluate()
-for token, d in decisions.items():
-    print(f"{d['symbol']}: {d['action']} (approved={d['approved']}, pos=${d['suggested_position_usd']})")
-```
-
-## Инсталация
-
-```bash
-cd kristo-intelligence-v6
-pip install -r requirements.txt
-cp .env.example .env
-# Редактирай .env с твоите стойности
-```
-
-## Използване
-
-```bash
-# Статус на портфейла и мрежата
-python main.py --status
-
-# Оценка на такси за трансфер
-python main.py --fees 0xRecipientAddress 0.01
-
-# DeFi сигнали за Base
-python main.py --signals
-
-# Цени на Base tokens
-python main.py --prices
-
-# Единичен цикъл на агента
-python main.py
-
-# Непрекъснат режим (Ctrl+C за спиране)
-python main.py --loop
-```
-
-## Конфигурация
-
-Виж `.env.example` за всички опции. Ключови:
-
-| Променлива | По подразбиране | Описание |
-|---|---|---|
-| `BASE44_API_KEY` | — | Base44 API ключ за enriched сигнали |
-| `WALLET_PRIVATE_KEY` | — | Private key на портфейла |
-| `BASE_RPC_URL` | `https://mainnet.base.org` | Base RPC endpoint |
-| `BASE_CHAIN_ID` | `8453` | Base mainnet (8453) или Sepolia (84532) |
-| `BASE_USDC_CONTRACT` | `0x833589fCD6...` | USDC контракт на Base |
-| `BASE_FEE_AMOUNT_USDC` | `0.10` | Такса за заявка в USDC |
-| `BASE_FEE_RECEIVER` | `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` | Адрес на получател на таксата (активен; старият операторски `0xd4cdA980…` е изгорен и НЕ трябва да се използва) |
-| `AGENT_AUTO_EXECUTE` | `false` | Автоматично изпълнение на транзакции |
-| `AGENT_MAX_POSITION_USD` | `1000` | Максимален размер на една позиция |
-| `AGENT_MAX_EXPOSURE_USD` | `5000` | Максимална обща експозиция |
-| `AGENT_MIN_APY` | `20` | Минимален APY за влизане |
-| `AGENT_MAX_RISK` | `60` | Максимален риск score (0-100) |
-| `AGENT_POLL_INTERVAL` | `300` | Интервал между циклите (секунди) |
-| `AGENT_MAX_GAS_GWEI` | `0.5` | Максимален gas price в Gwei |
-| `COINGECKO_API_KEY` | — | Опционален CoinGecko API key |
-| `OPENROUTER_API_KEY` | — | OpenRouter key for AI market bulletins |
-| `GLM_API_BASE` | `https://openrouter.ai/api/v1` | OpenAI-compatible AI endpoint |
-| `GLM_MODEL` | `openai/gpt-4o-mini` | AI model identifier |
-| `ADMIN_API_TOKEN` | — | Token required in `X-Admin-Token` for CRM/admin routes |
-
-## 🌍 Дистрибуция в x402 екосистемата
-
-Kristo Intelligence е пуснат в live x402 маркетплейсите: **x402scan** (11 resources,
-0 errors), **PayAPI Market** (в преглед — v2-ready, settlement-verified), **nohumans.directory**
-(3× VERIFIED), BlockRun data-source заявка изпратена. Всички 4 платени endpoints
-и discovery линковете са верифицирани live и преминават mystery-agent одит 23/23.
-
-Пълен статус и история: **[docs/DISTRIBUTION_STATUS.md](docs/DISTRIBUTION_STATUS.md)**
-· Outreach план: **[docs/OUTREACH_KIT.md](docs/OUTREACH_KIT.md)**
-
-## ⚠️ Предупреждение
-
-Този софтуер изпълнява **реални транзакции** на Base мрежата, ако `AGENT_AUTO_EXECUTE=true`.
-Винаги тествайте на Base Sepolia testnet първо.
-
-Авторите не носят отговорност за финансови загуби.
-
-## Лиценз
-
-MIT
+See the repository license file. The payment receiver and endpoint structure
+are stable invariants — discovery surfaces and integrations depend on them.

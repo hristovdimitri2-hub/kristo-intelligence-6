@@ -59,40 +59,19 @@ def health():
     ), 200 if crm_ready else 503
 
 
-@discovery_bp.route("/mcp/sse")
-def mcp_sse():
-    """MCP Server-Sent Events endpoint — Streamable HTTP transport.
-
-    Lets MCP-native clients (Claude Desktop, Cursor, Continue) discover and
-    call the paid Kristo endpoints as tools. GET returns an SSE stream with
-    tool definitions; tool CALLS happen through the regular paid endpoints
-    (the 402 paywall is the payment layer).
-
-    Protocol notes:
-    - We implement the minimal, spec-compliant handshake: endpoint event +
-      initialize/tools/list JSON-RPC support over the SSE stream.
-    - Tool schemas advertise the x402 price so the AGENT (or its operator)
-    can decide to pay before calling.
-    """
+def _mcp_tools(base_url):
+    """Shared MCP tool definitions — served identically by the SSE endpoint
+    (/mcp/sse) and the Streamable HTTP endpoint (POST /mcp). Each tool
+    advertises its x402 price so the agent can pay before calling; paid
+    calls still flow through the regular 402 paywall."""
     from main import (
         X402_CHAIN_ID,
         X402_FEE_USDC,
         X402_RECEIVER_ADDRESS,
         X402_USDC_CONTRACT,
-        VIP_MONTHLY_USDC,
     )
 
-    base_url = request.host_url.rstrip("/")
-    server_info = {
-        "protocolVersion": "2024-11-05",
-        "capabilities": {"tools": {}},
-        "serverInfo": {
-            "name": "kristo-intelligence",
-            "version": "1.0.0",
-            "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
-        },
-    }
-    tools = [
+    return [
         {
             "name": "get_market_stats",
             "description": (
@@ -130,6 +109,42 @@ def mcp_sse():
                      "endpoint": f"{base_url}/api/bot-status"},
         },
     ]
+
+
+@discovery_bp.route("/mcp/sse")
+def mcp_sse():
+    """MCP Server-Sent Events endpoint — Streamable HTTP transport.
+
+    Lets MCP-native clients (Claude Desktop, Cursor, Continue) discover and
+    call the paid Kristo endpoints as tools. GET returns an SSE stream with
+    tool definitions; tool CALLS happen through the regular paid endpoints
+    (the 402 paywall is the payment layer).
+
+    Protocol notes:
+    - We implement the minimal, spec-compliant handshake: endpoint event +
+      initialize/tools/list JSON-RPC support over the SSE stream.
+    - Tool schemas advertise the x402 price so the AGENT (or its operator)
+    can decide to pay before calling.
+    """
+    from main import (
+        X402_CHAIN_ID,
+        X402_FEE_USDC,
+        X402_RECEIVER_ADDRESS,
+        X402_USDC_CONTRACT,
+        VIP_MONTHLY_USDC,
+    )
+
+    base_url = request.host_url.rstrip("/")
+    server_info = {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {"tools": {}},
+        "serverInfo": {
+            "name": "kristo-intelligence",
+            "version": "1.0.0",
+            "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
+        },
+    }
+    tools = _mcp_tools(base_url)
     messages = [
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
     ]
@@ -150,6 +165,88 @@ def mcp_sse():
     resp.headers["Cache-Control"] = "no-cache"
     resp.headers["X-Accel-Buffering"] = "no"
     return resp
+
+
+@discovery_bp.route("/mcp", methods=["POST", "DELETE"])
+def mcp_streamable_http():
+    """MCP Streamable HTTP transport (JSON-RPC over POST) — ADDITIVE.
+
+    Catalog scanners (Smithery etc.) require POST-based Streamable HTTP.
+    The SSE endpoint (/mcp/sse) remains untouched and continues to work;
+    the payment layer and the payTo invariant are not affected — tools
+    advertise their x402 price, and paid calls still flow through the
+    regular 402 paywall. Stateless: no session id is issued.
+    """
+    if request.method == "DELETE":
+        # Session termination; we are stateless, so nothing to clean up.
+        return "", 204
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or "method" not in body:
+        return jsonify({"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32600,
+                                  "message": "Invalid Request"}}), 400
+
+    method = body.get("method", "")
+    msg_id = body.get("id")
+
+    # Notifications carry no id and expect no response body (202 Accepted).
+    if method.startswith("notifications/"):
+        return "", 202
+
+    base_url = request.host_url.rstrip("/")
+    tools = _mcp_tools(base_url)
+
+    if method == "initialize":
+        params = body.get("params") or {}
+        result = {
+            "protocolVersion": params.get("protocolVersion", "2024-11-05"),
+            "capabilities": {"tools": {}},
+            "serverInfo": {
+                "name": "kristo-intelligence",
+                "version": "1.0.0",
+                "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
+            },
+            "instructions": (
+                "Kristo Intelligence — paid DeFi signals on Base. Tools "
+                "advertise their x402 price; pay the exact USDC amount to "
+                "the listed receiver and retry the target endpoint with "
+                "the payment header."
+            ),
+        }
+    elif method == "ping":
+        result = {}
+    elif method == "tools/list":
+        result = {"tools": tools}
+    elif method == "tools/call":
+        params = body.get("params") or {}
+        name = params.get("name", "")
+        tool = next((t for t in tools if t.get("name") == name), None)
+        if tool is None:
+            return jsonify({"jsonrpc": "2.0", "id": msg_id,
+                            "error": {"code": -32602,
+                                      "message": f"Unknown tool: {name}"}}), 200
+            # noqa: tool errors stay inside a 200 JSON-RPC envelope
+        x = tool.get("x402", {})
+        result = {
+            "content": [{
+                "type": "text",
+                "text": (
+                    f"Tool '{name}' is pay-per-call via x402: send "
+                    f"{x.get('price_usdc')} USDC on {x.get('chain_id')} "
+                    f"to {x.get('receiver')}, then call "
+                    f"{x.get('endpoint')} with the payment header. "
+                    "The 402 challenge at that endpoint is self-describing."
+                ),
+            }],
+            "structuredContent": {"x402": x},
+        }
+    else:
+        return jsonify({"jsonrpc": "2.0", "id": msg_id,
+                        "error": {"code": -32601,
+                                  "message": f"Method not found: {method}"}}), 200
+
+    return jsonify({"jsonrpc": "2.0", "id": msg_id, "result": result})
 
 
 @discovery_bp.route("/mcp")
