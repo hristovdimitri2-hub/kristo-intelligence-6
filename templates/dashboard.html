@@ -1,1099 +1,264 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bg">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kristo Intelligence Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <style>
-        :root {
-            --bg: #0f1117;
-            --card: #1a1d28;
-            --accent: #6366f1;
-            --accent2: #10b981;
-            --accent3: #f59e0b;
-            --accent4: #ef4444;
-            --text: #e2e8f0;
-            --muted: #94a3b8;
-            --border: #2d3142;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-        }
-        header {
-            background: linear-gradient(135deg, #1e1b4b 0%, #0f1117 100%);
-            padding: 1.5rem 2rem;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        header h1 {
-            font-size: 1.6rem;
-            background: linear-gradient(135deg, var(--accent), var(--accent2));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        header .badge {
-            background: var(--accent2);
-            color: #fff;
-            padding: 0.3rem 0.8rem;
-            border-radius: 999px;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .metric-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .metric-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-        }
-        .metric-card .label {
-            color: var(--muted);
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.5rem;
-        }
-        .metric-card .value {
-            font-size: 2rem;
-            font-weight: 700;
-        }
-        .metric-card .sub {
-            color: var(--muted);
-            font-size: 0.8rem;
-            margin-top: 0.3rem;
-            word-break: break-all;
-        }
-        .charts-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        @media (max-width: 900px) {
-            .charts-grid { grid-template-columns: 1fr; }
-        }
-        .chart-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-        }
-        .chart-card h3 {
-            font-size: 1rem;
-            color: var(--muted);
-            margin-bottom: 1rem;
-        }
-        .chart-container {
-            position: relative;
-            height: 280px;
-        }
-        .table-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .table-card h3 {
-            font-size: 1rem;
-            color: var(--muted);
-            margin-bottom: 1rem;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            text-align: left;
-            padding: 0.7rem 1rem;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85rem;
-        }
-        th {
-            color: var(--muted);
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
-        }
-        tr:hover { background: rgba(99,102,241,0.05); }
-        .status-dot {
-            display: inline-block;
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            margin-right: 6px;
-        }
-        .dot-green { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
-        .dot-red { background: var(--accent4); }
-        .empty-state {
-            text-align: center;
-            padding: 3rem;
-            color: var(--muted);
-        }
-        .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
-        .pricing-section {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .pricing-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 2rem;
-            text-align: center;
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-        }
-        .pricing-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 30px rgba(0,0,0,0.4);
-        }
-        .pricing-card.featured {
-            border-color: var(--accent);
-            box-shadow: 0 0 20px rgba(99,102,241,0.15);
-        }
-        .pricing-card .tier-name {
-            font-size: 1.2rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        .pricing-card .tier-price {
-            font-size: 2.5rem;
-            font-weight: 800;
-            margin: 1rem 0;
-        }
-        .pricing-card .tier-price .currency { font-size: 1.2rem; color: var(--muted); }
-        .pricing-card .tier-desc {
-            color: var(--muted);
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-        }
-        .pricing-card .tier-features {
-            list-style: none;
-            text-align: left;
-            margin-bottom: 1.5rem;
-        }
-        .pricing-card .tier-features li {
-            padding: 0.5rem 0;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85rem;
-            color: var(--text);
-        }
-        .pricing-card .tier-features li:last-child { border-bottom: none; }
-        .pricing-card .badge-popular {
-            position: absolute;
-            top: -10px;
-            right: 20px;
-            background: var(--accent);
-            color: #fff;
-            padding: 0.2rem 0.8rem;
-            border-radius: 999px;
-            font-size: 0.7rem;
-            font-weight: 600;
-        }
-        .section-title {
-            font-size: 1.3rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            color: var(--text);
-        }
-        .payment-info {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .payment-info .addr {
-            font-family: monospace;
-            color: var(--accent);
-            word-break: break-all;
-            font-size: 0.9rem;
-        }
-        .products-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .product-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.2rem;
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-            overflow: hidden;
-        }
-        .product-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-        }
-        .product-card.engine {
-            border-color: var(--accent);
-            box-shadow: 0 0 15px rgba(99,102,241,0.1);
-        }
-        .product-card .pc-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 0.8rem;
-        }
-        .product-card .pc-name {
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--text);
-        }
-        .product-card .pc-cat {
-            font-size: 0.65rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            padding: 0.15rem 0.5rem;
-            border-radius: 999px;
-            background: rgba(99,102,241,0.15);
-            color: var(--accent);
-        }
-        .product-card .pc-cat.engine {
-            background: rgba(245,158,11,0.15);
-            color: var(--accent3);
-        }
-        .product-card .pc-stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 0.5rem;
-        }
-        .product-card .pc-stat {
-            text-align: center;
-        }
-        .product-card .pc-stat .pc-stat-val {
-            font-size: 1.3rem;
-            font-weight: 700;
-        }
-        .product-card .pc-stat .pc-stat-label {
-            font-size: 0.65rem;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .product-card .pc-price {
-            position: absolute;
-            top: 0;
-            right: 0;
-            background: rgba(16,185,129,0.1);
-            color: var(--accent2);
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.2rem 0.6rem;
-            border-bottom-left-radius: 8px;
-        }
-        footer {
-            text-align: center;
-            color: var(--muted);
-            font-size: 0.8rem;
-            padding: 2rem;
-        }
-
-        /* ===== NEXUS-aligned interactive additions ===== */
-        .onb-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1.6rem; }
-        .onb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 0.7rem; }
-        .onb-head .t { font-size: 0.9rem; color: var(--text); font-weight: 600; }
-        .onb-close { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1rem; }
-        .onb-close:hover { color: var(--text); }
-        .onb-steps { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 4px; }
-        .onb-step {
-            display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 0.5rem 0.8rem; border-radius: 8px;
-            background: rgba(99,102,241,0.06); border: 1px solid var(--border); cursor: pointer; transition: all .15s; color: var(--text);
-        }
-        .onb-step:hover { border-color: var(--accent); background: rgba(99,102,241,0.12); }
-        .onb-num { width: 20px; height: 20px; border-radius: 50%; background: rgba(99,102,241,0.2); color: var(--accent); font-size: 0.65rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .onb-step .lbl { font-size: 0.78rem; white-space: nowrap; }
-        .onb-step .chev { color: var(--muted); font-size: 0.7rem; }
-        .tip-note { font-size: 0.68rem; color: var(--muted); margin-top: 0.5rem; }
-
-        .metric-card.clickable { cursor: pointer; }
-        .metric-card .go-hint { font-size: 0.68rem; color: var(--muted); margin-top: 0.5rem; opacity: 0; transition: opacity .15s; display: flex; align-items: center; gap: 4px; }
-        .metric-card:hover .go-hint { opacity: 1; }
-
-        .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
-        .agent-card {
-            background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 1rem;
-            cursor: pointer; transition: all .15s; text-align: left; color: var(--text); position: relative;
-        }
-        .agent-card:hover { border-color: var(--accent); background: rgba(99,102,241,0.06); transform: translateY(-2px); }
-        .agent-card .a-name { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.3rem; padding-right: 3.2rem; }
-        .agent-card .a-desc { font-size: 0.72rem; color: var(--muted); line-height: 1.5; margin-bottom: 0.6rem; }
-        .agent-card .a-stats { display: flex; gap: 0.9rem; font-size: 0.65rem; color: var(--muted); }
-        .agent-card .a-stats b { color: var(--text); font-size: 0.8rem; display: block; }
-        .agent-card .a-price { position: absolute; top: 0; right: 0; background: rgba(16,185,129,0.1); color: var(--accent2); font-size: 0.65rem; font-weight: 600; padding: 0.2rem 0.55rem; border-bottom-left-radius: 8px; }
-        .badge { display: inline-block; font-size: 0.65rem; padding: 0.1rem 0.5rem; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-        .badge.src { color: var(--accent); border-color: rgba(99,102,241,0.35); }
-
-        .sig-row {
-            display: flex; align-items: flex-start; gap: 0.8rem; padding: 0.7rem 0.8rem; border-radius: 8px;
-            background: rgba(255,255,255,0.02); border: 1px solid transparent; cursor: pointer; transition: all .15s;
-        }
-        .sig-row + .sig-row { margin-top: 0.4rem; }
-        .sig-row:hover { background: rgba(99,102,241,0.05); border-color: var(--border); }
-        .sig-row .s-pair { font-size: 0.85rem; font-weight: 600; }
-        .sig-row .s-sub { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
-        .sig-row .s-right { margin-left: auto; text-align: right; flex-shrink: 0; }
-        .sig-row .s-profit { font-size: 0.95rem; font-weight: 700; color: var(--accent2); }
-        .sig-row .s-spread { font-size: 0.65rem; color: var(--muted); }
-
-        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.2rem; backdrop-filter: blur(2px); }
-        .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: 100%; max-width: 620px; max-height: 85vh; overflow-y: auto; padding: 1.5rem; position: relative; animation: mpop .18s ease; }
-        @keyframes mpop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .modal h3 { font-size: 1.05rem; margin-bottom: 0.3rem; padding-right: 2rem; }
-        .modal .m-sub { font-size: 0.72rem; color: var(--muted); margin-bottom: 1rem; }
-        .modal .m-close { position: absolute; top: 0.9rem; right: 1rem; background: none; border: 0; color: var(--muted); font-size: 1.15rem; cursor: pointer; }
-        .modal .m-close:hover { color: var(--text); }
-        .m-lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 1rem 0 0.35rem; }
-        .m-txt { font-size: 0.82rem; line-height: 1.65; color: var(--text); }
-        .m-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; }
-        .m-kv .kv { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem; text-align: center; }
-        .m-kv .kv .n { font-size: 0.95rem; font-weight: 700; }
-        .m-kv .kv .k { font-size: 0.62rem; color: var(--muted); margin-top: 2px; }
-        #ki6-tooltip { position: fixed; z-index: 2000; background: #1e2230; border: 1px solid var(--border); color: var(--text); font-size: 0.7rem; line-height: 1.5; padding: 0.5rem 0.65rem; border-radius: 8px; max-width: 240px; pointer-events: none; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Kristo Intelligence — Оперативно табло</title>
+<style>
+  :root {
+    --bg: #0a0e14; --panel: #11161f; --panel2: #161d29; --border: #232c3b;
+    --text: #d7dde6; --muted: #8b96a5; --accent: #38bdf8;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171; --purple: #a78bfa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px; line-height: 1.45; padding: 18px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 19px; font-weight: 600; letter-spacing: .3px; }
+  h1 span { color: var(--accent); }
+  .badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 10px; letter-spacing: .5px; }
+  .badge.live { background: rgba(52,211,153,.12); color: var(--green); border: 1px solid rgba(52,211,153,.4); }
+  .badge.stale { background: rgba(251,191,36,.12); color: var(--amber); border: 1px solid rgba(251,191,36,.4); }
+  .badge.err { background: rgba(248,113,113,.12); color: var(--red); border: 1px solid rgba(248,113,113,.4); }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .sub code { color: var(--accent); font-size: 11px; }
+  h2 { font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+       color: var(--accent); margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+  h2 .src { font-size: 10px; font-weight: 600; text-transform: none; letter-spacing: 0;
+            color: var(--muted); background: var(--panel2); padding: 2px 8px; border-radius: 8px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .card .v { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .card .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-top: 2px; }
+  .card.hero .v { color: var(--green); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+          border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  th { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; background: var(--panel2); }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; white-space: nowrap; }
+  .tag.canary { background: rgba(167,139,250,.12); color: var(--purple); border: 1px solid rgba(167,139,250,.35); }
+  .tag.sampler { background: rgba(251,191,36,.10); color: var(--amber); border: 1px solid rgba(251,191,36,.30); }
+  .tag.external { background: rgba(52,211,153,.12); color: var(--green); border: 1px solid rgba(52,211,153,.45); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .mono { font-family: Consolas, monospace; font-size: 11.5px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .offchain-box { border: 1px dashed rgba(251,191,36,.45); border-radius: 10px;
+                  background: rgba(251,191,36,.04); padding: 12px 14px; }
+  .offchain-box .warn { color: var(--amber); font-size: 11.5px; font-weight: 600; margin-bottom: 8px; }
+  .toggle-btn { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+                border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .hidden { display: none; }
+  .note { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--border);
+           color: var(--muted); font-size: 11px; }
+  .empty { color: var(--muted); font-style: italic; padding: 10px; }
+  .refresh { margin-left: auto; font-size: 11px; color: var(--muted); }
+</style>
 </head>
 <body>
-    <header>
-        <h1>🚀 Kristo Intelligence Dashboard</h1>
-        <span class="badge" id="live-badge">● LIVE</span>
-    </header>
+<div class="wrap">
+  <header>
+    <h1>KRISTO <span>INTELLIGENCE</span> — Оперативно табло</h1>
+    <span id="live-badge" class="badge stale">…</span>
+    <span class="refresh">авто-refresh 45s</span>
+  </header>
+  <div class="sub">
+    Един източник на истина за парите: <b>веригата</b>. Числата са от постоянен SQLite store
+    (<code>data/dashboard_state.db</code>) — deploy/рестарт НЕ ги нулира.
+    <span id="generated-at"></span>
+  </div>
 
-    <div class="container">
-        <!-- Wallet Info Banner -->
-        <div class="metric-card" style="margin-bottom: 1.5rem; border-color: var(--accent);">
-            <div class="label">🔗 Base Wallet (Real On-Chain)</div>
-            <div class="value" style="font-size: 1rem; color: var(--accent);" id="wallet-address">Loading...</div>
-            <div class="sub" id="wallet-details">Fee receiver: ... | USDC Balance: ... | Last block: ...</div>
-        </div>
+  <h2>⬢ On-Chain Sales <span class="src">истина: реални USDC трансфери към payTo</span></h2>
+  <div class="cards" id="onchain-cards"></div>
+  <div class="note" id="onchain-classes" style="margin-bottom:10px;"></div>
+  <table>
+    <thead><tr><th>Време (UTC)</th><th>Сума</th><th>Тип платец</th><th>From</th><th>Tx</th></tr></thead>
+    <tbody id="sales-body"><tr><td colspan="5" class="empty">зареждане…</td></tr></tbody>
+  </table>
 
-        <!-- Onboarding flow (NEXUS-aligned) -->
-        <div class="onb-card" id="ki6-onboarding" style="display:none">
-            <div class="onb-head">
-                <div class="t">◈ Как работи Kristo Intelligence 6 — от агент до печалба</div>
-                <button class="onb-close" id="ki6-onb-close" aria-label="Затвори">✕</button>
-            </div>
-            <div class="onb-steps" id="ki6-onb-steps"></div>
-            <p class="tip-note">Кликнете върху всяка стъпка, за да я разгледате в детайл. Този панел може да бъде затворен.</p>
-        </div>
-
-        <!-- Metric Cards -->
-        <div class="metrics-grid">
-            <div class="metric-card clickable" id="mc-volume" title="Реален USDC обем, верифициран on-chain в Base мрежата. Кликнете за историята на продажбите.">
-                <div class="label">Real Sales Volume (USDC)</div>
-                <div class="value" style="color: var(--accent2)" id="m-volume">$0.00</div>
-                <div class="sub" id="m-sales-count">0 on-chain sales</div>
-                <div class="go-hint">Виж on-chain продажбите →</div>
-            </div>
-            <div class="metric-card clickable" id="mc-requests" title="API заявки днес от всички клиенти (включително NEXUS Discovery Engine). Кликнете за графика.">
-                <div class="label">Today's Requests</div>
-                <div class="value" style="color: var(--accent)" id="m-requests">0</div>
-                <div class="sub" id="m-requests-sub">API calls today</div>
-                <div class="go-hint">Виж графика →</div>
-            </div>
-            <div class="metric-card clickable" id="mc-today-sales" title="Продажби днес: брой и обем в USDC. Кликнете за историята.">
-                <div class="label">Today's Sales</div>
-                <div class="value" style="color: var(--accent3)" id="m-today-sales">0</div>
-                <div class="sub" id="m-today-volume">$0.00 volume</div>
-                <div class="go-hint">Виж историята →</div>
-            </div>
-            <div class="metric-card clickable" id="mc-bot" title="Статус на Telegram sales бота: онлайн ли е, колко команди е обработил. Кликнете за детайли.">
-                <div class="label">Telegram Bot</div>
-                <div class="value" style="font-size:1.3rem;" id="m-bot-status">
-                    <span class="status-dot dot-green"></span> Online
-                </div>
-                <div class="sub" id="m-bot-commands">0 commands processed</div>
-                <div class="go-hint">Детайли за бота →</div>
-            </div>
-        </div>
-
-        <!-- Charts -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>📈 Daily Sales Volume (USDC)</h3>
-                <div class="chart-container"><canvas id="chartVolume"></canvas></div>
-            </div>
-            <div class="chart-card">
-                <h3>🪙 Sales by Token</h3>
-                <div class="chart-container"><canvas id="chartTokens"></canvas></div>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>📊 Daily API Requests</h3>
-                <div class="chart-container"><canvas id="chartRequests"></canvas></div>
-            </div>
-            <div class="chart-card">
-                <h3>📋 Recent Activity</h3>
-                <div class="chart-container"><canvas id="chartActivity"></canvas></div>
-            </div>
-        </div>
-
-        <!-- Agents in action (NEXUS-aligned) -->
-        <h2 class="section-title" id="agents-panel">🧠 Агенти в действие <span class="badge" id="ki6-agents-count">8 AI агента</span></h2>
-        <div class="agents-grid" id="ki6-agents-grid"></div>
-        <p class="tip-note" style="margin-bottom: 2rem;">Всеки агент е независим x402 микросервис — кликнете върху картата, за да видите описанието, цената, търсенето и продажбите му. Търсения/продажби са за последните 24 часа.</p>
-
-        <!-- Live signals / discoveries with attribution (NEXUS-aligned) -->
-        <h2 class="section-title" id="signals-panel">⚡ Сигнали в реално време <span class="badge src">от Arb Radar · DEXScreener</span></h2>
-        <div class="table-card" style="margin-bottom: 2rem;">
-            <h3>Топ арбитражни възможности на Base — кликнете за детайли</h3>
-            <div id="ki6-signals"></div>
-            <p class="tip-note">Всяка възможност е открита от Arb Radar (крос-DEX скенер) и е атрибутирана автоматично. Спредът е ориентировъчен — проверете on-chain преди изпълнение.</p>
-        </div>
-
-        <!-- Pricing Section -->
-        <h2 class="section-title">💎 Предлагани продукти и ценоразпис</h2>
-        <div class="pricing-section">
-            <div class="pricing-card">
-                <div class="tier-name">🔧 Микро-заявка</div>
-                <div class="tier-price"><span class="currency">$</span>0.10<span class="currency"> USDC</span></div>
-                <div class="tier-desc">Pay-per-call — плащаш само за това, което използваш</div>
-                <ul class="tier-features">
-                    <li>✅ 1 API заявка (stats / sales / bot-status)</li>
-                    <li>✅ Real-time DeFi сигнали</li>
-                    <li>✅ On-chain продажби история</li>
-                    <li>✅ MCP/x402 съвместимост</li>
-                </ul>
-            </div>
-            <div class="pricing-card featured">
-                <span class="badge-popular">⭐ ПОПУЛЯРЕН</span>
-                <div class="tier-name">👑 Месечен VIP</div>
-                <div class="tier-price"><span class="currency">$</span>29.00<span class="currency"> USDC</span></div>
-                <div class="tier-desc">Неограничен достъп + Telegram VIP група</div>
-                <ul class="tier-features">
-                    <li>✅ Неограничени API заявки (30 дни)</li>
-                    <li>✅ Telegram VIP група поканителен код</li>
-                    <li>✅ Priority DeFi сигнали</li>
-                    <li>✅ AI Agent machine-to-machine достъп</li>
-                    <li>✅ Real-time blockchain мониторинг</li>
-                    <li>✅ VIP поддръжка 24/7</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- Payment Info -->
-        <div class="payment-info">
-            <h3 style="color: var(--muted); margin-bottom: 1rem;">💳 Как да платите</h3>
-            <p style="margin-bottom: 0.5rem;">Изпратете <strong>USDC</strong> към следния адрес в <strong>Base</strong> мрежата:</p>
-            <div class="addr" id="payment-addr">Loading payment address...</div>
-            <p style="margin-top: 1rem; color: var(--muted); font-size: 0.85rem;">
-                💡 Плащанията се верифицират автоматично on-chain. Цени: от <strong>$0.003</strong> на заявка (зависи от endpoint-а). Без абонаменти — плащаш само за това, което ползваш.
-            </p>
-        </div>
-
-        <!-- Official eight-agent catalog breakdown -->
-        <div class="table-card">
-            <h3>🧠 Официален каталог: 8 AI агента</h3>
-            <table id="products-table">
-                <thead>
-                    <tr>
-                        <th>Име</th>
-                        <th>Категория</th>
-                        <th>Цена (USDC)</th>
-                        <th>Търсения (Hits)</th>
-                        <th>Продажби (Sales)</th>
-                        <th>Приход ($ Volume)</th>
-                    </tr>
-                </thead>
-                <tbody id="products-table-body"></tbody>
-                <tfoot>
-                    <tr style="font-weight:700;border-top:2px solid var(--accent);">
-                        <td colspan="3">ОБЩО</td>
-                        <td id="products-total-hits">0</td>
-                        <td id="products-total-sales">0</td>
-                        <td id="products-total-volume">$0.00</td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-
-        <!-- Integration connectors panel -->
-        <div class="table-card">
-            <h3>🔌 Интеграции и конектори</h3>
-            <table id="connectors-table">
-                <thead>
-                    <tr>
-                        <th>КОНЕКТОР</th>
-                        <th>ПРОТОКОЛ</th>
-                        <th>ПОСОКА</th>
-                        <th>СТАТУС</th>
-                        <th>ПОСЛЕДНА АКТИВНОСТ (UTC)</th>
-                    </tr>
-                </thead>
-                <tbody id="connectors-table-body"></tbody>
-            </table>
-            <p id="connectors-summary" style="color:var(--muted);font-size:0.85rem;margin-top:0.5rem;"></p>
-        </div>
-
-        <!-- NEXUS Engine Link -->
-        <div class="payment-info" style="text-align:center;">
-            <h3 style="color: var(--muted); margin-bottom: 1rem;">🔗 NEXUS Discovery Engine</h3>
-            <p style="margin-bottom: 1rem;">Отвори NEXUS платформата за пълно откриване на продукти и агенти:</p>
-            <a href="/nexus" target="_blank" rel="noopener"
-               style="display:inline-block;background:var(--accent);color:#fff;padding:0.8rem 2rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:0.95rem;">
-                🚀 Отвори NEXUS Engine
-            </a>
-        </div>
-
-        <!-- Recent Sales Table -->
-        <div class="table-card">
-            <h3>🧾 Real On-Chain Sales (USDC Transfers)</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Token</th>
-                        <th>Amount (USDC)</th>
-                        <th>From</th>
-                        <th>Tx Hash</th>
-                        <th>Block</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody id="sales-table-body"></tbody>
-            </table>
-            <div class="empty-state" id="empty-sales">
-                <div class="icon">⛓️</div>
-                <p>No real on-chain sales yet. Send USDC to the fee receiver address to see data appear here.</p>
-            </div>
-        </div>
+  <h2>⬢ API Requests <span class="src">постоянен лог (SQLite) — UA / канал</span></h2>
+  <div class="cards" id="req-cards"></div>
+  <div class="grid2" style="margin-top:10px;">
+    <div>
+      <div class="note" style="margin:0 0 6px;">Канали (/f/&lt;channel&gt; → клиент)</div>
+      <table><tbody id="channels-body"><tr><td class="empty">…</td></tr></tbody></table>
     </div>
+    <div>
+      <div class="note" style="margin:0 0 6px;">Източници</div>
+      <table><tbody id="sources-body"><tr><td class="empty">…</td></tr></tbody></table>
+    </div>
+  </div>
+  <div class="note" style="margin:10px 0 6px;">Последни заявки</div>
+  <table>
+    <thead><tr><th>Време (UTC)</th><th>Път</th><th>Източник</th><th>Status</th><th>User-Agent</th><th>Канал</th></tr></thead>
+    <tbody id="recent-body"><tr><td colspan="6" class="empty">…</td></tr></tbody>
+  </table>
 
-    <footer>
-        Kristo Intelligence API v6 &mdash; Real Blockchain Data &mdash; <span id="footer-time"></span>
-    </footer>
+  <h2>⬢ Listing &amp; Ranking <span class="src">PayAPI Market — band + рангове по 8-те термина</span></h2>
+  <div class="cards" id="payapi-cards"></div>
+  <div class="note" id="payapi-updated" style="margin:8px 0;"></div>
+  <table>
+    <thead><tr><th>Термин (q=)</th><th>Позиция</th><th>Резултати общо</th></tr></thead>
+    <tbody id="ranks-body"><tr><td colspan="3" class="empty">…</td></tr></tbody>
+  </table>
+
+  <h2>⬢ CRM / Stripe <span class="src">off-chain — отделно от веригата</span></h2>
+  <div class="offchain-box">
+    <div class="warn">⚠ OFF-CHAIN (CRM платени записи / Stripe). Никога НЕ е включено в
+      on-chain сумите по-горе. Live/test режимът на Stripe се проверява в Stripe Dashboard
+      → Payments (test плащанията са в Test mode списъка).</div>
+    <button class="toggle-btn" id="crm-toggle">Покажи off-chain сумите</button>
+    <div id="crm-detail" class="hidden" style="margin-top:10px;">
+      <div class="cards" id="crm-cards"></div>
+      <table style="margin-top:10px;">
+        <thead><tr><th>Дата</th><th>Клиент (маскиран)</th><th>План</th><th>Сума</th><th>Източник</th></tr></thead>
+        <tbody id="crm-body"><tr><td colspan="5" class="empty">…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer id="invariant"></footer>
+</div>
 
 <script>
-let charts = {};
+const $ = (id) => document.getElementById(id);
+const usd = (x) => '$' + Number(x || 0).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+const usd2 = (x) => '$' + Number(x || 0).toFixed(2);
+const short = (s, n) => (s || '').slice(0, n || 8);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const utc = (iso) => (iso || '').replace('T', ' ').slice(0, 19);
 
-async function fetchJSON(url) {
-    const resp = await fetch(url);
-    return resp.json();
+function card(v, k, hero) {
+  return `<div class="card${hero ? ' hero' : ''}"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`;
 }
 
-function fmtMoney(v) {
-    return '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 6});
+function renderOnchain(o) {
+  $('onchain-cards').innerHTML =
+    card(usd(o.total_usdc) + ' USDC', 'Общо верифицирано on-chain', true) +
+    card(o.total_count, 'Плащания (трансфери)') +
+    card(o.external_payers, 'Реални платци (external)') +
+    card(`${o.today_count} · ${usd(o.today_usdc)}`, `Днес (${esc(o.today_date)} UTC)`);
+  const cl = o.by_class || {}, lb = o.class_labels || {};
+  const order = ['canary', 'sampler', 'external'];
+  $('onchain-classes').innerHTML = order.map(k => cl[k]
+    ? `<span class="tag ${k}">${esc(lb[k] || k)}: ${cl[k].count} tx · ${usd(cl[k].total_usdc)}</span>`
+    : '').join(' &nbsp; ') +
+    (o.last_scanned_block ? ` &nbsp;<span style="color:var(--muted)">scan watermark: block ${o.last_scanned_block}</span>` : '');
+  const rows = (o.history || []).map(h => {
+    const cls = h.payer_class || 'external';
+    const tx = (h.tx_hash || '');
+    return `<tr>
+      <td class="num mono">${esc(utc(h.ts))}</td>
+      <td class="num">${usd(h.amount_usdc)}</td>
+      <td><span class="tag ${cls}">${cls === 'external' ? 'EXTERNAL' : esc(h.payer_label || cls)}</span></td>
+      <td class="mono">${esc(short(h.sender))}…</td>
+      <td class="mono"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(short(tx, 10))}…</a></td>
+    </tr>`;
+  });
+  $('sales-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="5" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
 }
 
-function fmtTime(iso) {
-    const d = new Date(iso);
-    return d.toLocaleString('en-GB', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+function renderRequests(r) {
+  $('req-cards').innerHTML =
+    card(r.today, `Днес (${esc(r.today_date)} UTC)`) +
+    card(r.total, 'Общо (от лог-а)');
+  const ch = (r.by_channel || []);
+  $('channels-body').innerHTML = ch.length ? ch.map(c =>
+    `<tr><td class="mono">/f/${esc(c.channel)}</td><td class="num">${c.n}</td></tr>`).join('') :
+    '<tr><td class="empty">няма канал-атрибутиран трафик още</td></tr>';
+  const src = (r.by_source || []);
+  $('sources-body').innerHTML = src.length ? src.map(s =>
+    `<tr><td>${esc(s.source)}</td><td class="num">${s.n}</td></tr>`).join('') :
+    '<tr><td class="empty">…</td></tr>';
+  const rec = (r.recent || []).slice(0, 12).map(q =>
+    `<tr><td class="num mono">${esc(utc(q.ts))}</td><td class="mono">${esc(q.path)}</td>
+     <td>${esc(q.source)}</td><td class="num">${q.status_code}</td>
+     <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(short(q.user_agent, 40))}</td>
+     <td>${q.funnel ? '<span class="mono">/f/' + esc(q.funnel) + '</span>' : '—'}</td></tr>`);
+  $('recent-body').innerHTML = rec.length ? rec.join('') :
+    '<tr><td colspan="6" class="empty">…</td></tr>';
 }
 
-function shortAddr(addr) {
-    if (!addr) return '—';
-    return addr.substring(0,8) + '...' + addr.substring(addr.length-6);
+function renderPayapi(p) {
+  const rel = p.reliability || {};
+  const fresh = p.updated_at && (Date.now() - new Date(p.updated_at).getTime()) < 30 * 60 * 1000;
+  const band = p.available ? (rel.band || 'unscored') : 'unscored';
+  const score = (p.available && rel.score != null) ? rel.score : '—';
+  $('payapi-cards').innerHTML =
+    card(esc(band), 'Reliability band') +
+    card(score, 'Score') +
+    card(rel.payment_verified ? 'да' : '—', 'Payment verified') +
+    card(rel.price_min != null ? usd2(rel.price_min) : '—', 'Цена (min)');
+  $('payapi-updated').innerHTML = p.available
+    ? (fresh ? '<span class="badge live">LIVE</span> ' : '<span class="badge stale">кеш</span> ')
+      + 'обновено: ' + esc(utc(p.updated_at)) + (rel.computed_at ? ' · band изчислен: ' + esc(utc(rel.computed_at)) : '')
+    : '<span class="badge stale">baseline</span> още няма скан — "unscored" е базовото състояние';
+  const ranks = p.ranks || {};
+  const rows = Object.entries(ranks).map(([term, r]) => {
+    if (r.error) return `<tr><td class="mono">${esc(term)}</td><td colspan="2" class="empty">грешка: ${esc(r.error)}</td></tr>`;
+    return `<tr><td class="mono">${esc(term)}</td>
+      <td class="num">${r.position ? '#' + r.position : 'ABSENT'}</td>
+      <td class="num">${r.total != null ? r.total : '—'}</td></tr>`;
+  });
+  $('ranks-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="3" class="empty">…</td></tr>';
 }
 
-async function loadSales() {
-    const data = await fetchJSON('/api/dashboard-stats');
-    document.getElementById('m-volume').textContent = fmtMoney(data.total_volume_usd);
-    document.getElementById('m-sales-count').textContent = data.total_sales + ' on-chain sales';
-
-    // Token doughnut chart
-    const tokenLabels = Object.keys(data.by_token);
-    const tokenValues = Object.values(data.by_token);
-    const ctxT = document.getElementById('chartTokens').getContext('2d');
-    if (charts.tokens) charts.tokens.destroy();
-    if (tokenLabels.length > 0) {
-        charts.tokens = new Chart(ctxT, {
-            type: 'doughnut',
-            data: {
-                labels: tokenLabels,
-                datasets: [{
-                    data: tokenValues,
-                    backgroundColor: ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'],
-                    borderWidth: 0,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
-            }
-        });
-    }
-
-    // Recent sales table
-    const tbody = document.getElementById('sales-table-body');
-    const emptyState = document.getElementById('empty-sales');
-    tbody.innerHTML = '';
-    if (data.history.length === 0) {
-        emptyState.style.display = 'block';
-    } else {
-        emptyState.style.display = 'none';
-        data.history.slice(-15).reverse().forEach(s => {
-            const row = `<tr>
-                <td>${fmtTime(s.timestamp)}</td>
-                <td><strong>${s.token}</strong></td>
-                <td style="color:#10b981">${fmtMoney(s.amount_usd)}</td>
-                <td style="font-family:monospace;font-size:0.75rem;color:#64748b">${shortAddr(s.sender)}</td>
-                <td style="font-family:monospace;font-size:0.75rem;color:#64748b">${shortAddr(s.tx_hash)}</td>
-                <td>${s.block_number || '—'}</td>
-                <td><span class="status-dot dot-green"></span>${s.status}</td>
-            </tr>`;
-            tbody.insertAdjacentHTML('beforeend', row);
-        });
-    }
+function renderCrm(c) {
+  $('crm-cards').innerHTML =
+    card(usd2(c.total_usd), 'Off-chain приходи (CRM/Stripe)') +
+    card(c.count, 'Платени записи') +
+    card(esc(c.source), 'Източник') +
+    card(c.stripe_available ? 'свързан' : 'не', 'Stripe snapshot');
+  const rows = (c.items || []).map(i =>
+    `<tr><td class="num">${esc(i.date)}</td><td class="mono">${esc(i.customer)}</td>
+     <td>${esc(i.plan || '—')}</td><td class="num">${usd2(i.amount_usd)}</td>
+     <td>${esc(i.provider)}</td></tr>`);
+  $('crm-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="5" class="empty">няма платени off-chain записи</td></tr>';
 }
 
-async function loadStats() {
-    const data = await fetchJSON('/api/dashboard-stats');
-    document.getElementById('m-requests').textContent = data.today.requests;
-    document.getElementById('m-requests-sub').textContent = data.total_requests + ' total API calls';
-    document.getElementById('m-today-sales').textContent = data.today.sales_count;
-    document.getElementById('m-today-volume').textContent = fmtMoney(data.today.sales_volume_usd);
-
-    // Official eight-agent catalog table
-    const products = data.products || [];
-    const pBody = document.getElementById('products-table-body');
-    pBody.innerHTML = '';
-    let totalHits = 0, totalSales = 0, totalVolume = 0;
-    products.forEach(p => {
-        totalHits += p.hits;
-        totalSales += p.sales_count;
-        totalVolume += p.sales_volume_usd;
-        const catLabel = p.category === 'engine' ? '⚙️ Engine' : '🤖 Agent';
-        // Show micro-prices honestly: 0.003 must NEVER round down to $0.00.
-        const fmtPrice = v => '$' + (Number(v) < 0.01 ? Number(v).toFixed(4) : Number(v).toFixed(2));
-        const row = `<tr>
-            <td><strong>${p.name}</strong></td>
-            <td style="color:var(--muted);font-size:0.8rem;">${catLabel}</td>
-            <td style="color:var(--accent2);">${fmtPrice(p.price_usdc)}</td>
-            <td>${p.hits}</td>
-            <td>${p.sales_count}</td>
-            <td style="color:var(--accent2);">${fmtMoney(p.sales_volume_usd)}</td>
-        </tr>`;
-        pBody.insertAdjacentHTML('beforeend', row);
-    });
-    document.getElementById('products-total-hits').textContent = totalHits;
-    document.getElementById('products-total-sales').textContent = totalSales;
-    document.getElementById('products-total-volume').textContent = fmtMoney(totalVolume);
-
-    // Wallet info — the FEE RECEIVER is the meaningful address: it is where
-    // client payments land. The gas-payer hot wallet is incidental (always
-    // near-zero) and confused PayAPI's reviewer (block_number/balance note).
-    const w = data.wallet || {};
-    const primaryAddr = w.fee_receiver || w.wallet_address || 'Wallet not configured';
-    const receiverBal = (w.receiver_usdc_balance !== undefined)
-        ? w.receiver_usdc_balance : (w.usdc_balance || 0);
-    document.getElementById('wallet-address').textContent = primaryAddr;
-    document.getElementById('wallet-details').textContent =
-        `Fee Receiver (USDC payments land here): Balance ${fmtMoney(receiverBal)} | Gas wallet: ${shortAddr(w.wallet_address)} | Last block: ${w.last_block_checked || 0} | Last check: ${w.last_check_time ? fmtTime(w.last_check_time) : '—'}`;
-
-    const daily = data.daily;
-    const dates = Object.keys(daily).slice(-14);
-    const volumes = dates.map(d => daily[d].sales_volume);
-    const requests = dates.map(d => daily[d].requests);
-
-    // Volume bar chart
-    const ctxV = document.getElementById('chartVolume').getContext('2d');
-    if (charts.volume) charts.volume.destroy();
-    charts.volume = new Chart(ctxV, {
-        type: 'bar',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'Volume (USDC)',
-                data: volumes,
-                backgroundColor: 'rgba(16,185,129,0.6)',
-                borderColor: '#10b981',
-                borderWidth: 1,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-                x: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } },
-                y: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } }
-            }
-        }
-    });
-
-    // Requests line chart
-    const ctxR = document.getElementById('chartRequests').getContext('2d');
-    if (charts.requests) charts.requests.destroy();
-    charts.requests = new Chart(ctxR, {
-        type: 'line',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'API Requests',
-                data: requests,
-                borderColor: '#6366f1',
-                backgroundColor: 'rgba(99,102,241,0.15)',
-                fill: true,
-                tension: 0.3,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-                x: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } },
-                y: { ticks: { color: '#64748b' }, grid: { color: '#2d3142' } }
-            }
-        }
-    });
-
-    // Recent activity
-    const recent = data.recent_requests || [];
-    const endpointCounts = {};
-    recent.forEach(r => {
-        endpointCounts[r.endpoint] = (endpointCounts[r.endpoint] || 0) + 1;
-    });
-    const ctxA = document.getElementById('chartActivity').getContext('2d');
-    if (charts.activity) charts.activity.destroy();
-    if (Object.keys(endpointCounts).length > 0) {
-        charts.activity = new Chart(ctxA, {
-            type: 'polarArea',
-            data: {
-                labels: Object.keys(endpointCounts),
-                datasets: [{
-                    data: Object.values(endpointCounts),
-                    backgroundColor: ['rgba(99,102,241,0.6)','rgba(16,185,129,0.6)','rgba(245,158,11,0.6)','rgba(239,68,68,0.6)','rgba(139,92,246,0.6)'],
-                    borderWidth: 0,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } },
-                scales: { r: { ticks: { color: '#64748b', backdropColor: 'transparent' }, grid: { color: '#2d3142' } } }
-            }
-        });
-    }
+async function load() {
+  try {
+    const r = await fetch('/api/dashboard/data', {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const s = d.sections || {};
+    renderOnchain(s.onchain || {});
+    renderRequests(s.requests || {});
+    renderPayapi(s.payapi || {});
+    renderCrm(s.crm_stripe || {});
+    $('generated-at').textContent = ' · обновено: ' + utc(d.generated_at) + ' UTC';
+    $('invariant').textContent = d.invariant || '';
+    const b = $('live-badge');
+    b.className = 'badge live'; b.textContent = 'LIVE';
+  } catch (e) {
+    const b = $('live-badge');
+    b.className = 'badge err'; b.textContent = 'ГРЕШКА: ' + e.message;
+  }
 }
 
-async function loadBotStatus() {
-    const data = await fetchJSON('/api/dashboard-stats');
-    const isOnline = data.telegram_bot_running;
-    const dotClass = isOnline ? 'dot-green' : 'dot-red';
-    const statusText = isOnline ? 'Online' : 'Offline';
-    document.getElementById('m-bot-status').innerHTML =
-        `<span class="status-dot ${dotClass}"></span> ${statusText}`;
-    document.getElementById('m-bot-commands').textContent =
-        data.commands_processed + ' commands processed';
+document.getElementById('crm-toggle').addEventListener('click', () => {
+  const d = $('crm-detail');
+  d.classList.toggle('hidden');
+  $('crm-toggle').textContent = d.classList.contains('hidden')
+    ? 'Покажи off-chain сумите' : 'Скрий off-chain сумите';
+});
 
-    // Update payment address in pricing section.
-    // CRITICAL: show the FEE RECEIVER (where customers pay), never the
-    // operator hot wallet derived from WALLET_PRIVATE_KEY — the hot wallet
-    // is the PAYER side and its address must not be advertised as payable.
-    const payAddr = data.payment_receiver || data.fee_receiver;
-    if (payAddr) {
-        document.getElementById('payment-addr').textContent = payAddr;
-    }
-}
-
-async function loadConnectors() {
-    try {
-        const data = await fetchJSON('/api/connectors');
-        const body = document.getElementById('connectors-table-body');
-        body.innerHTML = '';
-        (data.connectors || []).forEach(cn => {
-            const dot = cn.status === 'active' ? 'dot-green' : 'dot-red';
-            const label = cn.status === 'active' ? 'АКТИВЕН' : 'НЕАКТИВЕН';
-            const arrow = cn.direction === 'inbound' ? '⬅ входяща' : '➡ изходяща';
-            const ts = (cn.last_activity || '').replace('T', ' ').slice(0, 19);
-            const row = `<tr>
-                <td><strong>${cn.name}</strong><br><span style="color:var(--muted);font-size:0.75rem;">${cn.id}</span></td>
-                <td style="color:var(--muted);font-size:0.8rem;">${cn.protocol}</td>
-                <td style="font-size:0.8rem;">${arrow}</td>
-                <td><span class="status-dot ${dot}"></span> ${label}</td>
-                <td style="color:var(--muted);font-size:0.8rem;">${ts}</td>
-            </tr>`;
-            body.insertAdjacentHTML('beforeend', row);
-        });
-        document.getElementById('connectors-summary').textContent =
-            `${data.active}/${data.count} конектора активни — платежна инфраструктура под постоянно наблюдение`;
-    } catch (e) {
-        console.error('connectors load failed:', e);
-    }
-}
-
-async function refreshAll() {
-    try {
-        await Promise.all([loadSales(), loadStats(), loadBotStatus(), loadConnectors()]);
-    } catch (e) {
-        console.error('Refresh error:', e);
-    }
-    document.getElementById('footer-time').textContent = new Date().toLocaleTimeString();
-}
-
-refreshAll();
-setInterval(refreshAll, 30000);
+load();
+setInterval(load, 45000);
 </script>
-<script>
-/* ===== NEXUS-aligned interactive layer ===== */
-(function () {
-    'use strict';
-    var ONB_KEY = 'ki6-onboarding-dismissed';
-    var SPREAD_TIP = 'Spread % = разликата в цената между двата DEX. Положителен спред след покриване на газ = потенциална арбитражна възможност. Ориентировъчно — проверете on-chain.';
-    var CATEGORY_META = {
-        onchain_intelligence: { icon: '🐋', color: '#06b6d4' },
-        market_intelligence:  { icon: '📊', color: '#6366f1' },
-        token_security:       { icon: '🛡️', color: '#f59e0b' },
-        defi:                 { icon: '🌾', color: '#10b981' },
-        infrastructure:       { icon: '⛽', color: '#a78bfa' },
-        arbitrage:            { icon: '⚡', color: '#ef4444' },
-        trading:              { icon: '🎯', color: '#34d399' },
-        monitoring:           { icon: '📡', color: '#f472b6' }
-    };
-    function catMeta(cat) { return CATEGORY_META[cat] || { icon: '🤖', color: '#6366f1' }; }
-    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-
-    // ===== Tooltip =====
-    var tip = null;
-    function bindTooltip() {
-        tip = document.getElementById('ki6-tooltip');
-        document.addEventListener('mouseover', function (e) {
-            var t = e.target.closest('[title]'); if (!t || !t.getAttribute('title')) return;
-            tip.textContent = t.getAttribute('title'); tip.style.display = 'block'; place(t);
-        });
-        document.addEventListener('mouseout', function (e) { if (e.target.closest('[title]')) tip.style.display = 'none'; });
-    }
-    function place(el) {
-        var r = el.getBoundingClientRect();
-        tip.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 260)) + 'px';
-        tip.style.top = (r.bottom + 8 > window.innerHeight - 90 ? r.top - tip.offsetHeight - 8 : r.bottom + 8) + 'px';
-    }
-
-    // ===== Onboarding flow =====
-    var STEPS = [
-        { n: 1, label: '8-те AI агента', desc: 'Специализирани агенти (WhaleFlow Radar, Rug Scanner, Arb Radar…) — всеки следи различен сигнал в Base екосистемата.', target: '#agents-panel' },
-        { n: 2, label: 'x402 API', desc: 'Всяка заявка се монетизира чрез x402 micro-payments в USDC — плащате само за това, което използвате.', target: '.pricing-section' },
-        { n: 3, label: 'On-chain верификация', desc: 'Плащанията се верифицират директно на Base blockchain — всяка продажба е реален USDC трансфер.', target: '#sales-table-body' },
-        { n: 4, label: 'Интелигентност', desc: 'Arb Radar сканира DEX-ове 24/7 и генерира търговски сигнали със спред и оценка на печалба.', target: '#signals-panel' },
-        { n: 5, label: 'NEXUS интеграция', desc: 'NEXUS Discovery Engine консумира този API — двете платформи споделят агентния каталог и сигнали.', target: '#nexus-link' }
-    ];
-    function initOnboarding() {
-        var dismissed = false;
-        try { dismissed = localStorage.getItem(ONB_KEY) === '1'; } catch (e) {}
-        if (!dismissed) document.getElementById('ki6-onboarding').style.display = '';
-        document.getElementById('ki6-onb-steps').innerHTML = STEPS.map(function (s, i) {
-            return '<button class="onb-step" data-step="' + i + '"><span class="onb-num">' + s.n + '</span>' +
-                '<span class="lbl">' + esc(s.label) + '</span>' +
-                (i < STEPS.length - 1 ? '<span class="chev">›</span>' : '') + '</button>';
-        }).join('');
-        document.getElementById('ki6-onb-steps').addEventListener('click', function (e) {
-            var b = e.target.closest('[data-step]'); if (!b) return;
-            var s = STEPS[Number(b.getAttribute('data-step'))];
-            var el = document.querySelector(s.target);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-        document.getElementById('ki6-onb-close').addEventListener('click', function () {
-            document.getElementById('ki6-onboarding').style.display = 'none';
-            try { localStorage.setItem(ONB_KEY, '1'); } catch (e) {}
-        });
-    }
-
-    // ===== Modal =====
-    function openModal(inner) {
-        var root = document.getElementById('ki6-modal-root');
-        root.innerHTML = '<div class="overlay" id="ki6-overlay"><div class="modal">' +
-            '<button class="m-close" aria-label="Затвори">✕</button>' + inner + '</div></div>';
-        document.getElementById('ki6-overlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
-        root.querySelector('.m-close').addEventListener('click', closeModal);
-    }
-    function closeModal() { document.getElementById('ki6-modal-root').innerHTML = ''; }
-    window.closeKi6Modal = closeModal;
-    // exposed for the second interactive block
-    window.__ki6 = { esc: esc, catMeta: catMeta, openModal: openModal, closeModal: closeModal, fmtUsd: function (v) { return '$' + (Math.round((v || 0) * 100) / 100).toFixed(2); } };
-
-    // ===== Кликабелни метрики (drill-down) =====
-    function bindMetricDrilldown() {
-        document.getElementById('mc-volume').addEventListener('click', function () {
-            document.getElementById('sales-table-body').scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-        document.getElementById('mc-requests').addEventListener('click', function () {
-            document.getElementById('chartRequests').scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-        document.getElementById('mc-today-sales').addEventListener('click', function () {
-            document.getElementById('sales-table-body').scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-        document.getElementById('mc-bot').addEventListener('click', function () {
-            fetch('/api/bot-status').then(function (r) { return r.json(); }).then(function (b) {
-                openModal(
-                    '<h3>📡 Telegram Sales Bot</h3>' +
-                    '<div class="m-sub">Автоматизиран sales агент в Telegram</div>' +
-                    '<div class="m-kv">' +
-                    '<div class="kv"><div class="n" style="color:' + (b.telegram_bot_running ? 'var(--accent2)' : 'var(--accent4)') + '">' + (b.telegram_bot_running ? 'Онлайн' : 'Офлайн') + '</div><div class="k">статус</div></div>' +
-                    '<div class="kv"><div class="n">' + (b.commands_processed || 0) + '</div><div class="k">обработени команди</div></div>' +
-                    '<div class="kv"><div class="n">' + esc(b.uptime_started ? String(b.uptime_started).slice(0, 10) : '—') + '</div><div class="k">работи от</div></div>' +
-                    '</div>' +
-                    '<div class="m-lbl">Какво прави</div>' +
-                    '<div class="m-txt">Ботът изпраща DeFi сигнали и VIP оферти в Telegram, обработва /start, /help, /bulletin, /price и inline бутони за отключване на VIP достъп срещу USDC.</div>'
-                );
-            }).catch(function () {});
-        });
-    }
-
-    // ===== Инициализация (част А) =====
-    document.addEventListener('DOMContentLoaded', function () {
-        bindTooltip(); initOnboarding(); bindMetricDrilldown();
-    });
-})();
-</script>
-<!-- __JSC__ -->
-<script>
-(function () {
-    'use strict';
-    var K = window.__ki6;
-    var AGENTS = [];
-
-    // ===== Агенти в действие =====
-    function loadAgents() {
-        return fetch('/api/v1/agents').then(function (r) { return r.json(); }).then(function (j) {
-            AGENTS = (j && j.agents) || [];
-            return fetch('/api/stats').then(function (r) { return r.json(); }).then(function (s) {
-                var statsBy = {};
-                ((s && s.products) || []).forEach(function (p) { statsBy[p.id] = p; });
-                renderAgents(statsBy);
-                loadSignals();
-            });
-        }).catch(function () {
-            document.getElementById('ki6-agents-grid').innerHTML =
-                '<div class="empty-state" style="padding:1.5rem"><p>Агентният каталог не е достъпен в момента.</p></div>';
-        });
-    }
-    function renderAgents(statsBy) {
-        document.getElementById('ki6-agents-count').textContent = AGENTS.length + ' AI агента';
-        document.getElementById('ki6-agents-grid').innerHTML = AGENTS.map(function (a) {
-            var st = statsBy[a.id] || {};
-            var cm = K.catMeta(a.category);
-            return '<button class="agent-card" data-agent="' + K.esc(a.id) + '" title="Кликнете за пълни детайли за агента: какво прави, цена, търсене и продажби за 24 часа.">' +
-                '<span class="a-price">' + K.esc(a.price_x402) + ' USDC</span>' +
-                '<div class="a-name">' + cm.icon + ' ' + K.esc(a.name) + '</div>' +
-                '<div class="a-desc">' + K.esc(a.description || '') + '</div>' +
-                '<div class="a-stats">' +
-                '<span><b>' + (st.hits || 0) + '</b> hits 24h</span>' +
-                '<span><b>' + (st.sales_count || 0) + '</b> sales 24h</span>' +
-                '<span><b>' + K.fmtUsd(st.sales_volume_usd) + '</b> vol 24h</span>' +
-                '</div></button>';
-        }).join('');
-        document.getElementById('ki6-agents-grid').addEventListener('click', function (e) {
-            var b = e.target.closest('[data-agent]'); if (!b) return;
-            var a = AGENTS.filter(function (x) { return x.id === b.getAttribute('data-agent'); })[0];
-            if (a) agentDialog(a, statsBy[a.id] || {});
-        });
-    }
-    function agentDialog(a, st) {
-        var cm = K.catMeta(a.category);
-        K.openModal(
-            '<h3>' + cm.icon + ' ' + K.esc(a.name) + '</h3>' +
-            '<div class="m-sub"><span class="badge" style="color:' + cm.color + ';border-color:' + cm.color + '">' + K.esc(a.category) + '</span> ' +
-            '<span class="badge src">x402 микросервис · Kristo Intelligence 6</span></div>' +
-            '<div class="m-lbl">Какво прави агентът</div><div class="m-txt">' + K.esc(a.description || '—') + '</div>' +
-            '<div class="m-lbl">Статистика (24 часа)</div><div class="m-kv">' +
-            '<div class="kv"><div class="n">' + (st.hits || 0) + '</div><div class="k">hits (търсения)</div></div>' +
-            '<div class="kv"><div class="n">' + (st.sales_count || 0) + '</div><div class="k">продажби</div></div>' +
-            '<div class="kv"><div class="n">' + K.fmtUsd(st.sales_volume_usd) + '</div><div class="k">обем USDC</div></div>' +
-            '<div class="kv"><div class="n">' + K.esc(a.price_x402) + '</div><div class="k">USDC / заявка (x402)</div></div>' +
-            '<div class="kv"><div class="n">$' + K.esc(a.price_stripe) + '</div><div class="k">месечен достъп (Stripe)</div></div>' +
-            '</div>' +
-            '<div class="m-lbl">Как да го използвате</div>' +
-            '<div class="m-txt">Демо: <b>POST /api/v1/agents/' + K.esc(a.id) + '/playground</b> (първата заявка е безплатна). Машинен достъп: x402 плащане или Stripe VIP.</div>' +
-            '<div style="margin-top:1rem;display:flex;gap:0.6rem;flex-wrap:wrap">' +
-            '<a class="btn ghost" href="/agents" target="_blank" rel="noopener">🎮 Опитайте в Playground</a>' +
-            '<button class="btn" onclick="closeKi6Modal()" style="background:var(--border)">Затвори</button>' +
-            '</div>'
-        );
-    }
-})();
-</script>
-<!-- __JSD__ -->
-<script>
-(function () {
-    'use strict';
-    var K = window.__ki6;
-
-    // ===== Сигнали (Arb Radar) с атрибуция =====
-    function loadSignals() {
-        return fetch('/api/arb/opportunities').then(function (r) { return r.json(); }).then(function (j) {
-            var opps = (j && j.opportunities) || [];
-            var el = document.getElementById('ki6-signals');
-            if (!el) return;
-            if (!opps.length) {
-                el.innerHTML = '<div class="empty-state" style="padding:1.2rem"><p>Няма активни арбитражни възможности в момента — Arb Radar сканира непрекъснато.</p></div>';
-                return;
-            }
-            el.innerHTML = opps.slice(0, 6).map(function (o, i) {
-                return '<div class="sig-row" data-opp="' + i + '" title="Кликнете за детайли: цени, ликвидност, обем и оценка на печалба.">' +
-                    '<div><div class="s-pair">' + K.esc(o.pair) + '</div>' +
-                    '<div class="s-sub">купи: <b>' + K.esc(o.buy_dex) + '</b> @ $' + K.esc(o.buy_price_usd) + ' → продай: <b>' + K.esc(o.sell_dex) + '</b> @ $' + K.esc(o.sell_price_usd) + '</div>' +
-                    '<div class="s-sub"><span class="badge src">от Arb Radar · DEXScreener</span> <span class="badge">Base</span></div></div>' +
-                    '<div class="s-right"><div class="s-profit">+' + K.fmtUsd(o.est_profit_usd) + '</div>' +
-                    '<div class="s-spread">спред ' + K.esc(o.spread_pct) + '% · обем $' + K.esc(o.volume_24h) + '</div></div></div>';
-            }).join('');
-            el.addEventListener('click', function (e) {
-                var r = e.target.closest('[data-opp]'); if (!r) return;
-                oppDialog(opps[Number(r.getAttribute('data-opp'))]);
-            });
-        }).catch(function () {
-            document.getElementById('ki6-signals').innerHTML =
-                '<div class="empty-state" style="padding:1.2rem"><p>Сигналите не са достъпни в момента.</p></div>';
-        });
-    }
-    function oppDialog(o) {
-        K.openModal(
-            '<h3>⚡ ' + K.esc(o.pair) + '</h3>' +
-            '<div class="m-sub"><span class="badge src">открито от Arb Radar</span> <span class="badge">Base мрежа</span> <span class="badge">DEXScreener данни</span></div>' +
-            '<div class="m-lbl">Арбитражна възможност</div><div class="m-kv">' +
-            '<div class="kv"><div class="n">$' + K.esc(o.buy_price_usd) + '</div><div class="k">купува на ' + K.esc(o.buy_dex) + '</div></div>' +
-            '<div class="kv"><div class="n">$' + K.esc(o.sell_price_usd) + '</div><div class="k">продава на ' + K.esc(o.sell_dex) + '</div></div>' +
-            '<div class="kv"><div class="n" style="color:var(--accent2)">+' + K.fmtUsd(o.est_profit_usd) + '</div><div class="k">ест. печалба след газ</div></div>' +
-            '<div class="kv"><div class="n">' + K.esc(o.spread_pct) + '%</div><div class="k">спред</div></div>' +
-            '<div class="kv"><div class="n">$' + K.esc(o.est_trade_usd) + '</div><div class="k">ест. обем на сделката</div></div>' +
-            '<div class="kv"><div class="n">$' + K.esc(o.volume_24h) + '</div><div class="k">24ч обем</div></div>' +
-            '<div class="kv"><div class="n">$' + K.esc(o.liquidity_usd_buy) + '</div><div class="k">ликвидност (купува)</div></div>' +
-            '<div class="kv"><div class="n">$' + K.esc(o.liquidity_usd_sell) + '</div><div class="k">ликвидност (продава)</div></div>' +
-            '</div>' +
-            '<div class="m-lbl">Атрибуция</div>' +
-            '<div class="m-txt">Възможността е открита автоматично от <b>Arb Radar</b> — фоновия крос-DEX скенер на Kristo Intelligence 6, базиран на DEXScreener агрегирани цени. Сканирано: ' + K.esc((o.scanned_at || '').replace('T', ' ').slice(0, 19)) + ' UTC.</div>' +
-            '<div class="m-lbl">Отговорност</div>' +
-            '<div class="m-txt" style="color:var(--muted)">Оценките са ориентировъчни. Проверете on-chain цените и ликвидността преди изпълнение.</div>'
-        );
-    }
-
-    document.addEventListener('DOMContentLoaded', function () {
-        loadSignals();
-        setInterval(loadSignals, 60000);
-    });
-})();
-</script>
-
-<div id="ki6-modal-root"></div>
-<div id="ki6-tooltip"></div>
 </body>
 </html>

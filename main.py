@@ -108,6 +108,7 @@ X402_FREE_ENDPOINTS = {
     "/.well-known/x402.json", "/.well-known/ai-plugin.json", "/openapi.json",
     "/llms.txt", "/agents.json", "/robots.txt", "/sitemap.xml",
     "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
+    "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
 }
 
@@ -165,6 +166,14 @@ RESEARCH_DATA_FILE = os.path.join(os.path.dirname(__file__), "data", "research_i
 crm_store = create_crm_store(CRM_DATA_FILE)
 catalog_store = create_catalog_store(CATALOG_DATA_FILE)
 research_store = create_research_store(RESEARCH_DATA_FILE)
+
+# ── Canonical dashboard store (persistent — survives deploys) ──────────────
+# On-chain sales / request log / PayAPI listing state live in SQLite so a
+# gunicorn restart NEVER zeroes the dashboard numbers. See DASHBOARD_AUDIT.md.
+from integrations.dashboard_store import DashboardStore  # noqa: E402
+DASHBOARD_DB_FILE = os.path.join(os.path.dirname(__file__), "data", "dashboard_state.db")
+dashboard_db = DashboardStore(DASHBOARD_DB_FILE)
+
 checkout_store = SalesCheckout()
 telegram_flow = TelegramSalesFlow(os.getenv("TELEGRAM_BOT_TOKEN", ""))
 stripe_checkout = StripeCheckoutService()
@@ -657,6 +666,23 @@ def _record_real_sale(token: str, amount_usd: float, tx_hash: str, sender: str =
         )
     log.info("Recorded real sale: %s $%.6f (tx=%s)", token, amount_usd, tx_hash)
 
+    # ── Persistent dashboard record (deploy-proof) ─────────────────────────
+    # RAM structures above reset on restart; the SQLite store does not.
+    # Dedup by tx hash happens inside the store (INSERT OR IGNORE).
+    try:
+        dashboard_db.record_sale(
+            tx_hash=tx_hash,
+            amount_usdc=amount_usd,
+            sender=sender,
+            block_number=block_number,
+            ts=ts,
+            source="live",
+        )
+    except Exception as exc:
+        # Never break the payment path because of dashboard bookkeeping.
+        log.warning("Dashboard store: sale not persisted: %s", exc)
+
+
     # ── VIP invite generation for payments above threshold ──────────────
     if amount_usd >= VIP_THRESHOLD_USDC and sender:
         tier = _classify_payment(amount_usd)
@@ -756,6 +782,45 @@ def _stripe_payment_snapshot_loop():
     while True:
         _refresh_stripe_payment_snapshot()
         time.sleep(interval_seconds)
+
+
+# ── Canonical dashboard maintenance loop (persistent store) ───────────────
+# Keeps data/dashboard_state.db in sync with the chain and with PayAPI:
+#   1. retro scan on startup (default 30d) → the very first external payment
+#      is visible in the dashboard history from day zero
+#   2. incremental scan every cycle from the persisted block watermark
+#      → deploys/restarts never reset or re-zero the numbers
+#   3. PayAPI listing state (band + ranks) every ~15 min
+def _dashboard_scan_loop():
+    retro_days = int(os.getenv("KRISTO_DASHBOARD_RETRO_DAYS", "30"))
+    scan_interval = max(30, int(os.getenv("KRISTO_DASHBOARD_SCAN_INTERVAL", "60")))
+    payapi_interval = max(300, int(os.getenv("KRISTO_DASHBOARD_PAYAPI_INTERVAL", "900")))
+
+    log.info("Dashboard scan loop started (retro=%dd, interval=%ss).", retro_days, scan_interval)
+    try:
+        added = dashboard_db.retro_scan(days=retro_days)
+        log.info("Dashboard retro scan: %d new on-chain sale(s) persisted.", added)
+    except Exception as exc:
+        log.warning("Dashboard retro scan failed (incremental will catch up): %s", exc)
+
+    next_payapi = time.time()
+    while True:
+        time.sleep(scan_interval)
+        try:
+            added = dashboard_db.scan_increment()
+            if added:
+                log.info("Dashboard incremental scan: %d new sale(s).", added)
+        except Exception as exc:
+            log.warning("Dashboard scan cycle failed (non-fatal): %s", exc)
+
+        if time.time() >= next_payapi:
+            next_payapi = time.time() + payapi_interval
+            try:
+                from scripts.listing_monitor import fetch_state
+                dashboard_db.save_payapi_state(fetch_state())
+                log.info("Dashboard: PayAPI listing state refreshed.")
+            except Exception as exc:
+                log.warning("Dashboard PayAPI refresh failed: %s", exc)
 
 
 # ── Endpoint → Product mapping for per-agent stats ────────────────────────
@@ -1485,6 +1550,16 @@ def _capture_live_request(response):
                         "funnel": g.get("funnel_channel"),
                 }
             )
+        # Persist to the canonical dashboard store (survives deploys).
+        dashboard_db.record_request(
+            method=request.method,
+            path=path,
+            source=source,
+            status_code=response.status_code,
+            user_agent=request.headers.get("User-Agent") or "",
+            referer=request.headers.get("Referer") or "",
+            funnel=g.get("funnel_channel"),
+        )
     except Exception:
         # Observability must never affect the application response.
         pass
@@ -2952,26 +3027,135 @@ def funnel_track():
 
 
 
-# ── Dashboard HTML ────────────────────────────────────────────────────────
+# ── Canonical Operations Dashboard (single professional dashboard) ────────
+# Replaces the old mixed-source dashboard + the simulated NEXUS page.
+# Sections and their ONLY data sources:
+#   (a) On-Chain Sales  → data/dashboard_state.db (real USDC transfers)
+#   (b) API Requests    → persistent request log (same store)
+#   (c) Listing & Rank  → PayAPI listing state (same store, refreshed ~15min)
+#   (d) CRM/Stripe      → crm_store (labelled OFF-CHAIN, hidden by default,
+#                         NEVER included in on-chain totals)
 
+PAYER_CLASS_LABELS_BG = {
+    "canary": "canary (Chet — верификация)",
+    "sampler": "sampler (пазарен crawler)",
+    "external": "EXTERNAL (реален платец)",
+}
+
+
+def _mask_email(email: str) -> str:
+    """Mask an email for the semi-public dashboard (no PII leak)."""
+    e = (email or "").strip()
+    if not e:
+        return ""
+    at = e.find("@")
+    if at <= 0:
+        return e[:2] + "•••"
+    return e[:2] + "•••" + e[at:]
+
+
+def _canonical_dashboard_payload() -> dict:
+    """Build the whole read model from persistent sources only."""
+    sales = dashboard_db.sales_summary()
+    requests = dashboard_db.requests_summary()
+    payapi = dashboard_db.get_payapi_state()
+
+    # (d) CRM/Stripe — OFF-CHAIN, never part of on-chain totals.
+    leads = crm_store.get_all()
+    paid_leads = [l for l in leads if l.get("payment_status") == "paid"]
+    paid_leads.sort(key=lambda l: l.get("created_at") or "", reverse=True)
+    stripe = _get_stripe_payment_snapshot()
+    crm_items = [
+        {
+            "customer": _mask_email(l.get("email", "")),
+            "plan": l.get("plan", ""),
+            "amount_usd": round(float(l.get("amount_usd") or 0), 2),
+            "date": (l.get("created_at") or "")[:10],
+            "provider": "crm_paid_event",
+        }
+        for l in paid_leads
+    ]
+    crm_total = round(sum(i["amount_usd"] for i in crm_items), 2)
+
+    onchain_total = sales["total_usdc"]
+    # Priority-0 guard: the on-chain total must NEVER contain off-chain money.
+    assert isinstance(onchain_total, (int, float))
+
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "receiver_address": X402_RECEIVER_ADDRESS,
+        "sections": {
+            "onchain": {
+                "label": "ИСТИНА — веригата",
+                "total_usdc": onchain_total,
+                "total_count": sales["total_count"],
+                "today_usdc": sales["today_usdc"],
+                "today_count": sales["today_count"],
+                "today_date": sales["today_date"],
+                "external_payers": sales["external_payers"],
+                "by_class": sales["by_class"],
+                "class_labels": PAYER_CLASS_LABELS_BG,
+                "last_scanned_block": int(
+                    dashboard_db.get_meta("last_scanned_block", "0") or 0
+                ),
+                "history": sales["history"][:100],
+            },
+            "requests": {
+                "label": "постоянен лог (SQLite)",
+                "today": requests["today"],
+                "total": requests["total"],
+                "today_date": requests["today_date"],
+                "by_source": requests["by_source"],
+                "by_channel": requests["by_channel"],
+                "top_paths": requests["top_paths"],
+                "recent": requests["recent"],
+            },
+            "payapi": {
+                "label": "PayAPI Market listing",
+                **payapi,
+            },
+            "crm_stripe": {
+                "label": "OFF-CHAIN — НЕ е включено в on-chain сумите",
+                "excluded_from_onchain": True,
+                "source": "stripe" if (stripe.get("available") and stripe.get("payments")) else "crm_paid_events",
+                "count": len(crm_items),
+                "total_usd": crm_total,
+                "items": crm_items[:50],
+                "stripe_available": bool(stripe.get("available")),
+            },
+        },
+        "invariant": (
+            "On-chain сумите идват САМО от реални USDC трансфери към "
+            f"{X402_RECEIVER_ADDRESS}. CRM/Stripe (off-chain) е отделна "
+            "секция и никога не се смесва с тях."
+        ),
+    }
+
+
+@app.route("/api/dashboard/data")
+def api_dashboard_data():
+    """Free, read-only JSON for the canonical dashboard (persistent sources)."""
+    return _safe_jsonify(_canonical_dashboard_payload())
 
 
 @app.route("/dashboard")
 def dashboard():
-    """Beautiful HTML dashboard with charts and metrics — real on-chain data only."""
+    """The one canonical operations dashboard (persistent, chain-backed)."""
     _record_request("dashboard", True)
     return render_template("dashboard.html", nexus_url=NEXUS_URL)
 
 
-# ── NEXUS Engine Visual Dashboard ─────────────────────────────────────────
-
-
-
+# ── NEXUS: retired as a separate "live" dashboard ──────────────────────────
+# The old /nexus page mixed real numbers with a SIMULATED discoveries feed
+# and advertised a discovery engine that does not run in production.
+# The discovery module stays in the codebase (lib/agents/market_evaluator.js)
+# but no longer pretends to be live: the URL now points to the canonical
+# dashboard. /api/nexus/strategy remains (real, admin-authenticated briefs).
 @app.route("/nexus")
 def nexus_dashboard():
-    """NEXUS Engine visual live dashboard — discoveries feed, metrics, and AI agents."""
-    _record_request("dashboard", True)
-    return render_template("nexus_dashboard.html", nexus_url=NEXUS_URL)
+    """Redirect the retired NEXUS page to the canonical dashboard."""
+    return redirect("/dashboard", code=302)
 
 
 # ── Telegram Bot (webhook-only, no polling) ────────────────────────────────
@@ -3100,6 +3284,14 @@ def _start_background_threads():
         name="stripe-payment-snapshot",
     )
     t_stripe_snapshot.start()
+
+    # Canonical dashboard: persistent chain scan + PayAPI listing state
+    t_dash = threading.Thread(
+        target=_dashboard_scan_loop,
+        daemon=True,
+        name="dashboard-scan",
+    )
+    t_dash.start()
 
     # Keep-alive self-ping: prevents free-tier spin-down between customer
     # calls so AI agents can reach the API 24/7.

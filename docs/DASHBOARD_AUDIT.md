@@ -8,11 +8,10 @@
 | Табло | URL/път | Източник на данни | Вярно? | Защо |
 |---|---|---|---|---|
 | **Телефон (Replit инстанция)** | Replit URL (при теб) | Собствен on-chain watcher — директен RPC скан на payTo | ✅ **ВЯРНО** | Дълго-жив процес без рестарти: броячите не се нулират; чете веригата директно |
-| **/dashboard** — уиджет „USDC обем / on-chain sales" (горе) | `/api/dashboard-stats` | SQLite (дневна статистика) + wallet watcher (on-chain scan на payTo, всеки ~10 мин) | ✅ вярно (с лаг) | Показва веригата, но watcher-ът отчита ново плащане със закъснение до следващия scan |
+| **/dashboard** — уиджет „USDC обем / on-chain sales" (горе) | `/api/dashboard-stats` | **RAM** дневна статистика + wallet watcher (on-chain scan на payTo) | ⚠️ с лаг | watcher-ът показва веригата вярно, но броячите нулират при deploy (корекция на стария одит: НЕ е SQLite-backed) |
 | **/dashboard** — секция „Real On-Chain Sales" (долу) | `/api/stats` + `/api/sales` (ПЛАТЕНИ endpoints) | **RAM** `_sales_history` | ❌ след deploy | `gunicorn` рестартира при всеки deploy → RAM се нулира → „$0.00 / 0 on-chain sales". Днес имахме 3 деплоя |
 | **/nexus** | `/nexus` (nexus_dashboard.html) | ① `/api/dashboard-stats` (30s) ② `/api/nexus/strategy` (admin — 401 за посетители) ③ **СИМУЛИРАН feed** (random генератор на „открития") | ⚠️ смесено | Реални числа (①) + мъртъв widget за посетители (②) + **фалшиви данни, показани като жива активност** (③) |
 | **/sales/admin** — „оперативното" табло ($79.02) | `/sales/admin` → `/api/admin/overview` | **CRM sqlite** (платени leads, `CRM_DATA_FILE`) + **Stripe snapshot** (ако STRIPE_API_KEY е set) + RAM `onchain_revenue` | ⚠️ смесено | $79.02 = CRM/Stripe приходи (**не on-chain**); onchain частта от RAM → нулирана |
-| **/api/dashboard-stats** (JSON) | `/api/dashboard-stats` | SQLite + on-chain watcher | ✅ | Най-близкият до истината източник на Render |
 
 ### Хипотезите за днешното разминаване
 - **(а) RAM броячи, нулирани от deploy-ите — ПОТВЪРДЕНО.** `_sales_history` е
@@ -96,3 +95,54 @@ widget-ът е 401 за посетители (мъртъв за тях), сим�
 **Защити при бъдеща имплементация:** payTo/endpoint недокоснати; RAM
 `_sales_history` остава за платежния слой (402 settle), но таблото чете от
 persistent store; 154/154 теста трябва да продължат да минават.
+
+## 5. ИМПЛЕМЕНТАЦИЯ (06.09, след одобрение) — ЕДНО канонично табло
+
+**Изградено по спецификацията от секция 4. Нула промени по payTo/платените
+endpoints. 164/164 теста PASS (154 стари + 10 нови).**
+
+### Какво е изградено
+- **`integrations/dashboard_store.py`** — persistent SQLite store
+  (`data/dashboard_state.db`): `onchain_sales` (dedup по tx, класификация
+  canary/sampler/external), `request_log` (UA/funnel), `payapi_state`,
+  `meta` (block watermark). Един HTTP provider: публичен RPC, read-only
+  eth_getLogs — същата логика като `competitor_recon`.
+- **`main.py`**: `_record_real_sale` → пиша и в store (плащаният път никога
+  не се чупи от това — try/except); `_capture_live_request` → пиша всяка
+  заявка в store; нов background thread `dashboard-scan` (retro 30 дни при
+  стартиране → инкрементален скан на всеки 60s от watermark-а → PayAPI
+  refresh на всеки 15 мин); free endpoint **`GET /api/dashboard/data`**;
+  `/dashboard` → новото табло; `/nexus` → 302 redirect към `/dashboard`.
+- **`templates/dashboard.html`** — ново табло, 4 секции, авто-refresh 45s:
+  (а) On-Chain Sales [истина], (б) API Requests [лог], (в) Listing & Ranking
+  [PayAPI, "unscored/baseline" докато не светне първият скан], (г) CRM/Stripe
+  [OFF-CHAIN, скрит с toggle, маскирани имейли, НИКОГА в обща сума].
+- **Махнато:** старите RAM уиджети, симулираният NEXUS feed, мъртвият
+  nexus_dashboard.html. Discovery модула (`lib/agents/market_evaluator.js`)
+  остава в кода — без претенция за „жив" статус.
+- **`scripts/validate_retro_scan.py`** — еднократна проверка: реален скан →
+  сравнение с очакваното (5 трансфера / $0.017 / external 0x4dB7).
+
+### Резултат от живата валидация преди deploy (локален скан на веригата)
+- 5 трансфера / **$0.017** ✅
+- 4 canary (Chet, 0x7e6b…) = $0.014 + **1 external (0x4db7…, $0.003,
+  06.09 06:41:03 UTC)** ✅ — ден нула видим от историята
+
+### Защо рестарт вече НЕ нулира числата
+Данните са в `data/dashboard_state.db` (persistent disk, както crm_sales.db).
+Watchdog-ът даже не разчита на паметта: сканът продължава от записания
+watermark блок, а dedup-ът по tx хеш прави повторния запис невъможен.
+
+### Какво да провериш като собственик (2 мин, след deploy)
+1. Отвори **`/dashboard`** → секция On-Chain Sales трябва да показва
+   **$0.017 / 5 плащания / 1 external**, а в историята — редът
+   `2026-09-06 06:41:03 · $0.003 · EXTERNAL` с линк към BaseScan.
+2. Отвори **Basescan** → адреса на приемника → сравни: последните
+   трансфери трябва да са точно тези 5. Разминаване = бъг приоритет 0.
+3. **Тест „рестарт не нулира"**: запиши си числата → направи deploy
+   (или изчакай следващия) → отвори пак `/dashboard` → числата трябва да са
+   СЪЩИТЕ или по-големи. Ако се нулират — бъг приоритет 0.
+4. **`/nexus`** → трябва да те пренасочи към `/dashboard`.
+5. CRM/Stripe секцията е скрита → „Покажи off-chain сумите" → виждаш
+   $79.02 с етикет OFF-CHAIN; тя НЕ се събира с $0.017 никъде на таблото.
+6. (Опционално) `python scripts/validate_retro_scan.py` локално → PASS.
