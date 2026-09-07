@@ -37,8 +37,13 @@ def test_dynamic_x402_discovery_and_one_free_agent_demo(v6_client):
     payload = discovery.get_json()
     assert payload["service"] == "Kristo Intelligence v6"
     assert payload["payment"]["settlement_status"] == "discovery_only"
-    assert len(payload["agents"]) == 8
-    assert all(agent["endpoint"].endswith("/playground") for agent in payload["agents"])
+    # 07.09: discovery advertises the 5 REAL routes (demo SKUs unlisted).
+    assert len(payload["agents"]) == 5
+    assert all("/playground" not in str(agent["endpoint"]) for agent in payload["agents"])
+    assert {agent["endpoint"] for agent in payload["agents"]} == {
+        "/api/v1/signal", "/api/stats", "/api/arb/opportunities",
+        "/api/bot-status", "/api/sales",
+    }
 
     first = client.post(
         "/api/v1/agents/whaleflow-radar/playground",

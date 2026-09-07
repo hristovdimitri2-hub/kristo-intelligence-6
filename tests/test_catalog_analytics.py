@@ -103,9 +103,14 @@ def test_click_endpoint_and_admin_catalog_metrics(catalog_client):
     assert duplicate.get_json()["error"] == "click_rate_limited"
 
     assert client.post("/api/v1/agents/not-real/click").status_code == 404
+    # 07.09: public catalog = the 5 REAL routes (demo SKUs unlisted).
     catalog = client.get("/api/v1/agents")
     assert catalog.status_code == 200
-    assert len(catalog.get_json()["agents"]) == 8
+    agents = catalog.get_json()["agents"]
+    assert len(agents) == 5
+    assert all("/playground" not in str(a["endpoint"]) for a in agents)
+    assert all(a["id"] not in ("whaleflow-radar", "gas-route-optimizer",
+                               "ai-sentiment-narrative-pulse") for a in agents)
 
     metrics = client.get(
         "/api/admin/catalog-metrics",

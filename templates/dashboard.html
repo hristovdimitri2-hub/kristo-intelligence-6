@@ -112,6 +112,18 @@
     <tbody id="ranks-body"><tr><td colspan="3" class="empty">…</td></tr></tbody>
   </table>
 
+  <h2>⬢ Реални маршрути <span class="src">само тези 5 — платими с x402 USDC на Base</span></h2>
+  <table>
+    <thead><tr><th>Маршрут</th><th>Какво дава</th><th>Цена (USDC)</th></tr></thead>
+    <tbody id="routes-body">
+      <tr><td class="mono">GET /api/v1/signal</td><td>Trading-агент сигнали (action, confidence, price_usd, reasoning) — обновяване на 5 мин</td><td class="num">0.003</td></tr>
+      <tr><td class="mono">GET /api/stats</td><td>Жив market snapshot (CoinGecko, DEXScreener, Fear &amp; Greed) + дневни агрегати</td><td class="num">0.005</td></tr>
+      <tr><td class="mono">GET /api/arb/opportunities</td><td>Крос-DEX арбитражни спредове на Base (обновяване 60 сек)</td><td class="num">0.005</td></tr>
+      <tr><td class="mono">GET /api/bot-status</td><td>Статус на бота и услугата</td><td class="num">0.005</td></tr>
+      <tr><td class="mono">GET /api/sales</td><td>Реална, on-chain верифицируема история на продажбите</td><td class="num">0.05</td></tr>
+    </tbody>
+  </table>
+
   <h2>⬢ CRM / Stripe <span class="src">off-chain — отделно от веригата</span></h2>
   <div class="offchain-box">
     <div class="warn">⚠ OFF-CHAIN (CRM платени записи / Stripe). Никога НЕ е включено в

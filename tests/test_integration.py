@@ -457,13 +457,20 @@ def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["products_summary"]["total_products"] == 8
-    assert len(payload["products"]) == 8
+    # 07.09: public product list = the 5 REAL x402 routes (demo SKUs unlisted).
+    assert payload["products_summary"]["total_products"] == 5
+    assert payload["products_summary"]["kind"] == "real_x402_routes"
+    assert len(payload["products"]) == 5
     assert "recent_requests" not in payload
     assert all(0.001 <= product["price_usdc"] <= 0.25 for product in payload["products"])
     assert payload["total_volume_usd"] == 0.0
     assert payload["total_sales"] == 0
     assert "telegram_bot_running" in payload
+    # No demo SKU names may leak into the public JSON.
+    blob = response.get_data(as_text=True)
+    for sku in ("whaleflow", "WhaleFlow", "gas-route", "sentiment-narrative",
+                "rug-risk", "security-triage", "channel-publisher", "divergence"):
+        assert sku not in blob, f"demo SKU leaked: {sku}"
 
 
 def test_lead_capture_and_checkout(client):

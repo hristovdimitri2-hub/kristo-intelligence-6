@@ -1492,23 +1492,70 @@ def _run_catalog_agent_demo(product: dict, user_input: str) -> dict:
     }
 
 
+# ── Real x402 routes — the ONLY publicly advertised product (07.09) ───────
+# The 8 catalog SKUs are demo-only (playground adapter, no live execution)
+# and were REMOVED from all public surfaces (discovery, catalog JSON, agents
+# page, dashboard). They remain in catalog_store for internal analytics and
+# return as real products only when real execution exists behind them.
+REAL_X402_ROUTES: List[dict] = [
+    {
+        "id": "signal",
+        "name": "Trading-Agent Signals",
+        "description": "Action, confidence, price_usd and one-line reasoning for ETH/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data.",
+        "category": "intelligence",
+        "endpoint": "/api/v1/signal",
+        "method": "GET",
+        "price_usdc": KRISTO_SIGNAL_PRICE,
+    },
+    {
+        "id": "stats",
+        "name": "Market Activity & Daily Stats",
+        "description": "Live market snapshot (CoinGecko, DEXScreener, Fear & Greed), daily request/sales aggregates and full payment receiver info.",
+        "category": "market",
+        "endpoint": "/api/stats",
+        "method": "GET",
+        "price_usdc": KRISTO_STATS_PRICE,
+    },
+    {
+        "id": "arb-opportunities",
+        "name": "Cross-DEX Arbitrage Radar",
+        "description": "Live cross-DEX arbitrage spreads on Base (DEXScreener), refreshed every 60 seconds.",
+        "category": "market",
+        "endpoint": "/api/arb/opportunities",
+        "method": "GET",
+        "price_usdc": KRISTO_ARB_PRICE,
+    },
+    {
+        "id": "bot-status",
+        "name": "Bot & Service Status",
+        "description": "Telegram bot status, service uptime and operational counters.",
+        "category": "market",
+        "endpoint": "/api/bot-status",
+        "method": "GET",
+        "price_usdc": KRISTO_STATS_PRICE,
+    },
+    {
+        "id": "sales",
+        "name": "On-Chain Sales History",
+        "description": "Real, on-chain-verifiable USDC sales history (ERC-20 Transfer monitoring) — unique to this API.",
+        "category": "onchain_intelligence",
+        "endpoint": "/api/sales",
+        "method": "GET",
+        "price_usdc": KRISTO_SALES_PRICE,
+    },
+]
+
+
+def _real_routes_payload() -> List[dict]:
+    """Public representation of the real routes (rounded prices)."""
+    return [
+        {**route, "price_usdc": round(float(route["price_usdc"]), 6)}
+        for route in REAL_X402_ROUTES
+    ]
+
+
 def _build_x402_discovery(base_url: str) -> dict:
-    """Build x402 discovery from the durable 8-SKU catalog, not legacy in-memory products."""
-    agents = []
-    for product in catalog_store.get_catalog():
-        agents.append(
-            {
-                "id": product["id"],
-                "name": product["name"],
-                "description": product["description"],
-                "category": product["category"],
-                "endpoint": f"{base_url}/api/v1/agents/{product['id']}/playground",
-                "method": "POST",
-                "price_usdc": round(float(product["price_x402"]), 6),
-                "free_playground_requests_per_client": 1,
-                "stripe_checkout_endpoint": f"{base_url}/api/v1/agents/{product['id']}/checkout",
-            }
-        )
+    """Build x402 discovery from the REAL routes (5 live x402 endpoints)."""
     return {
         "schema_version": "1.1",
         "service": "Kristo Intelligence v6",
@@ -1523,8 +1570,8 @@ def _build_x402_discovery(base_url: str) -> dict:
             "receiver_address": X402_RECEIVER_ADDRESS,
             "settlement_status": "discovery_only",
         },
-        "agents": agents,
-        "note": "Discovery metadata is live from the catalog. Base mainnet facilitator settlement is not enabled.",
+        "agents": _real_routes_payload(),
+        "note": "These are the 5 live x402 endpoints. Payment is verified on-chain (Base, USDC).",
     }
 
 
@@ -2002,11 +2049,10 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
             sales_by_token.get(token, 0.0) + float(sale.get("amount_usd", 0.0)), 6
         )
 
-    # Official eight-agent breakdown from durable catalog events.
-    products = _get_products_breakdown()
-    total_hits = sum(p["hits"] for p in products)
-    total_product_sales = sum(p["sales_count"] for p in products)
-    total_product_volume = round(sum(p["sales_volume_usd"] for p in products), 6)
+    # Official public product list = the REAL routes only.
+    # (07.09: the 8 demo SKUs were unlisted from every public surface —
+    # demo adapter has no live execution. Internal catalog analytics unchanged.)
+    products = _real_routes_payload()
 
     # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
     market_data = get_market_snapshot()
@@ -2036,9 +2082,7 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
         "products": products,
         "products_summary": {
             "total_products": len(products),
-            "total_hits": total_hits,
-            "total_sales": total_product_sales,
-            "total_volume_usd": total_product_volume,
+            "kind": "real_x402_routes",
         },
         "nexus_url": NEXUS_URL,
         "market_data": market_data,
@@ -2407,8 +2451,12 @@ def api_signal():
 
 @app.route("/api/v1/agents", methods=["GET"])
 def api_agent_catalog():
-    """Return the active, payment-ready catalog without exposing internal events."""
-    return jsonify({"ok": True, "agents": catalog_store.get_catalog()})
+    """Public catalog = the REAL routes only (07.09: 8 demo SKUs unlisted).
+
+    The demo playground adapter still exists in code for entitlement
+    bookkeeping, but it is no longer advertised as a product anywhere.
+    """
+    return jsonify({"ok": True, "agents": _real_routes_payload()})
 
 
 @app.route("/api/v1/agents/<agent_id>", methods=["GET"])
@@ -2459,8 +2507,8 @@ def api_agent_playground(agent_id: str):
 
 @app.route("/agents", methods=["GET"])
 def agent_playground_page():
-    """Public catalog page for the eight bounded agent demos."""
-    return render_template("agent_playground.html")
+    """Redirect: the 8 demo SKUs are unlisted — the real routes live on the dashboard."""
+    return redirect("/dashboard", code=302)
 
 
 @app.route("/api/v1/agents/<agent_id>/click", methods=["POST"])
