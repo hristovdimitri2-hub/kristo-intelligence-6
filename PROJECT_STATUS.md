@@ -7,7 +7,7 @@
 - 🗄 **ПАРКИРАНО:** loopA мостът — готов текст в `LOOPEEMAIL_PACKAGE.md`, чака канал. Не е мъртъв, но не е активен ход.
 - ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
-- ⏳ **PulseMCP:** чака сайтът да отвори за подавания.
+- ⏳ **PulseMCP:** ✅ **ОТВОРЕН за подавания (проверено на живо 07.09: https://www.pulsemcp.com/submit има активна форма)** — остава самото ръчно подаване от собственика.
 - 🗄 **kristo-travel-api → PRIVATE (07.09, изпълнено през GitHub API с owner
   акаунта):** причина — README със ГРЕШЕН wallet адрес (`0xd4cdA980…`),
   сосящ нашия Render API URL + стари цени → риск за марката преди листингите.
@@ -35,7 +35,24 @@
 - ✅ **Действие 1:** `kristo-travel-api` → **private** през GitHub API (gh, owner акаунт; 0 stars/forks — никой не е засегнат; анонимен GET → 404). Причина: грешен wallet в README, сочи нашия API URL.
 - ✅ **Действие 2:** счетоводна поправка — този блок + корекции в DISTRIBUTION_STATUS.md, VISIBILITY_PLAN.md, MARKETING_KIT.md (махнати старите „#12799 Open" твърдения).
 - ✅ **Действие 3:** GLAMA_REPLY.md — добавен абзацът от одобрената рамка (Streamable HTTP + „tell us exactly what" + awesome-mcp-servers зависимост) с бележка: Димитри го праща като follow-up коментар в отворения билет #130688574.
-- **Остава за човека:** (1) жива POST /mcp проверка → изпращане на GLAMA_REPLY.md в #130688574; (2) при одобрение — claim в glama.ai с GitHub; (3) решение за #1081 (затваряме ли сами).
+- **Остава за човека (обновено 07.09 вечерта):** (1) ~~Glama follow-up в #130688574~~ ✅ **ИЗПРАТЕН ДНЕС (07.09) — потвърдено от собственика**; (2) при Glama одобрение — claim в glama.ai с GitHub; (3) решение за #1081 (затваряме ли сами); (4) **НОВО: ръчно подаване в PulseMCP** (формата е отворена: pulsemcp.com/submit).
+
+### Финална проверка на човешките задачи (07.09)
+| Задача | Статус | Доказателство |
+|---|---|---|
+| Разписка към Chet | ✅ ИЗПЪЛНЕНО | ПОСТОЯННИ ОТБЕЛЕЖКИ (горе): „разписката… изпратени. НЕ се включват повече в остава за човека" |
+| Линк към статията за Chet | ✅ ИЗПЪЛНЕНО | същият ред — и двете изпратени |
+| Follow-up към Glama (билет #130688574) | ✅ ИЗПРАТЕН ДНЕС (07.09) | по потвърждение на собственика в задачата (нотификацията/коментарът се виждат само в неговия Glama акаунт — от мен не е проверяем) |
+| Smithery Publish | ✅ ИЗПЪЛНЕНО | ПОСТОЯННИ ОТБЕЛЕЖКИ: „ПУБЛИКУВАНО УСПЕШНО: Smithery" |
+| travel-api → private | ✅ ИЗПЪЛНЕНО | GitHub API PATCH (07.09); анонимен GET → 404 |
+| foresight-oracle weekly | ✅ ИЗКЛЮЧЕН | API: state = `disabled_manually` (потвърдено анонимно) |
+| PulseMCP — сайтът отворен? | ✅ **ДА** | жива проверка: pulsemcp.com/submit → 200 с активна форма — остава самото подаване |
+| $79.02 / Stripe | 🗑 отпаднало | собственик: фиктивни демонстрационни данни — не се проверява |
+| X пост | 🗑 премахнато | собственик: мъртъв канал — не се проверява |
+
+### Странични проекти
+- 🛑 **foresight-oracle: weekly workflow ИЗКЛЮЧЕН (07.09, през GitHub API с owner акаунта).** workflow `weekly` (id 345373591, `.github/workflows/weekly.yml`) → state **`disabled_manually`** (потвърдено анонимно през API). Причина: GLM балансът в bigmodel.cn е изчерпан — последните 2 седмични исполнения са failure (31.08 и 07.09), проектът е неактивен. **Начин за връщане:** `gh api -X PUT repos/hristovdimitri2-hub/foresight-oracle/actions/workflows/345373591/enable` + зареждане на баланс в bigmodel.cn. Файлът weekly.yml е запазен непокътнат.
+
 
 ## Session 2026-09-02 (second verified route + reviewer fixes)
 - 🏆 PayAPI ran a SECOND paid canary on GET /api/v1/signal: 0.003 USDC settled on-chain, tx `0xf5cff040a181876efd3434f63c55cbafba970e3dd0860edd36c06c17e6993016` (block 50787936) → listing now has TWO verified routes (/api/stats + /api/v1/signal), status stays live
