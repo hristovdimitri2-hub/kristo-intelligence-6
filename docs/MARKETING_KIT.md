@@ -123,7 +123,7 @@ https://kristo-intelligence-api.onrender.com
 | Directory | Status | Link / Action |
 |-----------|--------|---------------|
 | awesome-x402 | вњ… PR #1308 open | https://github.com/xpaysh/awesome-x402/pull/1308 |
-| awesome-mcp-servers | вњ… PR submitted | (see repo PRs) |
+| awesome-mcp-servers | вњ… PR #13219 open (07.09: #12799 CLOSED 29.08 — multiple servers; #11557 CLOSED 07.09 — inactive) | https://github.com/punkpeye/awesome-mcp-servers/pull/13219 |
 | Google Search Console | в¬њ manual | Add property в†’ submit https://kristo-intelligence-api.onrender.com/sitemap.xml |
 | Bing Webmaster | в¬њ manual | Same sitemap URL |
 | CDP x402 Bazaar | в¬њ manual | Mention in Coinbase Base Discord #x402 channel |

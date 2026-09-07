@@ -8,11 +8,35 @@
 - ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
 - ⏳ **PulseMCP:** чака сайтът да отвори за подавания.
+- 🗄 **kristo-travel-api → PRIVATE (07.09, изпълнено през GitHub API с owner
+  акаунта):** причина — README със ГРЕШЕН wallet адрес (`0xd4cdA980…`),
+  сосящ нашия Render API URL + стари цени → риск за марката преди листингите.
+  Регистрирано и в `LISTING_CHANNELS_AUDIT.md`. Ако собственикът реше да го
+  върне публично — ПЪРВО изчистване на README (верен wallet/линкове/цени),
+  отделно решение тогава.
 - **Правило за докладите:** под „остава за човека" се пишат САМО неща, които реално не са свършени.
 - **LAUNCH SIGNAL дефиниция (в кода):** САМО нов/неизвестен платец. Известните sampler/crawler wallet-и (`0xC59E…`, `0x6777…`, канарките `0x7e6b…`) = HEARTBEAT „в набора", никога launch сигнал.
 - 4th paid canary CLEAN: $0.003 on GET /api/v1/signal, tx `0x0cc98ef96e5e5d9a12f3021b77e2a67bba9439745b9eaf61efdb414491295a5f` — price_usd + reasoning confirmed in paid body on all 4 tokens, confidences back to 0.78/0.72/0.61/0.45, NO stale note. Fields noted on the existing verification row (not a new product). Listing stays live.
 - Scoreboard: 4/4 paid canaries settled on-chain, 2 verified routes, ZERO payment-layer incidents across all four tests (every finding was data-layer, all fixed)
 - Engineering phase CLOSED for signals route: no proactive work until a paying buyer asks. All effort → distribution (BlockRun decision pending, outreach days 2-5, MCP registry)
+
+## Session 2026-09-07 (канали за листинг — одит + 3 действия)
+### Канали — истински статуси (проверено през GitHub API на 07.09; детайли: docs/LISTING_CHANNELS_AUDIT.md)
+| PR / канал | Истински статус |
+|---|---|
+| awesome-mcp-servers **#12799** | ❌ **ЗАТВОРЕН 29.08** (не merged) — причина на punkpeye: „adds multiple servers, one per PR". **Старите бележки „#12799 Open" бяха ГРЕШНИ** — коригирани в DISTRIBUTION_STATUS / VISIBILITY_PLAN / MARKETING_KIT |
+| awesome-mcp-servers **#11557** (travel-api запис) | ❌ **ЗАТВОРЕН 07.09** (не merged) — неактивност (32 дни); изисквания: Glama submit + claim + quality score. С_PR-ът вече е безпредметен — travel-api е private |
+| awesome-mcp-servers **#13219** | ✅ **ОТВОРЕН от 30.08** — НАШИЯТ чист PR (1 файл, 1 ред, Finance & Fintech). ⏰ **Дедлайн ~01.10** по 32-дневното правило за неактивност |
+| awesome-x402 **#1308** (v6) | ✅ **ОТВОРЕН** от 24.08, без ревю |
+| awesome-x402 **#1081** (travel-api запис) | ✅ **ОТВОРЕН** от 31.07 — ⚠️ РИСК: сочи repo-то, което днес стана private; PR-ът вероятно ще бъде затворен от maintainer-а сам или да го затворим ние ( решение на собственика) |
+| Glama (билет **#130688574**) | ⏳ чака човешки преглед; НЕ сме листнати (проверено: 0 резултата); след одобрение → claim с GitHub → quality score → значка |
+| PayAPI Market | ✅ LIVE, band unscored/baseline (compute чака Chet) |
+
+- ✅ **Действие 1:** `kristo-travel-api` → **private** през GitHub API (gh, owner акаунт; 0 stars/forks — никой не е засегнат; анонимен GET → 404). Причина: грешен wallet в README, сочи нашия API URL.
+- ✅ **Действие 2:** счетоводна поправка — този блок + корекции в DISTRIBUTION_STATUS.md, VISIBILITY_PLAN.md, MARKETING_KIT.md (махнати старите „#12799 Open" твърдения).
+- ✅ **Действие 3:** GLAMA_REPLY.md — добавен абзацът от одобрената рамка (Streamable HTTP + „tell us exactly what" + awesome-mcp-servers зависимост) с бележка: Димитри го праща като follow-up коментар в отворения билет #130688574.
+- **Остава за човека:** (1) жива POST /mcp проверка → изпращане на GLAMA_REPLY.md в #130688574; (2) при одобрение — claim в glama.ai с GitHub; (3) решение за #1081 (затваряме ли сами).
+
 ## Session 2026-09-02 (second verified route + reviewer fixes)
 - 🏆 PayAPI ran a SECOND paid canary on GET /api/v1/signal: 0.003 USDC settled on-chain, tx `0xf5cff040a181876efd3434f63c55cbafba970e3dd0860edd36c06c17e6993016` (block 50787936) → listing now has TWO verified routes (/api/stats + /api/v1/signal), status stays live
 - Reviewer fixes shipped: `price_usd` was always null (publish layer read `d["price"]` instead of `d["price_usd"]`) and signals carried no `reasoning` (note only repeated the price)

@@ -13,7 +13,7 @@
 | Machine-readable discovery suite (x402.json, OpenAPI, MCP, llms.txt, agents.json) | вњ… Live |
 | SEO (robots.txt, sitemap.xml, https URLs) | вњ… Live |
 | PR в†’ awesome-x402 (#1308) вЂ” 2,4k+ Р·РІРµР·РґРё | рџџЎ Open |
-| PR в†’ awesome-mcp-servers (#12799) вЂ” 60k+ Р·РІРµР·РґРё | рџџЎ Open |
+| PR в†’ awesome-mcp-servers (#13219 — чист; #12799 ЗАТВОРЕН 29.08) вЂ” 60k+ Р·РІРµР·РґРё | рџџЎ Open |
 | GitHub repo topics + РѕРїРёСЃР°РЅРёРµ + homepage | вњ… Live |
 | Discord webhook announcements | вњ… РР·РїСЂР°С‚РµРЅРё |
 | Marketing kit (docs/MARKETING_KIT.md) | вњ… Live |

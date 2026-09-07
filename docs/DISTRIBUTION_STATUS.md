@@ -13,7 +13,7 @@
 | **nohumans.directory** | ✅ 3× VERIFIED | Листинги активни. |
 | **BlockRun (data source)** | 🟡 ПРЕГОВОРИ (03.09) | Основателят @1bcmax зададе 2 due-diligence въпроса (consistency/quality + стойност спрямо x402) — отговорени 22:06 с аргументите settlement-proofs + curated discovery reach. Очаква решение за листинг; follow-up на Ден 5 ако мълчи. |
 | **MCP Registry / PulseMCP / mcp.so / Smithery / Glama** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
-| **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #12799)** | ⏳ Отворени PR-и | Чакат review. |
+| **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #13219)** | ⏳ Отворени PR-и | Чакат review. Поправка (07.09): #12799 е ЗАТВОРЕН 29.08 (multiple servers) — заменен от **#13219** (чист, 1 файл/1 ред, ⏰ гледай преди ~01.10 по 32-дневното правило); #11557 (travel-api запис) ЗАТВОРЕН 07.09 (неактивност). Детайли: LISTING_CHANNELS_AUDIT.md |
 
 ## 2. Платени endpoints (всички верифицирани live на 2026-08-30)
 

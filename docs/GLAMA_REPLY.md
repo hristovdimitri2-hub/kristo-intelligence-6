@@ -27,9 +27,25 @@ Direct links:
 Could you take another look? Happy to adjust anything specific
 that's still missing for the listing.
 
+One more thing we should have said up front: the server now speaks both
+SSE (GET /mcp) and **Streamable HTTP** (POST /mcp — JSON-RPC initialize /
+tools/list / tools/call / ping, stateless DELETE=204). The MCP manifest at
+/api/mcp/manifest documents both transports. If anything else is missing
+for the listing, **please tell us exactly what** — we'd rather fix your
+checklist than guess. Note that our pending PR in
+punkpeye/awesome-mcp-servers (#13219) requires a Glama evaluation as a
+prerequisite, so your review is currently the bottleneck for our listing
+there as well.
+
 — Dimitri
 ```
 
 **Правила:** нула wallet адреса в имейла; нула въпроси освен „another look";
 изпраща се САМО след живата проверка на POST /mcp (Стъпка 3 от задачата за
 Smithery — „вратата отваря и по двата начина").
+
+**🟢 Допълнение (07.09, одобрено от собственика):** последният абзац
+(Streamable HTTP + призив „tell us exactly what" + причината
+awesome-mcp-servers да зависи от тях) се изпраща от **Димитри** като
+**follow-up коментар в отворения билет #130688574** (не като нов имейл към
+друг адрес). Изпраща се само след живата POST /mcp проверка.
