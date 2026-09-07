@@ -107,7 +107,7 @@ kristo-intelligence-6.git).
 | **awesome-mcp-servers** | #11557 затворен; #12799 затворен; **#13219 ОТВОРЕН** | Glama листинг + claimed + quality score → значка в README → ъпдейт на PR | **Собственик** (Glama стъпките) → после **ние**: ъпдейт на #13219 |
 | **awesome-x402** | #1308 ОТВОРЕН (v6); #1081 ОТВОРЕН (travel) | Ревю от maintainer (xpaysh); нисък приоритет — 286 звезди | ⏳ maintainer; ние — само ако поискат промяна |
 | **MCP Registry (official)** | Заявен „през PayAPI" (твърдението в #11557 не е потвърдено) | PayAPI одобрение → автоматична публикация | ⏳ Chet/market |
-| **PulseMCP / Smithery** | По план MCP_SUBMISSIONS.md — не стартирани | Решение на собственика кога | **Собственик** (~15 мин, ръчно) |
+| **PulseMCP / Smithery** | 🛑 PulseMCP: приема СПРЯНО от 03.09 (проверено 07.09 на живо); Smithery: публикувано ✅ | PulseMCP: да се върнат; опция за бъдеще — Official MCP Registry (без изпълнение) | **Собственик** — следи за връщането; Registry решава по-късно |
 
 ## 6. Чернова-план (без изпълнение): чист PR към awesome-mcp-servers
 

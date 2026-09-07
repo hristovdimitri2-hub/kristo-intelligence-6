@@ -7,7 +7,7 @@
 - 🗄 **ПАРКИРАНО:** loopA мостът — готов текст в `LOOPEEMAIL_PACKAGE.md`, чака канал. Не е мъртъв, но не е активен ход.
 - ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
-- ⏳ **PulseMCP:** ✅ **ОТВОРЕН за подавания (проверено на живо 07.09: https://www.pulsemcp.com/submit има активна форма)** — остава самото ръчно подаване от собственика.
+- ⏳ **PulseMCP → 🛑 ПРИЕМА СПРЯНО (проверено на живо 07.09, pulsemcp.com/submit):** „Apologies, submissions and changes are temporarily paused… We are not accepting new MCP server or client submissions right now" (Last updated: September 3, 2026 — паузата е от 03.09). **Опция за БЪДЕЩЕ (без изпълнение, решение на собственика):** препоръката на сайта е да публикуваме в **Official MCP Registry** (registry.modelcontextprotocol.io) — „That is the best first step even when we are not paused, and we will pick it up automatically once we are back" — PulseMCP щяха да ни вземат автоматично при връщането си. Забележка: Registry вече е обвързан и с PayAPI потока („през PayAPI"), така че ръчното подаване е отделен, по-късен ход.
 - 🗄 **kristo-travel-api → PRIVATE (07.09, изпълнено през GitHub API с owner
   акаунта):** причина — README със ГРЕШЕН wallet адрес (`0xd4cdA980…`),
   сосящ нашия Render API URL + стари цени → риск за марката преди листингите.
@@ -35,7 +35,7 @@
 - ✅ **Действие 1:** `kristo-travel-api` → **private** през GitHub API (gh, owner акаунт; 0 stars/forks — никой не е засегнат; анонимен GET → 404). Причина: грешен wallet в README, сочи нашия API URL.
 - ✅ **Действие 2:** счетоводна поправка — този блок + корекции в DISTRIBUTION_STATUS.md, VISIBILITY_PLAN.md, MARKETING_KIT.md (махнати старите „#12799 Open" твърдения).
 - ✅ **Действие 3:** GLAMA_REPLY.md — добавен абзацът от одобрената рамка (Streamable HTTP + „tell us exactly what" + awesome-mcp-servers зависимост) с бележка: Димитри го праща като follow-up коментар в отворения билет #130688574.
-- **Остава за човека (обновено 07.09 вечерта):** (1) ~~Glama follow-up в #130688574~~ ✅ **ИЗПРАТЕН ДНЕС (07.09) — потвърдено от собственика**; (2) при Glama одобрение — claim в glama.ai с GitHub; (3) решение за #1081 (затваряме ли сами); (4) **НОВО: ръчно подаване в PulseMCP** (формата е отворена: pulsemcp.com/submit).
+- **Остава за човека (обновено 07.09 вечерта):** (1) ~~Glama follow-up в #130688574~~ ✅ **ИЗПРАТЕН ДНЕС (07.09) — потвърдено от собственика**; (2) при Glama одобрение — claim в glama.ai с GitHub; (3) решение за #1081 (затваряме ли сами); (4) ~~PulseMCP ръчно подаване~~ 🛑 **ОТПАДА — приема спряно от 03.09** (опция за бъдеще: Official MCP Registry, без изпълнение).
 
 ### Финална проверка на човешките задачи (07.09)
 | Задача | Статус | Доказателство |
@@ -46,7 +46,7 @@
 | Smithery Publish | ✅ ИЗПЪЛНЕНО | ПОСТОЯННИ ОТБЕЛЕЖКИ: „ПУБЛИКУВАНО УСПЕШНО: Smithery" |
 | travel-api → private | ✅ ИЗПЪЛНЕНО | GitHub API PATCH (07.09); анонимен GET → 404 |
 | foresight-oracle weekly | ✅ ИЗКЛЮЧЕН | API: state = `disabled_manually` (потвърдено анонимно) |
-| PulseMCP — сайтът отворен? | ✅ **ДА** | жива проверка: pulsemcp.com/submit → 200 с активна форма — остава самото подаване |
+| PulseMCP — сайтът отворен? | 🛑 **НЕ — приема СПРЯНО** | жива проверка 07.09: pulsemcp.com/submit → „submissions and changes are temporarily paused" (от 03.09). Формата съществува, но не приема. Опция за бъдеще (без изпълнение): Official MCP Registry по препоръка на сайта |
 | $79.02 / Stripe | 🗑 отпаднало | собственик: фиктивни демонстрационни данни — не се проверява |
 | X пост | 🗑 премахнато | собственик: мъртъв канал — не се проверява |
 
