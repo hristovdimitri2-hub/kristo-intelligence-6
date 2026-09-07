@@ -1,8 +1,8 @@
 {
   "reliability": {
-    "score": null,
-    "band": "unscored",
-    "computed_at": null,
+    "score": 69.7,
+    "band": "established",
+    "computed_at": "2026-09-06T19:31:11.958Z",
     "name": "Kristo Intelligence — DeFi Signals API",
     "payment_verified": true,
     "price_min": 0.005,
@@ -11,14 +11,14 @@
   "ranks": {
     "eth": {
       "position": null,
-      "total": 3
+      "total": 4
     },
     "defi": {
       "position": 1,
       "total": 3
     },
     "signals": {
-      "position": 3,
+      "position": 2,
       "total": 7
     },
     "whale": {

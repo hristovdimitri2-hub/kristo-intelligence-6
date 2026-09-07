@@ -51,6 +51,7 @@
 | X пост | 🗑 премахнато | собственик: мъртъв канал — не се проверява |
 
 ### Странични проекти
+- 🏆 **BAND ПРИСТИГНА (седмичен монитор 07.09):** PayAPI compute-ът е пуснал оценка — **band = established, score = 69.7** (computed_at 06.09 19:31 UTC). Това затваря третия слой на подредбата (query match ✅ → verified routes ✅ → **band ✅**). Ранг q=signals: 3 → **2** от 7; q=defi остава **#1** от 3; whale #1. Receiver scan: LAUNCH сигналът 0x4dB7… остава единственият external (1 tx, $0.003, 7-дневен прозорец). Таблото на живо вече показва band/score (PayAPI секция). Състояние: docs/monitor_state.json.
 - 🛑 **foresight-oracle: weekly workflow ИЗКЛЮЧЕН (07.09, през GitHub API с owner акаунта).** workflow `weekly` (id 345373591, `.github/workflows/weekly.yml`) → state **`disabled_manually`** (потвърдено анонимно през API). Причина: GLM балансът в bigmodel.cn е изчерпан — последните 2 седмични исполнения са failure (31.08 и 07.09), проектът е неактивен. **Начин за връщане:** `gh api -X PUT repos/hristovdimitri2-hub/foresight-oracle/actions/workflows/345373591/enable` + зареждане на баланс в bigmodel.cn. Файлът weekly.yml е запазен непокътнат.
 
 
