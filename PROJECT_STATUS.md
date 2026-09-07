@@ -8,6 +8,14 @@
 - ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
 - ⏳ **PulseMCP → 🛑 ПРИЕМА СПРЯНО (проверено на живо 07.09, pulsemcp.com/submit):** „Apologies, submissions and changes are temporarily paused… We are not accepting new MCP server or client submissions right now" (Last updated: September 3, 2026 — паузата е от 03.09). **Опция за БЪДЕЩЕ (без изпълнение, решение на собственика):** препоръката на сайта е да публикуваме в **Official MCP Registry** (registry.modelcontextprotocol.io) — „That is the best first step even when we are not paused, and we will pick it up automatically once we are back" — PulseMCP щяха да ни вземат автоматично при връщането си. Забележка: Registry вече е обвързан и с PayAPI потока („през PayAPI"), така че ръчното подаване е отделен, по-късен ход.
+- ✅ **РЕШЕНИЕ (07.09, собственик): Whale flow feed — ОДОБРЕН за изграждане**
+  като следващия (единствен) нов продукт. Условия: **(1)** тръба = съществуващият
+  on-chain скенер (competitor_recon логика), без нови системи; **(2)** canary-доказан
+  ПРЕДИ листинг; **(3)** един нов продукт на вълна; **(4)** НЕ влиза в нито един
+  каталог/манифест, докато не е готов реално. Спецификация-чернова:
+  `docs/WHALE_FLOW_SPEC.md` (чака „давай" от собственика — никакво строене преди това).
+  Контекст: терминът whale е #1 от 1 (празна ниша), WhaleFlow Radar беше фалшивия
+  SKU — сега строим реалната версия.
 - 🗄 **kristo-travel-api → PRIVATE (07.09, изпълнено през GitHub API с owner
   акаунта):** причина — README със ГРЕШЕН wallet адрес (`0xd4cdA980…`),
   сосящ нашия Render API URL + стари цени → риск за марката преди листингите.
