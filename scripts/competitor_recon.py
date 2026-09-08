@@ -54,6 +54,10 @@ KNOWN_PAYERS = {
     "0x7e6b6556322c4e26c567a867964ac793f5ee2b1c": "chet_payapi_verification",
     "0xc59e74ed6386b2a12d892fff2509a6965a0498dc": "market_sampler_c59e",
     "0x6777e11fb0a7917b8110b7dab9188aa3f6d23986": "market_crawler_6777",
+    # Fingerprinted 08.09: 325 distinct receivers / 1281 tx / $11.32 (30d) —
+    # paid our signal route once; same continuous-indexator class as 6777.
+    # Its payment is a heartbeat ('in the crawl set'), never a launch signal.
+    "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0": "market_crawler_54e1",
 }
 
 # Transfers above this are almost certainly not per-call x402 payments

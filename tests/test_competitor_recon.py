@@ -126,3 +126,40 @@ def test_unknown_new_payer_still_fires_launch_signal():
     report = recon.classify_transfers(transfers)
     assert report["external_unique_payers"] == 1
     assert report["repeat_payers"][0]["payer"] == NEW
+
+
+def test_known_payers_registry_contains_crawler_54e1():
+    """0x54E1 (fingerprinted 08.09: 325 receivers / 1281 tx / $11.32 per 30d)
+    is registered as market infrastructure."""
+    assert "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0" in recon.KNOWN_PAYERS
+    assert (recon.KNOWN_PAYERS["0x54e163e9b8edda194d83f46add921bfa5fc5f4e0"]
+            == "market_crawler_54e1")
+
+
+def test_crawler_54e1_is_heartbeat_not_customer():
+    """0x54E1 must NOT count as external — external_unique_payers stays 1
+    (only the human 0x4dB7); the crawler lands in the heartbeat bucket."""
+    C54E1 = "0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0"
+    HUMAN = "0x4dB7AAFbe797a39Cd6Cc4E7aa64d970F7F6E02B7"
+    transfers = [_t(C54E1, 0.003, tx="0x" + "b" * 64), _t(HUMAN, 0.003)]
+    report = recon.classify_transfers(transfers)
+    assert report["external_unique_payers"] == 1
+    assert report["total_txs"] == 1
+    assert report["total_usdc"] == 0.003
+    assert report["known_verification_txs"] == 1
+    assert report["known_verifications"][0]["label"] == "market_crawler_54e1"
+    assert report["repeat_payers"] == []
+
+
+def test_filter_not_too_broad_new_payer_fires_alongside_crawler_54e1():
+    """A brand-new unknown payer STILL fires the launch signal even when the
+    crawler 0x54E1 pays at the same time — the filter only hides known infra."""
+    BRAND_NEW = "0x" + "f" * 40
+    transfers = [
+        _t("0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0", 0.003),
+        _t(BRAND_NEW, 0.003, tx="0x" + "f" * 64),
+        _t(BRAND_NEW, 0.005, tx="0x" + "e" * 64),
+    ]
+    report = recon.classify_transfers(transfers)
+    assert report["external_unique_payers"] == 1
+    assert report["repeat_payers"][0]["payer"] == BRAND_NEW

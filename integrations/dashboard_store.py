@@ -32,6 +32,7 @@ PAYER_CLASSES = {
     "chet_payapi_verification": "canary",
     "market_sampler_c59e": "sampler",
     "market_crawler_6777": "sampler",
+    "market_crawler_54e1": "sampler",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
@@ -133,6 +134,35 @@ class DashboardStore:
             conn.commit()
 
     # ── meta (watermarks, flags) ──────────────────────────────────────────────
+    def reclassify_known_payers(self) -> int:
+        """Re-apply the payer taxonomy to stored sales rows.
+
+        The taxonomy evolves as new market infrastructure is fingerprinted;
+        rows recorded before a wallet entered KNOWN_PAYERS keep their original
+        (external) class until this runs. Returns the number of rows updated.
+        """
+        try:
+            from scripts.competitor_recon import KNOWN_PAYERS
+        except Exception:  # pragma: no cover - import fallback
+            return 0
+        updated = 0
+        with self._write_lock, self._connect() as conn:
+            for sender, label in KNOWN_PAYERS.items():
+                cur = conn.execute(
+                    """UPDATE onchain_sales
+                       SET payer_class = ?, payer_label = ?
+                       WHERE lower(sender) = ? AND payer_label <> ?""",
+                    (
+                        PAYER_CLASSES.get(label, "sampler"),
+                        label,
+                        (sender or "").lower(),
+                        label,
+                    ),
+                )
+                updated += cur.rowcount
+            conn.commit()
+        return updated
+
     def get_meta(self, key: str, default: Optional[str] = None) -> Optional[str]:
         with self._connect() as conn:
             row = conn.execute(
@@ -449,6 +479,7 @@ class DashboardStore:
         This is what makes the very first external payment (day zero) visible
         in the dashboard history immediately after deploy.
         """
+        self.reclassify_known_payers()
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
@@ -461,6 +492,9 @@ class DashboardStore:
 
     def scan_increment(self, rpc_url: str = "", max_blocks: int = 20000) -> int:
         """Scan new blocks since the persisted watermark (deploy-safe)."""
+        # Taxonomy may have evolved since the last cycle — re-apply first so
+        # the dashboard classes stay honest even when the RPC is flaky.
+        self.reclassify_known_payers()
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")

@@ -51,6 +51,33 @@ def test_store_persists_across_reopen(tmp_path):
     assert summary["total_usdc"] == 0.003
 
 
+def test_reclassify_known_payers_updates_stored_rows(tmp_path, monkeypatch):
+    """A sale recorded BEFORE its payer is fingerprinted stays honest: the
+    reclassify pass flips it to the heartbeat bucket once taxonomy evolves."""
+    from integrations import dashboard_store as ds
+    from scripts import competitor_recon as recon
+
+    store = ds.DashboardStore(tmp_path / "d.db")
+    # Production sequence: sale lands while the wallet is still unknown.
+    monkeypatch.setattr(recon, "KNOWN_PAYERS", {})
+    store.record_sale(
+        tx_hash="0xrr1", amount_usdc=0.003,
+        sender="0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0", block_number=1,
+    )
+    assert store.sales_summary()["external_payers"] == 1
+
+    # Taxonomy evolves (08.09: crawler fingerprinted) → reclassify.
+    monkeypatch.setattr(
+        recon, "KNOWN_PAYERS",
+        {"0x54e163e9b8edda194d83f46add921bfa5fc5f4e0": "market_crawler_54e1"},
+    )
+    assert store.reclassify_known_payers() == 1
+    s = store.sales_summary()
+    assert s["external_payers"] == 0
+    assert s["by_class"]["sampler"]["count"] == 1
+    assert s["history"][0]["payer_label"] == "market_crawler_54e1"
+
+
 def test_payer_classification_canary_sampler_external():
     from integrations.dashboard_store import classify_payer
 
