@@ -43,8 +43,10 @@ from scripts.competitor_recon import (  # noqa: E402
 def receiver_scan() -> Optional[dict]:
     """Incoming USDC to OUR payTo, last 7 days, classified by taxonomy.
 
-    Prints ONLY on the launch signal (external human payer > 0 — any payer
-    that is not a known market verifier). Silence = nothing to report.
+    Prints the launch signal (external human payer — anyone that is not a
+    known market verifier) and ALWAYS prints the known-infrastructure
+    heartbeat lines, so launch and heartbeat stay separate at a glance.
+    Silence = nothing in either bucket.
     """
     try:
         from web3 import Web3
@@ -56,7 +58,8 @@ def receiver_scan() -> Optional[dict]:
             rpc_url, DEFAULT_RECEIVER, from_block=from_b, to_block=latest)
         report = classify_transfers(transfers, known_payers=KNOWN_PAYERS)
         external = report.get("payers", [])
-        if report.get("external_unique_payers", 0) > 0:
+        launch = report.get("external_unique_payers", 0) > 0
+        if launch:
             total = report.get("total_usdc", 0)
             print("\n*** LAUNCH SIGNAL: external human/unknown payer detected ***")
             print(f"    external payers: {report['external_unique_payers']}  "
@@ -64,14 +67,15 @@ def receiver_scan() -> Optional[dict]:
             for p in external[:10]:
                 print(f"    {p['payer']}  {p['txs']} txs, {p['total_usdc']} USDC "
                       f"(avg {p['avg_usdc']})")
-            return report
         if report.get("known_verification_txs", 0) > 0:
-            # Known infrastructure (canaries, samplers) paying us = heartbeat:
-            # we're IN the crawl set. Never a launch signal.
+            # Known infrastructure (canaries, samplers/crawlers) paying us =
+            # heartbeat: we're IN the crawl set. Never a launch signal.
+            # Printed ALWAYS (also alongside a launch signal) so the picture
+            # stays complete: launch and heartbeat are separate lines.
             for k in report.get("known_verifications", []):
                 print(f"HEARTBEAT (в набора): {k['label']} — {k['txs']} txs, "
                       f"{k['total_usdc']} USDC за 7d. Не е launch сигнал.")
-        return None
+        return report if launch else None
     except Exception as exc:
         print(f"[receiver scan skipped: {str(exc)[:80]}]")
         return None
