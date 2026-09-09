@@ -45,6 +45,14 @@
 - Scoreboard: 4/4 paid canaries settled on-chain, 2 verified routes, ZERO payment-layer incidents across all four tests (every finding was data-layer, all fixed)
 - Engineering phase CLOSED for signals route: no proactive work until a paying buyer asks. All effort → distribution (BlockRun decision pending, outreach days 2-5, MCP registry)
 
+## 🗺 Планове при събития (пазят се предварително — при събитието се изпълняват, не се импровизира)
+
+- **OPERATOR REPEAT протокол:** при второ плащане от 0x4dB7/0xA19F —
+  1 час тишина (никакви имейли), после сигнал към стратегическия
+  съветник, outreach план за operator deal ($0.01–0.05 tier,
+  NEW_OPERATOR_ANALYSIS), мониторът логва честотата на връщане.
+
+
 ## Session 2026-09-08 UTC (awesome-remote-mcp-servers — PR ПОДАДЕН)
 - 🚀 **PR #10 ПОДАДЕН:** https://github.com/punkpeye/awesome-remote-mcp-servers/pull/10 — „Add Kristo Intelligence — DeFi trading signals MCP server (x402 on Base)" (клон add-kristo-intelligence → main; един запис в 💰 Finance секцията, азбучно: Fruit Stand → Kristo → Octagon; markers ⚡ 🔓 💰; без Glama значка — следва в follow-up).
 - 🟢 **CI ЗЕЛЕНО:** `check-submission: success` + бот етикет **`endpoint-ok`** (нашият /mcp е отговорил на initialize handshake проверката); втори етикет `missing-connector` — очаквано, с коментар да добавим Glama connector значка (план: след claim-а от #130688574).
