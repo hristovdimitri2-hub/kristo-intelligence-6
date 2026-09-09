@@ -9,6 +9,11 @@
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
 - ⏳ **PulseMCP → 🛑 ПРИЕМА СПРЯНО (проверено на живо 07.09, pulsemcp.com/submit):** „Apologies, submissions and changes are temporarily paused… We are not accepting new MCP server or client submissions right now" (Last updated: September 3, 2026 — паузата е от 03.09). **Опция за БЪДЕЩЕ (без изпълнение, решение на собственика):** препоръката на сайта е да публикуваме в **Official MCP Registry** (registry.modelcontextprotocol.io) — „That is the best first step even when we are not paused, and we will pick it up automatically once we are back" — PulseMCP щяха да ни вземат автоматично при връщането си. Забележка: Registry вече е обвързан и с PayAPI потока („през PayAPI"), така че ръчното подаване е отделен, по-късен ход.
 - ⚙️ **0x54E163e9… → market_crawler (08.09, fingerprint):** 325 различни получатели / 1281 tx / $11.32 за 30 дни — клас: непрекъснат индексатор (като 0x6777). Плати ни $0.003 на signal маршрута (08.09 08:28 UTC, tx 0x770d2178…) = **HEARTBEAT „в набора", НЕ launch сигнал**. Добавен в `KNOWN_PAYERS` като `market_crawler_54e1`; очаква се като редовен heartbeat. `external_unique_payers` остава честен = 1 (само човека 0x4dB7). Мониторът печата launch и heartbeat като отделни редове.
+- 🔗 **PayAPI MCP bridge (08.09, по имейл на Chet):** README + demo README сочат
+  PayAPI MCP входа (`payapi.market/mcp`, JSON блокът на Chet 1:1) — причина:
+  **двупосочна откриваемост** (агентите в warehouse-а на пазара намират нашите
+  маршрути, а нашият README сочи листинга). Kristo е live на PayAPI, discovery
+  без такси, плащането върви директно на нашия payTo.
 - ✅ **РЕШЕНИЕ (07.09, собственик): Whale flow feed — ОДОБРЕН за изграждане**
   като следващия (единствен) нов продукт. Условия: **(1)** тръба = съществуващият
   on-chain скенер (competitor_recon логика), без нови системи; **(2)** canary-доказан

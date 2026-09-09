@@ -28,3 +28,16 @@ python examples/demo_agent/demo_agent.py --pay                # РЕАЛНО п�
 wallet с микро-суми (0.003–0.01 USDC).
 
 **Listing:** [Kristo Intelligence — DeFi Signals API on PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api) — settlement-verified, $0.003/call, USDC on Base.
+
+**Discover via PayAPI MCP** - агентите, вече свързани към warehouse-а на
+пазара, намират нашите маршрути и от двете страни:
+
+```json
+{
+  "mcpServers": {
+    "payapi": {
+      "url": "https://payapi.market/mcp"
+    }
+  }
+}
+```

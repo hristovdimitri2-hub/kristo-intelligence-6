@@ -52,6 +52,24 @@ LangChain and any MCP-compatible client:
 Each tool advertises its x402 price inline, so an agent can decide and pay
 without reading docs.
 
+## Discover via PayAPI
+
+The listing lives on [PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api)
+and can be discovered through PayAPI's own MCP server — agents already
+connected to the marketplace warehouse will find our routes from both sides:
+
+```json
+{
+  "mcpServers": {
+    "payapi": {
+      "url": "https://payapi.market/mcp"
+    }
+  }
+}
+```
+
+Listing: <https://payapi.market/api/kristo-intelligence-defi-signals-api>
+
 ## Try it — one command
 
 The public reference client walks the full payment path (discovery → 402
