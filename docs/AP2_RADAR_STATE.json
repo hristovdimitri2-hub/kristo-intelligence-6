@@ -1,0 +1,26 @@
+{
+ "repos": {
+  "google-agentic-commerce/AP2": {
+   "seen_tags": [
+    "v0.2.0",
+    "v0.1.0"
+   ],
+   "last_commit_sha": "e1ea56db72a6385bce3e5c1112b3a56ce60acb43"
+  },
+  "google-agentic-commerce/a2a-x402": {
+   "seen_tags": [
+    "v0.1.0"
+   ],
+   "last_commit_sha": "125db5526a965d2325459d1a9df2e274a7e42396"
+  }
+ },
+ "known_wg_repos": [
+  "x402-foundation/wg-tax",
+  "Utsav-Bajpai/Tax_WGT",
+  "wegonnalearntoday/WGLT-Taxes",
+  "Trang021200/wg-metagenomics-taxonomic-profile",
+  "yky0314/WGC-taxi-simulator-demo-v1.0"
+ ],
+ "census": [],
+ "last_check": "2026-09-09T08:59:09.607742+00:00"
+}
