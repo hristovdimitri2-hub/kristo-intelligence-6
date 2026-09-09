@@ -60,6 +60,44 @@ KNOWN_PAYERS = {
     "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0": "market_crawler_54e1",
 }
 
+# ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──
+# NOT KNOWN_PAYERS — these are (probable) human operators, i.e. actual
+# customers: they must stay counted as external. A second payment from a
+# watchlisted wallet flips the trigger: "OPERATOR REPEAT" → operator-deal
+# conversation (see NEW_OPERATOR_ANALYSIS).
+WATCHLIST = {
+    "0xa19f621581dbc851a21d6179868111709a52accc": "operator_watch_a19f",
+    "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7": "operator_watch_4db7",
+}
+
+
+def operator_repeats(transfers: list[dict],
+                     watchlist: dict | None = None) -> list[dict]:
+    """Watchlisted payers with >= 2 payments in the given transfer list.
+
+    Pure function; returns [{'payer', 'label', 'txs', 'total_usdc'}] sorted
+    by total desc. Empty list = no repeat yet (first-touch customers only).
+    """
+    watch = {k.lower(): v for k, v in (watchlist if watchlist is not None
+                                       else WATCHLIST).items()}
+    by_payer: dict[str, list[float]] = {}
+    for t in transfers:
+        payer = str(t.get("payer") or "").lower()
+        if payer in watch:
+            by_payer.setdefault(payer, []).append(
+                float(t.get("amount_usdc") or 0.0))
+    out = [
+        {
+            "payer": payer,
+            "label": watch[payer],
+            "txs": len(amounts),
+            "total_usdc": round(sum(amounts), 6),
+        }
+        for payer, amounts in by_payer.items() if len(amounts) >= 2
+    ]
+    out.sort(key=lambda e: -e["total_usdc"])
+    return out
+
 # Transfers above this are almost certainly not per-call x402 payments
 # (settlements, treasury moves, exchange flows) — flagged as noise, not hidden.
 LARGE_TX_NOISE_THRESHOLD_USDC = 1000.0

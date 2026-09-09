@@ -163,3 +163,49 @@ def test_filter_not_too_broad_new_payer_fires_alongside_crawler_54e1():
     report = recon.classify_transfers(transfers)
     assert report["external_unique_payers"] == 1
     assert report["repeat_payers"][0]["payer"] == BRAND_NEW
+
+
+def test_filter_not_too_broad_new_payer_fires_alongside_crawler_54e1():
+    """A brand-new unknown payer STILL fires the launch signal even when the
+    crawler 0x54E1 pays at the same time — the filter only hides known infra."""
+    BRAND_NEW = "0x" + "f" * 40
+    transfers = [
+        _t("0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0", 0.003),
+        _t(BRAND_NEW, 0.003, tx="0x" + "f" * 64),
+        _t(BRAND_NEW, 0.005, tx="0x" + "e" * 64),
+    ]
+    report = recon.classify_transfers(transfers)
+    assert report["external_unique_payers"] == 1
+    assert report["repeat_payers"][0]["payer"] == BRAND_NEW
+
+
+def test_watchlist_registry_has_operator_wallets():
+    """0xA19F and 0x4dB7 are watchlisted OPERATORS — never KNOWN_PAYERS
+    (they are real customers and must keep counting as external)."""
+    A19F = "0xa19f621581dbc851a21d6179868111709a52accc"
+    assert A19F in recon.WATCHLIST
+    assert A19F not in recon.KNOWN_PAYERS
+    assert "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7" in recon.WATCHLIST
+
+
+def test_operator_repeats_fires_on_second_payment():
+    """First payment = first-touch (no trigger). Second payment from the
+    SAME watchlisted wallet = OPERATOR REPEAT (the deal trigger)."""
+    A19F = "0xA19F621581DBc851a21D6179868111709a52aCCC"
+    first = [_t(A19F, 0.003)]
+    assert recon.operator_repeats(first) == []          # first touch — silent
+
+    second = first + [_t(A19F, 0.003, tx="0x" + "b" * 64)]
+    repeats = recon.operator_repeats(second)
+    assert len(repeats) == 1
+    assert repeats[0]["label"] == "operator_watch_a19f"
+    assert repeats[0]["txs"] == 2
+    assert repeats[0]["total_usdc"] == 0.006
+
+
+def test_operator_repeats_ignores_non_watchlisted_payers():
+    """Repeat detection is scoped to the watchlist — a random operator that
+    pays twice is NOT flagged (only watchlisted wallets get the deal trigger)."""
+    RANDOM = "0x" + "9" * 40
+    transfers = [_t(RANDOM, 0.003), _t(RANDOM, 0.003, tx="0x" + "9" * 63 + "1")]
+    assert recon.operator_repeats(transfers) == []

@@ -37,6 +37,7 @@ from scripts.competitor_recon import (  # noqa: E402
     KNOWN_PAYERS,
     classify_transfers,
     fetch_incoming_transfers,
+    operator_repeats,
 )
 
 
@@ -75,10 +76,32 @@ def receiver_scan() -> Optional[dict]:
             for k in report.get("known_verifications", []):
                 print(f"HEARTBEAT (в набора): {k['label']} — {k['txs']} txs, "
                       f"{k['total_usdc']} USDC за 7d. Не е launch сигнал.")
+        # ── WATCHLIST: second payment from a real-operator wallet = trigger ──
+        for r in operator_repeats(transfers):
+            print(f"\n*** OPERATOR REPEAT: {r['label']} — {r['txs']} txs, "
+                  f"{r['total_usdc']} USDC (7d) → operator deal разговор ***")
+        for r in _watchlist_alltime():
+            print(f"*** OPERATOR REPEAT (all-time): {r['label']} — "
+                  f"{r['txs']} плащания общо → operator deal разговор ***")
         return report if launch else None
     except Exception as exc:
         print(f"[receiver scan skipped: {str(exc)[:80]}]")
         return None
+
+
+def _watchlist_alltime() -> list[dict]:
+    """All-time repeat check against the persistent dashboard store (live)."""
+    try:
+        d = requests.get(
+            "https://kristo-intelligence-api.onrender.com/api/dashboard/data",
+            timeout=30).json()
+        history = d["sections"]["onchain"]["history"]
+    except Exception:
+        return []
+    transfers = [{"payer": h["sender"], "amount_usdc": h["amount_usdc"]}
+                 for h in history]
+    # history is capped at 100 rows — enough for months at current volume
+    return operator_repeats(transfers)
 
 
 def fetch_state() -> dict:

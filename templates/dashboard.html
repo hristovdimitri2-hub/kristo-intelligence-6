@@ -183,9 +183,12 @@ function renderOnchain(o) {
 }
 
 function renderRequests(r) {
+  const noise = (r.internal_noise || {});
   $('req-cards').innerHTML =
-    card(r.today, `Днес (${esc(r.today_date)} UTC)`) +
-    card(r.total, 'Общо (от лог-а)');
+    card(r.today_clean ?? r.today, `ДНЕС ЧИСТИ (без keep-alive) — ${esc(r.today_date)} UTC`, true) +
+    card(r.total_clean ?? r.total, 'Общо чисти (от лог-а)') +
+    card(r.today, 'Днес общо (raw)') +
+    card(`${noise.today ?? 0} · ${noise.total ?? 0}`, 'Вътрешен шум (Render/1.0)');
   const ch = (r.by_channel || []);
   $('channels-body').innerHTML = ch.length ? ch.map(c =>
     `<tr><td class="mono">/f/${esc(c.channel)}</td><td class="num">${c.n}</td></tr>`).join('') :

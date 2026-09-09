@@ -137,6 +137,25 @@ def test_request_log_persists_and_breaks_down_channels(tmp_path):
     assert summary["top_paths"][0] == {"path": "/api/stats", "n": 2}
 
 
+def test_internal_health_noise_counted_separately(tmp_path):
+    """The keep-alive UA (Render/1.0) must NOT pollute the clean numbers —
+    it is our own /health ping + Render health checks, not customer traffic."""
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    store.record_request("GET", "/health", "web", 200,
+                         user_agent="Render/1.0")
+    store.record_request("GET", "/health", "web", 200,
+                         user_agent="Render/1.0")
+    store.record_request("GET", "/api/v1/signal", "api", 200,
+                         user_agent="x402-agent/1.0")
+    summary = store.requests_summary()
+    assert summary["total"] == 3
+    assert summary["internal_noise"]["total"] == 2
+    assert summary["total_clean"] == 1
+    assert summary["by_source_clean"] == [{"source": "api", "n": 1}]
+
+
 def test_payapi_state_roundtrip_and_baseline(tmp_path):
     from integrations.dashboard_store import DashboardStore
 

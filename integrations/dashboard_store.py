@@ -299,8 +299,14 @@ class DashboardStore:
             conn.commit()
 
     def requests_summary(self, recent_limit: int = 25) -> Dict[str, Any]:
-        """today/total + channel (/f/<name>) + source breakdown — from disk."""
+        """today/total + channel (/f/<name>) + source breakdown — from disk.
+
+        The internal keep-alive traffic (UA 'Render/1.0' — our own /health
+        pings plus Render health checks) is counted SEPARATELY so the
+        "clean" customer/agent-facing numbers light up on their own.
+        """
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        internal_sql = "user_agent LIKE 'Render/%'"
         with self._connect() as conn:
             total = conn.execute(
                 "SELECT COUNT(*) AS n FROM request_log"
@@ -309,9 +315,22 @@ class DashboardStore:
                 "SELECT COUNT(*) AS n FROM request_log WHERE substr(ts, 1, 10) = ?",
                 (today,),
             ).fetchone()["n"]
+            noise_total = conn.execute(
+                f"SELECT COUNT(*) AS n FROM request_log WHERE {internal_sql}"
+            ).fetchone()["n"]
+            noise_today = conn.execute(
+                f"""SELECT COUNT(*) AS n FROM request_log
+                    WHERE substr(ts, 1, 10) = ? AND {internal_sql}""",
+                (today,),
+            ).fetchone()["n"]
             by_source = conn.execute(
                 """SELECT source, COUNT(*) AS n FROM request_log
                    GROUP BY source ORDER BY n DESC"""
+            ).fetchall()
+            by_source_clean = conn.execute(
+                f"""SELECT source, COUNT(*) AS n FROM request_log
+                    WHERE NOT ({internal_sql})
+                    GROUP BY source ORDER BY n DESC"""
             ).fetchall()
             by_channel = conn.execute(
                 """SELECT funnel AS channel, COUNT(*) AS n FROM request_log
@@ -332,7 +351,15 @@ class DashboardStore:
             "today_date": today,
             "today": today_row,
             "total": total,
+            "today_clean": max(0, today_row - noise_today),
+            "total_clean": max(0, total - noise_total),
+            "internal_noise": {
+                "today": noise_today,
+                "total": noise_total,
+                "label": "вътрешен keep-alive (Render/1.0) — не е клиентски трафик",
+            },
             "by_source": [dict(r) for r in by_source],
+            "by_source_clean": [dict(r) for r in by_source_clean],
             "by_channel": [dict(r) for r in by_channel],
             "top_paths": [dict(r) for r in by_path],
             "recent": [dict(r) for r in recent],
