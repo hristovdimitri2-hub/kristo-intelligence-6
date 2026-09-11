@@ -658,6 +658,7 @@ class DashboardStore:
             raise ConnectionError(f"RPC not reachable: {rpc_url}")
         added = 0
         start = from_block
+        safe_end = from_block - 1          # last contiguous scanned block
         while start <= to_block:
             end = min(start + chunk_blocks - 1, to_block)
             try:
@@ -667,8 +668,9 @@ class DashboardStore:
                     "topics": [TRANSFER_TOPIC, None, None],   # all transfers
                 })
             except Exception:
-                start = end + 1
-                continue
+                # Failed chunk: DO NOT silently skip (honesty rule) — stop the
+                # scan at the last good block; the caller retries next cycle.
+                break
             stamps = {}
             for lg in logs:
                 try:
@@ -705,9 +707,14 @@ class DashboardStore:
                 except Exception:
                     continue
             start = end + 1
+            safe_end = end
             if start <= to_block:
                 import time as _time
                 _time.sleep(pause_seconds)
+        # Record the last CONTIGUOUS scanned block — failed chunks are retried
+        # next cycle instead of being skipped (honesty: we never serve a range
+        # that was not actually scanned).
+        self.set_meta("whaleflow_safe_scanned_block", str(max(0, safe_end)))
         return added
 
     def whaleflow_backfill(self, hours: int = WHALE_BACKFILL_HOURS_DEFAULT,
@@ -722,7 +729,9 @@ class DashboardStore:
         latest = w3.eth.block_number
         from_block = max(1, latest - int(hours * 86400 / BLOCK_TIME_SECONDS))
         added = self.scan_whale_window(from_block, latest, rpc_url=rpc_url)
-        self.set_meta("whaleflow_last_block", str(latest))
+        # Watermark = last CONTIGUOUS safe block (failed chunks retry next cycle)
+        safe = int(self.get_meta("whaleflow_safe_scanned_block", "0") or 0)
+        self.set_meta("whaleflow_last_block", str(min(safe, latest) if safe else latest))
         return added
 
     def whaleflow_increment(self, rpc_url: str = "",
@@ -743,7 +752,9 @@ class DashboardStore:
         if to_block < from_block:
             return 0
         added = self.scan_whale_window(from_block, to_block, rpc_url=rpc_url)
-        self.set_meta("whaleflow_last_block", str(to_block))
+        safe = int(self.get_meta("whaleflow_safe_scanned_block", "0") or 0)
+        self.set_meta("whaleflow_last_block",
+                      str(min(safe, to_block) if safe else to_block))
         return added
 
     def whaleflow_summary(self, window_hours: int = WHALE_WINDOW_HOURS_DEFAULT,
@@ -755,7 +766,7 @@ class DashboardStore:
         threshold = whale_threshold() if threshold is None else threshold
         cutoff = (datetime.now(timezone.utc)
                   - timedelta(hours=window_hours)).isoformat()
-        scanned_until = self.get_meta("whaleflow_last_block")
+        scanned_until = self.get_meta("whaleflow_safe_scanned_block") or self.get_meta("whaleflow_last_block")
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT ts, token, amount_usdc, from_addr, to_addr,

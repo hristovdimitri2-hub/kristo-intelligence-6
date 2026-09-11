@@ -8,6 +8,19 @@
 - ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
 - ⏳ **PulseMCP → 🛑 ПРИЕМА СПРЯНО (проверено на живо 07.09, pulsemcp.com/submit):** „Apologies, submissions and changes are temporarily paused… We are not accepting new MCP server or client submissions right now" (Last updated: September 3, 2026 — паузата е от 03.09). **Опция за БЪДЕЩЕ (без изпълнение, решение на собственика):** препоръката на сайта е да публикуваме в **Official MCP Registry** (registry.modelcontextprotocol.io) — „That is the best first step even when we are not paused, and we will pick it up automatically once we are back" — PulseMCP щяха да ни вземат автоматично при връщането си. Забележка: Registry вече е обвързан и с PayAPI потока („през PayAPI"), така че ръчното подаване е отделен, по-късен ход.
+- 🐋 **Whale flow построен (09-10.09, ДАВАЙ на собственика) — чака canary.**
+  `GET /api/v1/whaleflow` — жива лента с USDC трансфери ≥ WHALE_THRESHOLD
+  (env, default $50k, прагът се чете при всяка заявка), honest labels
+  (known/watchlist или „unknown", нула измислици), нова таблица
+  `whaleflow_events` + watermarks в dashboard_state.db, 60s инкременти в
+  scan loop-а, честен fail-retry (failed chunk → watermark спира до последен
+  успешен). Цена $0.003, каноничен v2 challenge със selling description.
+  **Условие 4 спазено: НЕ е в discovery/каталози/манифести/README** (тест
+  guard). **Блокер за данните:** публичните Base RPC-та НЕ носят network-wide
+  USDC логове (mainnet.base.org → 500, 1rpc/publicnode → 0 лога) — трябва
+  `BASE_RPC_URL` с getLogs капацитет (напр. безплатен Alchemy/Infura/dRPC
+  ключ) → env промяна на Render, БЕЗ deploy. До тогава маршрутът връща
+  truthful празен списък. Canary: чака собственика (имейлът се пише заедно).
 - ⚙️ **0x54E163e9… → market_crawler (08.09, fingerprint):** 325 различни получатели / 1281 tx / $11.32 за 30 дни — клас: непрекъснат индексатор (като 0x6777). Плати ни $0.003 на signal маршрута (08.09 08:28 UTC, tx 0x770d2178…) = **HEARTBEAT „в набора", НЕ launch сигнал**. Добавен в `KNOWN_PAYERS` като `market_crawler_54e1`; очаква се като редовен heartbeat. `external_unique_payers` остава честен = 1 (само човека 0x4dB7). Мониторът печата launch и heartbeat като отделни редове.
 - 🗓 **МЕСЕЧЕН ПРОТОКОЛ (редове, в този ред):** 1. `python scripts/competitor_recon.py` (пазарен скен) · 2. `python scripts/listing_monitor.py` (band/рангове/касa/MCP) · **5. `python scripts/ap2_radar.py` (AP2 радар — след recon и listing_monitor)**. AP2 радарът гледа САМО публичните артефакти на Agent Payments Protocol (google-agentic-commerce/AP2 + a2a-x402: комити, релийзи, WG патерни, цензус серия) — изход: `docs/AP2_RADAR.md`. **AP2 Slack (wg-tax, wg-domain-discovery) е ЧАСТЕН и НЕ се сканира** — чете го собственикът на око, месечно; скриптът гледа само публичните GitHub артефакти, без идентичности.
 - ⚠️ **INCIDENT-ЗАБЕЛЕЖКА (09.09): Render free = ЕФЕМЕРНА файлова система.**
