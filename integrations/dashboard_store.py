@@ -558,8 +558,10 @@ class DashboardStore:
                     "topics": [TRANSFER_TOPIC, None, padded],
                 })
             except Exception:
-                start = end + 1
-                continue
+                # Failed chunk: DO NOT silently skip (honesty rule — same as
+                # whale scan). Stop the scan; the watermark-based retry next
+                # cycle re-covers this range.
+                break
             for lg in logs:
                 try:
                     sender = "0x" + bytes(lg["topics"][1]).hex()[-40:]
@@ -641,15 +643,22 @@ class DashboardStore:
 
     # ── whale flow (network-wide big USDC transfers on Base) ─────────────────
     def scan_whale_window(self, from_block: int, to_block: int,
-                          rpc_url: str = "", chunk_blocks: int = 2000,
+                          rpc_url: str = "", chunk_blocks: int = 0,
                           pause_seconds: float = 0.2) -> int:
         """Network-wide scan: ALL USDC Transfer logs on Base, keep only
-        transfers >= the current WHALE_THRESHOLD. Read-only public RPC,
-        chunked/paced like competitor_recon. Watermark is the caller's job.
-        Returns the number of NEW whale events recorded."""
+        transfers >= the current WHALE_THRESHOLD. Read-only RPC,
+        chunked/paced. Watermark is the caller's job.
+        Returns the number of NEW whale events recorded.
+        chunk_blocks: 0 = env WHALEFLOW_CHUNK_BLOCKS (default 250 — the size
+        the free drpc endpoint reliably serves for wildcard getLogs)."""
         if to_block < from_block:
             return 0
         threshold = whale_threshold()
+        try:
+            chunk_blocks = max(50, int(os.getenv("WHALEFLOW_CHUNK_BLOCKS",
+                                                 str(chunk_blocks or 250))))
+        except ValueError:
+            chunk_blocks = 250
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
