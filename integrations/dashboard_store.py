@@ -548,6 +548,7 @@ class DashboardStore:
         padded = "0x" + "0" * 24 + receiver.lower().replace("0x", "")
         transfers: List[dict] = []
         start = from_block
+        safe_end = from_block - 1
         while start <= to_block:
             end = min(start + chunk_size - 1, to_block)
             try:
@@ -562,6 +563,7 @@ class DashboardStore:
                 # whale scan). Stop the scan; the watermark-based retry next
                 # cycle re-covers this range.
                 break
+            safe_end = end
             for lg in logs:
                 try:
                     sender = "0x" + bytes(lg["topics"][1]).hex()[-40:]
@@ -598,6 +600,9 @@ class DashboardStore:
                 source="scan",
             ):
                 added += 1
+        # Record the last CONTIGUOUS scanned block — failed chunks are retried
+        # next cycle instead of skipped (honesty rule).
+        self.set_meta("sales_safe_scanned_block", str(max(0, safe_end)))
         return added
 
     def retro_scan(self, days: int = 30, rpc_url: str = "") -> int:
@@ -614,7 +619,11 @@ class DashboardStore:
         latest = w3.eth.block_number
         from_block = max(1, latest - int(days * 86400 / BLOCK_TIME_SECONDS))
         added = self.scan_window(from_block, latest, rpc_url=rpc_url)
-        self.set_meta("last_scanned_block", str(latest))
+        # Watermark = last CONTIGUOUS safe block — a broken chunk is retried
+        # next cycle, never silently skipped (honesty rule).
+        safe = int(self.get_meta("sales_safe_scanned_block", "0") or 0)
+        self.set_meta("last_scanned_block",
+                      str(min(safe, latest) if safe else latest))
         return added
 
     def scan_increment(self, rpc_url: str = "", max_blocks: int = 20000) -> int:
@@ -638,7 +647,9 @@ class DashboardStore:
         if to_block < from_block:
             return 0
         added = self.scan_window(from_block, to_block, rpc_url=rpc_url)
-        self.set_meta("last_scanned_block", str(to_block))
+        safe = int(self.get_meta("sales_safe_scanned_block", "0") or 0)
+        self.set_meta("last_scanned_block",
+                      str(min(safe, to_block) if safe else to_block))
         return added
 
     # ── whale flow (network-wide big USDC transfers on Base) ─────────────────
