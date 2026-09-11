@@ -48,6 +48,7 @@ from config import (
     KRISTO_RUG_PRICE,
     KRISTO_WHALE_PRICE,
     KRISTO_SIGNAL_PRICE,
+    KRISTO_WHALEFLOW_PRICE,
 )
 
 # ── Real-time market data integration ─────────────────────────────────────
@@ -85,6 +86,10 @@ X402_PRICE_MAP = {
     "/api/bot-status": KRISTO_STATS_PRICE,
     "/api/arb/opportunities": KRISTO_ARB_PRICE,
     "/api/v1/signal": KRISTO_SIGNAL_PRICE,
+    # Whale flow (09.09, owner-approved build — docs/WHALE_FLOW_SPEC.md).
+    # NOT in any catalog/manifest/discovery until it passes a paid canary
+    # (condition 4). Paywall only — it is enforceable, not advertised.
+    "/api/v1/whaleflow": KRISTO_WHALEFLOW_PRICE,
 }
 
 # ── Challenge descriptions ("caught by the hand") ───────────────────────────
@@ -97,6 +102,10 @@ CHALLENGE_DESCRIPTIONS = {
         "Live DeFi trading signal: action, confidence and one-line reasoning "
         "for ETH/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live "
         "market data."
+    ),
+    "/api/v1/whaleflow": (
+        "Live whale flow: USDC transfers ≥ $50k on Base with labeled "
+        "counterparties — refreshed every 60 seconds."
     ),
 }
 
@@ -113,7 +122,8 @@ FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 
 # Endpoints that require x402 payment (after free tier exhausted)
 X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
-                       "/api/arb/opportunities", "/api/v1/signal"}
+                       "/api/arb/opportunities", "/api/v1/signal",
+                       "/api/v1/whaleflow"}
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
@@ -816,6 +826,15 @@ def _dashboard_scan_loop():
     except Exception as exc:
         log.warning("Dashboard retro scan failed (incremental will catch up): %s", exc)
 
+    # Whale flow: initial network-wide backfill, then 60s increments
+    # (docs/WHALE_FLOW_SPEC.md — owner-approved build, unlisted until canary).
+    try:
+        wf_added = dashboard_db.whaleflow_backfill(
+            hours=int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "24")))
+        log.info("Whale flow backfill: %d whale event(s) persisted.", wf_added)
+    except Exception as exc:
+        log.warning("Whale flow backfill failed (incremental will catch up): %s", exc)
+
     next_payapi = time.time()
     while True:
         time.sleep(scan_interval)
@@ -825,6 +844,15 @@ def _dashboard_scan_loop():
                 log.info("Dashboard incremental scan: %d new sale(s).", added)
         except Exception as exc:
             log.warning("Dashboard scan cycle failed (non-fatal): %s", exc)
+
+        # Whale flow 60s increment (independent failure domain — never
+        # breaks the sales scan or PayAPI refresh).
+        try:
+            wf_added = dashboard_db.whaleflow_increment()
+            if wf_added:
+                log.info("Whale flow increment: %d new event(s).", wf_added)
+        except Exception as exc:
+            log.warning("Whale flow increment failed (non-fatal): %s", exc)
 
         if time.time() >= next_payapi:
             next_payapi = time.time() + payapi_interval
@@ -3210,6 +3238,44 @@ def _canonical_dashboard_payload() -> dict:
 def api_dashboard_data():
     """Free, read-only JSON for the canonical dashboard (persistent sources)."""
     return _safe_jsonify(_canonical_dashboard_payload())
+
+
+@app.route("/api/v1/whaleflow")
+def api_whaleflow():
+    """Whale flow feed — network-wide USDC transfers >= threshold on Base.
+
+    Owner-approved build (docs/WHALE_FLOW_SPEC.md). x402-paid like the other
+    routes (canonical v2 challenge). DELIBERATELY UNLISTED: not in discovery,
+    catalogs, manifests or README until it passes a paid canary (condition 4).
+    Honest labels only — zero invention (SKU-cleanup rule).
+    """
+    _record_request("api_whaleflow", True)
+    try:
+        window_hours = max(1, int(os.getenv("WHALE_WINDOW_HOURS",
+                                            str(dashboard_store_defaults(
+                                                )["window_hours"]))))
+    except ValueError:
+        window_hours = 24
+    try:
+        limit = max(1, min(200, int(os.getenv("WHALEFLOW_LIMIT", "50"))))
+    except ValueError:
+        limit = 50
+    data = dashboard_db.whaleflow_summary(window_hours=window_hours, limit=limit)
+    return _safe_jsonify({
+        "ok": True,
+        "whales": data["whales"],
+        "count": data["count"],
+        "window_hours": data["window_hours"],
+        "threshold_usdc": data["threshold_usdc"],
+        "scanned_until_block": data["scanned_until_block"],
+        "source": "onchain_eth_getlogs",
+        "note": "Honest labels only — unknown counterparties are labeled 'unknown'.",
+    })
+
+
+def dashboard_store_defaults() -> dict:
+    from integrations.dashboard_store import WHALE_WINDOW_HOURS_DEFAULT
+    return {"window_hours": WHALE_WINDOW_HOURS_DEFAULT}
 
 
 @app.route("/dashboard")

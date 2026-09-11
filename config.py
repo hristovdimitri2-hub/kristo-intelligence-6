@@ -59,3 +59,6 @@ KRISTO_ARB_PRICE = float(os.getenv("KRISTO_ARB_PRICE", "0.005"))         # /api/
 KRISTO_RUG_PRICE = float(os.getenv("KRISTO_RUG_PRICE", "0.003"))          # rug-risk endpoint
 KRISTO_WHALE_PRICE = float(os.getenv("KRISTO_WHALE_PRICE", "0.01"))      # whale activity endpoint
 KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.003"))   # /api/v1/signal
+# Whale flow feed (built 09.09 per docs/WHALE_FLOW_SPEC.md — owner-approved).
+# Kept at the canary-proven price tier. Existing prices are NOT touched.
+KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.003"))

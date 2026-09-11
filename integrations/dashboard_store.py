@@ -51,6 +51,34 @@ FUNNEL_ROUTES = [
     "/api/arb/opportunities",
 ]
 
+# ── Whale flow defaults (env-regulatable, read at RUNTIME not import) ──────
+WHALE_THRESHOLD_DEFAULT = 50_000.0   # USDC
+WHALE_WINDOW_HOURS_DEFAULT = 24      # rolling window served by the route
+WHALE_BACKFILL_HOURS_DEFAULT = 24    # initial backfill on first run
+
+
+def whale_threshold() -> float:
+    """Current whale threshold (USDC) — env WHALE_THRESHOLD, read live."""
+    try:
+        return max(1.0, float(os.getenv("WHALE_THRESHOLD", str(WHALE_THRESHOLD_DEFAULT))))
+    except ValueError:
+        return WHALE_THRESHOLD_DEFAULT
+
+
+def _label_address(addr: str) -> str:
+    """Honest label: known market infra / watchlisted operator by name,
+    everything else literally 'unknown'. ZERO invention (SKU-cleanup rule)."""
+    a = (addr or "").lower()
+    try:
+        from scripts.competitor_recon import KNOWN_PAYERS, WATCHLIST
+    except Exception:
+        KNOWN_PAYERS, WATCHLIST = {}, {}
+    if a in KNOWN_PAYERS:
+        return KNOWN_PAYERS[a]
+    if a in {k.lower(): v for k, v in WATCHLIST.items()}:
+        return WATCHLIST[a]
+    return "unknown"
+
 
 def default_db_path() -> str:
     base = Path(__file__).resolve().parent.parent / "data"
@@ -140,6 +168,23 @@ class DashboardStore:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_request_log_ts ON request_log (ts)"
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS whaleflow_events (
+                    tx_hash      TEXT,
+                    log_index    INTEGER,
+                    ts           TEXT,
+                    token        TEXT,
+                    amount_usdc  REAL,
+                    from_addr    TEXT,
+                    to_addr      TEXT,
+                    block_number INTEGER,
+                    recorded_at  TEXT,
+                    PRIMARY KEY (tx_hash, log_index)
+                )"""
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whaleflow_ts ON whaleflow_events (ts)"
             )
             conn.commit()
 
@@ -593,3 +638,150 @@ class DashboardStore:
         added = self.scan_window(from_block, to_block, rpc_url=rpc_url)
         self.set_meta("last_scanned_block", str(to_block))
         return added
+
+    # ── whale flow (network-wide big USDC transfers on Base) ─────────────────
+    def scan_whale_window(self, from_block: int, to_block: int,
+                          rpc_url: str = "", chunk_blocks: int = 2000,
+                          pause_seconds: float = 0.2) -> int:
+        """Network-wide scan: ALL USDC Transfer logs on Base, keep only
+        transfers >= the current WHALE_THRESHOLD. Read-only public RPC,
+        chunked/paced like competitor_recon. Watermark is the caller's job.
+        Returns the number of NEW whale events recorded."""
+        if to_block < from_block:
+            return 0
+        threshold = whale_threshold()
+        from web3 import Web3
+
+        rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        if not w3.is_connected():
+            raise ConnectionError(f"RPC not reachable: {rpc_url}")
+        added = 0
+        start = from_block
+        while start <= to_block:
+            end = min(start + chunk_blocks - 1, to_block)
+            try:
+                logs = w3.eth.get_logs({
+                    "fromBlock": start, "toBlock": end,
+                    "address": Web3.to_checksum_address(USDC_BASE),
+                    "topics": [TRANSFER_TOPIC, None, None],   # all transfers
+                })
+            except Exception:
+                start = end + 1
+                continue
+            stamps = {}
+            for lg in logs:
+                try:
+                    raw = lg["data"]
+                    if hasattr(raw, "hex"):
+                        raw = raw.hex()
+                    amount = int(raw or "0", 16) / 1e6
+                    if amount < threshold:
+                        continue
+                    frm = "0x" + bytes(lg["topics"][1]).hex()[-40:]
+                    to = "0x" + bytes(lg["topics"][2]).hex()[-40:]
+                    tx = Web3.to_hex(lg["transactionHash"])
+                    ln = int(lg["logIndex"])
+                    block = lg["blockNumber"]
+                    if block not in stamps:
+                        try:
+                            blk = w3.eth.get_block(block)
+                            stamps[block] = datetime.fromtimestamp(
+                                blk["timestamp"], tz=timezone.utc)
+                        except Exception:
+                            stamps[block] = datetime.now(timezone.utc)
+                    with self._write_lock, self._connect() as conn:
+                        cur = conn.execute(
+                            """INSERT OR IGNORE INTO whaleflow_events
+                                   (tx_hash, log_index, ts, token, amount_usdc,
+                                    from_addr, to_addr, block_number, recorded_at)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (tx, ln, stamps[block].isoformat(), "USDC",
+                             round(amount, 6), frm.lower(), to.lower(),
+                             block, datetime.now(timezone.utc).isoformat()),
+                        )
+                        conn.commit()
+                        added += cur.rowcount
+                except Exception:
+                    continue
+            start = end + 1
+            if start <= to_block:
+                import time as _time
+                _time.sleep(pause_seconds)
+        return added
+
+    def whaleflow_backfill(self, hours: int = WHALE_BACKFILL_HOURS_DEFAULT,
+                           rpc_url: str = "") -> int:
+        """Initial backfill: last `hours` network-wide, keep whale-sized.
+        Sets the whale watermark."""
+        self.reclassify_known_payers()
+        from web3 import Web3
+
+        rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        latest = w3.eth.block_number
+        from_block = max(1, latest - int(hours * 86400 / BLOCK_TIME_SECONDS))
+        added = self.scan_whale_window(from_block, latest, rpc_url=rpc_url)
+        self.set_meta("whaleflow_last_block", str(latest))
+        return added
+
+    def whaleflow_increment(self, rpc_url: str = "",
+                            max_blocks: int = 10000) -> int:
+        """Network-wide whale scan since the persisted whale watermark."""
+        self.reclassify_known_payers()
+        from web3 import Web3
+
+        rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        latest = w3.eth.block_number
+        last = int(self.get_meta("whaleflow_last_block", "0") or 0)
+        if last <= 0:
+            self.set_meta("whaleflow_last_block", str(latest))
+            return 0
+        from_block = last + 1
+        to_block = min(latest, from_block + max_blocks)
+        if to_block < from_block:
+            return 0
+        added = self.scan_whale_window(from_block, to_block, rpc_url=rpc_url)
+        self.set_meta("whaleflow_last_block", str(to_block))
+        return added
+
+    def whaleflow_summary(self, window_hours: int = WHALE_WINDOW_HOURS_DEFAULT,
+                          limit: int = 50,
+                          threshold: float | None = None) -> Dict[str, Any]:
+        """Fresh whale events in the rolling window, newest first, filtered
+        by the CURRENT threshold (env-regulatable at read time). Honest
+        labels: known/watchlisted names or literally 'unknown'."""
+        threshold = whale_threshold() if threshold is None else threshold
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(hours=window_hours)).isoformat()
+        scanned_until = self.get_meta("whaleflow_last_block")
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT ts, token, amount_usdc, from_addr, to_addr,
+                          tx_hash, block_number
+                   FROM whaleflow_events
+                   WHERE ts >= ? AND amount_usdc >= ?
+                   ORDER BY ts DESC, block_number DESC LIMIT ?""",
+                (cutoff, threshold, limit),
+            ).fetchall()
+        whales = []
+        for r in rows:
+            whales.append({
+                "ts": r["ts"],
+                "token": r["token"],
+                "amount_usdc": round(r["amount_usdc"], 6),
+                "from": r["from_addr"],
+                "to": r["to_addr"],
+                "from_label": _label_address(r["from_addr"]),
+                "to_label": _label_address(r["to_addr"]),
+                "tx_hash": r["tx_hash"],
+                "block": r["block_number"],
+            })
+        return {
+            "whales": whales,
+            "count": len(whales),
+            "window_hours": window_hours,
+            "threshold_usdc": threshold,
+            "scanned_until_block": int(scanned_until or 0) or None,
+        }
