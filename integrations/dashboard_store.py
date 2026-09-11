@@ -42,6 +42,16 @@ TRANSFER_TOPIC = (
 BLOCK_TIME_SECONDS = 2.0  # Base mainnet ~2s blocks
 
 
+# ── Payment funnel: the paid routes whose 402→200 conversion we measure ───
+FUNNEL_ROUTES = [
+    "/api/v1/signal",
+    "/api/stats",
+    "/api/sales",
+    "/api/bot-status",
+    "/api/arb/opportunities",
+]
+
+
 def default_db_path() -> str:
     base = Path(__file__).resolve().parent.parent / "data"
     base.mkdir(parents=True, exist_ok=True)
@@ -304,6 +314,8 @@ class DashboardStore:
         The internal keep-alive traffic (UA 'Render/1.0' — our own /health
         pings plus Render health checks) is counted SEPARATELY so the
         "clean" customer/agent-facing numbers light up on their own.
+        Also aggregates the payment FUNNEL per paid route (402 challenges ->
+        paid follow-ups, today + total) — "caught by the hand" metric.
         """
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         internal_sql = "user_agent LIKE 'Render/%'"
@@ -341,6 +353,44 @@ class DashboardStore:
                 """SELECT path, COUNT(*) AS n FROM request_log
                    GROUP BY path ORDER BY n DESC LIMIT 10"""
             ).fetchall()
+            top_user_agents = conn.execute(
+                f"""SELECT user_agent, COUNT(*) AS n FROM request_log
+                    WHERE user_agent <> '' AND NOT ({internal_sql})
+                    GROUP BY user_agent ORDER BY n DESC LIMIT 10"""
+            ).fetchall()
+            hourly = conn.execute(
+                """SELECT substr(ts, 12, 2) AS hour, COUNT(*) AS n,
+                          SUM(CASE WHEN user_agent LIKE 'Render/%' THEN 1 ELSE 0 END)
+                              AS noise
+                   FROM request_log
+                   WHERE substr(ts, 1, 10) = ?
+                   GROUP BY substr(ts, 12, 2) ORDER BY hour""",
+                (today,),
+            ).fetchall()
+            # ── payment funnel per paid route: 402 challenges vs paid retries ──
+            funnel = {}
+            for path in FUNNEL_ROUTES:
+                cur = conn.execute(
+                    """SELECT
+                         SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END) AS challenges,
+                         SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
+                       FROM request_log WHERE path = ?""",
+                    (path,),
+                ).fetchone()
+                cur_today = conn.execute(
+                    """SELECT
+                         SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END) AS challenges,
+                         SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
+                       FROM request_log
+                       WHERE path = ? AND substr(ts, 1, 10) = ?""",
+                    (path, today),
+                ).fetchone()
+                funnel[path] = {
+                    "challenges_total": cur["challenges"] or 0,
+                    "paid_total": cur["paid"] or 0,
+                    "challenges_today": cur["challenges"] or 0,
+                    "paid_today": cur["paid"] or 0,
+                }
             recent = conn.execute(
                 """SELECT ts, method, path, source, status_code, user_agent,
                           funnel
@@ -362,6 +412,9 @@ class DashboardStore:
             "by_source_clean": [dict(r) for r in by_source_clean],
             "by_channel": [dict(r) for r in by_channel],
             "top_paths": [dict(r) for r in by_path],
+            "top_user_agents": [dict(r) for r in top_user_agents],
+            "hourly": [dict(r) for r in hourly],
+            "funnel": funnel,
             "recent": [dict(r) for r in recent],
         }
 

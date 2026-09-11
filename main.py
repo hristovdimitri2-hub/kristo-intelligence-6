@@ -87,6 +87,19 @@ X402_PRICE_MAP = {
     "/api/v1/signal": KRISTO_SIGNAL_PRICE,
 }
 
+# ── Challenge descriptions ("caught by the hand") ───────────────────────────
+# The 402 challenge description is the machine's first impression of the
+# product. Only the description STRING varies per endpoint — the canonical
+# x402 v2 shape (scheme, network, atomic amounts, payTo, asset, bazaar
+# extension) is untouched.
+CHALLENGE_DESCRIPTIONS = {
+    "/api/v1/signal": (
+        "Live DeFi trading signal: action, confidence and one-line reasoning "
+        "for ETH/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live "
+        "market data."
+    ),
+}
+
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
 # Public Render URL for the NEXUS Discovery Engine (Next.js platform).
 # Falls back to relative "/" so links work even if NEXUS is served from same domain.
@@ -1169,7 +1182,12 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
     """
     amount = price_usdc if price_usdc is not None else X402_FEE_USDC
     # Canonical x402 v2 challenge (parsed by x402scan) + atomic-unit amount.
-    accepts, resource, extensions = _x402_challenge_core(endpoint, amount)
+    # Per-endpoint selling description ("caught by the hand" — the challenge
+    # text is the machine's first impression). Only the description string
+    # changes per endpoint; the canonical v2 shape is untouched.
+    description = CHALLENGE_DESCRIPTIONS.get(endpoint, "")
+    accepts, resource, extensions = _x402_challenge_core(
+        endpoint, amount, description=description)
     body = {
         "x402Version": 2,
         "error": "payment_required",

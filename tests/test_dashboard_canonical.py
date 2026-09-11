@@ -156,6 +156,54 @@ def test_internal_health_noise_counted_separately(tmp_path):
     assert summary["by_source_clean"] == [{"source": "api", "n": 1}]
 
 
+def test_payment_funnel_challenges_vs_paid(tmp_path):
+    """Funnel per paid route: 402 challenges -> paid (200) follow-ups,
+    today + total — the 'caught by the hand' metric."""
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    # signal: 3 challenges, 1 paid (today)
+    store.record_request("GET", "/api/v1/signal", "api", 402, user_agent="node")
+    store.record_request("GET", "/api/v1/signal", "api", 402, user_agent="node")
+    store.record_request("GET", "/api/v1/signal", "api", 402, user_agent="node")
+    store.record_request("GET", "/api/v1/signal", "api", 200, user_agent="node")
+    # stats: 1 challenge, no paid
+    store.record_request("GET", "/api/stats", "api", 402, user_agent="node")
+    f = store.requests_summary()["funnel"]
+    assert f["/api/v1/signal"]["challenges_today"] == 3
+    assert f["/api/v1/signal"]["paid_today"] == 1
+    assert f["/api/v1/signal"]["challenges_total"] == 3
+    assert f["/api/stats"]["challenges_today"] == 1
+    assert f["/api/stats"]["paid_today"] == 0
+    # conversion formula used by monitor/dashboard: 1/3 -> 33.3%
+    rate = round(100.0 * f["/api/v1/signal"]["paid_today"]
+                 / f["/api/v1/signal"]["challenges_today"], 1)
+    assert rate == 33.3
+
+
+def test_top_user_agents_and_hourly_peaks(tmp_path):
+    """Full-day UA top-10 (clean) + hourly aggregation for peak analysis."""
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    for _ in range(3):
+        store.record_request("GET", "/api/v1/signal", "api", 402,
+                             user_agent="CarbonMonitor/0.1 healthcheck")
+    for _ in range(2):
+        store.record_request("GET", "/openapi.json", "web", 200,
+                             user_agent="Mozilla/5.0 (compatible; Agent402/1.0)")
+    store.record_request("GET", "/health", "web", 200, user_agent="Render/1.0")
+    s = store.requests_summary()
+    uas = {u["user_agent"]: u["n"] for u in s["top_user_agents"]}
+    assert uas["CarbonMonitor/0.1 healthcheck"] == 3
+    assert uas["Mozilla/5.0 (compatible; Agent402/1.0)"] == 2
+    assert "Render/1.0" not in uas                     # noise excluded
+    assert isinstance(s["hourly"], list)
+    total_hourly = sum(h["n"] for h in s["hourly"])
+    assert total_hourly >= 6                            # today's rows
+    assert all("noise" in h for h in s["hourly"])
+
+
 def test_payapi_state_roundtrip_and_baseline(tmp_path):
     from integrations.dashboard_store import DashboardStore
 
@@ -224,6 +272,33 @@ def test_dashboard_page_renders_and_nexus_redirects(client):
     redir = test_client.get("/nexus")
     assert redir.status_code == 302
     assert redir.headers["Location"].endswith("/dashboard")
+
+
+def test_signal_challenge_description_sells_and_v2_untouched(client, monkeypatch):
+    """The 402 challenge description for /api/v1/signal now sells the product
+    (what the agent gets, freshness) — while the canonical x402 v2 shape
+    (scheme, network, atomic amount, payTo, asset) stays byte-identical."""
+    test_client, main, _ = client
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)  # strict x402 for this test
+    resp = test_client.get("/api/v1/signal")
+    assert resp.status_code == 402
+    payload = resp.get_json()
+
+    desc = payload["resource"]["description"]
+    assert "Live DeFi trading signal" in desc
+    assert "confidence" in desc and "reasoning" in desc
+    assert "under 5 minutes" in desc
+
+    # Canonical v2 shape untouched
+    acc = payload["accepts"][0]
+    assert acc["scheme"] == "exact"
+    assert acc["network"] == "eip155:8453"
+    assert acc["amount"] == "3000"                  # atomic units
+    assert acc["payTo"] == main.X402_RECEIVER_ADDRESS
+    assert acc["asset"] == main.X402_USDC_CONTRACT
+    assert acc["extra"] == {"name": "USD Coin", "version": "2"}
+    assert payload["x402Version"] == 2
+    assert payload["error"] == "payment_required"
 
 
 # ── scan_window / scan_increment with a mocked Web3 (no live RPC) ─────────

@@ -98,6 +98,7 @@
       <table><tbody id="sources-body"><tr><td class="empty">…</td></tr></tbody></table>
     </div>
   </div>
+  <div class="hidden" id="funnel-box" style="margin-top:10px;"></div>
   <div class="note" style="margin:10px 0 6px;">Последни заявки</div>
   <table>
     <thead><tr><th>Време (UTC)</th><th>Път</th><th>Източник</th><th>Status</th><th>User-Agent</th><th>Канал</th></tr></thead>
@@ -189,6 +190,18 @@ function renderRequests(r) {
     card(r.total_clean ?? r.total, 'Общо чисти (от лог-а)') +
     card(r.today, 'Днес общо (raw)') +
     card(`${noise.today ?? 0} · ${noise.total ?? 0}`, 'Вътрешен шум (Render/1.0)');
+  const funnel = (r.funnel || {});
+  const frows = Object.entries(funnel).filter(([, f]) => f.challenges_today || f.paid_today || f.challenges_total).map(([path, f]) => {
+    const rate = f.challenges_today ? Math.round(1000 * f.paid_today / f.challenges_today) / 10 : 0;
+    return `<tr><td class="mono">${esc(path)}</td>
+      <td class="num">${f.challenges_today} → ${f.paid_today} (${rate}%)</td>
+      <td class="num">${f.challenges_total} → ${f.paid_total}</td></tr>`;
+  });
+  if (frows.length) {
+    const tbl = `<table><thead><tr><th>Маршрут</th><th>Днес: 402 → платени (конверсия)</th><th>Общо</th></tr></thead><tbody>${frows.join('')}</tbody></table>`;
+    $('funnel-box').innerHTML = tbl;
+    $('funnel-box').classList.remove('hidden');
+  }
   const ch = (r.by_channel || []);
   $('channels-body').innerHTML = ch.length ? ch.map(c =>
     `<tr><td class="mono">/f/${esc(c.channel)}</td><td class="num">${c.n}</td></tr>`).join('') :
