@@ -23,7 +23,16 @@
   truthful празен списък. Canary: чака собственика (имейлът се пише заедно).
 - ⚙️ **0x54E163e9… → market_crawler (08.09, fingerprint):** 325 различни получатели / 1281 tx / $11.32 за 30 дни — клас: непрекъснат индексатор (като 0x6777). Плати ни $0.003 на signal маршрута (08.09 08:28 UTC, tx 0x770d2178…) = **HEARTBEAT „в набора", НЕ launch сигнал**. Добавен в `KNOWN_PAYERS` като `market_crawler_54e1`; очаква се като редовен heartbeat. `external_unique_payers` остава честен = 1 (само човека 0x4dB7). Мониторът печата launch и heartbeat като отделни редове.
 - 🗓 **МЕСЕЧЕН ПРОТОКОЛ (редове, в този ред):** 1. `python scripts/competitor_recon.py` (пазарен скен) · 2. `python scripts/listing_monitor.py` (band/рангове/касa/MCP) · **5. `python scripts/ap2_radar.py` (AP2 радар — след recon и listing_monitor)**. AP2 радарът гледа САМО публичните артефакти на Agent Payments Protocol (google-agentic-commerce/AP2 + a2a-x402: комити, релийзи, WG патерни, цензус серия) — изход: `docs/AP2_RADAR.md`. **AP2 Slack (wg-tax, wg-domain-discovery) е ЧАСТЕН и НЕ се сканира** — чете го собственикът на око, месечно; скриптът гледа само публичните GitHub артефакти, без идентичности.
-- ⚠️ **INCIDENT-ЗАБЕЛЕЖКА (09.09): Render free = ЕФЕМЕРНА файлова система.**
+- 🔄 **RPC РЕЖИМ (11.09): бавен безплатен — платен режим блокиран от платежен
+  проблем, за препроба по-късно.** RPC bake-off (11.09): Alchemy free =
+  **10 блока/getLogs** (неползваем за backfill); drpc free = wildcard getLogs
+  работи на 250-блокови chunk-ове (61-154 лога) но flaky (408/500 на 1k+); pokt
+  = макс 50 блока; publicnode/blastapi/meow = празни/400. **BASE_RPC_URL =
+  base.drpc.org** на Render (без карта) + WHALEFLOW_CHUNK_BLOCKS=250.
+  Урок: failed chunk НЕ се пропуска — watermark спира до последен успешен
+  блок и се повтаря (и за продажбите, и за whale). Catch-up на 30-дневната
+  история върви бавно (drpc free pace ~50-165 blk/min) — продажбите се
+  доливат прогресивно; за production pace → Alchemy PAYG.
   Deploy-ът в 11:13 UTC изтри `data/` (без persistent disk контейнерът се
   създава наново). Резултат: request_log нулиран („чисти заявки" важат от
   последния deploy), НО **onchain_sales се само-възстанови за секунди**
