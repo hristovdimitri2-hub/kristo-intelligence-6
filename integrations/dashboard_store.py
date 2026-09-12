@@ -503,13 +503,23 @@ class DashboardStore:
 
     # ── chain scanning (read-only, same logic as competitor_recon) ───────────
     def _block_timestamps(self, w3, blocks: List[int]) -> Dict[int, datetime]:
+        """Block timestamps via the DEFAULT public RPC (mainnet.base.org) —
+        get_block works fine there even when the scan RPC (e.g. pokt) is
+        rate-limited. A missing timestamp must NOT silently become now()."""
         out: Dict[int, datetime] = {}
+        tw3 = Web3(Web3.HTTPProvider(
+            "https://mainnet.base.org", request_kwargs={"timeout": 30}))
         for b in dict.fromkeys(blocks):
-            try:
-                block = w3.eth.get_block(b)
-                out[b] = datetime.fromtimestamp(block["timestamp"], tz=timezone.utc)
-            except Exception:
-                continue
+            for attempt in range(3):
+                try:
+                    block = tw3.eth.get_block(b)
+                    out[b] = datetime.fromtimestamp(
+                        block["timestamp"], tz=timezone.utc)
+                    break
+                except Exception:
+                    if attempt < 2:
+                        import time as _time
+                        _time.sleep(1)
         return out
 
     def scan_window(
