@@ -645,9 +645,8 @@ class DashboardStore:
         latest = w3.eth.block_number
         last = int(self.get_meta("last_scanned_block", "0") or 0)
         if last <= 0:
-            # No watermark yet: treat `latest` as the start — the next cycle
-            # covers the gap; retro_scan is the intended first-run path.
-            self.set_meta("last_scanned_block", str(latest))
+            # No watermark: retro_scan owns the backfill — do NOT mark latest
+            # as scanned (that would skip the 30d history permanently).
             return 0
         from_block = last + 1
         to_block = min(latest, from_block + max_blocks)

@@ -397,10 +397,11 @@ def test_scan_increment_uses_persisted_watermark(tmp_path, monkeypatch):
     )
 
     store = DashboardStore(tmp_path / "d.db")
-    # No watermark → records nothing (retro_scan owns the backfill),
-    # but sets the watermark to the current latest block.
+    # No watermark → records nothing (retro_scan owns the backfill) and does
+    # NOT mark latest as scanned — the watermark stays unset so the next
+    # scan_increment retries (never silently skipping the history gap).
     assert store.scan_increment() == 0
-    assert store.get_meta("last_scanned_block") == "10005"
+    assert store.get_meta("last_scanned_block") is None
 
     store.set_meta("last_scanned_block", "10004")
     assert store.scan_increment() == 1
