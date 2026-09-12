@@ -348,10 +348,21 @@ def _install_fake_web3(monkeypatch, transfers, blocks_ts, latest=10_000):
 
 def test_scan_window_persists_transfers_with_timestamps(tmp_path, monkeypatch):
     from integrations.dashboard_store import DashboardStore
+    from datetime import datetime as _dt, timezone as _tz
+
+    def fake_stamps(self, w3, blocks):
+        return {b: _dt.fromtimestamp(blocks_ts.get(b, 0), tz=_tz.utc)
+                for b in blocks}
+    monkeypatch.setattr(DashboardStore, "_block_timestamps", fake_stamps)
 
     receiver = "0xd" + "0" * 39
     monkeypatch.setenv("BASE_FEE_RECEIVER", receiver)
     ts = 1757138460  # arbitrary block time
+    blocks_ts = {9_999: ts, 10_000: ts + 2}
+    def fake_stamps(self, w3, blocks):
+        return {b: _dt.fromtimestamp(blocks_ts.get(b, 0), tz=_tz.utc)
+                for b in blocks}
+    monkeypatch.setattr(DashboardStore, "_block_timestamps", fake_stamps)
     log1 = {
         "topics": [b"\x01", bytes.fromhex("aa" * 32), bytes.fromhex("bb" * 32)],
         "data": (3_000).to_bytes(32, "big"),       # $0.003 external
@@ -384,6 +395,11 @@ def test_scan_window_persists_transfers_with_timestamps(tmp_path, monkeypatch):
 
 def test_scan_increment_uses_persisted_watermark(tmp_path, monkeypatch):
     from integrations.dashboard_store import DashboardStore
+    from datetime import datetime as _dt, timezone as _tz
+
+    def fake_stamps(self, w3, blocks):
+        return {b: _dt.fromtimestamp(1757138460, tz=_tz.utc) for b in blocks}
+    monkeypatch.setattr(DashboardStore, "_block_timestamps", fake_stamps)
 
     monkeypatch.setenv("BASE_FEE_RECEIVER", "0xd" + "0" * 39)
     log = {
