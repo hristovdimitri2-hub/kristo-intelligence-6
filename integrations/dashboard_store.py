@@ -517,15 +517,22 @@ class DashboardStore:
         from_block: int,
         to_block: int,
         rpc_url: str = "",
-        chunk_size: int = 5000,
+        chunk_size: int = 0,
         pause_seconds: float = 0.15,
     ) -> int:
         """Scan a block range for incoming USDC transfers and persist them.
 
-        Read-only public-RPC scan (eth_getLogs), chunked and paced exactly
-        like scripts/competitor_recon. Returns the number of NEW sales
-        recorded. Watermark is NOT updated here — the caller owns it.
+        Read-only RPC scan (eth_getLogs), chunked and paced.
+        chunk_size: 0 = env SALES_CHUNK_BLOCKS (default 5000 — BUT drpc free
+        silently returns EMPTY for large recipient-filtered ranges; set 250
+        on Render). Returns the number of NEW sales recorded. Watermark is
+        NOT updated here — the caller owns it.
         """
+        try:
+            chunk_size = max(50, int(os.getenv("SALES_CHUNK_BLOCKS",
+                                               str(chunk_size or 5000))))
+        except ValueError:
+            chunk_size = 5000
         if to_block < from_block:
             return 0
         from web3 import Web3
