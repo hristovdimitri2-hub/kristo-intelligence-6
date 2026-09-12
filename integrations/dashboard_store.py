@@ -592,6 +592,9 @@ class DashboardStore:
                 _time.sleep(pause_seconds)
 
         if not transfers:
+            # Even with zero transfers the range WAS scanned up to safe_end —
+            # record it so the watermark advances honestly (no fake gaps).
+            self.set_meta("sales_safe_scanned_block", str(max(0, safe_end)))
             return 0
         stamps = self._block_timestamps(
             w3, [t["block_number"] for t in transfers]
@@ -627,10 +630,12 @@ class DashboardStore:
         from_block = max(1, latest - int(days * 86400 / BLOCK_TIME_SECONDS))
         added = self.scan_window(from_block, latest, rpc_url=rpc_url)
         # Watermark = last CONTIGUOUS safe block — a broken chunk is retried
-        # next cycle, never silently skipped (honesty rule).
+        # next cycle, never silently skipped (honesty rule). If the scan
+        # failed entirely (safe = 0/None), the watermark stays BELOW the
+        # start so the whole range is retried on the next cycle.
         safe = int(self.get_meta("sales_safe_scanned_block", "0") or 0)
         self.set_meta("last_scanned_block",
-                      str(min(safe, latest) if safe else latest))
+                      str(min(safe, latest) if safe else from_block - 1))
         return added
 
     def scan_increment(self, rpc_url: str = "", max_blocks: int = 20000) -> int:
@@ -655,7 +660,7 @@ class DashboardStore:
         added = self.scan_window(from_block, to_block, rpc_url=rpc_url)
         safe = int(self.get_meta("sales_safe_scanned_block", "0") or 0)
         self.set_meta("last_scanned_block",
-                      str(min(safe, to_block) if safe else to_block))
+                      str(min(safe, to_block) if safe else from_block - 1))
         return added
 
     # ── whale flow (network-wide big USDC transfers on Base) ─────────────────
