@@ -966,8 +966,15 @@ class DashboardStore:
 
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         if not w3.is_connected():
-            raise ConnectionError(
-                f"RPC not reachable: {redact_rpc(rpc_url)}")
+            # AUDIT (13.09): `is_connected()` is a web3_clientVersion probe, and
+            # a rate-limited provider (Alchemy answers 429 under load) makes it
+            # return False even though get_logs still works. Raising here threw
+            # away the WHOLE scan cycle instead of letting the per-chunk halving
+            # cope — live logs showed repeated "RPC not reachable" while the
+            # scans were otherwise healthy. Proceed: a genuinely dead RPC fails
+            # the first chunk and the halving loop stops at span 1 by itself.
+            log.debug("is_connected() false for %s — proceeding anyway",
+                      redact_rpc(rpc_url))
 
         padded = "0x" + "0" * 24 + receiver.lower().replace("0x", "")
         transfers: List[dict] = []
@@ -1106,8 +1113,10 @@ class DashboardStore:
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         if not w3.is_connected():
-            raise ConnectionError(
-                f"RPC not reachable: {redact_rpc(rpc_url)}")
+            # Same reasoning as the sales scan: a 429 makes this probe lie, and
+            # raising discarded the whole whale cycle.
+            log.debug("is_connected() false for %s — proceeding anyway",
+                      redact_rpc(rpc_url))
         added = 0
         # The attempt is recorded when it STARTS, not when it ends: the first
         # network-wide scan walks minutes, and the dashboard must say "scanning"

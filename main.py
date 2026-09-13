@@ -106,7 +106,8 @@ CHALLENGE_DESCRIPTIONS = {
     ),
     "/api/v1/whaleflow": (
         "Live whale flow: USDC transfers ≥ $50k on Base with labeled "
-        "counterparties — refreshed every 60 seconds."
+        "counterparties — scanned continuously (freshness follows the RPC "
+        "provider's limits; the response always states the block scanned to)."
     ),
 }
 
@@ -1677,7 +1678,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "whale-flow",
         "name": "Whale Flow (Live Base Feed)",
-        "description": "Network-wide USDC transfers ≥ $50k on Base with honestly labeled counterparties, refreshed every 60 seconds.",
+        "description": "Network-wide USDC transfers ≥ $50k on Base with honestly labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the feed reports the block it has scanned to).",
         "category": "onchain_intelligence",
         "endpoint": "/api/v1/whaleflow",
         "method": "GET",

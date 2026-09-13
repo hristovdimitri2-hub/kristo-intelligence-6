@@ -194,7 +194,14 @@ def test_whaleflow_route_402_price_and_description(client, monkeypatch):
     desc = payload["resource"]["description"]
     assert "whale flow" in desc.lower()
     assert "50k" in desc
-    assert "60 seconds" in desc
+    # The old text promised "refreshed every 60 seconds". With the public RPC
+    # capping a network-wide window at ONE block, that was provably false on a
+    # PAID route — the wording now claims only what is true (continuous scan,
+    # freshness bounded by the provider) and the response states the scanned
+    # block, so a buyer can verify the freshness instead of trusting a promise.
+    assert "60 seconds" not in desc
+    assert "scanned continuously" in desc
+    assert "provider" in desc
 
 
 def test_whaleflow_route_truthful_response(client, monkeypatch):
@@ -412,6 +419,63 @@ def test_whale_backfill_always_records_an_attempt(tmp_path, monkeypatch):
     assert s["last_attempt_at"]
     assert s["state"] in ("scan_failed", "awaiting_whale")
     assert s["state"] != "scan_not_started"
+
+
+def test_a_flaky_is_connected_probe_does_not_discard_the_whale_cycle(
+        tmp_path, monkeypatch):
+    """Alchemy answers 429 under load, which makes web3's `is_connected()`
+    (a web3_clientVersion probe) return False even though get_logs still works.
+    Raising on that discarded the WHOLE cycle — the live logs showed repeated
+    "RPC not reachable" while the scans were otherwise healthy."""
+    import types as _types
+
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    the_whale = _whale_log("11", 60000.0, "aa" * 32, "bb" * 32, 10_000)
+
+    fake = _types.ModuleType("web3")
+
+    class FakeEth:
+        def __init__(self):
+            self.block_number = 10_005
+
+        def is_connected(self):
+            return False                      # the lying probe
+
+        def get_logs(self, spec):
+            lo, hi = spec["fromBlock"], spec["toBlock"]
+            return [lg for lg in [the_whale]
+                    if lo <= lg["blockNumber"] <= hi]
+
+        def get_block(self, n):
+            return {"timestamp": NOW_TS}
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
+
+        def __init__(self, provider):
+            self.eth = FakeEth()
+
+        def is_connected(self):
+            return False
+
+        @staticmethod
+        def to_checksum_address(a):
+            return a
+
+        @staticmethod
+        def to_hex(h):
+            return (("0x" + bytes(h).hex())
+                    if isinstance(h, (bytes, bytearray)) else str(h))
+
+    fake.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+
+    store = DashboardStore(tmp_path / "d.db")
+    added = store.scan_whale_window(10_000, 10_005, rpc_url="http://fake")
+    assert added == 1, "a flaky is_connected() must not discard the cycle"
+    assert store.whaleflow_summary(window_hours=24)["count"] == 1
 
 
 def test_a_first_long_scan_reads_as_scanning_not_not_started(tmp_path):
