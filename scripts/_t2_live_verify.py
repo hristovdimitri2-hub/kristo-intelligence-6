@@ -78,11 +78,19 @@ check("price_map идва от API-то", len(c["route_price_map"]) == 6)
 print("\n=== 3. КИТОВЕ (whale flow) ===")
 w = S["whales"]
 check("честно състояние (не фалшива нула)",
-      w["state"] in ("awaiting_whale", "live_data", "scan_not_started"), w["state"])
+      w["state"] in ("awaiting_whale", "live_data", "scan_failed", "scanning"),
+      w["state"])
 check("празно => 'чакаме кит' с движещ се watermark",
       (w["count"] > 0) or (w["state"] == "awaiting_whale"
                            and w["scanned_until_block"]),
       f"count={w['count']} scan={w['scanned_until_block']} state={w['state']}")
+check("сканът е РАБОТЕЩ, не 'не е стартирал'",
+      w["state"] != "scan_not_started",
+      f"state={w['state']} attempt={w['last_attempt_at']} err={w['last_error']}")
+check("телеметрия: ширина на чанка (halving) + последен опит",
+      w.get("effective_chunk_blocks") and w.get("last_attempt_at"),
+      f"chunk={w.get('effective_chunk_blocks')} "
+      f"attempt={w.get('last_attempt_at')}")
 check("all_time брояч + праг + прозорец",
       w["all_time_count"] >= w["count"] and w["threshold_usdc"] > 0
       and w["window_hours"] > 0,

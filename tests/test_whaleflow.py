@@ -413,3 +413,17 @@ def test_whale_backfill_always_records_an_attempt(tmp_path, monkeypatch):
     assert s["state"] in ("scan_failed", "awaiting_whale")
     assert s["state"] != "scan_not_started"
 
+
+def test_a_first_long_scan_reads_as_scanning_not_not_started(tmp_path):
+    """The first network-wide walk takes minutes; the dashboard must say
+    'сканира се…' during it, not claim the scan never started."""
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    store.set_meta("whaleflow_last_attempt",
+                   datetime.now(timezone.utc).isoformat())
+    s = store.whaleflow_summary(window_hours=24)
+    assert s["count"] == 0
+    assert s["state"] == "scanning"
+    assert s["scanned_until_block"] is None
+

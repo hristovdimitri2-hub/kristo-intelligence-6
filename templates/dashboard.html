@@ -253,7 +253,8 @@ function renderWhales(w) {
   const lamp = failed ? 'red' : (empty ? 'amber' : 'green');
   const stateText = w.state === 'live_data' ? 'ДАННИ'
     : failed ? 'СКАНЪТ СЕ ПРОВАЛЯ'
-    : w.state === 'awaiting_whale' ? 'чакаме кит' : 'сканът не е стартирал';
+    : w.state === 'awaiting_whale' ? 'чакаме кит'
+    : w.state === 'scanning' ? 'сканира се…' : 'сканът не е стартирал';
   $('whale-cards').innerHTML =
     card(`<span class="lamp ${lamp}"></span>${esc(stateText)}`, 'Състояние (честно празно = чакаме кит)', true) +
     card(w.count, `Китове в прозореца (${w.window_hours}ч)`) +

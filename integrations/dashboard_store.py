@@ -1062,6 +1062,11 @@ class DashboardStore:
         safe_end = from_block - 1          # last contiguous scanned block
         span = chunk_blocks                # adaptive: halves when refused
         refused = False
+        # The attempt is recorded when it STARTS, not when it ends: the first
+        # network-wide scan walks minutes, and the dashboard must say "scanning"
+        # during it rather than "the scan has not started".
+        self.set_meta("whaleflow_last_attempt",
+                      datetime.now(timezone.utc).isoformat())
         while start <= to_block:
             end = min(start + span - 1, to_block)
             try:
@@ -1126,8 +1131,6 @@ class DashboardStore:
         covered_all = safe_end >= to_block
         self.set_meta("whaleflow_effective_chunk", str(span))
         self.set_meta("whaleflow_safe_scanned_block", str(max(0, safe_end)))
-        self.set_meta("whaleflow_last_attempt",
-                      datetime.now(timezone.utc).isoformat())
         if covered_all:
             # A complete range clears any previous failure — the feed is
             # healthy again and the dashboard must stop saying otherwise.
@@ -1239,9 +1242,11 @@ class DashboardStore:
             # (watermark advancing) and simply found nothing >= threshold.
             # "scan_failed" is the opposite: the scanner itself is broken, and
             # showing "чакаме кит" for it would hide a dead paid feed.
+            # "scanning" covers the first (minutes-long) network-wide walk.
             "state": ("live_data" if whales
                       else "scan_failed" if last_error
                       else "awaiting_whale" if scanned_until
+                      else "scanning" if last_attempt
                       else "scan_not_started"),
             "last_attempt_at": last_attempt or None,
             "last_error": last_error or None,
