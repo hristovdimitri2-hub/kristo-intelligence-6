@@ -6,8 +6,14 @@
 <body>
     <form method="POST">
         <h2>Checkout</h2>
-        <p class="small">Пакет: {{ plan.name }} — ${{ plan.price_usd }}</p>
-        <input type="hidden" name="plan" value="{{ plan_key }}">
+        <label>Пакет</label>
+        <select name="plan" required>
+            <option value="" disabled {{ 'selected' if not plan_key }}>— изберете пакет —</option>
+            {% for p in plan_options %}
+            <option value="{{ p.key }}" {{ 'selected' if p.key == plan_key }}>{{ p.name }} — {{ p.price_label }}</option>
+            {% endfor %}
+        </select>
+        <p class="small">Всички планове са видими; плащането минава през Stripe. Няма предварително избран пакет — изборът е твой.</p>
         <label>Email</label>
         <input type="email" name="email" required>
         <label>Източник</label>

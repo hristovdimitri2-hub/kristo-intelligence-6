@@ -2790,8 +2790,27 @@ def sales_checkout():
     """Checkout and lead capture for the sales funnel."""
     plans = checkout_store.get_all_plans()
     if request.method == "GET":
-        selected_plan = request.args.get("plan", "pro")
-        plan = checkout_store.get_plan(selected_plan) or checkout_store.get_plan("pro")
+        # No silent default (bug found by the owner's own test payment): the
+        # page used to render ONE plan as static text inside a hidden field,
+        # so the $29 plan existed in pricing but was unreachable from the form.
+        # A plan is now pre-selected only when ?plan=<key> names a REAL plan;
+        # otherwise nothing is selected and the buyer must choose.
+        requested = (request.args.get("plan") or "").strip()
+        selected_plan = requested if requested in plans else ""
+        plan = plans.get(selected_plan)
+        # Prices are formatted in Python, not in the template, so the page can
+        # only ever show the value from the single price source.
+        plan_options = [
+            {
+                "key": key,
+                "name": p.name,
+                "price_usd": p.price_usd,
+                "price_label": (f"${int(p.price_usd)}"
+                                if float(p.price_usd).is_integer()
+                                else f"${float(p.price_usd):.2f}"),
+            }
+            for key, p in plans.items()
+        ]
         status = request.args.get("status", "")
         status_msg = {
             "success": "Плащането е потвърдено. Системата е готова за onboarding.",
@@ -2799,6 +2818,8 @@ def sales_checkout():
         }.get(status, "")
         return render_template(
             "checkout.html",
+            plans=plans,
+            plan_options=plan_options,
             plan=plan,
             plan_key=selected_plan,
             status=status,
@@ -2809,15 +2830,27 @@ def sales_checkout():
     if limited:
         return limited
     email = (request.form.get("email") or "").strip()
-    plan_key = (request.form.get("plan") or "pro").strip()
+    plan_key = (request.form.get("plan") or "").strip()
     source = (request.form.get("source") or "website").strip()
     campaign = (request.form.get("campaign") or "launch").strip()
     telegram_chat_id = (request.form.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "Въведете валиден email."}), 400
+    if not plan_key:
+        # Explicitly refusing beats quietly charging $79 for a plan the buyer
+        # never chose — that silent default is what hid the $29 plan.
+        return jsonify({
+            "ok": False,
+            "error": "Изберете пакет.",
+            "available_plans": sorted(plans.keys()),
+        }), 400
     plan = checkout_store.get_plan(plan_key)
     if plan is None:
-        return jsonify({"ok": False, "error": "Невалиден план."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Невалиден план.",
+            "available_plans": sorted(plans.keys()),
+        }), 400
 
     lead = LeadRecord(
         email=email,
@@ -2902,16 +2935,30 @@ def api_checkout():
         return limited
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip()
-    plan_key = (payload.get("plan") or "pro").strip()
+    plan_key = (payload.get("plan") or "").strip()
     source = (payload.get("source") or "api").strip()
     campaign = (payload.get("campaign") or "launch").strip()
     telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
     if not email or "@" not in email:
         return jsonify({"ok": False, "error": "email is required"}), 400
 
+    # A missing plan used to default to "pro" ($79) silently — an API client
+    # that forgot the field would be quoted a price it never chose. The plan is
+    # now required and validated against the single price source.
+    available = sorted(checkout_store.get_all_plans().keys())
+    if not plan_key:
+        return jsonify({
+            "ok": False,
+            "error": "plan is required",
+            "available_plans": available,
+        }), 400
     plan = checkout_store.get_plan(plan_key)
     if plan is None:
-        return jsonify({"ok": False, "error": "unknown plan"}), 400
+        return jsonify({
+            "ok": False,
+            "error": "unknown plan",
+            "available_plans": available,
+        }), 400
 
     lead = LeadRecord(
         email=email,
