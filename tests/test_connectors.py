@@ -11,12 +11,19 @@ import pytest
 
 
 @pytest.fixture()
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_API_TOKEN", "test-admin-token")
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     import main
+    from integrations.dashboard_store import DashboardStore
+
     main._free_tier_usage.clear()
+    # C1 (durable replay guard) writes to SQLite, so these tests must own
+    # their own database — a fixed fake tx hash must not be "already spent"
+    # just because the suite ran before.
+    monkeypatch.setattr(main, "dashboard_db",
+                        DashboardStore(tmp_path / "dashboard_state.db"))
     return main.app.test_client()
 
 

@@ -87,8 +87,9 @@ X402_PRICE_MAP = {
     "/api/arb/opportunities": KRISTO_ARB_PRICE,
     "/api/v1/signal": KRISTO_SIGNAL_PRICE,
     # Whale flow (09.09, owner-approved build — docs/WHALE_FLOW_SPEC.md).
-    # NOT in any catalog/manifest/discovery until it passes a paid canary
-    # (condition 4). Paywall only — it is enforceable, not advertised.
+    # PROMOTED 13.09: the paid canary is on-chain (tx 0xc30268e3…4cce03,
+    # block 51200083, $0.003), so the route is now advertised in the public
+    # vitrine (REAL_X402_ROUTES) instead of paywall-only. Condition 4 met.
     "/api/v1/whaleflow": KRISTO_WHALEFLOW_PRICE,
 }
 
@@ -196,6 +197,21 @@ research_store = create_research_store(RESEARCH_DATA_FILE)
 from integrations.dashboard_store import DashboardStore  # noqa: E402
 DASHBOARD_DB_FILE = os.path.join(os.path.dirname(__file__), "data", "dashboard_state.db")
 dashboard_db = DashboardStore(DASHBOARD_DB_FILE)
+
+# ── Day-of-Truth recovery (13.09) ─────────────────────────────────────────
+# Re-assert the chain-verified sales manifest on EVERY boot. The Render
+# filesystem is ephemeral, so a deploy used to zero the on-chain counters
+# until the retro scan crawled back. Idempotent (INSERT OR IGNORE by tx hash),
+# never overwrites a scan-discovered row, never touches the scan watermark.
+# Full 66-char hashes, cross-verified against RPC receipts by
+# scripts/_verify_seed_chain.py — see integrations/verified_sales.py.
+try:
+    _seed = dashboard_db.seed_verified_sales()
+    log.info("Verified-sales seed: %d inserted, %d total ($%.6f USDC, "
+             "%d external payers).", _seed["inserted"], _seed["present"],
+             _seed["total_usdc"], _seed["external_payers"])
+except Exception as _seeded_exc:  # pragma: no cover - defensive
+    log.warning("Verified-sales seed failed (non-fatal): %s", _seeded_exc)
 
 checkout_store = SalesCheckout()
 telegram_flow = TelegramSalesFlow(os.getenv("TELEGRAM_BOT_TOKEN", ""))
@@ -1589,6 +1605,23 @@ REAL_X402_ROUTES: List[dict] = [
         "method": "GET",
         "price_usdc": KRISTO_SALES_PRICE,
     },
+    # ── Whale Flow — PROMOTED to the public vitrine (13.09) ────────────────
+    # Condition 4 of docs/WHALE_FLOW_SPEC.md was "unlisted until it passes a
+    # paid canary". The canary PASSED on-chain and is verifiable by anyone:
+    #   tx 0xc30268e387e84d449f433772ed11e9ab751394d80bfc310a9c7dbb5e604cce03
+    #   block 51200083 · $0.003 USDC · from 0x7e6b… (Chet / PayAPI verifier)
+    #   → exactly the whale-flow price, to the bound receiver.
+    # NOTE: the demo catalog SKU "whaleflow-radar" stays unlisted (see
+    # tests/test_catalog_cleanup.py); this is the REAL, live route.
+    {
+        "id": "whale-flow",
+        "name": "Whale Flow (Live Base Feed)",
+        "description": "Network-wide USDC transfers ≥ $50k on Base with honestly labeled counterparties, refreshed every 60 seconds.",
+        "category": "onchain_intelligence",
+        "endpoint": "/api/v1/whaleflow",
+        "method": "GET",
+        "price_usdc": KRISTO_WHALEFLOW_PRICE,
+    },
 ]
 
 
@@ -1601,7 +1634,7 @@ def _real_routes_payload() -> List[dict]:
 
 
 def _build_x402_discovery(base_url: str) -> dict:
-    """Build x402 discovery from the REAL routes (5 live x402 endpoints)."""
+    """Build x402 discovery from the REAL routes (6 live x402 endpoints)."""
     return {
         "schema_version": "1.1",
         "service": "Kristo Intelligence v6",
@@ -1617,7 +1650,7 @@ def _build_x402_discovery(base_url: str) -> dict:
             "settlement_status": "discovery_only",
         },
         "agents": _real_routes_payload(),
-        "note": "These are the 5 live x402 endpoints. Payment is verified on-chain (Base, USDC).",
+        "note": "These are the 6 live x402 endpoints. Payment is verified on-chain (Base, USDC).",
     }
 
 
@@ -1680,10 +1713,81 @@ def funnel_redirect(channel):
 _verified_payments: set = set()          # tx hashes that already granted access
 _payment_verify_lock = threading.Lock()
 _payment_verify_w3 = None
+#: Block number observed for the last on-chain-verified proof, keyed by tx —
+#: lets the sale history carry a REAL block instead of the 0 that PayAPI's
+#: review flagged, without changing _verify_payment_onchain's return contract.
+_verify_block: Dict[str, int] = {}
 
 _TRANSFER_EVENT_TOPIC = (
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 )
+
+# ── Payment guards C1 / C2 / H2 (security hardening, 13.09) ────────────────
+# C1 — durable replay lock: `payment_guards` in SQLite, not a RAM set.
+# C2 — confirmation depth: a settlement must be buried N blocks deep before
+#      the self-described proof rail will trust it.
+# H2 — endpoint binding: a proof may be scoped to one endpoint.
+PAYMENT_CONFIRMATIONS_DEFAULT = 12
+
+#: The standard x402 rail settles SYNCHRONOUSLY through the facilitator (the
+#: tx is mined before "settled" is returned), which is how every spec-compliant
+#: client works. Re-asking for 12 confirmations there would stall paying
+#: agents for ~24s. The policy is therefore split and both halves are
+#: env-tunable — raise MIN_STANDARD_PAYMENT_CONFIRMATIONS to harden it.
+STANDARD_PAYMENT_CONFIRMATIONS_DEFAULT = 1
+
+
+def _required_confirmations() -> int:
+    """C2 depth for the self-described proof rail (env MIN_PAYMENT_CONFIRMATIONS)."""
+    try:
+        return max(0, int(os.getenv("MIN_PAYMENT_CONFIRMATIONS",
+                                    str(PAYMENT_CONFIRMATIONS_DEFAULT))))
+    except ValueError:
+        return PAYMENT_CONFIRMATIONS_DEFAULT
+
+
+def _required_standard_confirmations() -> int:
+    """C2 depth for the synchronous facilitator rail."""
+    try:
+        return max(0, int(os.getenv(
+            "MIN_STANDARD_PAYMENT_CONFIRMATIONS",
+            str(STANDARD_PAYMENT_CONFIRMATIONS_DEFAULT))))
+    except ValueError:
+        return STANDARD_PAYMENT_CONFIRMATIONS_DEFAULT
+
+
+def _confirmations_ok(receipt_block: int, latest_block: int,
+                      required: Optional[int] = None) -> bool:
+    """True when `receipt_block` is buried at least `required` blocks deep.
+
+    A receipt sitting at the chain tip has 1 confirmation and can still be
+    reorganised away — granting a paid call on it means granting on a payment
+    that may cease to exist. Unknown block numbers are treated as
+    unconfirmed (fail-closed).
+    """
+    try:
+        rb = int(receipt_block or 0)
+        lb = int(latest_block or 0)
+    except (TypeError, ValueError):
+        return False
+    if rb <= 0 or lb <= 0 or rb > lb:
+        return False
+    need = _required_confirmations() if required is None else max(0, int(required))
+    return (lb - rb + 1) >= need
+
+
+def _proof_endpoint_matches(proof_endpoint: str, request_path: str) -> bool:
+    """H2 — endpoint binding.
+
+    A proof carrying `endpoint` is bound to that exact path and is rejected
+    anywhere else: the $0.003 that buys /api/stats must never unlock
+    /api/v1/signal. Proofs WITHOUT the field stay accepted (legacy clients),
+    and single-call consumption (C1) still applies to them.
+    """
+    ep = (proof_endpoint or "").strip()
+    if not ep:
+        return True
+    return ep.rstrip("/") == (request_path or "").rstrip("/")
 
 
 def _get_verify_web3():
@@ -1717,6 +1821,8 @@ def _decode_payment_proof(header_value: str) -> Optional[dict]:
             "tx_hash": tx_hash,
             "payer": payer,
             "amount_usdc": float(payload.get("amount_usdc") or 0.0),
+            # H2 — optional endpoint binding (legacy proofs omit it).
+            "endpoint": str(payload.get("endpoint") or "").strip(),
         }
     except (ValueError, TypeError, _binascii.Error, Exception):
         return None
@@ -1727,10 +1833,15 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
     Verify via RPC that tx_hash is a confirmed USDC Transfer from payer to
     our fee receiver with at least min_amount_usdc. Returns the verified
     amount, or None if the proof does not hold.
+
+    C2: the transfer must ALSO be buried at least
+    `MIN_PAYMENT_CONFIRMATIONS` blocks deep (default 12). A receipt at the
+    chain tip is not settlement — it can still be reorganised away.
     """
     try:
         w3 = _get_verify_web3()
         receipt = w3.eth.get_transaction_receipt(tx_hash)
+        latest_block = int(w3.eth.block_number)
     except Exception:
         # Unknown tx, RPC hiccup, or not mined yet — treat as not verified;
         # the client may retry in a few seconds.
@@ -1738,6 +1849,15 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
     try:
         if int(receipt.get("status", 0)) != 1:
             return None
+        # C2 — fail-closed confirmation-depth gate.
+        if not _confirmations_ok(int(receipt.get("blockNumber") or 0),
+                                 latest_block):
+            log.info("x402 proof not deep enough: tx=%s block=%s latest=%s "
+                     "(need %d confirmations)", tx_hash,
+                     receipt.get("blockNumber"), latest_block,
+                     _required_confirmations())
+            return None
+        _verify_block[tx_hash.lower()] = int(receipt.get("blockNumber") or 0)
         usdc_addr = os.getenv(
             "BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         ).lower()
@@ -1768,16 +1888,31 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
         return None
 
 
-def _try_consume_payment_proof(proof: dict, price: float, ip: str) -> bool:
+def _try_consume_payment_proof(proof: dict, price: float, ip: str,
+                               path: str = "") -> bool:
     """
     Consume a payment proof: verify it (fast path via recorded sales, slow
     path via on-chain receipt), record the sale exactly once, and grant one
     API call. One payment unlocks exactly one call (single-call semantics).
+
+    Guards applied on this rail:
+      H2 — endpoint binding  : a bound proof only works on its own path.
+      C2 — 12 confirmations  : enforced inside _verify_payment_onchain.
+      C1 — durable replay lock: the SQLite `payment_guards` claim is the real
+           gate; the RAM set is only a fast pre-check that dies on restart.
     """
+    endpoint = (path or request.path or "")
     tx = proof["tx_hash"]
+
+    # H2 — reject a proof scoped to a different endpoint BEFORE any RPC work.
+    if not _proof_endpoint_matches(proof.get("endpoint", ""), endpoint):
+        log.warning("x402 proof endpoint mismatch: proof_scope=%s path=%s",
+                    proof.get("endpoint"), endpoint)
+        return False
+
     with _lock:
         if tx in _verified_payments:
-            return False  # already consumed — prevents replay
+            return False  # already consumed this process lifetime
 
     # Fast path: the background monitor already recorded this transfer.
     amount = None
@@ -1789,23 +1924,40 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str) -> bool:
 
     # Slow path: verify the receipt directly on-chain (instant unlock —
     # no need to wait for the 30s monitor cycle).
+    verified_onchain = False
     if amount is None:
         amount = _verify_payment_onchain(tx, proof["payer"], price)
         if amount is None:
             return False
-        _record_real_sale(
-            token="USDC", amount_usd=round(amount, 6), tx_hash=tx,
-            sender=proof["payer"],
-        )
+        verified_onchain = True
 
     if amount + 1e-9 < price:
         return False
 
+    # C1 — DURABLE claim. This is the lock: one tx hash, one paid call, and
+    # the fact survives restarts/deploys (an in-RAM set did not).
+    if not dashboard_db.claim_payment_tx(
+        tx, endpoint=endpoint, payer=proof["payer"], amount_usdc=amount
+    ):
+        log.warning("x402 payment proof REPLAY blocked: tx=%s path=%s", tx,
+                    endpoint)
+        _record_request("x402_replay_blocked", False)
+        with _lock:
+            _verified_payments.add(tx)
+        return False
+
+    if verified_onchain:
+        _record_real_sale(
+            token="USDC", amount_usd=round(amount, 6), tx_hash=tx,
+            sender=proof["payer"],
+            block_number=_verify_block.get(tx, 0),
+        )
+
     with _lock:
         _verified_payments.add(tx)
         _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
-    log.info("x402 payment proof accepted: tx=%s payer=%s amount=$%.2f",
-             tx, proof["payer"], amount)
+    log.info("x402 payment proof accepted: tx=%s payer=%s amount=$%.2f path=%s",
+             tx, proof["payer"], amount, endpoint)
     return True
 
 
@@ -1857,9 +2009,6 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
         return False
 
-    with _lock:
-        _verified_payments.add(tx_hash)
-        _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
     # Populate the real block number from the settlement receipt — PayAPI's
     # review flagged history entries reporting block_number 0 (field never
     # populated on the settle path).
@@ -1871,8 +2020,35 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
             request_kwargs={"timeout": 20}))
         receipt = _w3.eth.get_transaction_receipt(tx_hash)
         block_number = int(receipt.get("blockNumber", 0) or 0)
+        # C2 (standard rail): the facilitator only returns after the tx is
+        # mined, so the default depth here is 1 — raise
+        # MIN_STANDARD_PAYMENT_CONFIRMATIONS to demand more.
+        if not _confirmations_ok(block_number, int(_w3.eth.block_number),
+                                 _required_standard_confirmations()):
+            g.x402_reject_reason = (
+                f"insufficient_confirmations: settlement {tx_hash} is not "
+                f"buried deep enough yet — retry the same PAYMENT-SIGNATURE"
+            )
+            log.warning("standard x402 settlement not deep enough: tx=%s", tx_hash)
+            return False
     except Exception as exc:
         log.info("settlement receipt block fetch failed (non-fatal): %s", exc)
+
+    # C1 — durable replay lock on the standard rail too: the same settlement
+    # tx can never buy a second call, even across restarts.
+    if not dashboard_db.claim_payment_tx(
+        tx_hash, endpoint=path, payer=payer or "", amount_usdc=price
+    ):
+        g.x402_reject_reason = (
+            f"replay_detected: settlement {tx_hash} was already consumed"
+        )
+        log.warning("standard x402 REPLAY blocked: tx=%s path=%s", tx_hash, path)
+        _record_request("x402_replay_blocked", False)
+        return False
+
+    with _lock:
+        _verified_payments.add(tx_hash)
+        _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
     _record_real_sale(
         token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
         sender=payer or "unknown", block_number=block_number,
@@ -1970,7 +2146,7 @@ def _x402_paywall():
                 proof = _decode_payment_proof(proof_header)
                 if proof:
                     price = _get_dynamic_price(ip, path)
-                    if _try_consume_payment_proof(proof, price, ip):
+                    if _try_consume_payment_proof(proof, price, ip, path=path):
                         return None  # paid call — allow through
 
                     # Credential WAS presented but is broken/unusable:
@@ -2136,6 +2312,43 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
     if include_recent_requests:
         payload["recent_requests"] = recent_requests[-50:]
     return payload
+
+
+@app.route("/api/admin/seed-sales", methods=["POST"])
+def api_admin_seed_sales():
+    """One-shot chain-verified sales recovery (admin-authenticated).
+
+    Re-runs the Day-of-Truth seed: every row in
+    `integrations.verified_sales.VERIFIED_SALES` (full 66-char hashes, pulled
+    from the chain and cross-verified against RPC receipts) is re-asserted
+    with INSERT OR IGNORE. Lets a wiped ephemeral filesystem be repaired
+    without a redeploy. Returns the RESULTING on-chain totals so the operator
+    can verify the number instead of trusting it.
+    """
+    denied = _require_admin_access()
+    if denied:
+        return denied
+    _record_request("admin_seed_sales", True)
+    try:
+        result = dashboard_db.seed_verified_sales()
+    except Exception as exc:
+        log.warning("Admin seed-sales failed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    summary = dashboard_db.sales_summary()
+    log.info("Admin seed-sales: inserted=%d total=%d $%.6f",
+             result["inserted"], result["present"], result["total_usdc"])
+    return jsonify({
+        "ok": True,
+        "seed": result,
+        "onchain": {
+            "total_usdc": summary["total_usdc"],
+            "total_count": summary["total_count"],
+            "external_payers": summary["external_payers"],
+            "by_class": summary["by_class"],
+            "last_scanned_block": int(
+                dashboard_db.get_meta("last_scanned_block", "0") or 0),
+        },
+    })
 
 
 @app.route("/api/dashboard-stats")

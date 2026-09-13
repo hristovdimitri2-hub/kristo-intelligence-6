@@ -37,12 +37,13 @@ def test_dynamic_x402_discovery_and_one_free_agent_demo(v6_client):
     payload = discovery.get_json()
     assert payload["service"] == "Kristo Intelligence v6"
     assert payload["payment"]["settlement_status"] == "discovery_only"
-    # 07.09: discovery advertises the 5 REAL routes (demo SKUs unlisted).
-    assert len(payload["agents"]) == 5
+    # 13.09: discovery advertises the REAL routes — the 5 originals plus
+    # Whale Flow, promoted after its paid canary (tx 0xc30268e3…4cce03).
+    assert len(payload["agents"]) == 6
     assert all("/playground" not in str(agent["endpoint"]) for agent in payload["agents"])
     assert {agent["endpoint"] for agent in payload["agents"]} == {
         "/api/v1/signal", "/api/stats", "/api/arb/opportunities",
-        "/api/bot-status", "/api/sales",
+        "/api/bot-status", "/api/sales", "/api/v1/whaleflow",
     }
 
     first = client.post(

@@ -10,10 +10,15 @@ def client(monkeypatch, tmp_path):
     monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
     import main
     from integrations.crm_store import CRMStore
+    from integrations.dashboard_store import DashboardStore
     from integrations.stripe_checkout import StripeCheckoutService
 
     monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
     monkeypatch.setattr(main, "stripe_checkout", StripeCheckoutService())
+    # Isolate the durable payment-guard table (C1) — the replay test below must
+    # not depend on, or pollute, whatever the last run left in data/.
+    monkeypatch.setattr(main, "dashboard_db",
+                        DashboardStore(tmp_path / "dashboard_state.db"))
     return main.app.test_client()
 
 
@@ -457,19 +462,25 @@ def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     response = client.get("/api/dashboard-stats")
     assert response.status_code == 200
     payload = response.get_json()
-    # 07.09: public product list = the 5 REAL x402 routes (demo SKUs unlisted).
-    assert payload["products_summary"]["total_products"] == 5
+    # 13.09: public product list = the REAL x402 routes (demo SKUs unlisted),
+    # now including Whale Flow after its paid canary.
+    assert payload["products_summary"]["total_products"] == 6
     assert payload["products_summary"]["kind"] == "real_x402_routes"
-    assert len(payload["products"]) == 5
+    assert len(payload["products"]) == 6
+    assert "/api/v1/whaleflow" in {p["endpoint"] for p in payload["products"]}
     assert "recent_requests" not in payload
     assert all(0.001 <= product["price_usdc"] <= 0.25 for product in payload["products"])
     assert payload["total_volume_usd"] == 0.0
     assert payload["total_sales"] == 0
     assert "telegram_bot_running" in payload
-    # No demo SKU names may leak into the public JSON.
+    # No demo SKU names may leak into the public JSON. The bare fragment
+    # "whaleflow" is no longer a demo-SKU marker: the REAL route
+    # /api/v1/whaleflow is advertised on purpose (canary tx 0xc30268e3…4cce03,
+    # block 51200083). The demo SKU id/name stay banned.
     blob = response.get_data(as_text=True)
-    for sku in ("whaleflow", "WhaleFlow", "gas-route", "sentiment-narrative",
-                "rug-risk", "security-triage", "channel-publisher", "divergence"):
+    for sku in ("whaleflow-radar", "WhaleFlow Radar", "gas-route",
+                "sentiment-narrative", "rug-risk", "security-triage",
+                "channel-publisher", "divergence"):
         assert sku not in blob, f"demo SKU leaked: {sku}"
 
 

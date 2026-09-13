@@ -20,12 +20,15 @@ Sources:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
 PAYER_CLASSES = {
@@ -186,6 +189,17 @@ class DashboardStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_whaleflow_ts ON whaleflow_events (ts)"
             )
+            # ── C1 replay guard: a tx hash may unlock EXACTLY ONE paid call,
+            # and that fact must survive restarts/deploys (RAM sets do not).
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS payment_guards (
+                    tx_hash    TEXT PRIMARY KEY,
+                    endpoint   TEXT,
+                    payer      TEXT,
+                    amount_usdc REAL,
+                    consumed_at TEXT
+                )"""
+            )
             conn.commit()
 
     # ── meta (watermarks, flags) ──────────────────────────────────────────────
@@ -274,6 +288,104 @@ class DashboardStore:
             )
             conn.commit()
             return cur.rowcount > 0
+
+    def seed_verified_sales(self, rows: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Idempotently restore the chain-verified sales manifest.
+
+        Priority-0 recovery: the canonical dashboard must show the REAL
+        on-chain numbers after a deploy wipes the ephemeral filesystem.
+        Every row in `integrations.verified_sales.VERIFIED_SALES` was pulled
+        from the chain (full 66-char hashes) and cross-verified against an
+        independent RPC receipt — see scripts/_verify_seed_chain.py.
+
+        Insert-only (`INSERT OR IGNORE` via record_sale): a scan-discovered
+        row wins over the seed, never the other way round. The sales
+        watermark is deliberately NOT touched.
+
+        Returns {"inserted": n, "present": n, "total_usdc": x}.
+        """
+        if rows is None:
+            from integrations.verified_sales import VERIFIED_SALES as rows  # type: ignore
+        inserted = 0
+        for r in rows or []:
+            ts = r.get("ts")
+            if ts is None and r.get("ts_unix") is not None:
+                ts = datetime.fromtimestamp(
+                    int(r["ts_unix"]), tz=timezone.utc
+                )
+            if self.record_sale(
+                tx_hash=r["tx_hash"],
+                amount_usdc=float(r["amount_usdc"]),
+                sender=r.get("sender", ""),
+                block_number=int(r.get("block_number") or 0),
+                ts=ts,
+                source="seed_recovery",
+            ):
+                inserted += 1
+        summary = self.sales_summary()
+        return {
+            "inserted": inserted,
+            "present": summary["total_count"],
+            "total_usdc": summary["total_usdc"],
+            "external_payers": summary["external_payers"],
+        }
+
+    # ── C1: replay guard (durable, deploy-safe) ───────────────────────────────
+    def claim_payment_tx(
+        self,
+        tx_hash: str,
+        endpoint: str = "",
+        payer: str = "",
+        amount_usdc: float = 0.0,
+    ) -> bool:
+        """Atomically CLAIM a settlement tx hash for exactly one paid call.
+
+        Returns True only for the FIRST (tx_hash, endpoint) consumer. A
+        replay — same hash again, or the same hash re-pointed at a different
+        endpoint (H2 binding) — returns False. The claim lives in SQLite, so
+        a restart/deploy can no longer resurrect a consumed proof (the
+        in-RAM `_verified_payments` set used to be the only guard).
+
+        The INSERT is the lock: the PRIMARY KEY makes the check-and-claim a
+        single atomic statement across processes/threads.
+        """
+        tx = _norm_tx(tx_hash)
+        if not tx:
+            return False
+        row = (
+            tx,
+            (endpoint or "").strip(),
+            (payer or "").lower(),
+            round(float(amount_usdc or 0.0), 6),
+            datetime.now(timezone.utc).isoformat(),
+        )
+        with self._write_lock, self._connect() as conn:
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO payment_guards
+                       (tx_hash, endpoint, payer, amount_usdc, consumed_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                row,
+            )
+            conn.commit()
+            # rowcount == 1 → we are the first consumer: claim granted.
+            # rowcount == 0 → this hash was already spent (replay), no matter
+            # which endpoint is asking now. Single-call semantics, always.
+            return cur.rowcount > 0
+
+    def payment_guard_stats(self) -> Dict[str, Any]:
+        """Guard telemetry for the dashboard / ops (no PII)."""
+        with self._connect() as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM payment_guards"
+            ).fetchone()
+            by_ep = conn.execute(
+                """SELECT endpoint, COUNT(*) AS n FROM payment_guards
+                   GROUP BY endpoint"""
+            ).fetchall()
+        return {
+            "consumed_total": n["n"],
+            "by_endpoint": {r["endpoint"] or "unknown": r["n"] for r in by_ep},
+        }
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales straight from the persistent table."""
@@ -505,7 +617,17 @@ class DashboardStore:
     def _block_timestamps(self, w3, blocks: List[int]) -> Dict[int, datetime]:
         """Block timestamps via the DEFAULT public RPC (mainnet.base.org) —
         get_block works fine there even when the scan RPC (e.g. pokt) is
-        rate-limited. A missing timestamp must NOT silently become now()."""
+        rate-limited. A missing timestamp must NOT silently become now().
+
+        PRIORITY-0 FIX (13.09): `Web3` was used here without being imported in
+        this scope (`scan_window` imports it for ITS OWN frame only), so the
+        very FIRST sale ever found raised NameError, which propagated out of
+        `scan_window` before the watermark was written. Net effect: the RPC
+        could return the transfer, and the dashboard still recorded nothing
+        and never advanced — the second half of the "0 sales" bug.
+        """
+        from web3 import Web3
+
         out: Dict[int, datetime] = {}
         tw3 = Web3(Web3.HTTPProvider(
             "https://mainnet.base.org", request_kwargs={"timeout": 30}))
@@ -533,14 +655,21 @@ class DashboardStore:
         """Scan a block range for incoming USDC transfers and persist them.
 
         Read-only RPC scan (eth_getLogs), chunked and paced.
-        chunk_size: 0 = env SALES_CHUNK_BLOCKS (default 5000 — BUT drpc free
-        silently returns EMPTY for large recipient-filtered ranges; set 250
-        on Render). Returns the number of NEW sales recorded. Watermark is
-        NOT updated here — the caller owns it.
+        chunk_size: 0 = env SALES_CHUNK_BLOCKS (default 5000 — BUT drpc/pokt
+        free tiers silently return EMPTY (or 400) for large recipient-filtered
+        ranges; 10 is the verified-safe width on both).
+
+        PRIORITY-0 FIX (13.09): the old `max(50, ...)` floor silently CLAMPED
+        SALES_CHUNK_BLOCKS=10 up to 50 — the one width that is known to fail
+        on the free tiers. The floor is now 1 and the scan is ADAPTIVE: a
+        failed chunk halves its own span (50→25→12→6→3→1) and retries the
+        SAME start block instead of giving up, so the watermark can no longer
+        stall behind a chunk size the RPC refuses. Returns the number of NEW
+        sales recorded. Watermark is NOT updated here — the caller owns it.
         """
         try:
-            chunk_size = max(50, int(os.getenv("SALES_CHUNK_BLOCKS",
-                                               str(chunk_size or 5000))))
+            chunk_size = max(1, int(os.getenv("SALES_CHUNK_BLOCKS",
+                                              str(chunk_size or 5000))))
         except ValueError:
             chunk_size = 5000
         if to_block < from_block:
@@ -566,8 +695,10 @@ class DashboardStore:
         transfers: List[dict] = []
         start = from_block
         safe_end = from_block - 1
+        span = chunk_size          # current adaptive width
+        min_span_used = chunk_size
         while start <= to_block:
-            end = min(start + chunk_size - 1, to_block)
+            end = min(start + span - 1, to_block)
             try:
                 logs = w3.eth.get_logs({
                     "fromBlock": start,
@@ -576,11 +707,19 @@ class DashboardStore:
                     "topics": [TRANSFER_TOPIC, None, padded],
                 })
             except Exception:
-                # Failed chunk: DO NOT silently skip (honesty rule — same as
-                # whale scan). Stop the scan; the watermark-based retry next
-                # cycle re-covers this range.
+                if span > 1:
+                    # Adaptive back-off: halve the window and retry the SAME
+                    # start block. Never skip a range, never fake a gap.
+                    span = max(1, span // 2)
+                    min_span_used = min(min_span_used, span)
+                    log.debug("sales chunk failed — retry %s.. with span=%d",
+                              start, span)
+                    continue
+                # A 1-block recipient-filtered query failed: the RPC is down.
+                # Stop; the watermark-based retry next cycle re-covers it.
                 break
             safe_end = end
+            min_span_used = min(min_span_used, span)
             for lg in logs:
                 try:
                     sender = "0x" + bytes(lg["topics"][1]).hex()[-40:]
@@ -601,6 +740,8 @@ class DashboardStore:
                 import time as _time
                 _time.sleep(pause_seconds)
 
+        # Ops telemetry: the effective width actually accepted by the RPC.
+        self.set_meta("sales_effective_chunk", str(min_span_used))
         if not transfers:
             # Even with zero transfers the range WAS scanned up to safe_end —
             # record it so the watermark advances honestly (no fake gaps).

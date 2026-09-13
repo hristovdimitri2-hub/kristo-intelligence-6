@@ -1,25 +1,32 @@
 """Catalog cleanup (07.09): the 8 demo SKUs are unlisted from public surfaces.
 
 Guards:
-  * discovery (/.well-known/x402.json) = exactly the 5 REAL routes
-  * /api/v1/agents = the same 5, zero SKU names
+  * discovery (/.well-known/x402.json) = exactly the REAL routes
+  * /api/v1/agents = the same list, zero demo-SKU names
   * /agents page redirects to /dashboard (no demo storefront)
   * /api/dashboard-stats products = real routes, no SKU name leaks
   * /api/mcp/manifest never contained SKUs — stays clean
   * the demo playground door still WORKS in code (unadvertised, by design)
+
+Updated 13.09: the Whale Flow route was PROMOTED to the public vitrine after
+its paid on-chain canary passed (tx 0xc30268e3…4cce03, block 51200083,
+$0.003 — the whale-flow price, to the bound receiver). The demo SKU
+`whaleflow-radar` remains unlisted, which is why the bare fragment
+"whaleflow"/"WhaleFlow" was replaced by the precise SKU identity — the REAL
+route path /api/v1/whaleflow must not trip the demo-SKU ban.
 """
 
 import pytest
 
 SKU_FRAGMENTS = (
-    "whaleflow", "WhaleFlow", "gas-route", "sentiment-narrative",
+    "whaleflow-radar", "WhaleFlow Radar", "gas-route", "sentiment-narrative",
     "rug-risk-scanner", "security-triage", "channel-publisher",
     "Divergence", "yield-risk",
 )
 
 REAL_ENDPOINTS = {
     "/api/v1/signal", "/api/stats", "/api/arb/opportunities",
-    "/api/bot-status", "/api/sales",
+    "/api/bot-status", "/api/sales", "/api/v1/whaleflow",
 }
 
 
@@ -42,12 +49,12 @@ def _assert_no_sku_leak(blob: str, where: str) -> None:
         assert fragment not in blob, f"demo SKU '{fragment}' leaked in {where}"
 
 
-def test_discovery_lists_exactly_the_five_real_routes(client):
+def test_discovery_lists_exactly_the_real_routes(client):
     resp = client.get("/.well-known/x402.json")
     assert resp.status_code == 200
     payload = resp.get_json()
     agents = payload["agents"]
-    assert len(agents) == 5
+    assert len(agents) == 6
     assert {a["endpoint"] for a in agents} == REAL_ENDPOINTS
     assert all(a["method"] == "GET" for a in agents)
     _assert_no_sku_leak(resp.get_data(as_text=True), "x402.json")

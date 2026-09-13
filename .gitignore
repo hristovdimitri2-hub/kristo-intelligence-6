@@ -51,3 +51,8 @@ tests/test_results.json
 *.bak
 
 secrets/
+
+# Local scratch / debug output (never commit)
+temp_*.err
+pyout.txt
+_my_main_patch.txt

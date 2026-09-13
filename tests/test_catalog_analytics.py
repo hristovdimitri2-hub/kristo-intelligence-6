@@ -107,7 +107,7 @@ def test_click_endpoint_and_admin_catalog_metrics(catalog_client):
     catalog = client.get("/api/v1/agents")
     assert catalog.status_code == 200
     agents = catalog.get_json()["agents"]
-    assert len(agents) == 5
+    assert len(agents) == 6
     assert all("/playground" not in str(a["endpoint"]) for a in agents)
     assert all(a["id"] not in ("whaleflow-radar", "gas-route-optimizer",
                                "ai-sentiment-narrative-pulse") for a in agents)

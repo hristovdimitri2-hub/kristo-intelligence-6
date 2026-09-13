@@ -274,7 +274,8 @@ def api_mcp_manifest():
         VIP_MONTHLY_USDC,
         VIP_THRESHOLD_USDC,
     )
-    from config import get_base_fee_receiver, KRISTO_SIGNAL_PRICE, KRISTO_ARB_PRICE
+    from config import (get_base_fee_receiver, KRISTO_SIGNAL_PRICE,
+                        KRISTO_ARB_PRICE, KRISTO_WHALEFLOW_PRICE)
 
     _record_request("api_mcp_manifest", True)
     fee_receiver = get_base_fee_receiver()
@@ -299,7 +300,8 @@ def api_mcp_manifest():
                     "description": f"Pay-per-call: from {KRISTO_SIGNAL_PRICE} USDC per API request (per-endpoint pricing in 'endpoints.available')",
                     "access": "single API call",
                     "endpoints": ["/api/stats", "/api/sales", "/api/bot-status",
-                                  "/api/arb/opportunities", "/api/v1/signal"],
+                                  "/api/arb/opportunities", "/api/v1/signal",
+                                  "/api/v1/whaleflow"],
                 },
                 {
                     "id": "vip_monthly",
@@ -325,6 +327,8 @@ def api_mcp_manifest():
                  "description": "Live cross-DEX arbitrage spreads on Base (60s refresh)"},
                 {"path": "/api/v1/signal", "method": "GET", "cost_usdc": KRISTO_SIGNAL_PRICE,
                  "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN"},
+                {"path": "/api/v1/whaleflow", "method": "GET", "cost_usdc": KRISTO_WHALEFLOW_PRICE,
+                 "description": "Network-wide whale flow: USDC transfers >= $50k on Base with labeled counterparties (60s refresh)"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
                  "description": "This manifest (free)"},
                 {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0,
