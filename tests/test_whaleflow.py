@@ -260,3 +260,156 @@ def test_whaleflow_not_in_readme():
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
         encoding="utf-8")
     assert "/api/v1/whaleflow" not in readme
+
+
+# ── AUDIT (Табло 2.0): the whale scan carried the SAME bug class as sales ────
+
+def _install_refusing_web3(monkeypatch, logs, blocks_ts, latest, max_span):
+    """Fake web3 that REFUSES any window wider than `max_span` — exactly how
+    the public Base RPC behaves (HTTP 500 at 250 blocks network-wide, fine at
+    <=100). Records every attempted span so a test can prove the halving."""
+    fake = types.ModuleType("web3")
+    attempts = []
+
+    class FakeEth:
+        def __init__(self):
+            self.block_number = latest
+
+        def is_connected(self):
+            return True
+
+        def get_logs(self, spec):
+            lo, hi = spec["fromBlock"], spec["toBlock"]
+            span = hi - lo + 1
+            attempts.append(span)
+            if max_span is not None and span > max_span:
+                raise ValueError("query exceeds the RPC's range limit")
+            return [lg for lg in logs if lo <= lg["blockNumber"] <= hi]
+
+        def get_block(self, n):
+            return {"timestamp": blocks_ts.get(n, 0)}
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
+
+        def __init__(self, provider):
+            self.eth = FakeEth()
+
+        def is_connected(self):
+            return True
+
+        @staticmethod
+        def to_checksum_address(a):
+            return a
+
+        @staticmethod
+        def to_hex(h):
+            return (("0x" + bytes(h).hex())
+                    if isinstance(h, (bytes, bytearray)) else str(h))
+
+    fake.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+    return attempts
+
+
+def test_whale_scan_halves_a_refused_window_instead_of_giving_up(
+        tmp_path, monkeypatch):
+    """Measured against the real RPC: a 250-block NETWORK-WIDE window answers
+    HTTP 500, while <=100 blocks answers fine and carries real whales (100
+    blocks -> 701 transfers >= $50k). The old code used a 250 default behind a
+    `max(50, …)` floor and simply `break`-ed on the first refusal, so the
+    promoted PAID /api/v1/whaleflow route could never serve a single row."""
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("WHALEFLOW_CHUNK_BLOCKS", "250")   # the refusing width
+    logs = [
+        _whale_log("11", 60000.0, "aa" * 32, "bb" * 32, 10_010),
+        _whale_log("22", 90000.0, "cc" * 32, "bb" * 32, 10_150),
+        _whale_log("33", 150000.0, "dd" * 32, "aa" * 32, 10_260),
+    ]
+    ts = {10_010: NOW_TS, 10_150: NOW_TS + 10, 10_260: NOW_TS + 20}
+    attempts = _install_refusing_web3(monkeypatch, logs, ts, latest=10_400,
+                                      max_span=100)
+    store = DashboardStore(tmp_path / "d.db")
+    added = store.scan_whale_window(10_000, 10_400, rpc_url="http://fake")
+
+    assert added == 3, "every whale in the range must be persisted"
+    assert max(attempts) == 250, "must try the configured width first"
+    assert min(attempts) <= 100, "must halve down to a width the RPC accepts"
+    # The recorded width is the LAST span used (250→125→62), i.e. one the RPC
+    # accepts — never the 250 it refused.
+    assert 0 < int(store.get_meta("whaleflow_effective_chunk")) <= 125
+    # …and the whole range is covered, with no silent gap.
+    assert int(store.get_meta("whaleflow_safe_scanned_block")) == 10_400
+    assert store.get_meta("whaleflow_last_error") in ("", None)
+
+
+def test_whale_chunk_env_is_not_clamped_upwards(tmp_path, monkeypatch):
+    """The sales scan lost days to a hidden `max(50, …)` floor; the whale scan
+    must respect WHALEFLOW_CHUNK_BLOCKS literally."""
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("WHALEFLOW_CHUNK_BLOCKS", "10")
+    logs = [_whale_log("11", 60000.0, "aa" * 32, "bb" * 32, 10_005)]
+    attempts = _install_refusing_web3(monkeypatch, logs, {10_005: NOW_TS},
+                                      latest=10_009, max_span=None)
+    store = DashboardStore(tmp_path / "d.db")
+    store.scan_whale_window(10_000, 10_009, rpc_url="http://fake")
+    assert set(attempts) == {10}, f"env width ignored: tried {attempts}"
+    assert store.get_meta("whaleflow_effective_chunk") == "10"
+
+
+def test_a_broken_whale_scan_reports_itself_instead_of_looking_empty(
+        tmp_path, monkeypatch):
+    """Honesty: 'чакаме кит' (healthy empty) and 'scan_failed' (broken feed)
+    must never be shown as the same thing on a PAID route."""
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    _install_refusing_web3(monkeypatch, [], {}, latest=10_400, max_span=0)
+    store = DashboardStore(tmp_path / "d.db")
+    store.scan_whale_window(10_000, 10_400, rpc_url="http://fake")
+
+    s = store.whaleflow_summary(window_hours=24)
+    assert s["count"] == 0
+    assert s["state"] == "scan_failed"          # NOT awaiting_whale
+    assert s["last_error"] and "refused" in s["last_error"]
+    assert s["last_attempt_at"]                 # the screen can show when
+
+
+def test_a_complete_whale_scan_clears_a_previous_failure(tmp_path, monkeypatch):
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    store = DashboardStore(tmp_path / "d.db")
+
+    _install_refusing_web3(monkeypatch, [], {}, latest=10_010, max_span=0)
+    store.scan_whale_window(10_000, 10_010, rpc_url="http://fake")
+    assert store.whaleflow_summary(window_hours=24)["state"] == "scan_failed"
+
+    logs = [_whale_log("11", 60000.0, "aa" * 32, "bb" * 32, 10_005)]
+    _install_refusing_web3(monkeypatch, logs, {10_005: NOW_TS}, latest=10_010,
+                           max_span=None)
+    store.scan_whale_window(10_000, 10_010, rpc_url="http://fake")
+    s = store.whaleflow_summary(window_hours=24)
+    assert s["state"] == "live_data"
+    assert s["last_error"] is None
+
+
+def test_whale_backfill_always_records_an_attempt(tmp_path, monkeypatch):
+    """After a real backfill attempt the screen must never claim the scan
+    'has not started' — that hid a dead feed on the live instance."""
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    # Every window refused → the attempt still has to be recorded.
+    _install_refusing_web3(monkeypatch, [], {}, latest=10_400, max_span=0)
+    store = DashboardStore(tmp_path / "d.db")
+    store.whaleflow_backfill(hours=1, rpc_url="http://fake")
+    s = store.whaleflow_summary(window_hours=24)
+    assert s["last_attempt_at"]
+    assert s["state"] in ("scan_failed", "awaiting_whale")
+    assert s["state"] != "scan_not_started"
+

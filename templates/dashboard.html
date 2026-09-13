@@ -249,8 +249,10 @@ function renderClients(c) {
 
 function renderWhales(w) {
   const empty = w.count === 0;
-  const lamp = empty ? 'amber' : 'green';
+  const failed = w.state === 'scan_failed';
+  const lamp = failed ? 'red' : (empty ? 'amber' : 'green');
   const stateText = w.state === 'live_data' ? 'ДАННИ'
+    : failed ? 'СКАНЪТ СЕ ПРОВАЛЯ'
     : w.state === 'awaiting_whale' ? 'чакаме кит' : 'сканът не е стартирал';
   $('whale-cards').innerHTML =
     card(`<span class="lamp ${lamp}"></span>${esc(stateText)}`, 'Състояние (честно празно = чакаме кит)', true) +
@@ -271,7 +273,9 @@ function renderWhales(w) {
   $('whales-note').textContent =
     'all-time записи: ' + (w.all_time_count || 0) +
     (w.last_event_at ? ' · последен: ' + utc(w.last_event_at) + ' (блок ' + w.last_event_block + ')' : '') +
-    ' · ' + (w.note || '');
+    (w.last_attempt_at ? ' · последен скан: ' + utc(w.last_attempt_at) : '') +
+    (w.effective_chunk_blocks ? ' · ширина на чанка: ' + w.effective_chunk_blocks + ' блока' : '') +
+    ' · ' + (w.last_error ? 'ГРЕШКА: ' + w.last_error : (w.note || ''));
 }
 
 function renderGuards(g) {

@@ -1029,16 +1029,28 @@ class DashboardStore:
         transfers >= the current WHALE_THRESHOLD. Read-only RPC,
         chunked/paced. Watermark is the caller's job.
         Returns the number of NEW whale events recorded.
-        chunk_blocks: 0 = env WHALEFLOW_CHUNK_BLOCKS (default 250 — the size
-        the free drpc endpoint reliably serves for wildcard getLogs)."""
+
+        AUDIT FIX (Табло 2.0): this function carried the SAME `max(50, …)`
+        floor that broke the sales scan, with a 250-block default. Measured
+        against the public Base RPC: a network-wide (unfiltered) getLogs
+        window of 250 blocks answers **HTTP 500**, while <=100 blocks answers
+        fine and contains real data (100 blocks -> 5,072 transfers, 701 of
+        them >= $50k). So every whale chunk failed on the first call and the
+        promoted, PAID /api/v1/whaleflow route could never serve a single row.
+        The floor is gone and a refused window is now retried with HALF the
+        span (same start block, never skipped), exactly like the sales scan.
+
+        chunk_blocks: 0 = env WHALEFLOW_CHUNK_BLOCKS (default 100 — the widest
+        window measured to work network-wide).
+        """
         if to_block < from_block:
             return 0
         threshold = whale_threshold()
         try:
-            chunk_blocks = max(50, int(os.getenv("WHALEFLOW_CHUNK_BLOCKS",
-                                                 str(chunk_blocks or 250))))
+            chunk_blocks = max(1, int(os.getenv("WHALEFLOW_CHUNK_BLOCKS",
+                                                str(chunk_blocks or 100))))
         except ValueError:
-            chunk_blocks = 250
+            chunk_blocks = 100
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
@@ -1048,8 +1060,10 @@ class DashboardStore:
         added = 0
         start = from_block
         safe_end = from_block - 1          # last contiguous scanned block
+        span = chunk_blocks                # adaptive: halves when refused
+        refused = False
         while start <= to_block:
-            end = min(start + chunk_blocks - 1, to_block)
+            end = min(start + span - 1, to_block)
             try:
                 logs = w3.eth.get_logs({
                     "fromBlock": start, "toBlock": end,
@@ -1057,8 +1071,14 @@ class DashboardStore:
                     "topics": [TRANSFER_TOPIC, None, None],   # all transfers
                 })
             except Exception:
-                # Failed chunk: DO NOT silently skip (honesty rule) — stop the
-                # scan at the last good block; the caller retries next cycle.
+                # A window this wide is refused (measured: HTTP 500 at 250
+                # network-wide). Halve and retry the SAME start block — never
+                # skip a range, never give up while a 1-block query still has
+                # a chance (the sales scan uses the same rule).
+                refused = True
+                if span > 1:
+                    span = max(1, span // 2)
+                    continue
                 break
             stamps = {}
             for lg in logs:
@@ -1103,7 +1123,21 @@ class DashboardStore:
         # Record the last CONTIGUOUS scanned block — failed chunks are retried
         # next cycle instead of being skipped (honesty: we never serve a range
         # that was not actually scanned).
+        covered_all = safe_end >= to_block
+        self.set_meta("whaleflow_effective_chunk", str(span))
         self.set_meta("whaleflow_safe_scanned_block", str(max(0, safe_end)))
+        self.set_meta("whaleflow_last_attempt",
+                      datetime.now(timezone.utc).isoformat())
+        if covered_all:
+            # A complete range clears any previous failure — the feed is
+            # healthy again and the dashboard must stop saying otherwise.
+            self.set_meta("whaleflow_last_error", "")
+        elif refused:
+            self.set_meta(
+                "whaleflow_last_error",
+                f"RPC refused even a {span}-block network-wide window; "
+                f"scanned {from_block}-{max(0, safe_end)} of {to_block}",
+            )
         return added
 
     def whaleflow_backfill(self, hours: int = WHALE_BACKFILL_HOURS_DEFAULT,
@@ -1156,6 +1190,10 @@ class DashboardStore:
         cutoff = (datetime.now(timezone.utc)
                   - timedelta(hours=window_hours)).isoformat()
         scanned_until = self.get_meta("whaleflow_safe_scanned_block") or self.get_meta("whaleflow_last_block")
+        # Honesty: a BROKEN scan must never look like a healthy empty feed.
+        last_attempt = self.get_meta("whaleflow_last_attempt")
+        last_error = self.get_meta("whaleflow_last_error")
+        effective_chunk = self.get_meta("whaleflow_effective_chunk")
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT ts, token, amount_usdc, from_addr, to_addr,
@@ -1199,7 +1237,14 @@ class DashboardStore:
                                  else None),
             # "awaiting_whale" is a TRUTHFUL empty: the scan is running
             # (watermark advancing) and simply found nothing >= threshold.
+            # "scan_failed" is the opposite: the scanner itself is broken, and
+            # showing "чакаме кит" for it would hide a dead paid feed.
             "state": ("live_data" if whales
-                      else ("awaiting_whale" if scanned_until
-                            else "scan_not_started")),
+                      else "scan_failed" if last_error
+                      else "awaiting_whale" if scanned_until
+                      else "scan_not_started"),
+            "last_attempt_at": last_attempt or None,
+            "last_error": last_error or None,
+            "effective_chunk_blocks": (int(effective_chunk)
+                                       if effective_chunk else None),
         }

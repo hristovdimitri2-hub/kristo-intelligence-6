@@ -842,15 +842,13 @@ def _dashboard_scan_loop():
     except Exception as exc:
         log.warning("Dashboard retro scan failed (incremental will catch up): %s", exc)
 
-    # Whale flow: initial network-wide backfill, then 60s increments
-    # (docs/WHALE_FLOW_SPEC.md — owner-approved build, unlisted until canary).
-    try:
-        wf_added = dashboard_db.whaleflow_backfill(
-            hours=int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "24")))
-        log.info("Whale flow backfill: %d whale event(s) persisted.", wf_added)
-    except Exception as exc:
-        log.warning("Whale flow backfill failed (incremental will catch up): %s", exc)
-
+    # Whale flow runs in its OWN thread (Табло 2.0 audit): it used to sit
+    # behind retro_scan(days=30) in this same thread, and retro_scan writes its
+    # watermark incrementally while it walks ~1.3M blocks — so for the first
+    # long stretch after every deploy the promoted, PAID /api/v1/whaleflow
+    # route served a feed whose scan had not even started (live state was
+    # literally "scan_not_started"). A separate thread also gives the whale
+    # scan an independent failure domain.
     next_payapi = time.time()
     while True:
         time.sleep(scan_interval)
@@ -861,15 +859,6 @@ def _dashboard_scan_loop():
         except Exception as exc:
             log.warning("Dashboard scan cycle failed (non-fatal): %s", exc)
 
-        # Whale flow 60s increment (independent failure domain — never
-        # breaks the sales scan or PayAPI refresh).
-        try:
-            wf_added = dashboard_db.whaleflow_increment()
-            if wf_added:
-                log.info("Whale flow increment: %d new event(s).", wf_added)
-        except Exception as exc:
-            log.warning("Whale flow increment failed (non-fatal): %s", exc)
-
         if time.time() >= next_payapi:
             next_payapi = time.time() + payapi_interval
             try:
@@ -878,6 +867,40 @@ def _dashboard_scan_loop():
                 log.info("Dashboard: PayAPI listing state refreshed.")
             except Exception as exc:
                 log.warning("Dashboard PayAPI refresh failed: %s", exc)
+
+
+def _whaleflow_scan_loop():
+    """Whale flow: bounded backfill, then a 60s incremental scan.
+
+    Kept independent of the sales/PayAPI loop so a heavy network-wide scan can
+    never starve the money numbers, and vice versa.
+
+    The incremental scan is what makes the feed LIVE, and it is cheap (one
+    ~100-block window per cycle). The backfill is deliberately BOUNDED: a
+    network-wide window returns ~5,000 transfers per 100 blocks and every
+    whale needs its own block fetch for an honest timestamp, so walking 24h
+    (~43k blocks) costs hours on a free RPC. Warm-starting one hour proves the
+    pipeline end-to-end; history then accumulates on its own. Raise
+    WHALEFLOW_BACKFILL_HOURS if you want the deep history paid for in time.
+    """
+    interval = max(30, int(os.getenv("WHALEFLOW_SCAN_INTERVAL", "60")))
+    hours = max(1, int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "1")))
+    log.info("Whale flow scan loop started (backfill=%dh, interval=%ss).",
+             hours, interval)
+    try:
+        added = dashboard_db.whaleflow_backfill(hours=hours)
+        log.info("Whale flow backfill: %d whale event(s) persisted.", added)
+    except Exception as exc:
+        log.warning("Whale flow backfill failed (incremental will catch up): %s",
+                    exc)
+    while True:
+        try:
+            added = dashboard_db.whaleflow_increment()
+            if added:
+                log.info("Whale flow increment: %d new event(s).", added)
+        except Exception as exc:
+            log.warning("Whale flow increment failed (non-fatal): %s", exc)
+        time.sleep(interval)
 
 
 # ── Endpoint → Product mapping for per-agent stats ────────────────────────
@@ -3561,12 +3584,16 @@ def _canonical_dashboard_payload() -> dict:
                 "all_time_count": whales["all_time_count"],
                 "last_event_at": whales["last_event_at"],
                 "last_event_block": whales["last_event_block"],
+                "last_attempt_at": whales.get("last_attempt_at"),
+                "last_error": whales.get("last_error"),
+                "effective_chunk_blocks": whales.get("effective_chunk_blocks"),
                 "window_hours": whales["window_hours"],
                 "threshold_usdc": whales["threshold_usdc"],
                 "scanned_until_block": whales["scanned_until_block"],
                 "whales": whales["whales"],
                 "note": ("Празно е ЧЕСТНО състояние: watermark-ът се движи и "
-                         "сканът работи — просто няма трансфер ≥ прага."),
+                         "сканът работи — просто няма трансфер ≥ прага. "
+                         "'scan_failed' значи счупен скан, не празна мрежа."),
             },
             "guards": {
                 "label": "Стражи на плащането (C1/C2/H2) — живо състояние",
@@ -3813,6 +3840,15 @@ def _start_background_threads():
         name="dashboard-scan",
     )
     t_dash.start()
+
+    # Whale flow: its OWN thread (Табло 2.0 audit) — a network-wide scan must
+    # not sit behind retro_scan, and must not starve the sales numbers.
+    t_whale = threading.Thread(
+        target=_whaleflow_scan_loop,
+        daemon=True,
+        name="whaleflow-scan",
+    )
+    t_whale.start()
 
     # Keep-alive self-ping: prevents free-tier spin-down between customer
     # calls so AI agents can reach the API 24/7.

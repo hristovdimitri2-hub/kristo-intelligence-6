@@ -40,9 +40,14 @@
 | 11 | `/api/v1/quickstart` съдържа твърдо `amount_usdc: 0.003` (днес съвпада с реалната цена на най-евтиния маршрут). | LOW | ✅ да (съвпада) | дълг |
 | 12 | `request_log` живее на ефимерния диск на Render (единствената таблица, която deploy трие). | MED | ✅ да | дълг (решение на собственика) |
 | 13 | Заседнало копие на проекта на диска: `Desktop\проекти\проекти\kristo-intelligence-6` (без `.git`, `main.py` с друг хеш) — риск да се редактира грешното дърво. | LOW | ✅ да | дълг (изтрий ръчно) |
+| 14 | **Whale сканът носеше СЪЩИЯ бъг като sales.** `chunk_blocks = max(50, …)` + default 250 **без halving**. Измерено срещу публичния Base RPC: network-wide прозорец от **250 блока → HTTP 500**, а ≤100 минава и съдържа реални данни (**100 блока → 5 072 трансфера, 701 от тях ≥ $50k**). Т.е. всеки chunk гърмеше на първата заявка → **платеният** `/api/v1/whaleflow` не можеше да върне НИТО един ред. | **HIGH** | ✅ да (живо: 0 реда, watermark `null`) | **ФИКСНАТО** — 0 → **2 904 кита** за 360 блока |
+| 15 | **Whale backfill-ът стоеше ЗАД `retro_scan(days=30)` в същия thread.** `retro_scan` пише watermark-а инкрементално, докато обхожда ~1.3M блока → след всеки deploy платеният whale маршрут стоеше в „сканът не е стартирал" с часове. | **HIGH** | ✅ да (живо: `scan_not_started`, watermark `null`) | **ФИКСНАТО** — собствен thread |
+| 16 | Счупен whale скан беше **неразличим** от здраво празно („чакаме кит") — платена услуга, която мълчи за собствената си повреда. | MED | ✅ да | **ФИКСНАТО** — ново честно състояние `scan_failed` + последен опит/грешка на екрана |
+| 17 | Whale сканът прави по един `eth_getBlockByNumber` на всеки блок-с-кит (за честен timestamp) → ~0.3s/блок; 24ч backfill = часове. | MED | ✅ да | смекчено (backfill ограничен на 1ч; live increment е ~30 блока/цикъл) — batch timestamp-и = дълг |
 
-**Няма отворени CRITICAL/HIGH.** Всички четири HIGH находки са фикснати в този deploy
-(виж §3). Останалите 9 са в „дългове" — не са дупки в плащането.
+**Няма отворени CRITICAL/HIGH.** Всичките шест HIGH находки са фикснати в този deploy
+(виж §3). Останалите 11 са в „дългове" — не са дупки в плащането.
+
 
 ### 3. Фиксовете в този deploy
 - **Фънъл:** `challenges_today`/`paid_today` вече четат `cur_today`; `/api/v1/whaleflow`
@@ -60,13 +65,25 @@
 - **Guard телеметрия:** нова durable таблица `guard_events` (C1 replay, C2 дълбочина,
   H2 binding/платец) — лампата в „СТАЖИ" показва последния блокиран опит от таблица,
   а `lock_alive` е реален write-probe на `payment_guards`.
+- **Whale scanът** (находки #14–#16): махнат `max(50, …)` (env-ът вече важи буквално),
+  default 100 блока (най-широкото измерено работещо), **адаптивно halving** при
+  отказан прозорец (250→125→62→…→1, същият start блок, нула пропуснати диапазони),
+  собствен background thread (`whaleflow-scan`), и durable телеметрия
+  `whaleflow_effective_chunk` / `whaleflow_last_attempt` / `whaleflow_last_error`.
+  Backfill-ът е ограничен на 1ч (живият increment е това, което прави потока live).
+  Доказателство: `scripts/_t2_whale_fix_proof.py` → **2 904 кита за 360 блока**,
+  `state=live_data`, `effective_chunk=100`, `last_error=None`.
 
 ### 4. Тестове
-`205 → 223 PASS`. Нови: `tests/test_dashboard_v2.py` (17 теста за новите секции,
-честното празно при китовете, фънъл регресията, съгласието на двете повърхности) и
-`test_a_published_tx_hash_cannot_be_claimed_by_another_payer` (находка #2).
+`205 → 228 PASS`. Нови: `tests/test_dashboard_v2.py` (17 теста за новите секции,
+честното празно при китовете, фънъл регресията, съгласието на двете повърхности),
+`test_a_published_tx_hash_cannot_be_claimed_by_another_payer` (находка #2) и 5 теста
+за whale скана (halving при отказан прозорец, env-ът не се вдига, `scan_failed`,
+изчистване след успешен скан, записан опит).
 Локална пред-deploy проверка: `scripts/_t2_local_render_check.py` (node --check на
-JS-а + всички section id-та + числата).
+JS-а + всички section id-та + числата); одит-доказателства:
+`scripts/_t2_routes_price_check.py` (фантомната $0.05), `scripts/_t2_whale_width_sweep.py`
+(250 → HTTP 500, ≤100 → 701 кита), `scripts/_t2_whale_fix_proof.py` (0 → 2 904).
 
 ### 5. ЗАЩИТИ, спазени в този deploy
 `payTo` / endpoint / цени / каноничният v2 challenge — НЕПОКЪСНАТИ. Логиката на
