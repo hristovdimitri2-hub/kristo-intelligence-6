@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
@@ -29,6 +30,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
+
+#: RPC providers embed the API key in the URL, e.g.
+#: `https://base-mainnet.g.alchemy.com/v2/<KEY>`. Logging a raw httpx exception
+#: (or our own "RPC not reachable: {url}") therefore writes the credential into
+#: the log stream. Keep the host, drop the secret.
+_RPC_KEY_RE = re.compile(
+    r"(/v[0-9]+/|apikey=|api-key=|key=|token=)([A-Za-z0-9_\-]{6,})", re.I
+)
+
+
+def redact_rpc(text: Any) -> str:
+    """Return `text` with any embedded RPC API key replaced by ***."""
+    return _RPC_KEY_RE.sub(lambda m: m.group(1) + "***", str(text))
 
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
 PAYER_CLASSES = {
@@ -952,7 +966,8 @@ class DashboardStore:
 
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         if not w3.is_connected():
-            raise ConnectionError(f"RPC not reachable: {rpc_url}")
+            raise ConnectionError(
+                f"RPC not reachable: {redact_rpc(rpc_url)}")
 
         padded = "0x" + "0" * 24 + receiver.lower().replace("0x", "")
         transfers: List[dict] = []
@@ -1091,7 +1106,8 @@ class DashboardStore:
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         if not w3.is_connected():
-            raise ConnectionError(f"RPC not reachable: {rpc_url}")
+            raise ConnectionError(
+                f"RPC not reachable: {redact_rpc(rpc_url)}")
         added = 0
         # The attempt is recorded when it STARTS, not when it ends: the first
         # network-wide scan walks minutes, and the dashboard must say "scanning"

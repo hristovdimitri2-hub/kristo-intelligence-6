@@ -194,7 +194,7 @@ research_store = create_research_store(RESEARCH_DATA_FILE)
 # ── Canonical dashboard store (persistent — survives deploys) ──────────────
 # On-chain sales / request log / PayAPI listing state live in SQLite so a
 # gunicorn restart NEVER zeroes the dashboard numbers. See DASHBOARD_AUDIT.md.
-from integrations.dashboard_store import DashboardStore  # noqa: E402
+from integrations.dashboard_store import DashboardStore, redact_rpc  # noqa: E402
 DASHBOARD_DB_FILE = os.path.join(os.path.dirname(__file__), "data", "dashboard_state.db")
 dashboard_db = DashboardStore(DASHBOARD_DB_FILE)
 
@@ -626,7 +626,7 @@ def _blockchain_monitor_loop():
                 scan_succeeded = True
 
             except Exception as exc:
-                log.warning("Log scan failed for blocks %d-%d: %s", from_block, to_block, exc)
+                log.warning("Log scan failed for blocks %d-%d: %s", from_block, to_block, redact_rpc(exc))
 
             if scan_succeeded:
                 last_block = to_block
@@ -635,7 +635,7 @@ def _blockchain_monitor_loop():
                     _wallet_state["last_check_time"] = datetime.now(timezone.utc).isoformat()
 
         except Exception as exc:
-            log.warning("Blockchain monitor cycle failed (non-fatal): %s", exc)
+            log.warning("Blockchain monitor cycle failed (non-fatal): %s", redact_rpc(exc))
 
         time.sleep(poll_interval)
 
@@ -856,7 +856,7 @@ def _dashboard_scan_loop():
         added = dashboard_db.retro_scan(days=retro_days)
         log.info("Dashboard retro scan: %d new on-chain sale(s) persisted.", added)
     except Exception as exc:
-        log.warning("Dashboard retro scan failed (incremental will catch up): %s", exc)
+        log.warning("Dashboard retro scan failed (incremental will catch up): %s", redact_rpc(exc))
 
     # Whale flow runs in its OWN thread (Табло 2.0 audit): it used to sit
     # behind retro_scan(days=30) in this same thread, and retro_scan writes its
@@ -873,7 +873,7 @@ def _dashboard_scan_loop():
             if added:
                 log.info("Dashboard incremental scan: %d new sale(s).", added)
         except Exception as exc:
-            log.warning("Dashboard scan cycle failed (non-fatal): %s", exc)
+            log.warning("Dashboard scan cycle failed (non-fatal): %s", redact_rpc(exc))
 
         if time.time() >= next_payapi:
             next_payapi = time.time() + payapi_interval
@@ -908,14 +908,14 @@ def _whaleflow_scan_loop():
         log.info("Whale flow backfill: %d whale event(s) persisted.", added)
     except Exception as exc:
         log.warning("Whale flow backfill failed (incremental will catch up): %s",
-                    exc)
+                    redact_rpc(exc))
     while True:
         try:
             added = dashboard_db.whaleflow_increment()
             if added:
                 log.info("Whale flow increment: %d new event(s).", added)
         except Exception as exc:
-            log.warning("Whale flow increment failed (non-fatal): %s", exc)
+            log.warning("Whale flow increment failed (non-fatal): %s", redact_rpc(exc))
         time.sleep(interval)
 
 

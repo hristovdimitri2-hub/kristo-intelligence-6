@@ -248,6 +248,22 @@ def test_offchain_storage_durability_is_visible_not_assumed(client):
     assert 'id="crm-storage"' in html and "crm-storage" in html
 
 
+def test_rpc_api_keys_are_redacted_before_logging():
+    """A keyed RPC URL wrote the credential straight into the log stream
+    (`.../v2/alch_XXXX`). Keep the host, drop the secret."""
+    from integrations.dashboard_store import redact_rpc
+
+    msg = ("500 Server Error for url: https://base-mainnet.g.alchemy.com/v2/"
+           "alch_lMA7z24yRSecretKey123")
+    out = redact_rpc(msg)
+    assert "alch_lMA7z24yRSecretKey123" not in out
+    assert "/v2/***" in out
+    assert "base-mainnet.g.alchemy.com" in out     # host stays diagnosable
+    assert "secretkeyvalue" not in redact_rpc("https://x.io/?apikey=secretkeyvalue")
+    assert "abc123def456" not in redact_rpc("https://x.io/rpc?token=abc123def456")
+    assert redact_rpc("plain text, no key") == "plain text, no key"
+
+
 def test_whales_section_is_honest_when_the_window_is_empty(client):
     test_client, _main, dash = client
     dash.set_meta("whaleflow_safe_scanned_block", "51234567")

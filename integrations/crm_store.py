@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -271,6 +274,49 @@ class PostgresCRMStore:
         if not database_url:
             raise ValueError("database_url is required for PostgresCRMStore")
         self.database_url = database_url
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        """Create the `leads` table on first use — idempotent.
+
+        AUDIT A2b (13.09): this class ASSUMED the table already existed. The
+        moment DATABASE_URL pointed at a BRAND-NEW Render Postgres, every CRM
+        read raised
+            psycopg.errors.UndefinedTable: relation "leads" does not exist
+        which turned /api/dashboard/data into an HTTP 500 for EVERYONE — the
+        whole dashboard, not just the CRM section. The SQLite sibling has always
+        created its own schema; this one now does the same.
+
+        `created_at` is TEXT (not TIMESTAMPTZ) so the shape matches the SQLite
+        table exactly: the insert path passes an ISO-8601 string, and ISO-8601
+        sorts correctly as text, so no implicit cast can fail in production.
+        """
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS leads (
+                        email TEXT PRIMARY KEY,
+                        source TEXT,
+                        campaign TEXT,
+                        utm_source TEXT,
+                        utm_medium TEXT,
+                        utm_campaign TEXT,
+                        status TEXT DEFAULT 'new',
+                        created_at TEXT,
+                        plan TEXT,
+                        telegram_chat_id TEXT,
+                        amount_usd DOUBLE PRECISION DEFAULT 0.0,
+                        payment_status TEXT DEFAULT 'pending'
+                    )
+                    """
+                )
+                conn.commit()
+            log.info("PostgreSQL CRM schema ready (leads).")
+        except Exception as exc:
+            # Booting must not die here: the app stays up so /health answers and
+            # the failure stays visible in the logs on the first CRM call.
+            log.warning("PostgreSQL CRM schema init failed: %s", exc)
 
     def _connect(self):
         try:
