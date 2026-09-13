@@ -32,6 +32,11 @@
   **Catch-up в ход:** 10-дневната история (43200 chunk-а по 10 блока) се
   сканира прогресивно от scan loop-а (~6-12 часа до пълното възстановяване
   на 7-те продажби: 4 canary + 2 external + 1 crawler heartbeat).
+- 🎯 **НОВ ВЪНШЕН ПЛАТЕЦ (12.09 17:05 UTC):** wallet `0x902dcf34…` плати
+  **$0.005** (= /api/stats цена) — **fingerprint: 0 изходящи USDC за 30 дни,
+  класификация HUMAN** = **ПРЪВ ПЪТИ КУПУВАЧ** (не crawler, не sampler, не
+  оператор-профил). Това е **трети независим реален клиент** след 0x4dB7 и
+  0xA19F.
 - 🗓 **МЕСЕЧЕН ПРОТОКОЛ (редове, в този ред):** 1. `python scripts/competitor_recon.py` (пазарен скен) · 2. `python scripts/listing_monitor.py` (band/рангове/касa/MCP) · **5. `python scripts/ap2_radar.py` (AP2 радар — след recon и listing_monitor)**. AP2 радарът гледа САМО публичните артефакти на Agent Payments Protocol (google-agentic-commerce/AP2 + a2a-x402: комити, релийзи, WG патерни, цензус серия) — изход: `docs/AP2_RADAR.md`. **AP2 Slack (wg-tax, wg-domain-discovery) е ЧАСТЕН и НЕ се сканира** — чете го собственикът на око, месечно; скриптът гледа само публичните GitHub артефакти, без идентичности.
 - 🔄 **RPC РЕЖИМ (11.09): бавен безплатен — платен режим блокиран от платежен
   проблем, за препроба по-късно.** RPC bake-off (11.09): Alchemy free =
