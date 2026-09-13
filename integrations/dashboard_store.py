@@ -116,6 +116,62 @@ def _norm_tx(tx_hash: str) -> str:
     return tx if tx.startswith("0x") else ("0x" + tx if tx else "")
 
 
+def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
+                       chunk_blocks: int, pause_seconds: float,
+                       handle_logs, address: str = USDC_BASE):
+    """Chunked, PACED `eth_getLogs` with adaptive halving — THE one place that
+    knows how to talk to a rate-limited / range-capped free RPC.
+
+    Both the sales scan (`scan_window`) and the whale scan
+    (`scan_whale_window`) go through this: the chunk/pacing/halving rules are
+    a solved problem and must not be re-implemented per feature (free tiers
+    answer `-32001 Block range too large: maximum allowed is 50 blocks` and
+    `429 Too Many Requests`).
+
+    A refused window is retried with HALF the span on the SAME start block
+    (never skipping a range, never faking a gap); at span 1 a failure means
+    the RPC is down and the walk stops so the caller's watermark retries it
+    next cycle.
+
+    Returns `(safe_end, effective_span)`: the last CONTIGUOUS scanned block
+    (from_block - 1 when nothing was scanned) and the narrowest span the RPC
+    actually accepted (ops telemetry).
+    """
+    import time as _time
+
+    from web3 import Web3
+
+    span = max(1, int(chunk_blocks))
+    effective_span = span
+    start = from_block
+    safe_end = from_block - 1
+    while start <= to_block:
+        end = min(start + span - 1, to_block)
+        try:
+            logs = w3.eth.get_logs({
+                "fromBlock": start,
+                "toBlock": end,
+                "address": Web3.to_checksum_address(address),
+                "topics": topics,
+            })
+        except Exception:
+            if span > 1:
+                # Adaptive back-off: halve and retry the SAME start block.
+                span = max(1, span // 2)
+                effective_span = min(effective_span, span)
+                log.debug("getLogs %s.. refused — retry with span=%d",
+                          start, span)
+                continue
+            break
+        safe_end = end
+        effective_span = min(effective_span, span)
+        handle_logs(logs)
+        start = end + 1
+        if start <= to_block:
+            _time.sleep(pause_seconds)
+    return safe_end, effective_span
+
+
 class DashboardStore:
     """SQLite-backed persistent store (one connection per call, like CRMStore)."""
 
@@ -900,33 +956,8 @@ class DashboardStore:
 
         padded = "0x" + "0" * 24 + receiver.lower().replace("0x", "")
         transfers: List[dict] = []
-        start = from_block
-        safe_end = from_block - 1
-        span = chunk_size          # current adaptive width
-        min_span_used = chunk_size
-        while start <= to_block:
-            end = min(start + span - 1, to_block)
-            try:
-                logs = w3.eth.get_logs({
-                    "fromBlock": start,
-                    "toBlock": end,
-                    "address": Web3.to_checksum_address(USDC_BASE),
-                    "topics": [TRANSFER_TOPIC, None, padded],
-                })
-            except Exception:
-                if span > 1:
-                    # Adaptive back-off: halve the window and retry the SAME
-                    # start block. Never skip a range, never fake a gap.
-                    span = max(1, span // 2)
-                    min_span_used = min(min_span_used, span)
-                    log.debug("sales chunk failed — retry %s.. with span=%d",
-                              start, span)
-                    continue
-                # A 1-block recipient-filtered query failed: the RPC is down.
-                # Stop; the watermark-based retry next cycle re-covers it.
-                break
-            safe_end = end
-            min_span_used = min(min_span_used, span)
+
+        def _collect(logs):
             for lg in logs:
                 try:
                     sender = "0x" + bytes(lg["topics"][1]).hex()[-40:]
@@ -942,13 +973,17 @@ class DashboardStore:
                     })
                 except Exception:
                     continue
-            start = end + 1
-            if start <= to_block:
-                import time as _time
-                _time.sleep(pause_seconds)
+
+        # Chunking / pacing / halving live in ONE shared helper — the same
+        # machine the whale scan uses (free-tier range caps + rate limits are
+        # a solved problem; never solved twice).
+        safe_end, effective_span = _adaptive_get_logs(
+            w3, from_block, to_block, [TRANSFER_TOPIC, None, padded],
+            chunk_size, pause_seconds, _collect,
+        )
 
         # Ops telemetry: the effective width actually accepted by the RPC.
-        self.set_meta("sales_effective_chunk", str(min_span_used))
+        self.set_meta("sales_effective_chunk", str(effective_span))
         if not transfers:
             # Even with zero transfers the range WAS scanned up to safe_end —
             # record it so the watermark advances honestly (no fake gaps).
@@ -1058,33 +1093,15 @@ class DashboardStore:
         if not w3.is_connected():
             raise ConnectionError(f"RPC not reachable: {rpc_url}")
         added = 0
-        start = from_block
-        safe_end = from_block - 1          # last contiguous scanned block
-        span = chunk_blocks                # adaptive: halves when refused
-        refused = False
         # The attempt is recorded when it STARTS, not when it ends: the first
         # network-wide scan walks minutes, and the dashboard must say "scanning"
         # during it rather than "the scan has not started".
         self.set_meta("whaleflow_last_attempt",
                       datetime.now(timezone.utc).isoformat())
-        while start <= to_block:
-            end = min(start + span - 1, to_block)
-            try:
-                logs = w3.eth.get_logs({
-                    "fromBlock": start, "toBlock": end,
-                    "address": Web3.to_checksum_address(USDC_BASE),
-                    "topics": [TRANSFER_TOPIC, None, None],   # all transfers
-                })
-            except Exception:
-                # A window this wide is refused (measured: HTTP 500 at 250
-                # network-wide). Halve and retry the SAME start block — never
-                # skip a range, never give up while a 1-block query still has
-                # a chance (the sales scan uses the same rule).
-                refused = True
-                if span > 1:
-                    span = max(1, span // 2)
-                    continue
-                break
+
+        def _collect(logs):
+            """Whale filter + persistence for one accepted chunk."""
+            nonlocal added
             stamps = {}
             for lg in logs:
                 try:
@@ -1120,26 +1137,30 @@ class DashboardStore:
                         added += cur.rowcount
                 except Exception:
                     continue
-            start = end + 1
-            safe_end = end
-            if start <= to_block:
-                import time as _time
-                _time.sleep(pause_seconds)
+
+        # SAME chunk/pacing/halving machine as the sales scan — the network-wide
+        # query is simply a wider topic filter, not a second implementation.
+        safe_end, effective_span = _adaptive_get_logs(
+            w3, from_block, to_block, [TRANSFER_TOPIC, None, None],  # all
+            chunk_blocks, pause_seconds, _collect,
+        )
+
         # Record the last CONTIGUOUS scanned block — failed chunks are retried
         # next cycle instead of being skipped (honesty: we never serve a range
         # that was not actually scanned).
         covered_all = safe_end >= to_block
-        self.set_meta("whaleflow_effective_chunk", str(span))
+        self.set_meta("whaleflow_effective_chunk", str(effective_span))
         self.set_meta("whaleflow_safe_scanned_block", str(max(0, safe_end)))
         if covered_all:
             # A complete range clears any previous failure — the feed is
             # healthy again and the dashboard must stop saying otherwise.
             self.set_meta("whaleflow_last_error", "")
-        elif refused:
+        else:
             self.set_meta(
                 "whaleflow_last_error",
-                f"RPC refused even a {span}-block network-wide window; "
-                f"scanned {from_block}-{max(0, safe_end)} of {to_block}",
+                f"scanned {from_block}-{max(0, safe_end)} of {to_block} "
+                f"(RPC refused a {effective_span}-block window; the next cycle "
+                f"retries from the watermark)",
             )
         return added
 
