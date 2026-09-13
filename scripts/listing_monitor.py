@@ -83,6 +83,7 @@ def receiver_scan() -> Optional[dict]:
         for r in _watchlist_alltime():
             print(f"*** OPERATOR REPEAT (all-time): {r['label']} — "
                   f"{r['txs']} плащания общо → operator deal разговор ***")
+        _print_funnel()
         return report if launch else None
     except Exception as exc:
         print(f"[receiver scan skipped: {str(exc)[:80]}]")
@@ -102,6 +103,30 @@ def _watchlist_alltime() -> list[dict]:
                  for h in history]
     # history is capped at 100 rows — enough for months at current volume
     return operator_repeats(transfers)
+
+
+def _print_funnel() -> None:
+    """Payment funnel per paid route: 'signal: X challenges → Y paid (Z%)'."""
+    try:
+        d = requests.get(
+            "https://kristo-intelligence-api.onrender.com/api/dashboard/data",
+            timeout=30).json()
+        funnel = d["sections"]["requests"].get("funnel") or {}
+    except Exception:
+        return
+    lines = []
+    for path, f in funnel.items():
+        challenges = f["challenges_today"]
+        paid = f["paid_today"]
+        rate = round(100.0 * paid / challenges, 1) if challenges else 0.0
+        short = path.rsplit("/", 1)[-1]
+        lines.append(f"    {short}: {challenges} challenges → {paid} paid "
+                     f"({rate}% днес)")
+    if any(f["challenges_today"] or f["paid_today"]
+           for f in funnel.values()):
+        print("\nФЪНЪЛ (днес, по маршрут):")
+        for ln in lines:
+            print(ln)
 
 
 def fetch_state() -> dict:
