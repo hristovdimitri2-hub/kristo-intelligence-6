@@ -1,3 +1,5 @@
+# ── AUDIT FINDING (Табло 2.0): the FAST path ignores WHO paid ───────────────
+
 """Payment guards C1 / C2 / H2 + the Day-of-Truth verified-sales seed.
 
 C1 — durable replay lock (SQLite `payment_guards`, survives restarts).
@@ -172,9 +174,13 @@ def test_c1_store_claim_is_atomic(tmp_path):
     assert store.claim_payment_tx(tx, endpoint="/api/stats", amount_usdc=0.003)
     assert not store.claim_payment_tx(tx, endpoint="/api/stats", amount_usdc=0.003)
     assert not store.claim_payment_tx(tx, endpoint="/api/sales")
-    assert store.payment_guard_stats() == {
-        "consumed_total": 1, "by_endpoint": {"/api/stats": 1},
-    }
+    stats = store.payment_guard_stats()
+    assert stats["consumed_total"] == 1
+    assert stats["by_endpoint"] == {"/api/stats": 1}
+    # Enriched telemetry (Табло 2.0): the dashboard shows WHEN the guard last
+    # granted a call, so the shape is additive rather than exact-match.
+    assert stats["last_claim_endpoint"] == "/api/stats"
+    assert stats["last_claim_at"]
 
 
 # ── H2: endpoint binding ─────────────────────────────────────────────────────
@@ -385,3 +391,39 @@ def test_admin_seed_route_repairs_a_wiped_store(client, monkeypatch):
     assert body["onchain"]["total_usdc"] == 0.028
     assert body["onchain"]["total_count"] == 8
     assert body["onchain"]["external_payers"] == 2
+
+
+def test_a_published_tx_hash_cannot_be_claimed_by_another_payer(
+        client, monkeypatch):
+    """The dashboard publishes all 8 full tx hashes (Табло 2.0 requires it).
+
+    The slow path verifies `from_addr == payer` on-chain. The FAST path (the
+    tx is already in _sales_history) looked the hash up WITHOUT checking who
+    sent it — so anyone reading our own public dashboard could present a real,
+    published hash with their own address in `payer` and get a paid call for
+    free. The proof must be bound to the recorded sender.
+    """
+    test_client, main, dash = client
+    # A real, publicly visible payment: canary $0.005 to the bound receiver.
+    real_tx = ("0xb8a52dcd61962af4b2d15d6f166b6c5038bbe9d40c171b37508a199bd40a45e6"
+               .replace("9d40c", "9c40c"))
+    real_sender = "0x7e6b6556322c4e26c567a867964ac793f5ee2b1c"
+    attacker = "0x" + "ba" * 20
+
+    _paid_ready(main, monkeypatch, real_tx, amount=0.005)
+    monkeypatch.setattr(main, "_sales_history", [{
+        "tx_hash": real_tx, "token": "USDC", "amount_usd": 0.005,
+        "sender": real_sender,
+    }])
+
+    # Attacker copies the published hash but claims it as their own payment.
+    forged = test_client.get("/api/v1/signal", headers={
+        "X-Payment-Proof": _proof_header(real_tx, payer=attacker)})
+    assert forged.status_code != 200, \
+        "a published tx hash was accepted from a DIFFERENT payer"
+
+    # The genuine payer still gets through (the fix must not break the rail).
+    genuine = test_client.get("/api/v1/signal", headers={
+        "X-Payment-Proof": _proof_header(real_tx, payer=real_sender)})
+    assert genuine.status_code == 200
+    assert dash.payment_guard_stats()["consumed_total"] == 1

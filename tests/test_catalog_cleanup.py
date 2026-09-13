@@ -94,8 +94,17 @@ def test_dashboard_page_shows_real_routes_section(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "Реални маршрути" in html
+    # Табло 2.0: the table is rendered from /api/dashboard/data instead of
+    # being hardcoded — the static copy had drifted (/api/sales $0.05 vs the
+    # $0.005 the 402 actually demands), which is exactly the class of phantom
+    # number this section must never show again.
+    assert 'id="routes-body"' in html
+    assert "renderRoutes(" in html
+    payload = client.get("/api/dashboard/data").get_json()
+    endpoints = [r["endpoint"] for r in payload["sections"]["routes"]["routes"]]
     for endpoint in REAL_ENDPOINTS:
-        assert endpoint in html, f"missing real route {endpoint} on dashboard"
+        assert endpoint in endpoints, f"missing real route {endpoint} in payload"
+    assert len(endpoints) == len(REAL_ENDPOINTS)
     _assert_no_sku_leak(html, "/dashboard")
 
 

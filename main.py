@@ -1790,6 +1790,16 @@ def _proof_endpoint_matches(proof_endpoint: str, request_path: str) -> bool:
     return ep.rstrip("/") == (request_path or "").rstrip("/")
 
 
+def _current_path() -> str:
+    """`request.path` when inside a request, else '' — enables guard telemetry
+    from code paths that also run outside a request context (tests, CLI)."""
+    try:
+        from flask import has_request_context
+        return request.path if has_request_context() else ""
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+
 def _get_verify_web3():
     """Lazily build a lightweight Web3 provider for on-demand proof checks."""
     global _payment_verify_w3
@@ -1856,6 +1866,14 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
                      "(need %d confirmations)", tx_hash,
                      receipt.get("blockNumber"), latest_block,
                      _required_confirmations())
+            block_no = int(receipt.get("blockNumber") or 0)
+            dashboard_db.record_guard_event(
+                "c2_insufficient_confirmations",
+                endpoint=_current_path(),
+                tx_hash=tx_hash,
+                detail=(f"receipt block {block_no} vs head {latest_block}; "
+                        f"need {_required_confirmations()} confirmations"),
+            )
             return None
         _verify_block[tx_hash.lower()] = int(receipt.get("blockNumber") or 0)
         usdc_addr = os.getenv(
@@ -1908,19 +1926,48 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
     if not _proof_endpoint_matches(proof.get("endpoint", ""), endpoint):
         log.warning("x402 proof endpoint mismatch: proof_scope=%s path=%s",
                     proof.get("endpoint"), endpoint)
+        dashboard_db.record_guard_event(
+            "h2_endpoint_mismatch", endpoint=endpoint, tx_hash=tx,
+            detail=f"proof scoped to {proof.get('endpoint')!r}",
+        )
         return False
 
     with _lock:
         if tx in _verified_payments:
+            dashboard_db.record_guard_event(
+                "c1_replay", endpoint=endpoint, tx_hash=tx,
+                detail="already consumed in this process lifetime (RAM set)",
+            )
             return False  # already consumed this process lifetime
 
     # Fast path: the background monitor already recorded this transfer.
+    # AUDIT FIX (Табло 2.0): the hash alone is NOT proof of payment identity —
+    # all 8 real hashes are published on our own public dashboard, so accepting
+    # a known hash from ANY payer handed a free call to anyone who can read it.
+    # A legitimate proof is always sent from the address that actually paid.
     amount = None
     with _lock:
         for s in _sales_history:
-            if str(s.get("tx_hash", "")).lower() == tx:
-                amount = float(s.get("amount_usd", 0.0))
+            if str(s.get("tx_hash", "")).lower() != tx:
+                continue
+            recorded_sender = str(s.get("sender") or "").strip().lower()
+            if recorded_sender in ("", "unknown"):
+                # No payer on record — the proof cannot be bound to it, so the
+                # fast path must not be trusted. Fall through to the on-chain
+                # check, which verifies from_addr == payer (fail-closed).
                 break
+            if recorded_sender != proof["payer"]:
+                log.warning(
+                    "x402 proof PAYER MISMATCH: tx=%s paid_by=%s claimed_by=%s "
+                    "path=%s", tx, recorded_sender, proof["payer"], endpoint)
+                dashboard_db.record_guard_event(
+                    "h2_payer_mismatch", endpoint=endpoint, tx_hash=tx,
+                    detail=(f"known sale paid by {recorded_sender[:10]}…, "
+                            f"proof claims {proof['payer'][:10]}…"),
+                )
+                return False
+            amount = float(s.get("amount_usd", 0.0))
+            break
 
     # Slow path: verify the receipt directly on-chain (instant unlock —
     # no need to wait for the 30s monitor cycle).
@@ -1942,6 +1989,10 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
         log.warning("x402 payment proof REPLAY blocked: tx=%s path=%s", tx,
                     endpoint)
         _record_request("x402_replay_blocked", False)
+        dashboard_db.record_guard_event(
+            "c1_replay", endpoint=endpoint, tx_hash=tx,
+            detail="durable payment_guards claim refused (tx already spent)",
+        )
         with _lock:
             _verified_payments.add(tx)
         return False
@@ -2030,6 +2081,13 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
                 f"buried deep enough yet — retry the same PAYMENT-SIGNATURE"
             )
             log.warning("standard x402 settlement not deep enough: tx=%s", tx_hash)
+            dashboard_db.record_guard_event(
+                "c2_insufficient_confirmations", endpoint=path,
+                tx_hash=tx_hash,
+                detail=(f"settlement block {block_number} vs head "
+                        f"{int(_w3.eth.block_number)}; need "
+                        f"{_required_standard_confirmations()} confirmations"),
+            )
             return False
     except Exception as exc:
         log.info("settlement receipt block fetch failed (non-fatal): %s", exc)
@@ -2044,6 +2102,10 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         )
         log.warning("standard x402 REPLAY blocked: tx=%s path=%s", tx_hash, path)
         _record_request("x402_replay_blocked", False)
+        dashboard_db.record_guard_event(
+            "c1_replay", endpoint=path, tx_hash=tx_hash,
+            detail="durable payment_guards claim refused (settlement already spent)",
+        )
         return False
 
     with _lock:
@@ -2279,12 +2341,45 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
     # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
     market_data = get_market_snapshot()
 
+    # ── Priority-0 invariant applied to THIS surface too (Табло 2.0 audit) ──
+    # `_sales_history` is RAM: a deploy empties it, and the chain monitor only
+    # re-discovers the transfers on its next tick. That left
+    # /api/dashboard-stats reporting "0 sales / $0.00" while
+    # /api/dashboard/data reported the real 8 on-chain transfers — two live
+    # screens, two different answers about money. The persistent store is the
+    # truth; RAM is only a cache.
+    total_volume = round(
+        sum(float(s.get("amount_usd", 0.0)) for s in sales_history), 6)
+    total_sales = len(sales_history)
+    history = sales_history[-100:]
+    today_sales_count = today_data.get("sales_count", 0)
+    today_sales_volume = today_data.get("sales_volume", 0.0)
+    try:
+        store_sales = dashboard_db.sales_summary()
+    except Exception as exc:
+        log.debug("dashboard-stats: sales store unavailable (%s)", exc)
+        store_sales = None
+    if store_sales and store_sales["total_count"] >= total_sales \
+            and store_sales["total_count"]:
+        total_volume = store_sales["total_usdc"]
+        total_sales = store_sales["total_count"]
+        today_sales_count = store_sales["today_count"]
+        today_sales_volume = store_sales["today_usdc"]
+        sales_by_token = {"USDC": round(total_volume, 6)}
+        # Store rows plus the legacy RAM key names, so existing consumers of
+        # /api/dashboard-stats keep working unchanged.
+        history = [
+            {**row, "amount_usd": row.get("amount_usdc"),
+             "timestamp": row.get("ts")}
+            for row in store_sales["history"][:100]
+        ]
+
     payload = {
         "today": {
             "date": today_str,
             "requests": today_data.get("requests", 0),
-            "sales_count": today_data.get("sales_count", 0),
-            "sales_volume_usd": today_data.get("sales_volume", 0.0),
+            "sales_count": today_sales_count,
+            "sales_volume_usd": today_sales_volume,
         },
         "daily": daily,
         "total_requests": sum(d.get("requests", 0) for d in daily.values()),
@@ -2293,12 +2388,10 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
         # receiver, NOT the operator hot wallet (which is the payer side).
         "payment_receiver": X402_RECEIVER_ADDRESS,
         "fee_receiver": wallet_info.get("fee_receiver") or X402_RECEIVER_ADDRESS,
-        "total_volume_usd": round(
-            sum(float(sale.get("amount_usd", 0.0)) for sale in sales_history), 6
-        ),
-        "total_sales": len(sales_history),
+        "total_volume_usd": total_volume,
+        "total_sales": total_sales,
         "by_token": sales_by_token,
-        "history": sales_history[-100:],
+        "history": history,
         "telegram_bot_running": bot_status.get("telegram_bot_running", False),
         "commands_processed": bot_status.get("commands_processed", 0),
         "products": products,
@@ -3361,11 +3454,29 @@ def _mask_email(email: str) -> str:
     return e[:2] + "•••" + e[at:]
 
 
+def _published_price_map() -> Dict[str, float]:
+    """endpoint → published price (USDC) for the REAL routes only.
+
+    Used to attribute a historical payment to a route ONLY when the price is
+    unambiguous; $0.003 covers signal AND whaleflow, so the store reports
+    candidates instead of guessing one (no phantom numbers on screen).
+    """
+    price_map: Dict[str, float] = {}
+    for route in REAL_X402_ROUTES:
+        price_map[route["endpoint"]] = round(float(route["price_usdc"]), 6)
+    return price_map
+
+
 def _canonical_dashboard_payload() -> dict:
     """Build the whole read model from persistent sources only."""
     sales = dashboard_db.sales_summary()
     requests = dashboard_db.requests_summary()
     payapi = dashboard_db.get_payapi_state()
+    price_map = _published_price_map()
+    clients = dashboard_db.clients_summary(price_map=price_map)
+    whales = dashboard_db.whaleflow_summary(window_hours=24, limit=25)
+    guards = dashboard_db.guard_stats()
+    guard_claims = dashboard_db.payment_guard_stats()
 
     # (d) CRM/Stripe — OFF-CHAIN, never part of on-chain totals.
     leads = crm_store.get_all()
@@ -3428,6 +3539,64 @@ def _canonical_dashboard_payload() -> dict:
             "payapi": {
                 "label": "PayAPI Market listing",
                 **payapi,
+            },
+            "clients": {
+                "label": "Реални клиенти (external платци) — основа за operator deals",
+                "count": clients["count"],
+                "clients": clients["clients"],
+                "potentially_new": clients["potentially_new"],
+                "route_price_map": clients["route_price_map"],
+                "route_evidence_legend": {
+                    "payment_guard": "записан endpoint от C1/H2 гарда — ФАКТ",
+                    "price_unique": "сумата съвпада с точно един маршрут",
+                    "price_ambiguous": "сумата съвпада с няколко маршрута — кандидати, не се познава",
+                },
+                "note": ("Маршрутът се твърди като факт само при записан "
+                         "payment_guard; иначе са показани кандидатите по цена."),
+            },
+            "whales": {
+                "label": "Китове (Whale Flow) — мрежови USDC трансфери ≥ праг",
+                "state": whales["state"],
+                "count": whales["count"],
+                "all_time_count": whales["all_time_count"],
+                "last_event_at": whales["last_event_at"],
+                "last_event_block": whales["last_event_block"],
+                "window_hours": whales["window_hours"],
+                "threshold_usdc": whales["threshold_usdc"],
+                "scanned_until_block": whales["scanned_until_block"],
+                "whales": whales["whales"],
+                "note": ("Празно е ЧЕСТНО състояние: watermark-ът се движи и "
+                         "сканът работи — просто няма трансфер ≥ прага."),
+            },
+            "guards": {
+                "label": "Стражи на плащането (C1/C2/H2) — живо състояние",
+                "lock_alive": guards["lock_alive"],
+                "lock_probe_error": guards["lock_probe_error"],
+                "blocked_total": guards["blocked_total"],
+                "blocked_today": guards["blocked_today"],
+                "by_kind": guards["by_kind"],
+                "recent_blocks": guards["recent_blocks"],
+                "consumed_total": guard_claims["consumed_total"],
+                "consumed_by_endpoint": guard_claims["by_endpoint"],
+                "last_claim_at": guard_claims["last_claim_at"],
+                "last_claim_endpoint": guard_claims["last_claim_endpoint"],
+                "config": {
+                    "c1_table": "payment_guards",
+                    "c2_proof_confirmations": _required_confirmations(),
+                    "c2_standard_confirmations":
+                        _required_standard_confirmations(),
+                    "h2_endpoint_binding": True,
+                    "free_tier_limit": FREE_TIER_LIMIT,
+                },
+            },
+            "routes": {
+                # Rendered from the SAME list that builds the x402 challenge,
+                # so the price on screen can never drift from the price a
+                # paying agent is actually charged (the static table used to
+                # advertise /api/sales at $0.05 while the 402 demanded $0.005).
+                "label": "Реални маршрути — единствените публични x402 продукти",
+                "count": len(REAL_X402_ROUTES),
+                "routes": _real_routes_payload(),
             },
             "crm_stripe": {
                 "label": "OFF-CHAIN — НЕ е включено в on-chain сумите",

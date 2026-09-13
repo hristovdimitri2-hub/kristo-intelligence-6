@@ -228,11 +228,24 @@ def test_whaleflow_is_listed_after_the_canary(client):
     """
     test_client, main, _ = client
     for path in ("/.well-known/x402.json", "/api/v1/agents",
-                 "/api/dashboard-stats", "/api/mcp/manifest", "/dashboard"):
+                 "/api/dashboard-stats", "/api/mcp/manifest"):
         r = test_client.get(path)
         assert r.status_code == 200
         assert "/api/v1/whaleflow" in r.get_data(as_text=True), \
             f"whaleflow missing from the vitrine surface {path}"
+
+    # /dashboard is a JS app: since Табло 2.0 the routes table is rendered from
+    # the API (the static list used to advertise /api/sales at $0.05 while the
+    # 402 demanded $0.005), so the endpoint is proven through the payload the
+    # page actually consumes — the same list that mints the x402 challenge.
+    r = test_client.get("/dashboard")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'id="routes-body"' in html and "renderRoutes(" in html
+    payload = test_client.get("/api/dashboard/data").get_json()
+    endpoints = [x["endpoint"] for x in payload["sections"]["routes"]["routes"]]
+    assert "/api/v1/whaleflow" in endpoints
+    assert len(endpoints) == len(main.REAL_X402_ROUTES) == 6
 
     # …and it is a REAL route in the single source of truth, at the price the
     # canary actually paid.

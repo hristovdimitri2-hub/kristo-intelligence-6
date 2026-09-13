@@ -46,12 +46,16 @@ BLOCK_TIME_SECONDS = 2.0  # Base mainnet ~2s blocks
 
 
 # ── Payment funnel: the paid routes whose 402→200 conversion we measure ───
+# MUST stay in sync with X402_PAID_ENDPOINTS / REAL_X402_ROUTES in main.py —
+# a paid route missing here is invisible in the funnel (the whale flow was
+# exactly that gap until 13.09).
 FUNNEL_ROUTES = [
     "/api/v1/signal",
     "/api/stats",
     "/api/sales",
     "/api/bot-status",
     "/api/arb/opportunities",
+    "/api/v1/whaleflow",
 ]
 
 # ── Whale flow defaults (env-regulatable, read at RUNTIME not import) ──────
@@ -199,6 +203,23 @@ class DashboardStore:
                     amount_usdc REAL,
                     consumed_at TEXT
                 )"""
+            )
+            # ── Guard rejections (C1 replay / C2 depth / H2 binding) — durable
+            # so the dashboard "СТАЖИ" section can show the LAST blocked
+            # attempt from a table instead of guessing it from log lines.
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS guard_events (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts         TEXT,
+                    kind       TEXT,
+                    endpoint   TEXT,
+                    tx_hash    TEXT,
+                    detail     TEXT
+                )"""
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guard_events_ts "
+                "ON guard_events (ts)"
             )
             conn.commit()
 
@@ -382,9 +403,106 @@ class DashboardStore:
                 """SELECT endpoint, COUNT(*) AS n FROM payment_guards
                    GROUP BY endpoint"""
             ).fetchall()
+            last = conn.execute(
+                """SELECT consumed_at, endpoint FROM payment_guards
+                   ORDER BY consumed_at DESC LIMIT 1"""
+            ).fetchone()
         return {
             "consumed_total": n["n"],
             "by_endpoint": {r["endpoint"] or "unknown": r["n"] for r in by_ep},
+            "last_claim_at": last["consumed_at"] if last else None,
+            "last_claim_endpoint": last["endpoint"] if last else None,
+        }
+
+    # ── guard events: durable record of what the guards BLOCKED ───────────────
+    def record_guard_event(self, kind: str, endpoint: str = "",
+                           tx_hash: str = "", detail: str = "") -> None:
+        """Persist a guard rejection (C1 replay / C2 depth / H2 binding).
+
+        Deliberately separate from `payment_guards` (which records GRANTED
+        claims): the dashboard needs to prove the guards are alive, and a
+        blocked attempt is the only positive evidence that they fired.
+        Never raises — telemetry must not affect a payment decision.
+        """
+        try:
+            with self._write_lock, self._connect() as conn:
+                conn.execute(
+                    """INSERT INTO guard_events
+                           (ts, kind, endpoint, tx_hash, detail)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        datetime.now(timezone.utc).isoformat(),
+                        (kind or "")[:40],
+                        (endpoint or "")[:120],
+                        _norm_tx(tx_hash)[:80],
+                        (detail or "")[:300],
+                    ),
+                )
+                conn.commit()
+        except Exception as exc:  # pragma: no cover - telemetry only
+            log.debug("guard event not recorded (%s): %s", kind, exc)
+
+    def guard_stats(self, recent_limit: int = 5) -> Dict[str, Any]:
+        """Live health of the C1 replay lock + the blocked attempts it made.
+
+        `lock_alive` is a REAL probe: it writes and removes a sentinel row, so
+        a broken/locked/read-only payment_guards table reports red instead of
+        silently letting every replay through.
+        """
+        alive = False
+        probe_error = ""
+        try:
+            sentinel = "__lock_probe__"
+            with self._write_lock, self._connect() as conn:
+                conn.execute(
+                    "DELETE FROM payment_guards WHERE tx_hash = ?", (sentinel,)
+                )
+                conn.execute(
+                    """INSERT INTO payment_guards
+                           (tx_hash, endpoint, payer, amount_usdc, consumed_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (sentinel, "", "", 0.0,
+                     datetime.now(timezone.utc).isoformat()),
+                )
+                conn.commit()
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM payment_guards WHERE tx_hash = ?",
+                    (sentinel,),
+                ).fetchone()
+                alive = bool(row and row["n"] == 1)
+                conn.execute(
+                    "DELETE FROM payment_guards WHERE tx_hash = ?", (sentinel,)
+                )
+                conn.commit()
+        except Exception as exc:
+            probe_error = str(exc)[:200]
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            by_kind = conn.execute(
+                """SELECT kind, COUNT(*) AS n FROM guard_events
+                   GROUP BY kind ORDER BY n DESC"""
+            ).fetchall()
+            total_blocked = conn.execute(
+                "SELECT COUNT(*) AS n FROM guard_events"
+            ).fetchone()["n"]
+            blocked_today = conn.execute(
+                """SELECT COUNT(*) AS n FROM guard_events
+                   WHERE substr(ts, 1, 10) = ?""",
+                (today,),
+            ).fetchone()["n"]
+            recent = conn.execute(
+                """SELECT ts, kind, endpoint, tx_hash, detail FROM guard_events
+                   ORDER BY id DESC LIMIT ?""",
+                (recent_limit,),
+            ).fetchall()
+        return {
+            "lock_alive": alive,
+            "lock_probe_error": probe_error or None,
+            "blocked_total": total_blocked,
+            "blocked_today": blocked_today,
+            "by_kind": {r["kind"]: r["n"] for r in by_kind},
+            "recent_blocks": [dict(r) for r in recent],
         }
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
@@ -433,6 +551,91 @@ class DashboardStore:
             "by_class": classes,
             "external_payers": external_payers["n"],
             "history": [dict(r) for r in history],
+        }
+
+    # ── clients: the real external payers (basis for operator deals) ──────────
+    def clients_summary(self,
+                        price_map: Optional[Dict[str, float]] = None
+                        ) -> Dict[str, Any]:
+        """One row per EXTERNAL payer: wallet, payments, total, last buy, route.
+
+        ROUTE HONESTY: a route is only claimed as FACT when a `payment_guards`
+        row exists for that tx (the guard stores the endpoint the proof was
+        bound to / consumed on). Otherwise the amount is matched against the
+        published price list and the row reports the CANDIDATES plus an
+        explicit `route_evidence: "price_ambiguous"` — because today $0.003
+        is BOTH /api/v1/signal and /api/v1/whaleflow, and $0.005 covers four
+        routes. Guessing one of them would be a phantom number on screen.
+        """
+        price_map = {k: round(float(v), 6) for k, v in (price_map or {}).items()}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT sender, COUNT(*) AS n,
+                          COALESCE(SUM(amount_usdc), 0.0) AS total,
+                          MIN(ts) AS first_ts, MAX(ts) AS last_ts
+                   FROM onchain_sales WHERE payer_class = 'external'
+                   GROUP BY lower(sender)
+                   ORDER BY total DESC, last_ts DESC"""
+            ).fetchall()
+            detail = conn.execute(
+                """SELECT tx_hash, sender, amount_usdc, ts, block_number,
+                          payer_class
+                   FROM onchain_sales WHERE payer_class = 'external'
+                   ORDER BY ts ASC, block_number ASC"""
+            ).fetchall()
+            guards = {
+                (r["tx_hash"] or "").lower(): (r["endpoint"] or "")
+                for r in conn.execute(
+                    "SELECT tx_hash, endpoint FROM payment_guards"
+                ).fetchall()
+            }
+        by_sender: Dict[str, List[dict]] = {}
+        for d in detail:
+            by_sender.setdefault((d["sender"] or "").lower(), []).append(dict(d))
+
+        clients = []
+        for r in rows:
+            sender = (r["sender"] or "").lower()
+            payments = by_sender.get(sender, [])
+            routes: Dict[str, Any] = {}
+            for p in payments:
+                amount = round(float(p["amount_usdc"] or 0), 6)
+                bound = guards.get((p["tx_hash"] or "").lower())
+                if bound:
+                    routes.setdefault(bound, {"route": bound, "evidence":
+                                              "payment_guard", "payments": 0})
+                    routes[bound]["payments"] += 1
+                    continue
+                candidates = sorted(
+                    k for k, v in price_map.items() if abs(v - amount) < 1e-9
+                )
+                key = "|".join(candidates) if candidates else f"${amount}"
+                entry = routes.setdefault(key, {
+                    "route": candidates[0] if len(candidates) == 1 else None,
+                    "candidates": candidates,
+                    "evidence": ("price_unique" if len(candidates) == 1
+                                 else "price_ambiguous" if candidates
+                                 else "unknown"),
+                    "amount_usdc": amount,
+                    "payments": 0,
+                })
+                entry["payments"] += 1
+            clients.append({
+                "wallet": sender,
+                "payments": r["n"],
+                "total_usdc": round(r["total"], 6),
+                "first_ts": r["first_ts"],
+                "last_ts": r["last_ts"],
+                "routes": list(routes.values()),
+                "tx_hashes": [p["tx_hash"] for p in payments],
+            })
+        return {
+            "clients": clients,
+            "count": len(clients),
+            "potentially_new": [c["wallet"] for c in clients
+                                if (c["payments"] == 1
+                                    and c["total_usdc"] <= 0.005)],
+            "route_price_map": price_map,
         }
 
     # ── request log ───────────────────────────────────────────────────────────
@@ -542,11 +745,15 @@ class DashboardStore:
                        WHERE path = ? AND substr(ts, 1, 10) = ?""",
                     (path, today),
                 ).fetchone()
+                # BUGFIX (13.09): "today" used to be filled from the TOTAL
+                # query (`cur`), so the dashboard's "Днес: 402 → платени"
+                # column silently repeated the all-time numbers — a phantom
+                # number on screen (cur_today was computed and thrown away).
                 funnel[path] = {
                     "challenges_total": cur["challenges"] or 0,
                     "paid_total": cur["paid"] or 0,
-                    "challenges_today": cur["challenges"] or 0,
-                    "paid_today": cur["paid"] or 0,
+                    "challenges_today": cur_today["challenges"] or 0,
+                    "paid_today": cur_today["paid"] or 0,
                 }
             recent = conn.execute(
                 """SELECT ts, method, path, source, status_code, user_agent,
@@ -958,6 +1165,14 @@ class DashboardStore:
                    ORDER BY ts DESC, block_number DESC LIMIT ?""",
                 (cutoff, threshold, limit),
             ).fetchall()
+            # Honesty: an empty window must be distinguishable from "the feed
+            # never ran". all_time + last_event make that explicit on screen.
+            all_time = conn.execute(
+                """SELECT COUNT(*) AS n, MAX(ts) AS last_ts,
+                          MAX(block_number) AS last_block
+                   FROM whaleflow_events WHERE amount_usdc >= ?""",
+                (threshold,),
+            ).fetchone()
         whales = []
         for r in rows:
             whales.append({
@@ -977,4 +1192,14 @@ class DashboardStore:
             "window_hours": window_hours,
             "threshold_usdc": threshold,
             "scanned_until_block": int(scanned_until or 0) or None,
+            "all_time_count": all_time["n"] if all_time else 0,
+            "last_event_at": all_time["last_ts"] if all_time else None,
+            "last_event_block": (int(all_time["last_block"])
+                                 if all_time and all_time["last_block"]
+                                 else None),
+            # "awaiting_whale" is a TRUTHFUL empty: the scan is running
+            # (watermark advancing) and simply found nothing >= threshold.
+            "state": ("live_data" if whales
+                      else ("awaiting_whale" if scanned_until
+                            else "scan_not_started")),
         }

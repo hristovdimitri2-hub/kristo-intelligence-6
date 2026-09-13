@@ -62,7 +62,17 @@
   footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--border);
            color: var(--muted); font-size: 11px; }
   .empty { color: var(--muted); font-style: italic; padding: 10px; }
-  .refresh { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .lamp { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+           margin-right: 6px; vertical-align: middle; }
+   .lamp.green { background: var(--green); box-shadow: 0 0 7px var(--green); }
+   .lamp.red { background: var(--red); box-shadow: 0 0 7px var(--red); }
+   .lamp.amber { background: var(--amber); box-shadow: 0 0 7px var(--amber); }
+   .hashline { font-family: Consolas, monospace; font-size: 10.5px; word-break: break-all; }
+   .tag.guard-c1 { background: rgba(248,113,113,.12); color: var(--red); border: 1px solid rgba(248,113,113,.35); }
+   .tag.guard-c2 { background: rgba(251,191,36,.12); color: var(--amber); border: 1px solid rgba(251,191,36,.35); }
+   .tag.guard-h2 { background: rgba(56,189,248,.12); color: var(--accent); border: 1px solid rgba(56,189,248,.35); }
+   .evi { font-size: 10px; color: var(--muted); }
+   .refresh { margin-left: auto; font-size: 11px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -82,9 +92,36 @@
   <div class="cards" id="onchain-cards"></div>
   <div class="note" id="onchain-classes" style="margin-bottom:10px;"></div>
   <table>
-    <thead><tr><th>Време (UTC)</th><th>Сума</th><th>Тип платец</th><th>From</th><th>Tx</th></tr></thead>
-    <tbody id="sales-body"><tr><td colspan="5" class="empty">зареждане…</td></tr></tbody>
+    <thead><tr><th>Време (UTC)</th><th>Блок</th><th>Сума</th><th>Тип платец</th><th>From</th><th>Tx (пълен хеш)</th></tr></thead>
+    <tbody id="sales-body"><tr><td colspan="6" class="empty">зареждане…</td></tr></tbody>
   </table>
+  <h2>⬢ Клиенти <span class="src">всеки external платец — базата за operator deals</span></h2>
+  <div class="cards" id="client-cards"></div>
+  <table style="margin-top:10px;">
+    <thead><tr><th>Портфейл</th><th>Плащания</th><th>Общо</th><th>Последна покупка</th><th>Маршрути</th></tr></thead>
+    <tbody id="clients-body"><tr><td colspan="5" class="empty">зареждане…</td></tr></tbody>
+  </table>
+  <div class="note" id="clients-note"></div>
+
+  <h2>⬢ Китове (Whale Flow) <span class="src">мрежови USDC трансфери ≥ праг</span></h2>
+  <div class="cards" id="whale-cards"></div>
+  <table style="margin-top:10px;">
+    <thead><tr><th>Време (UTC)</th><th>Сума</th><th>Токен</th><th>От</th><th>До</th><th>Tx</th></tr></thead>
+    <tbody id="whales-body"><tr><td colspan="6" class="empty">зареждане…</td></tr></tbody>
+  </table>
+  <div class="note" id="whales-note"></div>
+
+  <h2>⬢ Стажи (payment guards) <span class="src">C1 replay-lock · C2 confirmations · H2 endpoint binding</span></h2>
+  <div class="cards" id="guard-cards"></div>
+  <div class="note" id="guard-note" style="margin:8px 0;"></div>
+  <table>
+    <thead><tr><th>Време (UTC)</th><th>Гард</th><th>Път</th><th>Tx</th><th>Детайл</th></tr></thead>
+    <tbody id="guard-body"><tr><td colspan="5" class="empty">…</td></tr></tbody>
+  </table>
+
+  <h2>⬢ Фънъл <span class="src">402 предизвикателства → платени заявки, по маршрути</span></h2>
+  <div id="funnel-box"></div>
+
 
   <h2>⬢ API Requests <span class="src">постоянен лог (SQLite) — UA / канал</span></h2>
   <div class="cards" id="req-cards"></div>
@@ -98,7 +135,6 @@
       <table><tbody id="sources-body"><tr><td class="empty">…</td></tr></tbody></table>
     </div>
   </div>
-  <div class="hidden" id="funnel-box" style="margin-top:10px;"></div>
   <div class="note" style="margin:10px 0 6px;">Последни заявки</div>
   <table>
     <thead><tr><th>Време (UTC)</th><th>Път</th><th>Източник</th><th>Status</th><th>User-Agent</th><th>Канал</th></tr></thead>
@@ -113,17 +149,10 @@
     <tbody id="ranks-body"><tr><td colspan="3" class="empty">…</td></tr></tbody>
   </table>
 
-  <h2>⬢ Реални маршрути <span class="src">само тези 6 — платими с x402 USDC на Base</span></h2>
+  <h2>⬢ Реални маршрути <span class="src" id="routes-src">платими с x402 USDC на Base</span></h2>
   <table>
     <thead><tr><th>Маршрут</th><th>Какво дава</th><th>Цена (USDC)</th></tr></thead>
-    <tbody id="routes-body">
-      <tr><td class="mono">GET /api/v1/signal</td><td>Trading-агент сигнали (action, confidence, price_usd, reasoning) — обновяване на 5 мин</td><td class="num">0.003</td></tr>
-      <tr><td class="mono">GET /api/stats</td><td>Жив market snapshot (CoinGecko, DEXScreener, Fear &amp; Greed) + дневни агрегати</td><td class="num">0.005</td></tr>
-      <tr><td class="mono">GET /api/arb/opportunities</td><td>Крос-DEX арбитражни спредове на Base (обновяване 60 сек)</td><td class="num">0.005</td></tr>
-      <tr><td class="mono">GET /api/bot-status</td><td>Статус на бота и услугата</td><td class="num">0.005</td></tr>
-      <tr><td class="mono">GET /api/sales</td><td>Реална, on-chain верифицируема история на продажбите</td><td class="num">0.05</td></tr>
-      <tr><td class="mono">GET /api/v1/whaleflow</td><td>Whale flow: USDC трансфери ≥ $50k на Base с честно етикетирани контрагенти (обновяване 60 сек)</td><td class="num">0.003</td></tr>
-    </tbody>
+    <tbody id="routes-body"><tr><td colspan="3" class="empty">зареждане…</td></tr></tbody>
   </table>
 
   <h2>⬢ CRM / Stripe <span class="src">off-chain — отделно от веригата</span></h2>
@@ -174,14 +203,140 @@ function renderOnchain(o) {
     const tx = (h.tx_hash || '');
     return `<tr>
       <td class="num mono">${esc(utc(h.ts))}</td>
+      <td class="num mono">${h.block_number || '—'}</td>
       <td class="num">${usd(h.amount_usdc)}</td>
       <td><span class="tag ${cls}">${cls === 'external' ? 'EXTERNAL' : esc(h.payer_label || cls)}</span></td>
       <td class="mono">${esc(short(h.sender))}…</td>
-      <td class="mono"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(short(tx, 10))}…</a></td>
+      <td class="hashline"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(tx)}</a></td>
     </tr>`;
   });
   $('sales-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="5" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
+    '<tr><td colspan="6" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
+}
+
+function renderClients(c) {
+  const list = c.clients || [];
+  $('client-cards').innerHTML =
+    card(list.length, 'Реални клиенти (external)', true) +
+    card((c.potentially_new || []).length, 'Платци с 1 покупка') +
+    card(usd(list.reduce((a, x) => a + (x.total_usdc || 0), 0)), 'Общо от клиенти');
+  const rows = list.map(cl => {
+    const routes = (cl.routes || []).map(r => {
+      if (r.evidence === 'payment_guard') {
+        return `<span class="mono">${esc(r.route)}</span> <span class="evi">(записан)</span>`;
+      }
+      const cands = (r.candidates || []);
+      if (!cands.length) return '<span class="evi">неизвестен</span>';
+      if (cands.length === 1) {
+        return `<span class="mono">${esc(cands[0])}</span> <span class="evi">(по цена)</span>`;
+      }
+      return '<span class="evi">по цена: </span><span class="mono">' +
+        cands.map(esc).join(' | ') + '</span>';
+    }).join('<br>');
+    return `<tr>
+      <td class="mono">${esc(short(cl.wallet, 12))}…${esc((cl.wallet || '').slice(-4))}</td>
+      <td class="num">${cl.payments}</td>
+      <td class="num">${usd(cl.total_usdc)}</td>
+      <td class="num mono">${esc(utc(cl.last_ts))}</td>
+      <td>${routes}</td></tr>`;
+  });
+  $('clients-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="5" class="empty">още няма external платец — чакаме първия реален клиент</td></tr>';
+  $('clients-note').textContent =
+    'Маршрутът се твърди като факт само при записан payment_guard (endpoint от C1/H2). ' +
+    'Иначе сумата се съпоставя с публичните цени и се показват ВСИЧКИ кандидати.';
+}
+
+function renderWhales(w) {
+  const empty = w.count === 0;
+  const lamp = empty ? 'amber' : 'green';
+  const stateText = w.state === 'live_data' ? 'ДАННИ'
+    : w.state === 'awaiting_whale' ? 'чакаме кит' : 'сканът не е стартирал';
+  $('whale-cards').innerHTML =
+    card(`<span class="lamp ${lamp}"></span>${esc(stateText)}`, 'Състояние (честно празно = чакаме кит)', true) +
+    card(w.count, `Китове в прозореца (${w.window_hours}ч)`) +
+    card(w.all_time_count, 'Общо записани (all-time)') +
+    card('$' + Number(w.threshold_usdc || 0).toLocaleString('en-US'), 'Праг (USDC)') +
+    card(w.scanned_until_block || '—', 'Сканиран до блок');
+  const rows = (w.whales || []).map(x => `<tr>
+      <td class="num mono">${esc(utc(x.ts))}</td>
+      <td class="num">${'$' + Number(x.amount_usdc || 0).toLocaleString('en-US')}</td>
+      <td>${esc(x.token || '')}</td>
+      <td class="mono">${esc(short(x.from, 10))}… <span class="evi">${esc(x.from_label || 'unknown')}</span></td>
+      <td class="mono">${esc(short(x.to, 10))}… <span class="evi">${esc(x.to_label || 'unknown')}</span></td>
+      <td class="mono"><a href="https://basescan.org/tx/${esc(x.tx_hash)}" target="_blank" rel="noopener">${esc(short(x.tx_hash, 10))}…</a></td>
+    </tr>`);
+  $('whales-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="6" class="empty">чакаме кит — сканът тече, няма трансфер ≥ прага в прозореца</td></tr>';
+  $('whales-note').textContent =
+    'all-time записи: ' + (w.all_time_count || 0) +
+    (w.last_event_at ? ' · последен: ' + utc(w.last_event_at) + ' (блок ' + w.last_event_block + ')' : '') +
+    ' · ' + (w.note || '');
+}
+
+function renderGuards(g) {
+  const cfg = g.config || {};
+  const kinds = g.by_kind || {};
+  const lamp = g.lock_alive ? 'green' : 'red';
+  $('guard-cards').innerHTML =
+    card(`<span class="lamp ${lamp}"></span>${g.lock_alive ? 'ЖИВ' : 'СПРЯЛ'}`,
+         'C1 replay-lock (SQLite ' + esc(cfg.c1_table || '') + ')', true) +
+    card(g.consumed_total, 'Изразходвани плащания (еднократни)') +
+    card(g.blocked_total, `Блокирани опити (днес: ${g.blocked_today})`) +
+    card(cfg.c2_proof_confirmations, 'C2 потвърждения (proof рейл)') +
+    card(cfg.c2_standard_confirmations, 'C2 потвърждения (стандартен рейл)') +
+    card(cfg.h2_endpoint_binding ? 'да' : 'НЕ', 'H2 endpoint binding');
+  const bits = [];
+  if (g.lock_probe_error) bits.push('проблем с lock-а: ' + g.lock_probe_error);
+  if (g.last_claim_at) {
+    bits.push('последно разрешено плащане: ' + utc(g.last_claim_at) +
+      (g.last_claim_endpoint ? ' на ' + g.last_claim_endpoint : ''));
+  } else {
+    bits.push('още няма разрешено плащане през гарда (записването започва с първото)');
+  }
+  bits.push('по вид: ' + (Object.keys(kinds).length
+    ? Object.entries(kinds).map(([k, v]) => k + '=' + v).join(', ')
+    : 'няма блокиран опит'));
+  $('guard-note').textContent = bits.join(' · ');
+  const rows = (g.recent_blocks || []).map(b => {
+    const kind = b.kind || '';
+    const cls = kind.indexOf('c1') === 0 ? 'guard-c1'
+      : kind.indexOf('c2') === 0 ? 'guard-c2' : 'guard-h2';
+    return `<tr>
+      <td class="num mono">${esc(utc(b.ts))}</td>
+      <td><span class="tag ${cls}">${esc(kind)}</span></td>
+      <td class="mono">${esc(b.endpoint || '—')}</td>
+      <td class="mono">${esc(short(b.tx_hash, 12))}…</td>
+      <td class="evi">${esc(b.detail || '')}</td></tr>`;
+  });
+  $('guard-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="5" class="empty">нула блокирани опита — всеки replay/подмяна ще се появи тук</td></tr>';
+}
+
+function renderFunnel(r) {
+  const funnel = (r.funnel || {});
+  const frows = Object.entries(funnel).map(([path, f]) => {
+    const t = f.challenges_today || 0, p = f.paid_today || 0;
+    const rate = t ? Math.round(1000 * p / t) / 10 : 0;
+    return `<tr><td class="mono">${esc(path)}</td>
+      <td class="num">${t} → ${p} (${rate}%)</td>
+      <td class="num">${f.challenges_total} → ${f.paid_total}</td></tr>`;
+  });
+  $('funnel-box').innerHTML =
+    '<table><thead><tr><th>Маршрут</th><th>Днес: 402 → платени (конверсия)</th><th>Общо</th></tr></thead><tbody>' +
+    (frows.length ? frows.join('') : '<tr><td colspan="3" class="empty">…</td></tr>') +
+    '</tbody></table>';
+}
+
+function renderRoutes(rt) {
+  const list = rt.routes || [];
+  $('routes-src').textContent =
+    `само тези ${list.length} — от API-то (същият списък, който издава 402), не статичен текст`;
+  $('routes-body').innerHTML = list.length ? list.map(x => `<tr>
+      <td class="mono">${esc(x.method || 'GET')} ${esc(x.endpoint)}</td>
+      <td>${esc(x.description || '')}</td>
+      <td class="num">${Number(x.price_usdc || 0).toFixed(3)}</td></tr>`).join('') :
+    '<tr><td colspan="3" class="empty">…</td></tr>';
 }
 
 function renderRequests(r) {
@@ -191,18 +346,8 @@ function renderRequests(r) {
     card(r.total_clean ?? r.total, 'Общо чисти (от лог-а)') +
     card(r.today, 'Днес общо (raw)') +
     card(`${noise.today ?? 0} · ${noise.total ?? 0}`, 'Вътрешен шум (Render/1.0)');
-  const funnel = (r.funnel || {});
-  const frows = Object.entries(funnel).filter(([, f]) => f.challenges_today || f.paid_today || f.challenges_total).map(([path, f]) => {
-    const rate = f.challenges_today ? Math.round(1000 * f.paid_today / f.challenges_today) / 10 : 0;
-    return `<tr><td class="mono">${esc(path)}</td>
-      <td class="num">${f.challenges_today} → ${f.paid_today} (${rate}%)</td>
-      <td class="num">${f.challenges_total} → ${f.paid_total}</td></tr>`;
-  });
-  if (frows.length) {
-    const tbl = `<table><thead><tr><th>Маршрут</th><th>Днес: 402 → платени (конверсия)</th><th>Общо</th></tr></thead><tbody>${frows.join('')}</tbody></table>`;
-    $('funnel-box').innerHTML = tbl;
-    $('funnel-box').classList.remove('hidden');
-  }
+  // The payment funnel moved to its own always-visible section (renderFunnel)
+  // so "402 → платени" is on screen permanently, not behind a hidden box.
   const ch = (r.by_channel || []);
   $('channels-body').innerHTML = ch.length ? ch.map(c =>
     `<tr><td class="mono">/f/${esc(c.channel)}</td><td class="num">${c.n}</td></tr>`).join('') :
@@ -266,7 +411,12 @@ async function load() {
     const d = await r.json();
     const s = d.sections || {};
     renderOnchain(s.onchain || {});
+    renderClients(s.clients || {});
+    renderWhales(s.whales || {});
+    renderGuards(s.guards || {});
+    renderRoutes(s.routes || {});
     renderRequests(s.requests || {});
+    renderFunnel(s.requests || {});
     renderPayapi(s.payapi || {});
     renderCrm(s.crm_stripe || {});
     $('generated-at').textContent = ' · обновено: ' + utc(d.generated_at) + ' UTC';
