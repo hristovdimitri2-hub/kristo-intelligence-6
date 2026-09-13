@@ -193,9 +193,11 @@ class StripeCheckoutService:
         return os.getenv("KRISTO_ALLOW_MOCK_PAYMENTS", "").strip().lower() in {"1", "true", "yes"}
 
     def _plan_amount(self, plan_key: str) -> float:
-        pricing = {
-            "starter": 29.0,
-            "pro": 79.0,
-            "api": 149.0,
-        }
-        return pricing.get(plan_key, 79.0)
+        """Amount for a plan, read from the SINGLE price source (audit A5).
+
+        These literals used to be duplicated here AND in
+        `payment_integration.SalesCheckout` — the same drift class that let the
+        dashboard advertise /api/sales at $0.05 while the 402 demanded $0.005.
+        """
+        from integrations.payment_integration import PLAN_PRICES
+        return float(PLAN_PRICES.get(plan_key, PLAN_PRICES["pro"]))

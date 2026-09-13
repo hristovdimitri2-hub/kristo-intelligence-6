@@ -2,6 +2,52 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🔍 ОДИТ 2 (13.09) — Stripe / CRM / entitlements + издръжливост
+
+Read-only одит на неизследваната досега част (checkout, entitlements, CRM) + системния
+корен на дуалността RAM/SQLite. Всяка находка е проверена в кода/на живо, не по описание.
+
+### Какво е ЗДРАВО (доказано, не декларирано)
+- **Грант само по подписан webhook.** `/api/webhooks/stripe`: липсващ подпис → 400;
+  невалиден подпис → 400; **липсващ `STRIPE_WEBHOOK_SECRET` → 503 fail-closed**;
+  `payment_status != "paid"` → без грант; непознат CRM lead → игнорира се; каталожните
+  плащания се валидират по `checkout_id + currency + plan + amount + email`.
+- **Няма self-grant никъде.** `/sales/checkout?status=success` само рендира текст;
+  `/api/checkout` само връща сесия; `/api/v1/agents/<id>/access` изисква **активен**
+  entitlement по (agent_id, checkout_id, email), иначе 403.
+- Живата Stripe сесия работи (`payment_provider=stripe`, `checkout_created`, реален URL);
+  `KRISTO_ALLOW_MOCK_PAYMENTS` **не** е зададен → mock плащанията са изключени.
+- Admin auth: `hmac.compare_digest` + fail-closed.
+- **Извод:** пътят на ОТОРИЗАЦИЯ е звук — никой не може да си даде достъп без плащане.
+
+### Находки и какво стана с тях
+
+| # | Находка | Клас | Действие |
+|---|---|---|---|
+| A1 | **`SESSION_SECRET` не е зададен** ⇒ `SECRET_KEY = secrets.token_urlsafe(32)` — нов на всеки рестарт. `AGENT_ACCESS_TOKEN_SECRET` също не е зададен, а токените се подписват с `SECRET_KEY` ⇒ **всеки издаден 30-дневен платен token умира при всеки deploy**. | HIGH | **ФИКСНАТО**: кодът вече предупреждава веднъж (не мълчи) + `SESSION_SECRET` и `AGENT_ACCESS_TOKEN_SECRET` са **зададени в Render** (стойностите не са показвани) |
+| A2 | **CRM е на ефимерния диск** (`DATABASE_URL` не е зададен) ⇒ deploy трие leads/paid/pipeline. On-chain числата имат seed за защита, off-chain записът — никаква. | HIGH | **направено видимо**: `storage_backend` + `durable` + честna бележка в payload-а и на екрана + предупреждение в логовете. **Durable = действие на собственика** (задай `DATABASE_URL`) — не мога да създам база |
+| A3 | **`/api/sales` — ПЛАТЕН ($0.005) — четеше RAM `_sales_history`** ⇒ след рестарт платещ клиент получаваше `total_sales: 0` и празна история, докато веригата казва $0.028/8. | HIGH | **ФИКСНАТО**: чете store-а (RAM само fallback), редът oldest→newest е запазен, + 2 регресионни теста |
+| A4 | `_send_telegram_vip_notification` четеше **само** `TELEGRAM_VIP_CHAT_ID`, а `/sales/checkout` четеше `TELEGRAM_VIP_CHAT_ID or TELEGRAM_CHAT_ID` → VIP известията се губеха тихо. | MED | **ФИКСНАТО**: еднакво четене на двата пътя |
+| A5 | Цените 29/79/149 **дублирани** в `stripe_checkout` и `payment_integration` — дрейф-класът, родил фантомните $0.05. | MED | **ФИКСНАТО**: един източник `PLAN_PRICES` (стойностите непроменени) |
+| C | **Платеният `/api/stats` сумираше RAM `_daily_stats`** ⇒ „0 API calls" след deploy, докато логът държи десетки хиляди. | HIGH | **ФИКСНАТО**: `total_requests`/`today.requests` от store-а; старият RAM изглед остава под `instrumented_requests` (нищо скрито) + тест |
+| B | 8-те demo SKU-та + Stripe funnel-ът са **недоказани** (нула платени продажби), но носят най-голямата публична площ. | хигиена | **ФИКСНАТО като превключвател**: `KRISTO_DEMO_SURFACES=off` паркира demo действията с 404, **без да трие код**. Default е `on` — обръщането е бизнес решение (единственият път за картово плащане) |
+| A6 | `mock_checkout_ready` се приема като валиден статус в 3 маршрута; mock е изключен ⇒ инертно днес, но при включване `checkout_id` е предвидим. | LOW днес | дълг |
+| A7 | `SalesCheckout` е само RAM (`checkout_sessions` расте при всеки checkout) и `mark_paid` никъде не се вика → мъртъв товар. | LOW | дълг |
+| A8 | `event_type = payload.get("type") or "checkout.session.completed"` — при липсващ `type` по подразбиране се приема платежно събитие. | LOW | дълг |
+| A9 | `POST /api/leads` е без auth → инжектиране на leads (не може да създаде „paid"). | LOW | дълг |
+| — | `/api/v1/quickstart` съдържа твърдо `0.003`; `daily` картата в `/api/stats` остава RAM. | LOW | дълг |
+
+### Методологична бележка (важна)
+Първият ми извод „`ADMIN_API_TOKEN` не е зададен" беше **ГРЕШЕН** — Render API-то пагинира
+по **20** ключа и аз видях точно 20. След повторно изтегляне: **24** ключа и
+`ADMIN_API_TOKEN`/`APP_PUBLIC_URL` **са зададени**. Находките по-горе са само след
+кръстосана проверка (код + жив отговор + пълен списък).
+
+### Тестове
+`231 → 235 PASS` (A3: 2, C: 1, B: 2, A2: 1). Локална пред-deploy проверка минава.
+
+
+
 ## 🖥️ ТАБЛО 2.0 (13.09) — истината на един екран + финален веригов одит
 
 Живо: `https://kristo-intelligence-api.onrender.com/dashboard` (free `/api/dashboard/data`,

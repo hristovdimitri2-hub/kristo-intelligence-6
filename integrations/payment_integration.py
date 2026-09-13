@@ -12,6 +12,17 @@ class Plan:
     access_level: str
 
 
+#: SINGLE source of the monthly plan prices (audit A5). These were duplicated
+#: as literals in `stripe_checkout._plan_amount`, which is the same drift class
+#: that let the dashboard advertise /api/sales at $0.05 while the live 402
+#: demanded $0.005. Stripe checkout must never re-declare them.
+PLAN_PRICES: Dict[str, float] = {
+    "starter": 29.0,
+    "pro": 79.0,
+    "api": 149.0,
+}
+
+
 class SalesCheckout:
     """Checkout abstraction for launch-ready sales flow.
 
@@ -24,19 +35,19 @@ class SalesCheckout:
         self.plans = {
             "starter": Plan(
                 name="Starter",
-                price_usd=29.0,
+                price_usd=PLAN_PRICES["starter"],
                 description="Basic market bulletin and signal access",
                 access_level="basic",
             ),
             "pro": Plan(
                 name="Pro",
-                price_usd=79.0,
+                price_usd=PLAN_PRICES["pro"],
                 description="VIP Telegram access + premium analysis",
                 access_level="vip",
             ),
             "api": Plan(
                 name="API Access",
-                price_usd=149.0,
+                price_usd=PLAN_PRICES["api"],
                 description="Market intelligence API access",
                 access_level="api",
             ),

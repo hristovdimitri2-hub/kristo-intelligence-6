@@ -213,6 +213,18 @@ try:
 except Exception as _seeded_exc:  # pragma: no cover - defensive
     log.warning("Verified-sales seed failed (non-fatal): %s", _seeded_exc)
 
+# ── Off-chain record durability (audit A2) ────────────────────────────────
+# The ON-CHAIN numbers are re-seeded from the chain on every boot, so a deploy
+# cannot zero them. The CRM (leads / paid leads / sales pipeline) has no such
+# protection: without DATABASE_URL it is SQLite on Render's EPHEMERAL disk, so
+# a deploy silently wipes it. Say it in the logs instead of pretending.
+if getattr(crm_store, "backend", "") != "postgresql":
+    log.warning(
+        "CRM storage is %s on the EPHEMERAL disk — every deploy wipes leads, "
+        "paid leads and the sales pipeline. Set DATABASE_URL for a durable "
+        "off-chain record.", getattr(crm_store, "backend", "unknown"))
+
+
 checkout_store = SalesCheckout()
 telegram_flow = TelegramSalesFlow(os.getenv("TELEGRAM_BOT_TOKEN", ""))
 stripe_checkout = StripeCheckoutService()
@@ -363,7 +375,11 @@ def _generate_vip_invite(wallet_address: str, tx_hash: str) -> Optional[str]:
 def _send_telegram_vip_notification(wallet_address: str, invite_code: str, tx_hash: str):
     """Send a Telegram message about a new VIP subscriber (best-effort, non-blocking)."""
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip()
+    # Audit A4: this read ONLY TELEGRAM_VIP_CHAT_ID while /sales/checkout read
+    # `TELEGRAM_VIP_CHAT_ID or TELEGRAM_CHAT_ID` — two paths, one config, so a
+    # deployment with only TELEGRAM_CHAT_ID set silently dropped VIP alerts here.
+    chat_id = (os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip()
+               or os.getenv("TELEGRAM_CHAT_ID", "").strip())
     if not token or not chat_id:
         log.info("Telegram VIP notification skipped (no token/chat_id). Invite code: %s", invite_code)
         return
@@ -1491,10 +1507,32 @@ def _catalog_x402_payment_required_response(product: dict):
     return response
 
 
+_agent_key_fallback_warned = False
+
+
 def _agent_access_signing_key() -> bytes:
-    """Use an explicit credential when configured, otherwise the application session key."""
+    """Signing key for agent access tokens.
+
+    Prefers an explicit AGENT_ACCESS_TOKEN_SECRET. Falling back to the Flask
+    SECRET_KEY is only correct when SECRET_KEY is itself STABLE: with
+    SESSION_SECRET unset it is `secrets.token_urlsafe(32)` — a fresh random
+    value per process — which silently invalidates every already-issued 30-day
+    paid entitlement token on each restart/deploy (Табло 2.0 audit A1). The
+    fallback therefore warns ONCE instead of failing quietly.
+    """
     configured = (os.getenv("AGENT_ACCESS_TOKEN_SECRET", "") or "").strip()
-    return (configured or app.config["SECRET_KEY"]).encode()
+    if configured:
+        return configured.encode()
+    global _agent_key_fallback_warned
+    if not _agent_key_fallback_warned:
+        _agent_key_fallback_warned = True
+        log.warning(
+            "AGENT_ACCESS_TOKEN_SECRET is not set — agent access tokens are "
+            "signed with the application SECRET_KEY. Unless SESSION_SECRET is "
+            "set explicitly, that key is random per process, so every issued "
+            "token stops working on the next restart/deploy."
+        )
+    return app.config["SECRET_KEY"].encode()
 
 
 def _playground_client_key_hash(client_identity: str) -> str:
@@ -2161,6 +2199,44 @@ def _emit_payment_response(response):
     return response
 
 
+# ── Demo / unproven public surfaces (audit B, Табло 2.0) ───────────────────
+# The 8 catalog SKUs, their playground/checkout/access/click endpoints and the
+# Stripe lead funnel are UNPROVEN (zero paid sales ever came through them) yet
+# they carry the largest public surface. `KRISTO_DEMO_SURFACES=off` parks them
+# with a 404 WITHOUT deleting any code, so the public face is only the 6 real
+# x402 routes. Default is "on" — flipping it is a BUSINESS decision (this is
+# the only path that can take a card payment), so it is left to the operator.
+# Deliberately NOT parked: "/", "/dashboard", "/health", the 6 real routes,
+# and every admin/repair route (incl. POST /api/admin/seed-sales).
+DEMO_SURFACE_PREFIXES = (
+    "/api/v1/agents/",          # demo SKU detail/checkout/access/playground/click
+    "/sales/checkout",
+    "/api/checkout",
+    "/api/leads",
+    "/agents",
+)
+
+
+def demo_surfaces_enabled() -> bool:
+    """True unless KRISTO_DEMO_SURFACES is explicitly turned off."""
+    value = (os.getenv("KRISTO_DEMO_SURFACES", "") or "").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _is_parked_demo_surface(path: str) -> bool:
+    """True when `path` is a demo/unproven surface AND they are parked."""
+    if demo_surfaces_enabled():
+        return False
+    if path == "/api/v1/agents" or path.startswith("/api/v1/agents/"):
+        # The catalog LIST (/api/v1/agents) and the detail page for the REAL
+        # routes stay: they are part of the vitrine. Only the demo SKU actions
+        # (checkout/access/playground/click) are parked.
+        return any(path.endswith(suffix) for suffix in
+                   ("/checkout", "/access", "/playground", "/click"))
+    return any(path == p or path.startswith(p + "/")
+               for p in DEMO_SURFACE_PREFIXES[1:])
+
+
 @app.before_request
 def _x402_paywall():
     """
@@ -2178,6 +2254,17 @@ def _x402_paywall():
     from the paywall so the dashboard always loads correctly.
     """
     path = request.path
+
+    # Demo / unproven surfaces: parked with a 404 when KRISTO_DEMO_SURFACES is
+    # off (audit B). Code stays intact — this is a switch, not a deletion.
+    if _is_parked_demo_surface(path):
+        return jsonify({
+            "ok": False,
+            "error": "surface_retired",
+            "message": ("This demo surface is not offered. The live products "
+                        "are the 6 real x402 routes on /dashboard."),
+            "real_routes": [r["endpoint"] for r in REAL_X402_ROUTES],
+        }), 404
 
     # Always-free endpoints — no paywall
     if path in X402_FREE_ENDPOINTS:
@@ -2312,16 +2399,48 @@ def api_arb_opportunities():
 
 @app.route("/api/sales")
 def api_sales():
-    """Return REAL sales history (from on-chain USDC transfers) and total volume."""
+    """Return REAL sales history (from on-chain USDC transfers) and total volume.
+
+    DURABLE (Табло 2.0 audit A3): this is a PAID route, and it used to read the
+    RAM `_sales_history`. After a restart/deploy a PAYING customer therefore
+    received `total_sales: 0` and an empty history while the chain says $0.028
+    over 8 transfers — the same bug that was fixed on /api/dashboard-stats, but
+    on a product someone actually pays for. The persistent store is the truth;
+    RAM is only a cache. History keeps the legacy oldest→newest order.
+    """
     _record_request("api_sales", True)
     with _lock:
-        history = list(_sales_history)
-        total_volume = round(sum(s["amount_usd"] for s in history), 6)
-        total_count = len(history)
+        ram_history = list(_sales_history)
+        wallet_address = _wallet_state.get("wallet_address")
+        usdc_balance = _wallet_state.get("usdc_balance", 0.0)
 
-        by_token: Dict[str, float] = {}
-        for s in history:
-            by_token[s["token"]] = round(by_token.get(s["token"], 0) + s["amount_usd"], 6)
+    total_volume = round(
+        sum(float(s.get("amount_usd", 0.0)) for s in ram_history), 6)
+    total_count = len(ram_history)
+    by_token: Dict[str, float] = {}
+    for s in ram_history:
+        token = s.get("token", "USDC")
+        by_token[token] = round(
+            by_token.get(token, 0.0) + float(s.get("amount_usd", 0.0)), 6)
+    history = ram_history[-100:]
+
+    try:
+        store_sales = dashboard_db.sales_summary()
+    except Exception as exc:
+        log.debug("api/sales: sales store unavailable (%s)", exc)
+        store_sales = None
+    if store_sales and store_sales["total_count"] >= total_count \
+            and store_sales["total_count"]:
+        total_volume = store_sales["total_usdc"]
+        total_count = store_sales["total_count"]
+        by_token = {"USDC": round(total_volume, 6)}
+        # Store rows carry the durable tx/amount/block/payer data plus the
+        # legacy RAM key names, reversed to the oldest→newest contract above.
+        history = [
+            {**row, "amount_usd": row.get("amount_usdc"),
+             "timestamp": row.get("ts")}
+            for row in list(store_sales["history"][:100])[::-1]
+        ]
 
     # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
     market_data = get_market_snapshot()
@@ -2330,10 +2449,10 @@ def api_sales():
         "total_volume_usd": total_volume,
         "total_sales": total_count,
         "by_token": by_token,
-        "history": history[-100:],
+        "history": history,
         "source": "real_blockchain",
-        "wallet_address": _wallet_state.get("wallet_address"),
-        "usdc_balance": _wallet_state.get("usdc_balance", 0.0),
+        "wallet_address": wallet_address,
+        "usdc_balance": usdc_balance,
         "market_data": market_data,
     })
 
@@ -2359,6 +2478,21 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
     # Official public product list = the REAL routes only.
     # (07.09: the 8 demo SKUs were unlisted from every public surface —
     # demo adapter has no live execution. Internal catalog analytics unchanged.)
+    # ── Durable request counters (audit C, debt #10) ─────────────────────────
+    # `_daily_stats` is RAM: after a deploy the public widget reported "0 API
+    # calls" while the persistent log held tens of thousands. The store is the
+    # truth; the old RAM view is kept, labelled, so nothing is hidden.
+    req_today = today_data.get("requests", 0)
+    req_total = sum(d.get("requests", 0) for d in daily.values())
+    try:
+        store_reqs = dashboard_db.requests_summary(recent_limit=1)
+    except Exception as exc:
+        log.debug("api/stats: request store unavailable (%s)", exc)
+        store_reqs = None
+    if store_reqs and store_reqs.get("total"):
+        req_today = store_reqs["today"]
+        req_total = store_reqs["total"]
+
     products = _real_routes_payload()
 
     # Fetch real-time market data from CoinGecko, DEXScreener, Fear & Greed
@@ -2400,12 +2534,18 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
     payload = {
         "today": {
             "date": today_str,
-            "requests": today_data.get("requests", 0),
+            "requests": req_today,
             "sales_count": today_sales_count,
             "sales_volume_usd": today_sales_volume,
         },
         "daily": daily,
-        "total_requests": sum(d.get("requests", 0) for d in daily.values()),
+        "total_requests": req_total,
+        "instrumented_requests": {
+            "today": today_data.get("requests", 0),
+            "total": sum(d.get("requests", 0) for d in daily.values()),
+            "note": ("RAM брояч на инструментираните маршрути (не оцелява "
+                     "deploy) — за сравнение с durable total_requests."),
+        },
         "wallet": wallet_info,
         # The address customers pay to — must always be the bound fee
         # receiver, NOT the operator hot wallet (which is the payer side).
@@ -3633,6 +3773,20 @@ def _canonical_dashboard_payload() -> dict:
                 "total_usd": crm_total,
                 "items": crm_items[:50],
                 "stripe_available": bool(stripe.get("available")),
+                # AUDIT A2: with DATABASE_URL unset the CRM is SQLite on the
+                # EPHEMERAL disk, so every deploy wipes leads, paid leads and
+                # the whole pipeline. The on-chain numbers are protected by the
+                # chain-verified seed; the off-chain money record was not
+                # protected at all — so say it out loud instead of showing a
+                # confident "$0" that is really "unknown".
+                "storage_backend": getattr(crm_store, "backend", "unknown"),
+                "durable": getattr(crm_store, "backend", "") == "postgresql",
+                "storage_note": (
+                    "PostgreSQL (durable)" if getattr(crm_store, "backend", "")
+                    == "postgresql" else
+                    "SQLite на ефимерния диск — deploy изтрива leads/paid "
+                    "записите. Задай DATABASE_URL за durable CRM."
+                ),
             },
         },
         "invariant": (

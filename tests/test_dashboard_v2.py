@@ -113,6 +113,141 @@ def test_clients_route_becomes_a_fact_once_the_guard_records_it(client):
 
 # ── 3. КИТОВЕ: a truthful empty, never a fake zero ──────────────────────────
 
+def test_paid_sales_route_serves_the_store_after_a_restart(client, monkeypatch):
+    """AUDIT A3: /api/sales is a PAID route ($0.005, "On-Chain Sales History").
+    It read the RAM `_sales_history`, so a paying customer received
+    `total_sales: 0` with an empty history after any restart/deploy while the
+    chain said $0.028 over 8 transfers. RAM is emptied here exactly like after
+    a restart — the store must carry the answer."""
+    test_client, main, dash = client
+    # Make the test independent of test order: /api/sales is behind the
+    # paywall and the free-tier counter is process-wide RAM.
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    dash.seed_verified_sales()
+    monkeypatch.setattr(main, "_sales_history", [])   # "the process restarted"
+    resp = test_client.get("/api/sales")
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:200]
+    payload = resp.get_json()
+    assert payload["total_volume_usd"] == 0.028
+    assert payload["total_sales"] == 8
+    assert payload["by_token"] == {"USDC": 0.028}
+    assert len(payload["history"]) == 8
+    for row in payload["history"]:
+        assert len(row["tx_hash"]) == 66
+        assert row["amount_usd"] == row["amount_usdc"]
+        assert row["timestamp"] == row["ts"]
+    # Legacy order (oldest -> newest) is preserved for existing consumers.
+    blocks = [row["block_number"] for row in payload["history"]]
+    assert blocks == sorted(blocks)
+
+
+def test_paid_sales_route_falls_back_to_ram_when_the_store_is_empty(
+        client, monkeypatch):
+    """The store is the truth, but an empty store must not blank a longer RAM
+    history (e.g. a scan that has just discovered sales)."""
+    test_client, main, _dash = client
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    monkeypatch.setattr(main, "_sales_history", [{
+        "tx_hash": "0x" + "9a" * 32, "token": "USDC", "amount_usd": 0.003,
+        "sender": "0x" + "11" * 20, "block_number": 1,
+    }])
+    payload = test_client.get("/api/sales").get_json()
+    assert payload["total_sales"] == 1
+    assert payload["total_volume_usd"] == 0.003
+
+
+def test_stats_route_reports_durable_request_counters(client, monkeypatch):
+    """AUDIT C: the PAID /api/stats summed the RAM `_daily_stats`, so after a
+    deploy the public widget showed "0 API calls" while the persistent log held
+    tens of thousands. The store is the truth; the RAM view stays, labelled."""
+    test_client, main, dash = client
+    now = datetime.now(timezone.utc).isoformat()
+    with dash._write_lock, dash._connect() as conn:
+        for _ in range(3):
+            conn.execute(
+                """INSERT INTO request_log
+                       (ts, method, path, source, status_code, user_agent,
+                        referer, funnel)
+                   VALUES (?, 'GET', '/health', 'api', 200, 'ua', '', NULL)""",
+                (now,),
+            )
+        conn.commit()
+    monkeypatch.setattr(main, "_daily_stats", {})   # "the process restarted"
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    payload = test_client.get("/api/stats").get_json()
+    assert payload["total_requests"] == 3
+    assert payload["today"]["requests"] == 3
+    # Nothing hidden: the old RAM-derived view is still exposed, explicitly.
+    # It counts ONLY instrumented routes and only since this process started —
+    # hence 1 (this very /api/stats call) against 3 durable ones.
+    assert payload["instrumented_requests"]["total"] == 1
+    assert payload["instrumented_requests"]["note"]
+
+
+# ── 10. AUDIT B: the demo surface can be parked with one flag ───────────────
+
+def test_demo_surfaces_can_be_parked_without_deleting_code(client, monkeypatch):
+    """The 8 demo SKUs + the Stripe lead funnel are UNPROVEN (zero paid sales
+    ever came through them) yet carry the largest public surface.
+    KRISTO_DEMO_SURFACES=off parks them behind a 404 and deletes no code."""
+    test_client, main, _dash = client
+    monkeypatch.delenv("KRISTO_DEMO_SURFACES", raising=False)
+    # Default: unchanged behaviour, the switch must not surprise anyone.
+    assert main.demo_surfaces_enabled() is True
+    assert test_client.post("/api/v1/agents/whaleflow-radar/playground",
+                            json={"input": "ETH"}).status_code == 200
+
+    monkeypatch.setenv("KRISTO_DEMO_SURFACES", "off")
+    assert main.demo_surfaces_enabled() is False
+    for path in ("/api/v1/agents/whaleflow-radar/playground",
+                 "/api/v1/agents/whaleflow-radar/checkout",
+                 "/api/v1/agents/whaleflow-radar/access",
+                 "/api/v1/agents/whaleflow-radar/click",
+                 "/sales/checkout", "/api/checkout", "/agents"):
+        r = test_client.post(path, json={"input": "ETH", "email": "a@b.c"})
+        assert r.status_code == 404, f"{path} -> {r.status_code}"
+        assert r.get_json()["error"] == "surface_retired"
+    assert test_client.post("/api/leads", json={"email": "a@b.c"}).status_code == 404
+
+    # …while the real vitrine and operations are untouched.
+    assert test_client.get("/api/v1/agents").status_code == 200
+    assert test_client.get("/api/v1/agents/whaleflow-radar").status_code == 200
+    assert test_client.get("/dashboard").status_code == 200
+    # The repair lever must never be parked.
+    assert test_client.post("/api/admin/seed-sales").status_code == 401
+
+
+def test_parked_demo_surfaces_do_not_touch_the_real_routes(client, monkeypatch):
+    """The 6 real x402 routes are the product — parking must not reach them."""
+    test_client, main, _dash = client
+    monkeypatch.setenv("KRISTO_DEMO_SURFACES", "off")
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {})
+    for route in main.REAL_X402_ROUTES:
+        r = test_client.get(route["endpoint"],
+                            environ_base={"REMOTE_ADDR": "203.0.113.55"})
+        assert r.status_code == 402, f"{route['endpoint']} -> {r.status_code}"
+
+
+def test_offchain_storage_durability_is_visible_not_assumed(client):
+    """AUDIT A2: with DATABASE_URL unset the CRM is SQLite on Render's EPHEMERAL
+    disk — every deploy wipes leads and paid records. The dashboard must say
+    that out loud, because a confident "$0" there means "unknown", not "zero".
+    (Making it durable is an owner action: set DATABASE_URL.)"""
+    test_client, _main, _dash = client
+    c = _sections(test_client)["crm_stripe"]
+    assert c["storage_backend"] in ("sqlite", "postgresql")
+    assert c["durable"] is (c["storage_backend"] == "postgresql")
+    assert c["storage_note"]
+    if not c["durable"]:
+        assert "DATABASE_URL" in c["storage_note"]
+    html = test_client.get("/dashboard").get_data(as_text=True)
+    assert 'id="crm-storage"' in html and "crm-storage" in html
+
+
 def test_whales_section_is_honest_when_the_window_is_empty(client):
     test_client, _main, dash = client
     dash.set_meta("whaleflow_safe_scanned_block", "51234567")

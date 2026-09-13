@@ -161,6 +161,7 @@
       on-chain сумите по-горе. Live/test режимът на Stripe се проверява в Stripe Dashboard
       → Payments (test плащанията са в Test mode списъка).</div>
     <button class="toggle-btn" id="crm-toggle">Покажи off-chain сумите</button>
+    <div class="note" id="crm-storage" style="margin-top:8px;"></div>
     <div id="crm-detail" class="hidden" style="margin-top:10px;">
       <div class="cards" id="crm-cards"></div>
       <table style="margin-top:10px;">
@@ -396,6 +397,12 @@ function renderPayapi(p) {
 }
 
 function renderCrm(c) {
+  // AUDIT A2: an off-chain "$0" on ephemeral storage means "unknown", not
+  // "zero" — the storage backend is shown next to the numbers.
+  $('crm-storage').innerHTML = c.durable
+    ? '<span class="lamp green"></span>CRM хранилище: ' + esc(c.storage_backend) + ' (durable)'
+    : '<span class="lamp amber"></span>CRM хранилище: ' + esc(c.storage_backend || 'unknown')
+      + ' — ' + esc(c.storage_note || 'не е durable');
   $('crm-cards').innerHTML =
     card(usd2(c.total_usd), 'Off-chain приходи (CRM/Stripe)') +
     card(c.count, 'Платени записи') +
