@@ -430,6 +430,42 @@ def test_history_is_idempotent_and_uses_sqlite_without_database_url(
                                    )["all_time_count"] == 1
 
 
+def test_postgres_dialect_is_psycopg_safe():
+    """The fake Postgres in this file cannot catch a SQL-dialect mistake, so the
+    dialect is asserted DIRECTLY.
+
+    Real bug (caught in production, not by the fake): psycopg reads `%` as a
+    placeholder marker, so `user_agent LIKE 'Render/%'` raised
+    psycopg.ProgrammingError("only '%s', '%b', '%t' are allowed as placeholders,
+    got '%'") and turned /api/dashboard/data into HTTP 500 for everyone."""
+    from integrations.dashboard_store import HistoryStore
+
+    pg = HistoryStore.__new__(HistoryStore)
+    pg.backend = "postgresql"
+    pg._ph = "%s"
+
+    like = pg._q("SELECT COUNT(*) AS n FROM request_log "
+                 "WHERE user_agent LIKE 'Render/%'")
+    assert "LIKE 'Render/%%'" in like, "a literal percent must be doubled"
+    assert "?" not in like
+
+    two = pg._q("SELECT SUM(CASE WHEN user_agent LIKE 'Render/%' THEN 1 "
+                "ELSE 0 END) AS n FROM request_log "
+                "WHERE substr(ts, 1, 10) = ? AND path = ?")
+    assert two.count("%%") == 1          # only the literal one is doubled
+    assert two.count("%s") == 2          # both parameters translated
+    assert "?" not in two
+
+    # SQLite is untouched: `%` stays a plain LIKE wildcard, `?` stays `?`.
+    lite = HistoryStore.__new__(HistoryStore)
+    lite.backend = "sqlite"
+    lite._ph = "?"
+    lite_sql = lite._q("SELECT COUNT(*) AS n FROM request_log "
+                       "WHERE user_agent LIKE 'Render/%' AND path = ?")
+    assert "LIKE 'Render/%'" in lite_sql
+    assert lite_sql.endswith("= ?")
+
+
 def test_whales_section_is_honest_when_the_window_is_empty(client):
     test_client, _main, dash = client
     dash.set_meta("whaleflow_safe_scanned_block", "51234567")

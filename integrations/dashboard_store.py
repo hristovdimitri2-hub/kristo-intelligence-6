@@ -212,8 +212,18 @@ class HistoryStore:
 
     # ── plumbing ────────────────────────────────────────────────────────────
     def _q(self, sql: str) -> str:
-        """Translate one query body to the active dialect."""
-        return sql.replace("?", self._ph)
+        """Translate one query body to the active dialect.
+
+        psycopg treats `%` as a placeholder marker, so a LITERAL percent — as in
+        `user_agent LIKE 'Render/%'` — must be doubled to `%%`, and that has to
+        happen BEFORE `?` becomes `%s`. Missing this turned every dashboard
+        request into psycopg.ProgrammingError ("only '%s', '%b', '%t' are
+        allowed as placeholders, got '%'"). Every body here uses `?` for
+        parameters, never a raw `%s`, so the doubling cannot corrupt one.
+        """
+        if self.backend == "postgresql":
+            return sql.replace("%", "%%").replace("?", "%s")
+        return sql
 
     def _pg_connection(self):
         import psycopg
