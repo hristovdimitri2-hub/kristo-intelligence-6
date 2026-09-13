@@ -264,6 +264,172 @@ def test_rpc_api_keys_are_redacted_before_logging():
     assert redact_rpc("plain text, no key") == "plain text, no key"
 
 
+# ── 11. HISTORY SURVIVES A RESTART (the acceptance criterion) ───────────────
+
+class _FakePostgres:
+    """A tiny in-memory stand-in for the history tables in PostgreSQL.
+
+    It stores the rows and answers the same queries the real backend runs, so
+    the test exercises the DATA path (does the history outlive the process?)
+    instead of merely asserting that some SQL was sent.
+    """
+
+    def __init__(self):
+        self.whales = []
+        self.requests = []
+        self.sql = []
+
+
+class _FakeCursor:
+    def __init__(self, db):
+        self.db = db
+        self.rowcount = 0
+        self._rows = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        params = tuple(params or ())
+        s = " ".join(sql.split())
+        self.db.sql.append(s)
+        self.rowcount = 0
+
+        if s.startswith("CREATE TABLE") or s.startswith("CREATE INDEX"):
+            return
+        if s.startswith("INSERT INTO whaleflow_events"):
+            key = (params[0], params[1])
+            if not any((r["tx_hash"], r["log_index"]) == key
+                       for r in self.db.whales):
+                self.db.whales.append({
+                    "tx_hash": params[0], "log_index": params[1],
+                    "ts": params[2], "token": params[3],
+                    "amount_usdc": params[4], "from_addr": params[5],
+                    "to_addr": params[6], "block_number": params[7],
+                })
+                self.rowcount = 1
+            return
+        if s.startswith("INSERT INTO request_log"):
+            self.db.requests.append({"ts": params[0], "path": params[2]})
+            self.rowcount = 1
+            return
+        if "COUNT(*) AS n, MAX(ts) AS last_ts" in s:
+            big = [r for r in self.db.whales if r["amount_usdc"] >= params[0]]
+            self._rows = [{
+                "n": len(big),
+                "last_ts": max((r["ts"] for r in big), default=None),
+                "last_block": max((r["block_number"] for r in big), default=None),
+            }]
+            return
+        if "FROM whaleflow_events" in s:
+            big = [r for r in self.db.whales
+                   if r["ts"] >= params[0] and r["amount_usdc"] >= params[1]]
+            big.sort(key=lambda r: (r["ts"], r["block_number"]), reverse=True)
+            self._rows = big[:params[2]]
+            return
+        if s.startswith("SELECT COUNT(*) AS n FROM request_log"):
+            self._rows = [{"n": len(self.db.requests)}]
+            return
+        if "AS challenges" in s:
+            # Real PostgreSQL always returns ONE row for a bare SUM (NULLs on an
+            # empty table); the fake must do the same instead of None.
+            self._rows = [{"challenges": 0, "paid": 0}]
+            return
+        self._rows = []
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+def _install_fake_postgres(monkeypatch, db):
+    from integrations.dashboard_store import HistoryStore
+
+    class _Conn:
+        def __init__(self, db_):
+            self._db = db_
+
+        @property
+        def closed(self):
+            return False
+
+        def cursor(self):
+            return _FakeCursor(self._db)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(HistoryStore, "_pg_connection", lambda self: _Conn(db))
+    return db
+
+
+def test_history_survives_a_restart_when_postgres_is_configured(
+        tmp_path, monkeypatch):
+    """THE acceptance criterion: with DATABASE_URL set, a deploy/restart must
+    NOT drop the paid whale feed's history (all_time fell 20 478 -> 598 when the
+    table lived on the ephemeral SQLite file)."""
+    from integrations.dashboard_store import DashboardStore
+
+    db = _install_fake_postgres(monkeypatch, _FakePostgres())
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+
+    now = datetime.now(timezone.utc).isoformat()
+    first = DashboardStore(tmp_path / "a.db")
+    assert first.history.backend == "postgresql"
+    assert first.history.record_whale_event(
+        "0x" + "ab" * 32, 0, now, "USDC", 250_000.0,
+        "0x" + "cd" * 20, "0x" + "ef" * 20, 51_240_000) == 1
+    first.record_request("GET", "/health", "api", 200)
+    assert first.whaleflow_summary(window_hours=24)["all_time_count"] == 1
+
+    # "restart": a brand-new store on a brand-new SQLite file, same database.
+    second = DashboardStore(tmp_path / "b.db")
+    assert second.history.backend == "postgresql"
+    summary = second.whaleflow_summary(window_hours=24)
+    assert summary["all_time_count"] == 1, "history did NOT survive the restart"
+    assert summary["count"] == 1
+    assert summary["state"] == "live_data"
+    assert summary["whales"][0]["amount_usdc"] == 250_000.0
+    assert second.requests_summary()["total"] == 1
+    # The dialect actually used is PostgreSQL, not SQLite.
+    joined = " ".join(db.sql)
+    assert "ON CONFLICT (tx_hash, log_index) DO NOTHING" in joined
+    assert "BIGSERIAL PRIMARY KEY" in joined
+    assert "%s" in joined
+
+
+def test_history_is_idempotent_and_uses_sqlite_without_database_url(
+        tmp_path, monkeypatch):
+    """Without DATABASE_URL nothing changes: same SQLite tables, same file —
+    and the same duplicate protection as PostgreSQL's ON CONFLICT."""
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    store = DashboardStore(tmp_path / "d.db")
+    assert store.history.backend == "sqlite"
+    store.record_request("GET", "/health", "api", 200)
+    assert store.requests_summary()["total"] == 1
+
+    now = datetime.now(timezone.utc).isoformat()
+    assert store.history.record_whale_event(
+        "0x" + "11" * 32, 0, now, "USDC", 99_000.0,
+        "0x" + "aa" * 20, "0x" + "bb" * 20, 1) == 1
+    assert store.history.record_whale_event(
+        "0x" + "11" * 32, 0, now, "USDC", 99_000.0,
+        "0x" + "aa" * 20, "0x" + "bb" * 20, 1) == 0     # duplicate ignored
+    assert store.whaleflow_summary(window_hours=24, threshold=50_000.0
+                                   )["all_time_count"] == 1
+
+
 def test_whales_section_is_honest_when_the_window_is_empty(client):
     test_client, _main, dash = client
     dash.set_meta("whaleflow_safe_scanned_block", "51234567")

@@ -186,6 +186,305 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
     return safe_end, effective_span
 
 
+# ── History backend: request_log + whaleflow_events (SQLite ⇄ PostgreSQL) ───
+# These two tables are HISTORIES, and losing them on every deploy was visible:
+# the request log reset to zero and the PAID whale feed's all_time count fell
+# from 20 478 to 598 after a single deploy. They now follow DATABASE_URL exactly
+# like the CRM does — with ONE implementation and two dialects (each query body
+# is written once; only the placeholder and the upsert syntax differ), so the
+# two backends cannot drift apart.
+#
+# Deliberately NOT here: onchain_sales, payment_guards, guard_events and meta.
+# The MONEY tables stay on the SQLite file they have always used.
+class HistoryStore:
+    """request_log + whaleflow_events, in SQLite or PostgreSQL."""
+
+    def __init__(self, sqlite_connect, write_lock, database_url: str = ""):
+        self._sqlite_connect = sqlite_connect
+        self._lock = write_lock
+        self.database_url = (database_url or "").strip()
+        self.backend = "postgresql" if self.database_url else "sqlite"
+        self._ph = "%s" if self.backend == "postgresql" else "?"
+        self._pg_conn = None
+        self._pg_lock = threading.Lock()
+        if self.backend == "postgresql":
+            self._ensure_schema()
+
+    # ── plumbing ────────────────────────────────────────────────────────────
+    def _q(self, sql: str) -> str:
+        """Translate one query body to the active dialect."""
+        return sql.replace("?", self._ph)
+
+    def _pg_connection(self):
+        import psycopg
+        from psycopg.rows import dict_row
+        if self._pg_conn is None or self._pg_conn.closed:
+            self._pg_conn = psycopg.connect(self.database_url,
+                                            row_factory=dict_row)
+        return self._pg_conn
+
+    def _run(self, sql: str, params: tuple = (), fetch: str = ""):
+        """Execute one statement in either dialect. Returns (rows, rowcount)."""
+        sql = self._q(sql)
+        if self.backend == "sqlite":
+            with self._lock, self._sqlite_connect() as conn:
+                cur = conn.execute(sql, params)
+                rows = (cur.fetchall() if fetch == "all"
+                        else cur.fetchone() if fetch == "one" else None)
+                rowcount = cur.rowcount
+                conn.commit()
+            return rows, rowcount
+        with self._pg_lock:                  # one shared, serialised link
+            try:
+                conn = self._pg_connection()
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    rows = (cur.fetchall() if fetch == "all"
+                            else cur.fetchone() if fetch == "one" else None)
+                    rowcount = cur.rowcount
+                conn.commit()
+                return rows, rowcount
+            except Exception:
+                # A dropped/aborted transaction must not poison the shared
+                # connection for every later caller.
+                try:
+                    self._pg_conn.close()
+                except Exception:
+                    pass
+                self._pg_conn = None
+                raise
+
+    def _ensure_schema(self) -> None:
+        """Create both history tables — idempotent, on first use.
+
+        The CRM taught this lesson the hard way: assuming a table already exists
+        turned a correctly provisioned database into HTTP 500 for the whole
+        dashboard.
+        """
+        id_type = ("BIGSERIAL PRIMARY KEY" if self.backend == "postgresql"
+                   else "INTEGER PRIMARY KEY AUTOINCREMENT")
+        real = "DOUBLE PRECISION" if self.backend == "postgresql" else "REAL"
+        self._run(
+            f"""CREATE TABLE IF NOT EXISTS request_log (
+                    id          {id_type},
+                    ts          TEXT,
+                    method      TEXT,
+                    path        TEXT,
+                    source      TEXT,
+                    status_code INTEGER,
+                    user_agent  TEXT,
+                    referer     TEXT,
+                    funnel      TEXT
+                )"""
+        )
+        self._run(
+            f"""CREATE TABLE IF NOT EXISTS whaleflow_events (
+                    tx_hash      TEXT,
+                    log_index    INTEGER,
+                    ts           TEXT,
+                    token        TEXT,
+                    amount_usdc  {real},
+                    from_addr    TEXT,
+                    to_addr      TEXT,
+                    block_number BIGINT,
+                    recorded_at  TEXT,
+                    PRIMARY KEY (tx_hash, log_index)
+                )"""
+        )
+        self._run("CREATE INDEX IF NOT EXISTS idx_request_log_ts "
+                  "ON request_log (ts)")
+        self._run("CREATE INDEX IF NOT EXISTS idx_whaleflow_ts "
+                  "ON whaleflow_events (ts)")
+        log.info("History store ready (%s): request_log + whaleflow_events.",
+                 self.backend)
+
+    # ── request log ─────────────────────────────────────────────────────────
+    def record_request(self, method: str, path: str, source: str,
+                       status_code: int, user_agent: str = "",
+                       referer: str = "", funnel: Optional[str] = None) -> None:
+        self._run(
+            """INSERT INTO request_log
+                   (ts, method, path, source, status_code,
+                    user_agent, referer, funnel)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                method,
+                path,
+                source,
+                int(status_code or 0),
+                (user_agent or "")[:120],
+                (referer or "")[:160],
+                funnel,
+            ),
+        )
+
+    # ── whale flow events ───────────────────────────────────────────────────
+    def record_whale_event(self, tx_hash: str, log_index: int, ts: str,
+                           token: str, amount_usdc: float, from_addr: str,
+                           to_addr: str, block_number: int) -> int:
+        """Insert one whale row. Returns 1 when new, 0 when it was duplicate."""
+        sql = """INSERT INTO whaleflow_events
+                     (tx_hash, log_index, ts, token, amount_usdc, from_addr,
+                      to_addr, block_number, recorded_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        if self.backend == "postgresql":
+            sql += " ON CONFLICT (tx_hash, log_index) DO NOTHING"
+        else:
+            sql = sql.replace("INSERT INTO", "INSERT OR IGNORE INTO", 1)
+        _rows, rowcount = self._run(
+            sql,
+            (tx_hash, int(log_index), ts, token, round(float(amount_usdc), 6),
+             from_addr, to_addr, int(block_number),
+             datetime.now(timezone.utc).isoformat()),
+        )
+        return max(0, int(rowcount or 0))
+
+    def requests_summary(self, recent_limit: int = 25) -> Dict[str, Any]:
+        """today/total + channel (/f/<name>) + source breakdown.
+
+        The internal keep-alive traffic (UA 'Render/1.0' — our own /health pings
+        plus Render health checks) is counted SEPARATELY so the clean
+        customer/agent-facing numbers light up on their own. Also aggregates the
+        payment FUNNEL per paid route (402 challenges -> paid follow-ups,
+        today + total) — the "caught by the hand" metric.
+        """
+        one = "one"
+        all_ = "all"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        internal_sql = "user_agent LIKE 'Render/%'"
+
+        total = self._run(
+            "SELECT COUNT(*) AS n FROM request_log", (), one)[0]["n"]
+        today_row = self._run(
+            "SELECT COUNT(*) AS n FROM request_log WHERE substr(ts, 1, 10) = ?",
+            (today,), one)[0]["n"]
+        noise_total = self._run(
+            f"SELECT COUNT(*) AS n FROM request_log WHERE {internal_sql}",
+            (), one)[0]["n"]
+        noise_today = self._run(
+            f"SELECT COUNT(*) AS n FROM request_log "
+            f"WHERE substr(ts, 1, 10) = ? AND {internal_sql}",
+            (today,), one)[0]["n"]
+        by_source = self._run(
+            """SELECT source, COUNT(*) AS n FROM request_log
+               GROUP BY source ORDER BY n DESC""", (), all_)[0]
+        by_source_clean = self._run(
+            f"""SELECT source, COUNT(*) AS n FROM request_log
+                WHERE NOT ({internal_sql})
+                GROUP BY source ORDER BY n DESC""", (), all_)[0]
+        by_channel = self._run(
+            """SELECT funnel AS channel, COUNT(*) AS n FROM request_log
+               WHERE funnel IS NOT NULL AND funnel <> ''
+               GROUP BY funnel ORDER BY n DESC""", (), all_)[0]
+        by_path = self._run(
+            """SELECT path, COUNT(*) AS n FROM request_log
+               GROUP BY path ORDER BY n DESC LIMIT 10""", (), all_)[0]
+        top_user_agents = self._run(
+            f"""SELECT user_agent, COUNT(*) AS n FROM request_log
+                WHERE user_agent <> '' AND NOT ({internal_sql})
+                GROUP BY user_agent ORDER BY n DESC LIMIT 10""", (), all_)[0]
+        hourly = self._run(
+            """SELECT substr(ts, 12, 2) AS hour, COUNT(*) AS n,
+                      SUM(CASE WHEN user_agent LIKE 'Render/%' THEN 1 ELSE 0 END)
+                          AS noise
+               FROM request_log
+               WHERE substr(ts, 1, 10) = ?
+               GROUP BY substr(ts, 12, 2) ORDER BY hour""",
+            (today,), all_)[0]
+
+        # ── payment funnel per paid route: 402 challenges vs paid retries ──
+        funnel = {}
+        for path in FUNNEL_ROUTES:
+            cur = self._run(
+                """SELECT
+                     SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END)
+                         AS challenges,
+                     SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
+                   FROM request_log WHERE path = ?""", (path,), one)[0]
+            cur_today = self._run(
+                """SELECT
+                     SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END)
+                         AS challenges,
+                     SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
+                   FROM request_log
+                   WHERE path = ? AND substr(ts, 1, 10) = ?""",
+                (path, today), one)[0]
+            # BUGFIX (13.09): "today" used to be filled from the TOTAL query
+            # (`cur`), so the dashboard's "Днес: 402 → платени" column silently
+            # repeated the all-time numbers (cur_today was thrown away).
+            funnel[path] = {
+                "challenges_total": cur["challenges"] or 0,
+                "paid_total": cur["paid"] or 0,
+                "challenges_today": cur_today["challenges"] or 0,
+                "paid_today": cur_today["paid"] or 0,
+            }
+        recent = self._run(
+            """SELECT ts, method, path, source, status_code, user_agent, funnel
+               FROM request_log ORDER BY id DESC LIMIT ?""",
+            (recent_limit,), all_)[0]
+        return {
+            "today_date": today,
+            "today": today_row,
+            "total": total,
+            "today_clean": max(0, today_row - noise_today),
+            "total_clean": max(0, total - noise_total),
+            "internal_noise": {
+                "today": noise_today,
+                "total": noise_total,
+                "label": "вътрешен keep-alive (Render/1.0) — не е клиентски трафик",
+            },
+            "by_source": [dict(r) for r in by_source],
+            "by_source_clean": [dict(r) for r in by_source_clean],
+            "by_channel": [dict(r) for r in by_channel],
+            "top_paths": [dict(r) for r in by_path],
+            "top_user_agents": [dict(r) for r in top_user_agents],
+            "hourly": [dict(r) for r in hourly],
+            "funnel": funnel,
+            "recent": [dict(r) for r in recent],
+        }
+
+    # ── whale flow reads ─────────────────────────────────────────────────────
+    def whale_rows(self, window_hours: int, limit: int,
+                   threshold: float) -> Dict[str, Any]:
+        """The rolling whale window plus the honest empty-vs-all-time context."""
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(hours=window_hours)).isoformat()
+        rows = self._run(
+            """SELECT ts, token, amount_usdc, from_addr, to_addr,
+                      tx_hash, block_number
+               FROM whaleflow_events
+               WHERE ts >= ? AND amount_usdc >= ?
+               ORDER BY ts DESC, block_number DESC LIMIT ?""",
+            (cutoff, threshold, limit), "all")[0]
+        all_time = self._run(
+            """SELECT COUNT(*) AS n, MAX(ts) AS last_ts,
+                      MAX(block_number) AS last_block
+               FROM whaleflow_events WHERE amount_usdc >= ?""",
+            (threshold,), "one")[0]
+        whales = []
+        for r in rows:
+            whales.append({
+                "ts": r["ts"],
+                "token": r["token"],
+                "amount_usdc": round(float(r["amount_usdc"]), 6),
+                "from": r["from_addr"],
+                "to": r["to_addr"],
+                "from_label": _label_address(r["from_addr"]),
+                "to_label": _label_address(r["to_addr"]),
+                "tx_hash": r["tx_hash"],
+                "block": r["block_number"],
+            })
+        return {
+            "whales": whales,
+            "all_time_count": all_time["n"] if all_time else 0,
+            "last_event_at": all_time["last_ts"] if all_time else None,
+            "last_event_block": (int(all_time["last_block"])
+                                 if all_time and all_time["last_block"]
+                                 else None),
+        }
+
+
 class DashboardStore:
     """SQLite-backed persistent store (one connection per call, like CRMStore)."""
 
@@ -196,6 +495,12 @@ class DashboardStore:
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.Lock()
         self._ensure_db()
+        # request_log + whaleflow_events follow DATABASE_URL (PostgreSQL when
+        # set, SQLite otherwise) so HISTORY survives a deploy — see HistoryStore.
+        self.history = HistoryStore(
+            self._connect, self._write_lock,
+            os.getenv("DATABASE_URL", ""),
+        )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.file_path), timeout=30)
@@ -719,139 +1024,15 @@ class DashboardStore:
         referer: str = "",
         funnel: Optional[str] = None,
     ) -> None:
-        with self._write_lock, self._connect() as conn:
-            conn.execute(
-                """INSERT INTO request_log
-                       (ts, method, path, source, status_code,
-                        user_agent, referer, funnel)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    datetime.now(timezone.utc).isoformat(),
-                    method,
-                    path,
-                    source,
-                    int(status_code or 0),
-                    (user_agent or "")[:120],
-                    (referer or "")[:160],
-                    funnel,
-                ),
-            )
-            conn.commit()
+        """Persist one request — history lives in HistoryStore now."""
+        self.history.record_request(method, path, source, status_code,
+                                    user_agent, referer, funnel)
 
     def requests_summary(self, recent_limit: int = 25) -> Dict[str, Any]:
-        """today/total + channel (/f/<name>) + source breakdown — from disk.
-
-        The internal keep-alive traffic (UA 'Render/1.0' — our own /health
-        pings plus Render health checks) is counted SEPARATELY so the
-        "clean" customer/agent-facing numbers light up on their own.
-        Also aggregates the payment FUNNEL per paid route (402 challenges ->
-        paid follow-ups, today + total) — "caught by the hand" metric.
-        """
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        internal_sql = "user_agent LIKE 'Render/%'"
-        with self._connect() as conn:
-            total = conn.execute(
-                "SELECT COUNT(*) AS n FROM request_log"
-            ).fetchone()["n"]
-            today_row = conn.execute(
-                "SELECT COUNT(*) AS n FROM request_log WHERE substr(ts, 1, 10) = ?",
-                (today,),
-            ).fetchone()["n"]
-            noise_total = conn.execute(
-                f"SELECT COUNT(*) AS n FROM request_log WHERE {internal_sql}"
-            ).fetchone()["n"]
-            noise_today = conn.execute(
-                f"""SELECT COUNT(*) AS n FROM request_log
-                    WHERE substr(ts, 1, 10) = ? AND {internal_sql}""",
-                (today,),
-            ).fetchone()["n"]
-            by_source = conn.execute(
-                """SELECT source, COUNT(*) AS n FROM request_log
-                   GROUP BY source ORDER BY n DESC"""
-            ).fetchall()
-            by_source_clean = conn.execute(
-                f"""SELECT source, COUNT(*) AS n FROM request_log
-                    WHERE NOT ({internal_sql})
-                    GROUP BY source ORDER BY n DESC"""
-            ).fetchall()
-            by_channel = conn.execute(
-                """SELECT funnel AS channel, COUNT(*) AS n FROM request_log
-                   WHERE funnel IS NOT NULL AND funnel <> ''
-                   GROUP BY funnel ORDER BY n DESC"""
-            ).fetchall()
-            by_path = conn.execute(
-                """SELECT path, COUNT(*) AS n FROM request_log
-                   GROUP BY path ORDER BY n DESC LIMIT 10"""
-            ).fetchall()
-            top_user_agents = conn.execute(
-                f"""SELECT user_agent, COUNT(*) AS n FROM request_log
-                    WHERE user_agent <> '' AND NOT ({internal_sql})
-                    GROUP BY user_agent ORDER BY n DESC LIMIT 10"""
-            ).fetchall()
-            hourly = conn.execute(
-                """SELECT substr(ts, 12, 2) AS hour, COUNT(*) AS n,
-                          SUM(CASE WHEN user_agent LIKE 'Render/%' THEN 1 ELSE 0 END)
-                              AS noise
-                   FROM request_log
-                   WHERE substr(ts, 1, 10) = ?
-                   GROUP BY substr(ts, 12, 2) ORDER BY hour""",
-                (today,),
-            ).fetchall()
-            # ── payment funnel per paid route: 402 challenges vs paid retries ──
-            funnel = {}
-            for path in FUNNEL_ROUTES:
-                cur = conn.execute(
-                    """SELECT
-                         SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END) AS challenges,
-                         SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
-                       FROM request_log WHERE path = ?""",
-                    (path,),
-                ).fetchone()
-                cur_today = conn.execute(
-                    """SELECT
-                         SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END) AS challenges,
-                         SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
-                       FROM request_log
-                       WHERE path = ? AND substr(ts, 1, 10) = ?""",
-                    (path, today),
-                ).fetchone()
-                # BUGFIX (13.09): "today" used to be filled from the TOTAL
-                # query (`cur`), so the dashboard's "Днес: 402 → платени"
-                # column silently repeated the all-time numbers — a phantom
-                # number on screen (cur_today was computed and thrown away).
-                funnel[path] = {
-                    "challenges_total": cur["challenges"] or 0,
-                    "paid_total": cur["paid"] or 0,
-                    "challenges_today": cur_today["challenges"] or 0,
-                    "paid_today": cur_today["paid"] or 0,
-                }
-            recent = conn.execute(
-                """SELECT ts, method, path, source, status_code, user_agent,
-                          funnel
-                   FROM request_log ORDER BY id DESC LIMIT ?""",
-                (recent_limit,),
-            ).fetchall()
-        return {
-            "today_date": today,
-            "today": today_row,
-            "total": total,
-            "today_clean": max(0, today_row - noise_today),
-            "total_clean": max(0, total - noise_total),
-            "internal_noise": {
-                "today": noise_today,
-                "total": noise_total,
-                "label": "вътрешен keep-alive (Render/1.0) — не е клиентски трафик",
-            },
-            "by_source": [dict(r) for r in by_source],
-            "by_source_clean": [dict(r) for r in by_source_clean],
-            "by_channel": [dict(r) for r in by_channel],
-            "top_paths": [dict(r) for r in by_path],
-            "top_user_agents": [dict(r) for r in top_user_agents],
-            "hourly": [dict(r) for r in hourly],
-            "funnel": funnel,
-            "recent": [dict(r) for r in recent],
-        }
-
+        # Persisted request analytics. History lives in HistoryStore now, so
+        # the numbers survive a deploy (DATABASE_URL -> PostgreSQL) instead of
+        # resetting to zero on every restart.
+        return self.history.requests_summary(recent_limit)
     # ── PayAPI listing state ──────────────────────────────────────────────────
     def save_payapi_state(self, state: Dict[str, Any]) -> None:
         with self._write_lock, self._connect() as conn:
@@ -1148,18 +1329,9 @@ class DashboardStore:
                                 blk["timestamp"], tz=timezone.utc)
                         except Exception:
                             stamps[block] = datetime.now(timezone.utc)
-                    with self._write_lock, self._connect() as conn:
-                        cur = conn.execute(
-                            """INSERT OR IGNORE INTO whaleflow_events
-                                   (tx_hash, log_index, ts, token, amount_usdc,
-                                    from_addr, to_addr, block_number, recorded_at)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (tx, ln, stamps[block].isoformat(), "USDC",
-                             round(amount, 6), frm.lower(), to.lower(),
-                             block, datetime.now(timezone.utc).isoformat()),
-                        )
-                        conn.commit()
-                        added += cur.rowcount
+                    added += self.history.record_whale_event(
+                        tx, ln, stamps[block].isoformat(), "USDC", amount,
+                        frm.lower(), to.lower(), block)
                 except Exception:
                     continue
 
@@ -1236,54 +1408,24 @@ class DashboardStore:
         by the CURRENT threshold (env-regulatable at read time). Honest
         labels: known/watchlisted names or literally 'unknown'."""
         threshold = whale_threshold() if threshold is None else threshold
-        cutoff = (datetime.now(timezone.utc)
-                  - timedelta(hours=window_hours)).isoformat()
         scanned_until = self.get_meta("whaleflow_safe_scanned_block") or self.get_meta("whaleflow_last_block")
         # Honesty: a BROKEN scan must never look like a healthy empty feed.
         last_attempt = self.get_meta("whaleflow_last_attempt")
         last_error = self.get_meta("whaleflow_last_error")
         effective_chunk = self.get_meta("whaleflow_effective_chunk")
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT ts, token, amount_usdc, from_addr, to_addr,
-                          tx_hash, block_number
-                   FROM whaleflow_events
-                   WHERE ts >= ? AND amount_usdc >= ?
-                   ORDER BY ts DESC, block_number DESC LIMIT ?""",
-                (cutoff, threshold, limit),
-            ).fetchall()
-            # Honesty: an empty window must be distinguishable from "the feed
-            # never ran". all_time + last_event make that explicit on screen.
-            all_time = conn.execute(
-                """SELECT COUNT(*) AS n, MAX(ts) AS last_ts,
-                          MAX(block_number) AS last_block
-                   FROM whaleflow_events WHERE amount_usdc >= ?""",
-                (threshold,),
-            ).fetchone()
-        whales = []
-        for r in rows:
-            whales.append({
-                "ts": r["ts"],
-                "token": r["token"],
-                "amount_usdc": round(r["amount_usdc"], 6),
-                "from": r["from_addr"],
-                "to": r["to_addr"],
-                "from_label": _label_address(r["from_addr"]),
-                "to_label": _label_address(r["to_addr"]),
-                "tx_hash": r["tx_hash"],
-                "block": r["block_number"],
-            })
+        # Rows and the all-time context come from the history backend, so the
+        # PAID feed's history survives a deploy instead of resetting to zero.
+        h = self.history.whale_rows(window_hours, limit, threshold)
+        whales = h["whales"]
         return {
             "whales": whales,
             "count": len(whales),
             "window_hours": window_hours,
             "threshold_usdc": threshold,
             "scanned_until_block": int(scanned_until or 0) or None,
-            "all_time_count": all_time["n"] if all_time else 0,
-            "last_event_at": all_time["last_ts"] if all_time else None,
-            "last_event_block": (int(all_time["last_block"])
-                                 if all_time and all_time["last_block"]
-                                 else None),
+            "all_time_count": h["all_time_count"],
+            "last_event_at": h["last_event_at"],
+            "last_event_block": h["last_event_block"],
             # "awaiting_whale" is a TRUTHFUL empty: the scan is running
             # (watermark advancing) and simply found nothing >= threshold.
             # "scan_failed" is the opposite: the scanner itself is broken, and
