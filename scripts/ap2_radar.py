@@ -12,6 +12,9 @@ What it watches (all public, no identities, nothing sent anywhere):
   * new documents/drafts by keywords: discovery manifest, acceptedNetworks,
     buyer-side declarations, census
   * numeric census series (e.g. "1265 hosts") — date + number, month over month
+  * a MANUAL diary: EVENTS (dated signals with their source) and THERMOMETERS,
+    defined in THIS file and rendered on every run, so hand-written entries
+    survive the report being rebuilt from scratch
 
 Output: docs/AP2_RADAR.md ("what changed since last time" + census growth).
 State: docs/AP2_RADAR_STATE.json (previous snapshot; safe to delete — the
@@ -46,6 +49,38 @@ CENSUS_RE = re.compile(r"(\d[\d,]{2,})\s*(hosts|merchants|agents|providers)",
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / "docs" / "AP2_RADAR_STATE.json"
 REPORT_PATH = ROOT / "docs" / "AP2_RADAR.md"
+
+# ── Ръчно поддържан дневник ────────────────────────────────────────────────
+# Секциите по-долу се РЕНДИРАТ НА ВСЯКО ПУСКАНЕ. Ако ги има само в .md, следващият
+# run ги изтрива (файлът се строи от нула) — точно това се случи с ТЕРМОМЕТРИТЕ.
+# Всеки запис носи ДАТАТА НА ПУБЛИКУВАНЕ (не датата на забелязване) и източник, за
+# да не се превръща радарът в слухове. Никакви съобщения не се изпращат.
+EVENTS: list[dict] = [
+    {
+        "logged": "2026-09-14",
+        "date": "2026-08-19",
+        "title": "Stripe придобива OpenRouter — marketplace за pay-per-use AI API-та",
+        "detail": ("Stripe обявява, че купува OpenRouter (единен вход към стотици "
+                   "модели на цена на токен). Проверено на 14.09 в ДВА независими "
+                   "публични източника; и двата дават 19.08.2026 (датата на "
+                   "публикуване, не на забелязване)."),
+        "signal": ("микро-платените API-та стават стратегическа суровина, а "
+                   "разплащането на микросуми — инфраструктурен слой, който "
+                   "гигант купува, вместо да строи. Подкрепя тезата на проекта: "
+                   "agentic/micro-payments са входа към новите пазари."),
+        "source": ("stripe.com/newsroom — „Stripe agrees to acquire OpenRouter to "
+                   "help businesses optimise token routing and usage“; "
+                   "openrouter.ai/blog — „OpenRouter is Joining Stripe“"),
+    },
+]
+
+THERMOMETERS: list[str] = [
+    "Реален дневен x402 обем: **~$28k/ден** (външни данни, 13.09) — бележка: "
+    "**за ревизия** (източникът и методът на измерване не са проверени).",
+    "Флаг — първи публичен провал/скандал в agent payments: **не е наблюдаван** "
+    "(13.09).",
+    "Флаг — регулаторен документ за agent payments: **не е наблюдаван** (13.09).",
+]
 
 
 def _get(url: str) -> requests.Response:
@@ -223,6 +258,31 @@ def main() -> int:
     if not anything:
         lines.insert(4, "**ТИХО — няма нови комити, релийзи, WG repos или цензус.**")
         lines.insert(5, "")
+
+    lines += ["## СЪБИТИЯ (дневник · дата на публикуване + източник)",
+              ""]
+    if EVENTS:
+        for e in EVENTS:
+            lines.append(f"### {e['date']} — {e['title']}")
+            lines.append("")
+            lines.append(f"- **Публикувано:** {e['date']} · "
+                         f"**записано в радара:** {e['logged']}")
+            if e.get("detail"):
+                lines.append(f"- **Какво:** {e['detail']}")
+            if e.get("signal"):
+                lines.append(f"- **СИГНАЛ:** {e['signal']}")
+            if e.get("source"):
+                lines.append(f"- **Източник:** {e['source']}")
+            lines.append("")
+    else:
+        lines.append("- Няма записани събития.")
+        lines.append("")
+
+    lines += ["## ТЕРМОМЕТРИ (ръчно поддържани — вече в шаблона, за да не се губят "
+              "при презаписване)", ""]
+    for i, t in enumerate(THERMOMETERS, 1):
+        lines.append(f"{i}. {t}")
+    lines.append("")
 
     lines.append("---")
     lines.append("Slack каналите (wg-tax, wg-domain-discovery) са ЧАСТНИ и НЕ се")
