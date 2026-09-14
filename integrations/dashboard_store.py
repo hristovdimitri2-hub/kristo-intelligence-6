@@ -1,9 +1,17 @@
 """Persistent dashboard store — single source of truth for the canonical
 operations dashboard.
 
-Everything the dashboard shows lives in SQLite (data/dashboard_state.db), NOT
-in RAM, so deploys/restarts never reset the numbers (priority-0 invariant:
-"deploy must not zero the counters").
+Nothing the dashboard shows lives in RAM, so deploys/restarts never reset the
+numbers (priority-0 invariant: "deploy must not zero the counters").
+
+WHERE THINGS LIVE (hybrid since 14.09):
+  * DURABLE — PostgreSQL when DATABASE_URL is set, otherwise the SQLite file:
+    the canonical MONEY table `onchain_sales` plus the request_log and
+    whaleflow_events histories. All three are owned by HistoryStore, written
+    once and translated per dialect, so a deploy cannot zero or lose them.
+  * LOCAL SQLite file — payapi_state, meta (scan watermarks) and the
+    payment_guards / guard_events replay lock: operational state whose loss is
+    survivable, kept off the database the internet can exhaust.
 
 Sources:
   * on-chain sales — real USDC transfers to the fee receiver, scanned from
@@ -186,18 +194,29 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
     return safe_end, effective_span
 
 
-# ── History backend: request_log + whaleflow_events (SQLite ⇄ PostgreSQL) ───
-# These two tables are HISTORIES, and losing them on every deploy was visible:
-# the request log reset to zero and the PAID whale feed's all_time count fell
-# from 20 478 to 598 after a single deploy. They now follow DATABASE_URL exactly
-# like the CRM does — with ONE implementation and two dialects (each query body
-# is written once; only the placeholder and the upsert syntax differ), so the
-# two backends cannot drift apart.
+# ── Durable store: request_log + whaleflow_events + onchain_sales ──────────
+# These tables are HISTORIES, and losing them on every deploy was visible: the
+# request log reset to zero and the PAID whale feed's all_time count fell from
+# 20 478 to 598 after a single deploy. They follow DATABASE_URL exactly like the
+# CRM does — with ONE implementation and two dialects (each query body is
+# written once; only the placeholder and the conflict syntax differ), so the two
+# backends cannot drift apart.
 #
-# Deliberately NOT here: onchain_sales, payment_guards, guard_events and meta.
-# The MONEY tables stay on the SQLite file they have always used.
+# onchain_sales JOINED THIS LIST on 14.09. It is the canonical MONEY table, and
+# it was the last thing still living on Render's ephemeral disk — defended by a
+# boot-time seed that had to re-insert the chain manifest after every deploy.
+# That defence worked, but it was a rescue, not a design: the dashboard's
+# numbers were re-created from a hand-written file instead of surviving. With
+# the table on the durable backend the numbers simply persist, and the seed
+# degrades to what it should always have been — a BOOTSTRAP for a genuinely
+# empty database (first boot) plus a self-heal for a partially lost one. It is
+# insert-only: it can never overwrite, relabel or delete a scan-discovered row.
+#
+# Deliberately still NOT here: payment_guards, guard_events and meta. The C1/C2/
+# H2 replay guard is deliberately kept on the SQLite file so the replay lock
+# cannot be taken down by a database outage in front of the payment path.
 class HistoryStore:
-    """request_log + whaleflow_events, in SQLite or PostgreSQL."""
+    """request_log + whaleflow_events + onchain_sales, SQLite or PostgreSQL."""
 
     def __init__(self, sqlite_connect, write_lock, database_url: str = ""):
         self._sqlite_connect = sqlite_connect
@@ -207,8 +226,9 @@ class HistoryStore:
         self._ph = "%s" if self.backend == "postgresql" else "?"
         self._pg_conn = None
         self._pg_lock = threading.Lock()
-        if self.backend == "postgresql":
-            self._ensure_schema()
+        # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
+        # EXISTS, so the schema cannot drift between the two backends either.
+        self._ensure_schema()
 
     # ── plumbing ────────────────────────────────────────────────────────────
     def _q(self, sql: str) -> str:
@@ -265,7 +285,7 @@ class HistoryStore:
                 raise
 
     def _ensure_schema(self) -> None:
-        """Create both history tables — idempotent, on first use.
+        """Create every durable table — idempotent, on first use.
 
         The CRM taught this lesson the hard way: assuming a table already exists
         turned a correctly provisioned database into HTTP 500 for the whole
@@ -305,8 +325,26 @@ class HistoryStore:
                   "ON request_log (ts)")
         self._run("CREATE INDEX IF NOT EXISTS idx_whaleflow_ts "
                   "ON whaleflow_events (ts)")
-        log.info("History store ready (%s): request_log + whaleflow_events.",
-                 self.backend)
+        # The canonical MONEY table (moved here 14.09 — see the class comment).
+        # `block_number` is BIGINT: Base has been above the 2^31 range for a
+        # while and SQLite's INTEGER is 64-bit anyway.
+        self._run(
+            f"""CREATE TABLE IF NOT EXISTS onchain_sales (
+                    tx_hash      TEXT PRIMARY KEY,
+                    block_number BIGINT,
+                    ts           TEXT,
+                    sender       TEXT,
+                    amount_usdc  {real},
+                    payer_class  TEXT,
+                    payer_label  TEXT,
+                    source       TEXT,
+                    recorded_at  TEXT
+                )"""
+        )
+        self._run("CREATE INDEX IF NOT EXISTS idx_onchain_sales_ts "
+                  "ON onchain_sales (ts)")
+        log.info("Durable store ready (%s): request_log + whaleflow_events + "
+                 "onchain_sales.", self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
     def record_request(self, method: str, path: str, source: str,
@@ -494,9 +532,210 @@ class HistoryStore:
                                  else None),
         }
 
+    # ── on-chain sales: the canonical MONEY table ───────────────────────────
+    def record_sale(self, tx_hash: str, amount_usdc: float, sender: str = "",
+                    block_number: int = 0, ts: Optional[datetime] = None,
+                    source: str = "live") -> bool:
+        """Insert one confirmed on-chain sale. True when it was new.
+
+        Deduplicated by normalized tx hash (`ON CONFLICT (tx_hash) DO
+        NOTHING` — valid in BOTH dialects, so there is one body and no drift):
+        the settle path, the monitor and the seed can all see the same transfer
+        and only the first insert counts.
+        """
+        tx = _norm_tx(tx_hash)
+        if not tx:
+            return False
+        ts = ts or datetime.now(timezone.utc)
+        payer_class, payer_label = classify_payer(sender)
+        _, rowcount = self._run(
+            """INSERT INTO onchain_sales
+                   (tx_hash, block_number, ts, sender, amount_usdc,
+                    payer_class, payer_label, source, recorded_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (tx_hash) DO NOTHING""",
+            (
+                tx,
+                int(block_number or 0),
+                ts.astimezone(timezone.utc).isoformat(),
+                (sender or "").lower(),
+                round(float(amount_usdc), 6),
+                payer_class,
+                payer_label,
+                source,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        return rowcount > 0
+
+    def seed_verified_sales(
+        self, rows: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """BOOTSTRAP the chain-verified manifest. Deliberately NOT a cover-up.
+
+        Every row in `integrations.verified_sales.VERIFIED_SALES` came off the
+        chain (full 66-char hashes, cross-verified against RPC receipts by
+        scripts/_verify_seed_chain.py), so writing them is legitimate. What is
+        NOT legitimate is a seed that papers over reality, so this method has
+        three properties and no others:
+
+          1. BOOTSTRAP: an empty table (first boot, or a fresh database after
+             the move to a durable backend) gets every manifest row. On Render
+             this runs at import time in main.py, i.e. BEFORE the app accepts a
+             single connection — so the dashboard cannot serve a sub-$0.031
+             number even for one request.
+          2. SELF-HEAL, NOT OVERWRITE: on a partially lost table only the
+             MISSING rows are restored. Present rows are left exactly as they
+             are, including their `source`, so a scan-discovered row always wins
+             over this file. A stale hand-written manifest can never roll back
+             what the chain actually said.
+          3. NO DELETE, NO UPDATE, EVER: the only statement this method runs is
+             the insert inside `record_sale`. There is no code path here that
+             removes or edits a row.
+
+        Returns {"inserted", "present", "total_usdc", "external_payers",
+        "mode"} where mode is "bootstrap" | "self_heal" | "already_complete".
+        The sales scan watermark is deliberately NOT touched.
+        """
+        if rows is None:
+            from integrations.verified_sales import VERIFIED_SALES as rows  # type: ignore
+        before = self.sales_summary(history_limit=1)["total_count"]
+        inserted = 0
+        for r in rows or []:
+            ts = r.get("ts")
+            if ts is None and r.get("ts_unix") is not None:
+                ts = datetime.fromtimestamp(
+                    int(r["ts_unix"]), tz=timezone.utc
+                )
+            if self.record_sale(
+                tx_hash=r["tx_hash"],
+                amount_usdc=float(r["amount_usdc"]),
+                sender=r.get("sender", ""),
+                block_number=int(r.get("block_number") or 0),
+                ts=ts,
+                source="seed_recovery",
+            ):
+                inserted += 1
+        summary = self.sales_summary(history_limit=1)
+        mode = ("bootstrap" if before == 0 and inserted
+                else "self_heal" if inserted else "already_complete")
+        log.info("Verified-sales seed [%s, %s]: %d inserted, %d present, "
+                 "$%.6f USDC, %d external payers (insert-only: nothing "
+                 "overwritten, relabelled or deleted).",
+                 mode, self.backend, inserted, summary["total_count"],
+                 summary["total_usdc"], summary["external_payers"])
+        return {
+            "inserted": inserted,
+            "present": summary["total_count"],
+            "total_usdc": summary["total_usdc"],
+            "external_payers": summary["external_payers"],
+            "mode": mode,
+        }
+
+    def reclassify_known_payers(self) -> int:
+        """Re-apply the payer taxonomy to stored sales rows.
+
+        The taxonomy evolves as new market infrastructure is fingerprinted;
+        rows recorded before a wallet entered KNOWN_PAYERS keep their original
+        (external) class until this runs. Returns the number of rows updated.
+        """
+        try:
+            from scripts.competitor_recon import KNOWN_PAYERS
+        except Exception:  # pragma: no cover - import fallback
+            return 0
+        updated = 0
+        for sender, label in KNOWN_PAYERS.items():
+            _, rowcount = self._run(
+                """UPDATE onchain_sales
+                   SET payer_class = ?, payer_label = ?
+                   WHERE lower(sender) = ? AND payer_label <> ?""",
+                (
+                    PAYER_CLASSES.get(label, "sampler"),
+                    label,
+                    (sender or "").lower(),
+                    label,
+                ),
+            )
+            updated += max(0, rowcount)
+        return updated
+
+    def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
+        """Aggregate on-chain sales straight from the durable table."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        totals = self._run(
+            """SELECT COUNT(*) AS n,
+                      COALESCE(SUM(amount_usdc), 0.0) AS total
+               FROM onchain_sales""", (), "one")[0]
+        today_row = self._run(
+            """SELECT COUNT(*) AS n,
+                      COALESCE(SUM(amount_usdc), 0.0) AS total
+               FROM onchain_sales WHERE substr(ts, 1, 10) = ?""",
+            (today,), "one")[0]
+        by_class = self._run(
+            """SELECT payer_class, COUNT(*) AS n,
+                      COALESCE(SUM(amount_usdc), 0.0) AS total
+               FROM onchain_sales GROUP BY payer_class""", (), "all")[0]
+        external_payers = self._run(
+            """SELECT COUNT(DISTINCT sender) AS n FROM onchain_sales
+               WHERE payer_class = 'external'""", (), "one")[0]
+        history = self._run(
+            """SELECT tx_hash, block_number, ts, sender, amount_usdc,
+                      payer_class, payer_label, source
+               FROM onchain_sales ORDER BY ts DESC, tx_hash DESC LIMIT ?""",
+            (history_limit,), "all")[0]
+
+        classes: Dict[str, Dict[str, Any]] = {}
+        for row in by_class:
+            classes[row["payer_class"]] = {
+                "count": row["n"],
+                "total_usdc": round(row["total"], 6),
+            }
+        return {
+            "total_usdc": round(totals["total"], 6),
+            "total_count": totals["n"],
+            "today_usdc": round(today_row["total"], 6),
+            "today_count": today_row["n"],
+            "today_date": today,
+            "by_class": classes,
+            "external_payers": external_payers["n"],
+            "history": [dict(r) for r in history],
+        }
+
+    def client_sales_rows(self) -> Tuple[list, list]:
+        """(per-payer aggregates, per-payment detail) for EXTERNAL payers.
+
+        Exposed separately because the guard evidence that names a route lives
+        in `payment_guards`, which stays on SQLite on purpose — the caller joins
+        the two sources instead of this class pretending they are one.
+        """
+        rows = self._run(
+            """SELECT sender, COUNT(*) AS n,
+                      COALESCE(SUM(amount_usdc), 0.0) AS total,
+                      MIN(ts) AS first_ts, MAX(ts) AS last_ts
+               FROM onchain_sales WHERE payer_class = 'external'
+               GROUP BY lower(sender)
+               ORDER BY total DESC, last_ts DESC""", (), "all")[0]
+        detail = self._run(
+            """SELECT tx_hash, sender, amount_usdc, ts, block_number,
+                      payer_class
+               FROM onchain_sales WHERE payer_class = 'external'
+               ORDER BY ts ASC, block_number ASC""", (), "all")[0]
+        return [dict(r) for r in rows], [dict(r) for r in detail]
+
 
 class DashboardStore:
-    """SQLite-backed persistent store (one connection per call, like CRMStore)."""
+    """Canonical dashboard store (one connection per call, like CRMStore).
+
+HYBRID since 14.09:
+  * DURABLE (PostgreSQL when DATABASE_URL is set, SQLite otherwise) — the
+    canonical MONEY table `onchain_sales` plus the request_log and
+    whaleflow_events histories, all owned by HistoryStore, so a deploy cannot
+    zero or lose them.
+  * LOCAL SQLite file — only the operational tables whose loss is survivable:
+    payapi_state, meta (scan watermarks) and the payment_guards / guard_events
+    replay lock, which is deliberately kept off the database that the internet
+    can exhaust.
+"""
 
     def __init__(self, file_path: str | Path | None = None):
         self.file_path = Path(
@@ -505,8 +744,11 @@ class DashboardStore:
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.Lock()
         self._ensure_db()
-        # request_log + whaleflow_events follow DATABASE_URL (PostgreSQL when
-        # set, SQLite otherwise) so HISTORY survives a deploy — see HistoryStore.
+        # request_log + whaleflow_events + onchain_sales follow DATABASE_URL
+        # (PostgreSQL when set, SQLite otherwise), so HISTORY **and THE MONEY
+        # TABLE** survive a deploy — see HistoryStore. The on-chain numbers used
+        # to be re-created from the seed manifest on every boot; they now simply
+        # persist, and the seed is only the first-boot bootstrap.
         self.history = HistoryStore(
             self._connect, self._write_lock,
             os.getenv("DATABASE_URL", ""),
@@ -518,33 +760,11 @@ class DashboardStore:
         return conn
 
     def _ensure_db(self) -> None:
+        # Only the LOCAL tables live here. request_log, whaleflow_events and
+        # onchain_sales are owned by HistoryStore (both dialects) so there is
+        # exactly ONE definition of each table and the two backends cannot
+        # drift — including a dead empty `onchain_sales` shadowing the real one.
         with self._connect() as conn:
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS onchain_sales (
-                    tx_hash      TEXT PRIMARY KEY,
-                    block_number INTEGER,
-                    ts           TEXT,
-                    sender       TEXT,
-                    amount_usdc  REAL,
-                    payer_class  TEXT,
-                    payer_label  TEXT,
-                    source       TEXT,
-                    recorded_at  TEXT
-                )"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS request_log (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ts         TEXT,
-                    method     TEXT,
-                    path       TEXT,
-                    source     TEXT,
-                    status_code INTEGER,
-                    user_agent TEXT,
-                    referer    TEXT,
-                    funnel     TEXT
-                )"""
-            )
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS payapi_state (
                     key        TEXT PRIMARY KEY,
@@ -558,26 +778,11 @@ class DashboardStore:
                     value TEXT
                 )"""
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_request_log_ts ON request_log (ts)"
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS whaleflow_events (
-                    tx_hash      TEXT,
-                    log_index    INTEGER,
-                    ts           TEXT,
-                    token        TEXT,
-                    amount_usdc  REAL,
-                    from_addr    TEXT,
-                    to_addr      TEXT,
-                    block_number INTEGER,
-                    recorded_at  TEXT,
-                    PRIMARY KEY (tx_hash, log_index)
-                )"""
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_whaleflow_ts ON whaleflow_events (ts)"
-            )
+            # request_log / whaleflow_events / onchain_sales and their
+            # indexes are created by HistoryStore below (both dialects),
+            # never here: a second definition is exactly how two schemas
+            # drift apart, and after the onchain_sales move it would also
+            # leave a dead empty table shadowing the real one.
             # ── C1 replay guard: a tx hash may unlock EXACTLY ONE paid call,
             # and that fact must survive restarts/deploys (RAM sets do not).
             conn.execute(
@@ -610,33 +815,12 @@ class DashboardStore:
 
     # ── meta (watermarks, flags) ──────────────────────────────────────────────
     def reclassify_known_payers(self) -> int:
-        """Re-apply the payer taxonomy to stored sales rows.
+        """Re-apply the payer taxonomy — see HistoryStore.reclassify_known_payers.
 
-        The taxonomy evolves as new market infrastructure is fingerprinted;
-        rows recorded before a wallet entered KNOWN_PAYERS keep their original
-        (external) class until this runs. Returns the number of rows updated.
+        Kept as a thin wrapper (14.09) so every call site keeps working now that
+        the sales rows live in the durable store rather than the local file.
         """
-        try:
-            from scripts.competitor_recon import KNOWN_PAYERS
-        except Exception:  # pragma: no cover - import fallback
-            return 0
-        updated = 0
-        with self._write_lock, self._connect() as conn:
-            for sender, label in KNOWN_PAYERS.items():
-                cur = conn.execute(
-                    """UPDATE onchain_sales
-                       SET payer_class = ?, payer_label = ?
-                       WHERE lower(sender) = ? AND payer_label <> ?""",
-                    (
-                        PAYER_CLASSES.get(label, "sampler"),
-                        label,
-                        (sender or "").lower(),
-                        label,
-                    ),
-                )
-                updated += cur.rowcount
-            conn.commit()
-        return updated
+        return self.history.reclassify_known_payers()
 
     def get_meta(self, key: str, default: Optional[str] = None) -> Optional[str]:
         with self._connect() as conn:
@@ -664,77 +848,26 @@ class DashboardStore:
         ts: Optional[datetime] = None,
         source: str = "live",
     ) -> bool:
-        """Insert one confirmed on-chain sale. Returns True if it was new.
+        """Insert one confirmed on-chain sale — see HistoryStore.record_sale.
 
-        Deduplicated by normalized tx hash — the settle path and the monitor
-        can both see the same transfer; only the first insert counts.
+        Thin wrapper (14.09): the MONEY table moved to the durable store (same
+        backend as request_log/whaleflow_events) so a deploy cannot zero it, and
+        the settle path / monitor / scanner keep calling the same method.
         """
-        tx = _norm_tx(tx_hash)
-        if not tx:
-            return False
-        ts = ts or datetime.now(timezone.utc)
-        payer_class, payer_label = classify_payer(sender)
-        with self._write_lock, self._connect() as conn:
-            cur = conn.execute(
-                """INSERT OR IGNORE INTO onchain_sales
-                       (tx_hash, block_number, ts, sender, amount_usdc,
-                        payer_class, payer_label, source, recorded_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    tx,
-                    int(block_number or 0),
-                    ts.astimezone(timezone.utc).isoformat(),
-                    (sender or "").lower(),
-                    round(float(amount_usdc), 6),
-                    payer_class,
-                    payer_label,
-                    source,
-                    datetime.now(timezone.utc).isoformat(),
-                ),
-            )
-            conn.commit()
-            return cur.rowcount > 0
+        return self.history.record_sale(
+            tx_hash, amount_usdc, sender=sender, block_number=block_number,
+            ts=ts, source=source,
+        )
 
     def seed_verified_sales(self, rows: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        """Idempotently restore the chain-verified sales manifest.
+        """BOOTSTRAP the chain-verified manifest — see HistoryStore.
 
-        Priority-0 recovery: the canonical dashboard must show the REAL
-        on-chain numbers after a deploy wipes the ephemeral filesystem.
-        Every row in `integrations.verified_sales.VERIFIED_SALES` was pulled
-        from the chain (full 66-char hashes) and cross-verified against an
-        independent RPC receipt — see scripts/_verify_seed_chain.py.
-
-        Insert-only (`INSERT OR IGNORE` via record_sale): a scan-discovered
-        row wins over the seed, never the other way round. The sales
-        watermark is deliberately NOT touched.
-
-        Returns {"inserted": n, "present": n, "total_usdc": x}.
+        Thin wrapper (14.09). On the durable backend this runs on a genuinely
+        EMPTY database (first boot) or to self-heal missing rows; it is
+        insert-only, so it can never overwrite, relabel or delete a row that a
+        live chain scan discovered.
         """
-        if rows is None:
-            from integrations.verified_sales import VERIFIED_SALES as rows  # type: ignore
-        inserted = 0
-        for r in rows or []:
-            ts = r.get("ts")
-            if ts is None and r.get("ts_unix") is not None:
-                ts = datetime.fromtimestamp(
-                    int(r["ts_unix"]), tz=timezone.utc
-                )
-            if self.record_sale(
-                tx_hash=r["tx_hash"],
-                amount_usdc=float(r["amount_usdc"]),
-                sender=r.get("sender", ""),
-                block_number=int(r.get("block_number") or 0),
-                ts=ts,
-                source="seed_recovery",
-            ):
-                inserted += 1
-        summary = self.sales_summary()
-        return {
-            "inserted": inserted,
-            "present": summary["total_count"],
-            "total_usdc": summary["total_usdc"],
-            "external_payers": summary["external_payers"],
-        }
+        return self.history.seed_verified_sales(rows)
 
     # ── C1: replay guard (durable, deploy-safe) ───────────────────────────────
     def claim_payment_tx(
@@ -891,52 +1024,13 @@ class DashboardStore:
         }
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
-        """Aggregate on-chain sales straight from the persistent table."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        with self._connect() as conn:
-            totals = conn.execute(
-                """SELECT COUNT(*) AS n,
-                          COALESCE(SUM(amount_usdc), 0.0) AS total
-                   FROM onchain_sales"""
-            ).fetchone()
-            today_row = conn.execute(
-                """SELECT COUNT(*) AS n,
-                          COALESCE(SUM(amount_usdc), 0.0) AS total
-                   FROM onchain_sales WHERE substr(ts, 1, 10) = ?""",
-                (today,),
-            ).fetchone()
-            by_class = conn.execute(
-                """SELECT payer_class, COUNT(*) AS n,
-                          COALESCE(SUM(amount_usdc), 0.0) AS total
-                   FROM onchain_sales GROUP BY payer_class"""
-            ).fetchall()
-            external_payers = conn.execute(
-                """SELECT COUNT(DISTINCT sender) AS n FROM onchain_sales
-                   WHERE payer_class = 'external'"""
-            ).fetchone()
-            history = conn.execute(
-                """SELECT tx_hash, block_number, ts, sender, amount_usdc,
-                          payer_class, payer_label, source
-                   FROM onchain_sales ORDER BY ts DESC, tx_hash DESC LIMIT ?""",
-                (history_limit,),
-            ).fetchall()
+        """Aggregate on-chain sales — see HistoryStore.sales_summary.
 
-        classes: Dict[str, Dict[str, float]] = {}
-        for row in by_class:
-            classes[row["payer_class"]] = {
-                "count": row["n"],
-                "total_usdc": round(row["total"], 6),
-            }
-        return {
-            "total_usdc": round(totals["total"], 6),
-            "total_count": totals["n"],
-            "today_usdc": round(today_row["total"], 6),
-            "today_count": today_row["n"],
-            "today_date": today,
-            "by_class": classes,
-            "external_payers": external_payers["n"],
-            "history": [dict(r) for r in history],
-        }
+        Thin wrapper (14.09): the aggregation runs against the durable table, so
+        /api/dashboard/data, /api/dashboard-stats and /api/sales cannot disagree
+        with each other (they all call this) and cannot lose rows on a deploy.
+        """
+        return self.history.sales_summary(history_limit)
 
     # ── clients: the real external payers (basis for operator deals) ──────────
     def clients_summary(self,
@@ -953,21 +1047,12 @@ class DashboardStore:
         routes. Guessing one of them would be a phantom number on screen.
         """
         price_map = {k: round(float(v), 6) for k, v in (price_map or {}).items()}
+        # TWO SOURCES, on purpose (14.09): the sales rows come from the durable
+        # store (PostgreSQL when DATABASE_URL is set), while `payment_guards`
+        # stays on the local SQLite file so a database outage in front of the
+        # payment path cannot break the replay lock. This method joins them.
+        rows, detail = self.history.client_sales_rows()
         with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT sender, COUNT(*) AS n,
-                          COALESCE(SUM(amount_usdc), 0.0) AS total,
-                          MIN(ts) AS first_ts, MAX(ts) AS last_ts
-                   FROM onchain_sales WHERE payer_class = 'external'
-                   GROUP BY lower(sender)
-                   ORDER BY total DESC, last_ts DESC"""
-            ).fetchall()
-            detail = conn.execute(
-                """SELECT tx_hash, sender, amount_usdc, ts, block_number,
-                          payer_class
-                   FROM onchain_sales WHERE payer_class = 'external'
-                   ORDER BY ts ASC, block_number ASC"""
-            ).fetchall()
             guards = {
                 (r["tx_hash"] or "").lower(): (r["endpoint"] or "")
                 for r in conn.execute(

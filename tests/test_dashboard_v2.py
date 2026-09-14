@@ -280,6 +280,7 @@ class _FakePostgres:
     def __init__(self):
         self.whales = []
         self.requests = []
+        self.sales = []
         self.sql = []
 
 
@@ -318,6 +319,77 @@ class _FakeCursor:
         if s.startswith("INSERT INTO request_log"):
             self.db.requests.append({"ts": params[0], "path": params[2]})
             self.rowcount = 1
+            return
+        # ── onchain_sales (the canonical MONEY table, durable since 14.09) ──
+        if s.startswith("INSERT INTO onchain_sales"):
+            tx = params[0]
+            if any(r["tx_hash"] == tx for r in self.db.sales):
+                self.rowcount = 0                      # ON CONFLICT DO NOTHING
+            else:
+                self.db.sales.append({
+                    "tx_hash": tx, "block_number": params[1], "ts": params[2],
+                    "sender": params[3], "amount_usdc": params[4],
+                    "payer_class": params[5], "payer_label": params[6],
+                    "source": params[7],
+                })
+                self.rowcount = 1
+            return
+        if s.startswith("UPDATE onchain_sales"):
+            n = 0
+            for r in self.db.sales:
+                if ((r["sender"] or "").lower() == params[2]
+                        and r["payer_label"] != params[3]):
+                    r["payer_class"], r["payer_label"] = params[0], params[1]
+                    n += 1
+            self.rowcount = n
+            return
+        if "COUNT(DISTINCT sender) AS n FROM onchain_sales" in s:
+            ext = {r["sender"] for r in self.db.sales
+                   if r["payer_class"] == "external"}
+            self._rows = [{"n": len(ext)}]
+            return
+        if "GROUP BY payer_class" in s:
+            agg = {}
+            for r in self.db.sales:
+                c = agg.setdefault(r["payer_class"], {"n": 0, "total": 0.0})
+                c["n"] += 1
+                c["total"] += r["amount_usdc"]
+            self._rows = [{"payer_class": k, "n": v["n"], "total": v["total"]}
+                          for k, v in agg.items()]
+            return
+        if "MIN(ts) AS first_ts" in s:                 # client aggregates
+            agg = {}
+            for r in self.db.sales:
+                if r["payer_class"] != "external":
+                    continue
+                c = agg.setdefault(r["sender"], {
+                    "sender": r["sender"], "n": 0, "total": 0.0,
+                    "first_ts": r["ts"], "last_ts": r["ts"]})
+                c["n"] += 1
+                c["total"] += r["amount_usdc"]
+                c["first_ts"] = min(c["first_ts"], r["ts"])
+                c["last_ts"] = max(c["last_ts"], r["ts"])
+            self._rows = sorted(agg.values(),
+                                key=lambda c: (-c["total"], c["last_ts"]))
+            return
+        if "SELECT tx_hash, sender, amount_usdc, ts, block_number" in s:
+            self._rows = sorted(
+                [r for r in self.db.sales if r["payer_class"] == "external"],
+                key=lambda r: (r["ts"], r["block_number"]))
+            return
+        if "SELECT tx_hash, block_number, ts, sender, amount_usdc" in s:
+            rows = sorted(self.db.sales,
+                          key=lambda r: (r["ts"], r["tx_hash"]), reverse=True)
+            self._rows = rows[:params[-1]]
+            return
+        if s.startswith("SELECT COUNT(*) AS n") and "FROM onchain_sales" in s:
+            rows = self.db.sales
+            if "WHERE substr(ts, 1, 10) = ?" in s:
+                rows = [r for r in rows if r["ts"][:10] == params[0]]
+            self._rows = [{
+                "n": len(rows),
+                "total": round(sum(r["amount_usdc"] for r in rows), 6),
+            }]
             return
         if "COUNT(*) AS n, MAX(ts) AS last_ts" in s:
             big = [r for r in self.db.whales if r["amount_usdc"] >= params[0]]
@@ -468,6 +540,32 @@ def test_postgres_dialect_is_psycopg_safe():
     assert "LIKE 'Render/%'" in lite_sql
     assert lite_sql.endswith("= ?")
 
+    # The onchain_sales bodies translated for PostgreSQL too (14.09): the money
+    # queries are the LAST place a placeholder mistake may hide, because they
+    # decide the number on screen.
+    money = [
+        """SELECT COUNT(*) AS n,
+                  COALESCE(SUM(amount_usdc), 0.0) AS total
+           FROM onchain_sales WHERE substr(ts, 1, 10) = ?""",
+        """SELECT tx_hash, block_number, ts, sender, amount_usdc,
+                  payer_class, payer_label, source
+           FROM onchain_sales ORDER BY ts DESC, tx_hash DESC LIMIT ?""",
+        """INSERT INTO onchain_sales
+               (tx_hash, block_number, ts, sender, amount_usdc,
+                payer_class, payer_label, source, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (tx_hash) DO NOTHING""",
+        """UPDATE onchain_sales
+           SET payer_class = ?, payer_label = ?
+           WHERE lower(sender) = ? AND payer_label <> ?""",
+    ]
+    for body in money:
+        translated = pg._q(body)
+        assert "?" not in translated, body
+        assert "onchain_sales" in translated
+        assert translated.count("%s") == body.count("?"), body
+        assert "%%" not in translated, "no literal percent is expected here"
+
 
 # ── 12. The seed reproduces the FULL chain truth (9 rows) ───────────────────
 
@@ -517,6 +615,136 @@ def test_seed_restores_all_nine_transfers_on_a_wiped_database(tmp_path,
     # Idempotent on the next boot: nothing inserted, nothing changed.
     assert store.seed_verified_sales()["inserted"] == 0
     assert store.sales_summary()["total_usdc"] == 0.031
+
+
+# ── 13. THE MONEY TABLE IS DURABLE: it never drops below $0.031 ────────────
+
+def test_onchain_sales_survives_a_deploy_without_re_seeding(tmp_path,
+                                                            monkeypatch):
+    """With DATABASE_URL set, the on-chain numbers must PERSIST — not be
+    re-created by the seed on every boot.
+
+    Before 14.09 `onchain_sales` was the last table on Render's ephemeral disk:
+    every deploy zeroed it and the boot-time seed had to put the manifest back.
+    That worked, but the number was reconstructed rather than kept, so the
+    dashboard served whatever the re-scan had crawled back so far. Here the
+    "deploy" is a brand-new store on a brand-new (empty) SQLite file pointing at
+    the SAME database: if the sales live in Postgres the numbers never move, not
+    even for one request.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    db = _install_fake_postgres(monkeypatch, _FakePostgres())
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+
+    first = DashboardStore(tmp_path / "before.db")
+    assert first.history.backend == "postgresql"
+    seeded = first.seed_verified_sales()
+    assert seeded["mode"] == "bootstrap"
+    assert seeded["inserted"] == 9
+    assert first.sales_summary()["total_usdc"] == 0.031
+
+    # "deploy": new process, new ephemeral file, same database. NO re-seed.
+    second = DashboardStore(tmp_path / "after.db")
+    summary = second.sales_summary()
+    assert summary["total_usdc"] == 0.031, "the money table did not survive"
+    assert summary["total_count"] == 9
+    assert summary["external_payers"] == 3
+    assert summary["by_class"]["external"] == {"count": 3, "total_usdc": 0.011}
+    assert second.seed_verified_sales()["inserted"] == 0
+    # The money table really is on the PostgreSQL side, not on the local file
+    # that the deploy wipes.
+    joined = " ".join(db.sql)
+    assert "CREATE TABLE IF NOT EXISTS onchain_sales" in joined
+    assert "ON CONFLICT (tx_hash) DO NOTHING" in joined
+    assert "block_number BIGINT" in joined
+
+
+def test_the_seed_is_a_bootstrap_and_never_a_cover_up(tmp_path, monkeypatch):
+    """THE acceptance criterion for the Postgres move.
+
+    Deleted database -> the seed bootstraps 9 rows -> a live chain scan adds a
+    10th WITHOUT resetting anything, and a later boot cannot undo it.
+
+    This is the property that makes the seed safe to run on every boot: it is
+    insert-only and never re-labels, overwrites or deletes a row, so what the
+    chain says always beats what the hand-written manifest says.
+    """
+    from datetime import datetime, timezone
+
+    from integrations.dashboard_store import DashboardStore
+
+    _install_fake_postgres(monkeypatch, _FakePostgres())
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+
+    # 1. An empty (wiped) database: bootstrap.
+    store = DashboardStore(tmp_path / "wiped.db")
+    seeded = store.seed_verified_sales()
+    assert seeded["mode"] == "bootstrap" and seeded["inserted"] == 9
+    assert store.sales_summary()["total_usdc"] == 0.031
+
+    # 2. A LIVE scan discovers a 10th transfer — a real customer, a new wallet.
+    tenth = "0x" + "a1" * 32
+    assert store.record_sale(
+        tenth, 0.007, sender="0x" + "77" * 20, block_number=51_300_000,
+        ts=datetime.now(timezone.utc), source="live") is True
+    after_scan = store.sales_summary()
+    assert after_scan["total_usdc"] == 0.038          # 0.031 + 0.007, no reset
+    assert after_scan["total_count"] == 10
+    assert after_scan["external_payers"] == 4
+
+    # 3. The next boot re-runs the seed: nothing is touched.
+    assert store.seed_verified_sales()["mode"] == "already_complete"
+    summary = store.sales_summary()
+    assert summary["total_usdc"] == 0.038, "the seed rolled the chain back"
+    assert summary["total_count"] == 10
+    row = [h for h in summary["history"] if h["tx_hash"] == tenth][0]
+    assert row["source"] == "live", "the seed relabelled a scan-discovered row"
+    assert row["payer_class"] == "external"
+
+    # 4. A duplicate seen twice (settle path + monitor) is still one row.
+    assert store.record_sale(tenth, 0.007, "0x" + "77" * 20, 51_300_000) is False
+    assert store.sales_summary()["total_count"] == 10
+
+
+def test_the_seed_self_heals_partial_loss_without_overwriting(tmp_path,
+                                                              monkeypatch):
+    """A HALF-lost table is repaired, and the surviving rows stay untouched.
+
+    Insert-only lets two properties coexist: a missing row is restored
+    (self-heal) while a present one is left exactly as it is — including a row
+    the chain scan found first, which the manifest may never override.
+    """
+    from datetime import datetime, timezone
+
+    from integrations.dashboard_store import DashboardStore
+    from integrations.verified_sales import VERIFIED_SALES
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    store = DashboardStore(tmp_path / "partial.db")
+
+    newest = max(VERIFIED_SALES, key=lambda r: r["block_number"])
+    assert store.record_sale(
+        newest["tx_hash"], newest["amount_usdc"], sender=newest.get("sender"),
+        block_number=newest["block_number"],
+        ts=datetime.fromtimestamp(newest["ts_unix"], tz=timezone.utc),
+        source="live") is True
+    assert store.sales_summary()["total_count"] == 1
+
+    healed = store.seed_verified_sales()
+    assert healed["mode"] == "self_heal"
+    assert healed["inserted"] == 8                    # the other eight rows
+    assert healed["present"] == 9
+    assert healed["total_usdc"] == 0.031
+    summary = store.sales_summary()
+    row = [h for h in summary["history"]
+           if h["tx_hash"] == (newest["tx_hash"] or "").lower()][0]
+    assert row["source"] == "live", "self-heal overwrote a scan row"
+    # Idempotent: a third boot changes nothing at all.
+    third = store.seed_verified_sales()
+    assert third["inserted"] == 0 and third["mode"] == "already_complete"
+    assert third["total_usdc"] == 0.031
+    assert third["present"] == 9
 
 
 def test_whales_section_is_honest_when_the_window_is_empty(client):
