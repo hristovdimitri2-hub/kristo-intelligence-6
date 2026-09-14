@@ -3787,6 +3787,10 @@ def _canonical_dashboard_payload() -> dict:
                 "label": "Стражи на плащането (C1/C2/H2) — живо състояние",
                 "lock_alive": guards["lock_alive"],
                 "lock_probe_error": guards["lock_probe_error"],
+                # WHERE the lock lives and whether it survives a deploy. Without
+                # this the section implies durability it may not have.
+                "lock_backend": guards.get("lock_backend"),
+                "lock_durable": guards.get("lock_durable"),
                 "blocked_total": guards["blocked_total"],
                 "blocked_today": guards["blocked_today"],
                 "by_kind": guards["by_kind"],
@@ -3795,6 +3799,9 @@ def _canonical_dashboard_payload() -> dict:
                 "consumed_by_endpoint": guard_claims["by_endpoint"],
                 "last_claim_at": guard_claims["last_claim_at"],
                 "last_claim_endpoint": guard_claims["last_claim_endpoint"],
+                # Set when even reading the lock's telemetry failed: the numbers
+                # above are then UNKNOWN, not zero (they are None/{}).
+                "stats_error": guard_claims.get("stats_error"),
                 "config": {
                     "c1_table": "payment_guards",
                     "c2_proof_confirmations": _required_confirmations(),

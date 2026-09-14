@@ -46,6 +46,56 @@ $0.031 / 9 веднага**, а не след часове наваксване.
 (намерено от скенера, не консумирано през гарда), а `request_log` от 09.09 е
 изтрит от deploy-ите преди Postgres преместването.
 
+## 🚨 БЛОКЕР ЗА ПРИХОДИТЕ: Stripe акаунтът не може да приема плащания (14.09)
+
+**Собственикът докладва:** тест-плащане опит 2 → Stripe страницата дава
+„Se produjo un error de procesamiento“ **преди** финално плащане (различно от
+вчерашното „declined“).
+
+**Причината (от Stripe API, не догадка):**
+```
+account: acct_1U5QViLHbochC86s   country BG   default_currency eur
+charges_enabled  : False
+payouts_enabled  : False
+details_submitted: False          ← onboarding НИКОГА не е завършен
+capabilities     : card_payments = "inactive"  (ВСИЧКИ inactive)
+```
+Акаунтът е в състояние „никога не е активиран“. Hosted страницата отказва
+**преди да създаде PaymentIntent** — затова клиентът вижда „processing error“.
+
+**Доказателството от сесията на собственика**
+`cs_live_a1C9r5fClPGl8Epc4Unipt5cAUwmddyJmUkX3vzsdsr5ABKDXP3V2gnF7R`
+(14.09 06:46:09 UTC, $29, plan=starter): `status=open`, `payment_status=unpaid`,
+**`payment_intent=None`**. В **целия акаунт** има **0 PaymentIntents** и **0
+`charge.*` / `payment_intent.*` събития** → картата **никога не е била опитвана**,
+тоест нито днешното, нито вчерашното „declined“ е било решение на банка.
+
+**Нашата страна е изправна (от логовете, до секундата):**
+`06:45:56 GET /sales/checkout → 200` · `06:46:09 POST /sales/checkout → 303`, а
+Stripe дава `session.created = 2026-09-14 06:46:09` — **съвпадение до секундата**.
+Сесията е създадена в **LIVE** режим с правилния metadata (`app/campaign/plan/source`),
+`amount_total = 2900 usd`, `payment_method_types=['card']`. Нула немонотонни
+грешки (нито един 4xx/5xx различен от 402) в прозореца. **Няма** `POST
+/api/webhooks/stripe`, защото Stripe нямаше какво да изпрати.
+
+**Ключовете:** `STRIPE_API_KEY` (live, `sk_live_…`, приет от Stripe, 107 знака) ✅ ·
+`STRIPE_WEBHOOK_SECRET` (`whsec_…`, 38 знака) ✅ · webhook endpoint
+`https://kristo-intelligence-api.onrender.com/api/webhooks/stripe` — `status=enabled`,
+`livemode=true`, абониран за **`checkout.session.completed`** ✅. Забележка:
+променливата се казва `STRIPE_API_KEY` (не `STRIPE_SECRET_KEY`) и кодът чете точно
+нея — съвпада.
+
+**Действие (само собственикът):** да завърши Stripe onboarding — бизнес данни,
+банкова сметка, верификация на самоличността (Stripe Dashboard → Activate). Нищо
+в кода не може да го заобиколи.
+
+**Инструмент:** `scripts/stripe_health.py` — една команда отговаря „може ли Stripe
+да приема пари?“ (ключ, `charges_enabled`, capabilities, webhook-ове, последните
+сесии + PaymentIntent). Тайните никога не се печатат; изходен код 1 = не може да
+приема плащания. Предложение: да се абонира и за `payment_intent.payment_failed`
+и `checkout.session.expired`, за да се виждат провалите в реално време (кодът вече
+обработва `async_payment_succeeded`, но endpoint-ът не е абониран за него).
+
 ## 💾 Паричната таблица вече е в Postgres — seed-ът стана bootstrap (14.09)
 
 **Проблемът, формулиран точно:** `onchain_sales` беше **последната таблица на
@@ -119,12 +169,51 @@ in the GROUP BY clause or be used in an aggregate function
 `/api/sales` **402** (платен маршрут — правилното поведение без плащане) ·
 `/health` 200 (fee_receiver непокътнат).
 
-**Умишлено НЕ е преместено:** `payment_guards` / `guard_events` (C1/C2/H2
-replay-lock) остават на локалния SQLite файл, за да не може изпадане на базата
-пред платежния път да счупи заключването. `clients_summary` съзнателно **съединява
-два източника**: продажбите от durable стора + guard-доказателството от SQLite.
-Известен дълг: при deploy guard-ът се ресетира (заключването изчезва) — отделен
-въпрос, не е пипан тук.
+**Умишлено НЕ е преместено:** `meta` (watermark-ите на скана) и `payapi_state` —
+оперативно състояние, чиято загуба е поносима (сканът просто повтаря диапазон).
+
+## 🔐 Replay-заключването вече е в Postgres — и е FAIL-CLOSED (14.09)
+
+**Проблемът:** C1 lock-ът (`payment_guards`) беше на **ефимерния SQLite файл**.
+Всеки deploy **отваряше наново всяко изразходвано платежно доказателство** —
+същият tx hash можеше да отключи втори платен отговор след рестарт.
+
+**Решението:** `payment_guards` + телеметрията `guard_events` минаха през
+`HistoryStore` — същият код, два диалекта, схемата се създава идемпотентно и в
+двата режима. `DashboardStore` пази тънки wrapper-и → **платежният път не се пипа**.
+`clients_summary` вече чете guard-доказателството от **същия backend** като
+заключването (`guard_endpoint_map()`) — преди четеше локалния файл, което щеше тихо
+да изпразни доказателството за маршрут в продукция.
+
+**Трите свойства, в ред на важност:**
+
+| # | свойство | как е осигурено |
+|---|---|---|
+| 1 | **FAIL-CLOSED** | при недостъпна база `claim_payment_tx` връща **False** и плащането се **отказва**; логва се `ERROR ... fail-closed`. Недостъпно заключване = заключена врата, не отворена |
+| 2 | **БАЗАТА Е ИСТИНАТА** | `INSERT ... ON CONFLICT (tx_hash) DO NOTHING`; редът оцелява deploy → рестарт не възкресява доказателство |
+| 3 | **RAM кешът е само бърз път** | **негативен** кеш: попадение отказва без заявка; **пропуск НИКОГА не разрешава** — базата се пита винаги. Изчистването му е безопасно |
+
+Допълнително: `payment_guard_stats` е **устойчив** — при счупен backend връща
+`consumed_total: null` + `stats_error` вместо да свали таблото (на 14.09 точно
+такъв клас грешка даде HTTP 500). `guard_stats` вече докладва `lock_backend` и
+`lock_durable`, тоест екранът казва **къде** живее заключването, вместо да го
+предполага; `lock_alive` при неизправност е `false` + `lock_probe_error`.
+
+**Тестове (255 → 258 PASS), точно условията, които поиска собственикът:**
+- `test_a_consumed_payment_proof_stays_consumed_after_a_restart` — **(3)** claim →
+  True; после **нов процес с нов локален файл и СТУДЕН кеш** → същият hash се
+  **отказва**, включително пренасочен към друг маршрут (H2); редът в базата е
+  един. Доказано: истината е в базата, не в кеша.
+- `test_an_unreachable_lock_refuses_the_payment_fail_closed` — **(4)** при
+  недостъпна база: студен hash → **отказ** + шумен лог; топъл hash → отказ **през
+  кеша, без да пипа базата**; телеметрията не хвърля; `lock_alive = false`.
+- `test_route_evidence_comes_from_the_same_backend_as_the_lock` — доказателството
+  за маршрут идва от guard реда (`evidence: "payment_guard"`), не от догадка по цена.
+
+**Остава отворено (записано):** при недостъпно заключване платежният път не
+различава „replay" от „базата е долу" (и двете са отказ) — логът и секцията
+СТАЖИ го показват, но събитието се записва като replay блок. Три-състояние би
+го разделило; не е пипано, за да не се променя платежният път.
 
 ## 🐞 Checkout план-избор бъг — намерен от тест-плащането на собственика (13.09)
 

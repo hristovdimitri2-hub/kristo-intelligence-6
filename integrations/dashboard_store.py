@@ -6,12 +6,12 @@ numbers (priority-0 invariant: "deploy must not zero the counters").
 
 WHERE THINGS LIVE (hybrid since 14.09):
   * DURABLE — PostgreSQL when DATABASE_URL is set, otherwise the SQLite file:
-    the canonical MONEY table `onchain_sales` plus the request_log and
-    whaleflow_events histories. All three are owned by HistoryStore, written
-    once and translated per dialect, so a deploy cannot zero or lose them.
-  * LOCAL SQLite file — payapi_state, meta (scan watermarks) and the
-    payment_guards / guard_events replay lock: operational state whose loss is
-    survivable, kept off the database the internet can exhaust.
+    the canonical MONEY table `onchain_sales`, the C1 replay lock
+    `payment_guards` + its `guard_events` telemetry, and the request_log /
+    whaleflow_events histories. All are owned by HistoryStore, written once and
+    translated per dialect, so a deploy cannot zero or lose them.
+  * LOCAL SQLite file — only the operational state whose loss is survivable:
+    payapi_state and meta (scan watermarks).
 
 Sources:
   * on-chain sales — real USDC transfers to the fee receiver, scanned from
@@ -212,9 +212,12 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
 # empty database (first boot) plus a self-heal for a partially lost one. It is
 # insert-only: it can never overwrite, relabel or delete a scan-discovered row.
 #
-# Deliberately still NOT here: payment_guards, guard_events and meta. The C1/C2/
-# H2 replay guard is deliberately kept on the SQLite file so the replay lock
-# cannot be taken down by a database outage in front of the payment path.
+# ONLINE-SAFETY NOTE (14.09): the C1/C2/H2 replay lock (`payment_guards`) and its
+# telemetry (`guard_events`) moved here too. The lock used to live on the SQLite
+# file, which meant a deploy REOPENED every consumed proof. It is the one table
+# where "durable" and "fail-closed" must both hold, so `claim_payment_tx` REFUSES
+# a payment when the backend cannot be reached — an unreachable lock is treated
+# as a locked door, never as an open one.
 class HistoryStore:
     """request_log + whaleflow_events + onchain_sales, SQLite or PostgreSQL."""
 
@@ -226,6 +229,13 @@ class HistoryStore:
         self._ph = "%s" if self.backend == "postgresql" else "?"
         self._pg_conn = None
         self._pg_lock = threading.Lock()
+        # NEGATIVE-ONLY fast path for the C1 replay lock: a hash this process has
+        # already claimed can never be claimable again, so a hit refuses without
+        # touching the database. A MISS NEVER GRANTS — the row in the database is
+        # the truth and is always consulted. Bounded: if it ever grows past the
+        # cap it is cleared, which is safe precisely because it only denies.
+        self._claimed_cache: set = set()
+        self._claimed_cache_cap = 20000
         # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
         # EXISTS, so the schema cannot drift between the two backends either.
         self._ensure_schema()
@@ -343,8 +353,36 @@ class HistoryStore:
         )
         self._run("CREATE INDEX IF NOT EXISTS idx_onchain_sales_ts "
                   "ON onchain_sales (ts)")
+        # ── C1 replay lock: a tx hash may unlock EXACTLY ONE paid call, and that
+        # fact must outlive restarts/deploys (the old in-RAM set did not, and the
+        # local SQLite file was wiped by every deploy).
+        self._run(
+            f"""CREATE TABLE IF NOT EXISTS payment_guards (
+                    tx_hash     TEXT PRIMARY KEY,
+                    endpoint    TEXT,
+                    payer       TEXT,
+                    amount_usdc {real},
+                    consumed_at TEXT
+                )"""
+        )
+        # ── Guard rejections (C1 replay / C2 depth / H2 binding) — so the
+        # dashboard section proves the guards are ALIVE from a table instead of
+        # guessing it from log lines.
+        self._run(
+            f"""CREATE TABLE IF NOT EXISTS guard_events (
+                    id      {id_type},
+                    ts      TEXT,
+                    kind    TEXT,
+                    endpoint TEXT,
+                    tx_hash  TEXT,
+                    detail   TEXT
+                )"""
+        )
+        self._run("CREATE INDEX IF NOT EXISTS idx_guard_events_ts "
+                  "ON guard_events (ts)")
         log.info("Durable store ready (%s): request_log + whaleflow_events + "
-                 "onchain_sales.", self.backend)
+                 "onchain_sales + payment_guards + guard_events.",
+                 self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
     def record_request(self, method: str, path: str, source: str,
@@ -704,9 +742,10 @@ class HistoryStore:
     def client_sales_rows(self) -> Tuple[list, list]:
         """(per-payer aggregates, per-payment detail) for EXTERNAL payers.
 
-        Exposed separately because the guard evidence that names a route lives
-        in `payment_guards`, which stays on SQLite on purpose — the caller joins
-        the two sources instead of this class pretending they are one.
+        Exposed separately because the route evidence lives in a second table,
+        `payment_guards` (the granted claims), which is read through
+        `guard_endpoint_map()` — the caller joins the two instead of this class
+        pretending they are one.
 
         `GROUP BY sender` (NOT `lower(sender)`) because PostgreSQL requires every
         bare selected column to be grouped: selecting `sender` while grouping by
@@ -730,19 +769,214 @@ class HistoryStore:
                ORDER BY ts ASC, block_number ASC""", (), "all")[0]
         return [dict(r) for r in rows], [dict(r) for r in detail]
 
+    # ── C1 replay lock (fail-CLOSED) ────────────────────────────────────────
+    def _remember_claim(self, tx: str) -> None:
+        """Add a hash to the negative-only cache (never used to GRANT)."""
+        if len(self._claimed_cache) >= self._claimed_cache_cap:
+            self._claimed_cache.clear()
+        self._claimed_cache.add(tx)
+
+    def claim_payment_tx(self, tx_hash: str, endpoint: str = "",
+                         payer: str = "", amount_usdc: float = 0.0) -> bool:
+        """Atomically CLAIM a settlement tx hash for exactly one paid call.
+
+        Returns True only for the FIRST consumer of the hash. A replay — the same
+        hash again, or the same hash re-pointed at another endpoint (H2) — is
+        False, no matter which process asks.
+
+        THREE PROPERTIES, in order of importance:
+
+          1. FAIL-CLOSED. If the lock cannot be read or written, this returns
+             False and the payment is REFUSED. An unreachable lock is a locked
+             door: serving a request on an unverifiable replay proof is exactly
+             the failure this guard exists to prevent.
+          2. THE DATABASE IS THE TRUTH. The `INSERT ... ON CONFLICT DO NOTHING`
+             row is authoritative and survives deploys, so a restart cannot
+             resurrect a consumed proof.
+          3. THE IN-RAM SET IS ONLY A FAST PATH. A cache HIT refuses immediately
+             (no round-trip); a cache MISS still asks the database. The cache can
+             therefore never grant access on its own — clearing or losing it is
+             always safe.
+        """
+        tx = _norm_tx(tx_hash)
+        if not tx:
+            return False
+        if tx in self._claimed_cache:          # fast path: already spent here
+            return False
+        row = (
+            tx,
+            (endpoint or "").strip(),
+            (payer or "").lower(),
+            round(float(amount_usdc or 0.0), 6),
+            datetime.now(timezone.utc).isoformat(),
+        )
+        try:
+            _, rowcount = self._run(
+                """INSERT INTO payment_guards
+                       (tx_hash, endpoint, payer, amount_usdc, consumed_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT (tx_hash) DO NOTHING""",
+                row,
+            )
+        except Exception as exc:
+            # FAIL-CLOSED. Say it loudly: every paid call is now refused, which
+            # is the safe direction but is also an outage the owner must see.
+            log.error("C1 replay lock UNREACHABLE (%s) — refusing every payment "
+                      "until it recovers (fail-closed): %s", self.backend, exc)
+            return False
+        if rowcount > 0:
+            self._remember_claim(tx)
+            return True                            # we are the first consumer
+        # Someone else holds it (another worker, or an earlier request): replay.
+        self._remember_claim(tx)
+        return False
+
+    def payment_guard_stats(self) -> Dict[str, Any]:
+        """Guard telemetry for the dashboard / ops (no PII).
+
+        READ-ONLY and RESILIENT: a broken backend must not take the dashboard
+        down — on 14.09 exactly that happened (a GroupingError on the sales
+        aggregate turned /api/dashboard/data into HTTP 500). It reports the
+        failure instead of pretending the numbers are zero.
+        """
+        base: Dict[str, Any] = {
+            # Say WHERE the lock lives: "the lock is durable" holds only when this
+            # is postgresql.
+            "lock_backend": self.backend,
+            "lock_durable": self.backend == "postgresql",
+        }
+        try:
+            n = self._run("SELECT COUNT(*) AS n FROM payment_guards",
+                          (), "one")[0]
+            by_ep = self._run(
+                """SELECT endpoint, COUNT(*) AS n FROM payment_guards
+                   GROUP BY endpoint""", (), "all")[0]
+            last = self._run(
+                """SELECT consumed_at, endpoint FROM payment_guards
+                   ORDER BY consumed_at DESC LIMIT 1""", (), "one")[0]
+        except Exception as exc:
+            log.warning("payment_guard_stats unavailable (%s): %s",
+                        self.backend, exc)
+            return {**base, "consumed_total": None, "by_endpoint": {},
+                    "last_claim_at": None, "last_claim_endpoint": None,
+                    "stats_error": str(exc)[:200]}
+        return {
+            **base,
+            "consumed_total": n["n"] if n else 0,
+            "by_endpoint": {(r["endpoint"] or "unknown"): r["n"]
+                            for r in by_ep},
+            "last_claim_at": last["consumed_at"] if last else None,
+            "last_claim_endpoint": last["endpoint"] if last else None,
+            "stats_error": None,
+        }
+
+    def record_guard_event(self, kind: str, endpoint: str = "",
+                           tx_hash: str = "", detail: str = "") -> None:
+        """Persist a guard rejection (C1 replay / C2 depth / H2 binding).
+
+        Deliberately separate from `payment_guards` (which records GRANTED
+        claims): the dashboard needs to prove the guards are alive, and a
+        blocked attempt is the only positive evidence that they fired.
+        Never raises — telemetry must not affect a payment decision.
+        """
+        try:
+            self._run(
+                """INSERT INTO guard_events
+                       (ts, kind, endpoint, tx_hash, detail)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    (kind or "")[:40],
+                    (endpoint or "")[:120],
+                    _norm_tx(tx_hash)[:80],
+                    (detail or "")[:300],
+                ),
+            )
+        except Exception as exc:  # pragma: no cover - telemetry only
+            log.debug("guard event not recorded (%s): %s", kind, exc)
+
+    def guard_stats(self, recent_limit: int = 5) -> Dict[str, Any]:
+        """Live health of the C1 replay lock + the blocked attempts it made.
+
+        `lock_alive` is a REAL probe: it writes, reads and removes a sentinel row
+        in `payment_guards`, so a broken/locked/read-only lock reports red instead
+        of silently letting every replay through. Since the lock lives in the
+        durable store, a probe failure here is also exactly the condition under
+        which `claim_payment_tx` starts refusing payments (fail-closed) — the
+        dashboard shows that state instead of hiding it.
+        """
+        alive = False
+        probe_error = ""
+        sentinel = "__lock_probe__"
+        try:
+            self._run("DELETE FROM payment_guards WHERE tx_hash = ?",
+                      (sentinel,))
+            self._run(
+                """INSERT INTO payment_guards
+                       (tx_hash, endpoint, payer, amount_usdc, consumed_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (sentinel, "", "", 0.0, datetime.now(timezone.utc).isoformat()),
+            )
+            row = self._run(
+                "SELECT COUNT(*) AS n FROM payment_guards WHERE tx_hash = ?",
+                (sentinel,), "one")[0]
+            alive = bool(row and row["n"] == 1)
+            self._run("DELETE FROM payment_guards WHERE tx_hash = ?",
+                      (sentinel,))
+        except Exception as exc:
+            probe_error = str(exc)[:200]
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            by_kind = self._run(
+                """SELECT kind, COUNT(*) AS n FROM guard_events
+                   GROUP BY kind ORDER BY n DESC""", (), "all")[0]
+            total_blocked = self._run(
+                "SELECT COUNT(*) AS n FROM guard_events", (), "one")[0]
+            blocked_today = self._run(
+                """SELECT COUNT(*) AS n FROM guard_events
+                   WHERE substr(ts, 1, 10) = ?""", (today,), "one")[0]
+            recent = self._run(
+                """SELECT ts, kind, endpoint, tx_hash, detail FROM guard_events
+                   ORDER BY id DESC LIMIT ?""", (recent_limit,), "all")[0]
+        except Exception as exc:  # pragma: no cover - display only
+            log.debug("guard event stats unavailable: %s", exc)
+            by_kind, total_blocked, blocked_today, recent = [], None, None, []
+        return {
+            "lock_alive": alive,
+            "lock_probe_error": probe_error or None,
+            "lock_backend": self.backend,
+            "lock_durable": self.backend == "postgresql",
+            "blocked_total": total_blocked["n"] if total_blocked else 0,
+            "blocked_today": blocked_today["n"] if blocked_today else 0,
+            "by_kind": {r["kind"]: r["n"] for r in by_kind},
+            "recent_blocks": [dict(r) for r in recent],
+        }
+
+    def guard_endpoint_map(self) -> Dict[str, str]:
+        """{tx_hash → endpoint} for every GRANTED claim (route evidence).
+
+        Used to name the route a payment was consumed on. Read from the same
+        backend as the lock itself — reading it from a different database is how
+        the CLIENTS section silently loses its evidence.
+        """
+        rows = self._run(
+            "SELECT tx_hash, endpoint FROM payment_guards", (), "all")[0]
+        return {(r["tx_hash"] or "").lower(): (r["endpoint"] or "")
+                for r in rows}
+
 
 class DashboardStore:
     """Canonical dashboard store (one connection per call, like CRMStore).
 
 HYBRID since 14.09:
   * DURABLE (PostgreSQL when DATABASE_URL is set, SQLite otherwise) — the
-    canonical MONEY table `onchain_sales` plus the request_log and
-    whaleflow_events histories, all owned by HistoryStore, so a deploy cannot
-    zero or lose them.
-  * LOCAL SQLite file — only the operational tables whose loss is survivable:
-    payapi_state, meta (scan watermarks) and the payment_guards / guard_events
-    replay lock, which is deliberately kept off the database that the internet
-    can exhaust.
+    canonical MONEY table `onchain_sales`, the C1 replay lock `payment_guards`
+    (+ `guard_events` telemetry) and the request_log / whaleflow_events
+    histories, all owned by HistoryStore. A deploy can neither zero the numbers
+    nor reopen a consumed payment proof.
+  * LOCAL SQLite file — only the operational state whose loss is survivable:
+    payapi_state and meta (scan watermarks).
 """
 
     def __init__(self, file_path: str | Path | None = None):
@@ -752,11 +986,12 @@ HYBRID since 14.09:
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = threading.Lock()
         self._ensure_db()
-        # request_log + whaleflow_events + onchain_sales follow DATABASE_URL
-        # (PostgreSQL when set, SQLite otherwise), so HISTORY **and THE MONEY
-        # TABLE** survive a deploy — see HistoryStore. The on-chain numbers used
-        # to be re-created from the seed manifest on every boot; they now simply
-        # persist, and the seed is only the first-boot bootstrap.
+        # request_log + whaleflow_events + onchain_sales + payment_guards follow
+        # DATABASE_URL (PostgreSQL when set, SQLite otherwise), so HISTORY, THE
+        # MONEY TABLE and THE REPLAY LOCK all survive a deploy — see HistoryStore.
+        # The on-chain numbers used to be re-created from the seed manifest on
+        # every boot; they now simply persist, and the seed is only the first-boot
+        # bootstrap. The lock used to be reopened by every deploy.
         self.history = HistoryStore(
             self._connect, self._write_lock,
             os.getenv("DATABASE_URL", ""),
@@ -768,10 +1003,11 @@ HYBRID since 14.09:
         return conn
 
     def _ensure_db(self) -> None:
-        # Only the LOCAL tables live here. request_log, whaleflow_events and
-        # onchain_sales are owned by HistoryStore (both dialects) so there is
-        # exactly ONE definition of each table and the two backends cannot
-        # drift — including a dead empty `onchain_sales` shadowing the real one.
+        # Only the LOCAL, survivable tables live here: the PayAPI listing state
+        # and the scan watermarks. request_log, whaleflow_events, onchain_sales,
+        # payment_guards and guard_events are ALL owned by HistoryStore (both
+        # dialects), so there is exactly ONE definition of each and the backends
+        # cannot drift — including a dead empty table shadowing the real one.
         with self._connect() as conn:
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS payapi_state (
@@ -785,39 +1021,6 @@ HYBRID since 14.09:
                     key   TEXT PRIMARY KEY,
                     value TEXT
                 )"""
-            )
-            # request_log / whaleflow_events / onchain_sales and their
-            # indexes are created by HistoryStore below (both dialects),
-            # never here: a second definition is exactly how two schemas
-            # drift apart, and after the onchain_sales move it would also
-            # leave a dead empty table shadowing the real one.
-            # ── C1 replay guard: a tx hash may unlock EXACTLY ONE paid call,
-            # and that fact must survive restarts/deploys (RAM sets do not).
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS payment_guards (
-                    tx_hash    TEXT PRIMARY KEY,
-                    endpoint   TEXT,
-                    payer      TEXT,
-                    amount_usdc REAL,
-                    consumed_at TEXT
-                )"""
-            )
-            # ── Guard rejections (C1 replay / C2 depth / H2 binding) — durable
-            # so the dashboard "СТАЖИ" section can show the LAST blocked
-            # attempt from a table instead of guessing it from log lines.
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS guard_events (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ts         TEXT,
-                    kind       TEXT,
-                    endpoint   TEXT,
-                    tx_hash    TEXT,
-                    detail     TEXT
-                )"""
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_guard_events_ts "
-                "ON guard_events (ts)"
             )
             conn.commit()
 
@@ -885,151 +1088,38 @@ HYBRID since 14.09:
         payer: str = "",
         amount_usdc: float = 0.0,
     ) -> bool:
-        """Atomically CLAIM a settlement tx hash for exactly one paid call.
+        """Claim a settlement tx hash for exactly one paid call.
 
-        Returns True only for the FIRST (tx_hash, endpoint) consumer. A
-        replay — same hash again, or the same hash re-pointed at a different
-        endpoint (H2 binding) — returns False. The claim lives in SQLite, so
-        a restart/deploy can no longer resurrect a consumed proof (the
-        in-RAM `_verified_payments` set used to be the only guard).
-
-        The INSERT is the lock: the PRIMARY KEY makes the check-and-claim a
-        single atomic statement across processes/threads.
+        Thin wrapper (14.09) — see HistoryStore.claim_payment_tx. The lock now
+        lives in the durable store and is FAIL-CLOSED: if the lock cannot be
+        reached, this returns False and the payment is REFUSED rather than served
+        on an unverifiable replay proof.
         """
-        tx = _norm_tx(tx_hash)
-        if not tx:
-            return False
-        row = (
-            tx,
-            (endpoint or "").strip(),
-            (payer or "").lower(),
-            round(float(amount_usdc or 0.0), 6),
-            datetime.now(timezone.utc).isoformat(),
+        return self.history.claim_payment_tx(
+            tx_hash, endpoint=endpoint, payer=payer, amount_usdc=amount_usdc,
         )
-        with self._write_lock, self._connect() as conn:
-            cur = conn.execute(
-                """INSERT OR IGNORE INTO payment_guards
-                       (tx_hash, endpoint, payer, amount_usdc, consumed_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                row,
-            )
-            conn.commit()
-            # rowcount == 1 → we are the first consumer: claim granted.
-            # rowcount == 0 → this hash was already spent (replay), no matter
-            # which endpoint is asking now. Single-call semantics, always.
-            return cur.rowcount > 0
 
     def payment_guard_stats(self) -> Dict[str, Any]:
-        """Guard telemetry for the dashboard / ops (no PII)."""
-        with self._connect() as conn:
-            n = conn.execute(
-                "SELECT COUNT(*) AS n FROM payment_guards"
-            ).fetchone()
-            by_ep = conn.execute(
-                """SELECT endpoint, COUNT(*) AS n FROM payment_guards
-                   GROUP BY endpoint"""
-            ).fetchall()
-            last = conn.execute(
-                """SELECT consumed_at, endpoint FROM payment_guards
-                   ORDER BY consumed_at DESC LIMIT 1"""
-            ).fetchone()
-        return {
-            "consumed_total": n["n"],
-            "by_endpoint": {r["endpoint"] or "unknown": r["n"] for r in by_ep},
-            "last_claim_at": last["consumed_at"] if last else None,
-            "last_claim_endpoint": last["endpoint"] if last else None,
-        }
+        """Guard telemetry — see HistoryStore.payment_guard_stats."""
+        return self.history.payment_guard_stats()
 
     # ── guard events: durable record of what the guards BLOCKED ───────────────
     def record_guard_event(self, kind: str, endpoint: str = "",
                            tx_hash: str = "", detail: str = "") -> None:
-        """Persist a guard rejection (C1 replay / C2 depth / H2 binding).
+        """Persist a guard rejection — see HistoryStore.record_guard_event.
 
-        Deliberately separate from `payment_guards` (which records GRANTED
-        claims): the dashboard needs to prove the guards are alive, and a
-        blocked attempt is the only positive evidence that they fired.
-        Never raises — telemetry must not affect a payment decision.
+        Telemetry only: it never raises and never changes a payment decision.
         """
-        try:
-            with self._write_lock, self._connect() as conn:
-                conn.execute(
-                    """INSERT INTO guard_events
-                           (ts, kind, endpoint, tx_hash, detail)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (
-                        datetime.now(timezone.utc).isoformat(),
-                        (kind or "")[:40],
-                        (endpoint or "")[:120],
-                        _norm_tx(tx_hash)[:80],
-                        (detail or "")[:300],
-                    ),
-                )
-                conn.commit()
-        except Exception as exc:  # pragma: no cover - telemetry only
-            log.debug("guard event not recorded (%s): %s", kind, exc)
+        return self.history.record_guard_event(kind, endpoint=endpoint,
+                                               tx_hash=tx_hash, detail=detail)
 
     def guard_stats(self, recent_limit: int = 5) -> Dict[str, Any]:
-        """Live health of the C1 replay lock + the blocked attempts it made.
+        """Lock health + blocked attempts — see HistoryStore.guard_stats.
 
-        `lock_alive` is a REAL probe: it writes and removes a sentinel row, so
-        a broken/locked/read-only payment_guards table reports red instead of
-        silently letting every replay through.
+        Includes `lock_backend` / `lock_durable` so the on-screen СТАЖИ section
+        states WHERE the replay lock lives instead of implying durability.
         """
-        alive = False
-        probe_error = ""
-        try:
-            sentinel = "__lock_probe__"
-            with self._write_lock, self._connect() as conn:
-                conn.execute(
-                    "DELETE FROM payment_guards WHERE tx_hash = ?", (sentinel,)
-                )
-                conn.execute(
-                    """INSERT INTO payment_guards
-                           (tx_hash, endpoint, payer, amount_usdc, consumed_at)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (sentinel, "", "", 0.0,
-                     datetime.now(timezone.utc).isoformat()),
-                )
-                conn.commit()
-                row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM payment_guards WHERE tx_hash = ?",
-                    (sentinel,),
-                ).fetchone()
-                alive = bool(row and row["n"] == 1)
-                conn.execute(
-                    "DELETE FROM payment_guards WHERE tx_hash = ?", (sentinel,)
-                )
-                conn.commit()
-        except Exception as exc:
-            probe_error = str(exc)[:200]
-
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        with self._connect() as conn:
-            by_kind = conn.execute(
-                """SELECT kind, COUNT(*) AS n FROM guard_events
-                   GROUP BY kind ORDER BY n DESC"""
-            ).fetchall()
-            total_blocked = conn.execute(
-                "SELECT COUNT(*) AS n FROM guard_events"
-            ).fetchone()["n"]
-            blocked_today = conn.execute(
-                """SELECT COUNT(*) AS n FROM guard_events
-                   WHERE substr(ts, 1, 10) = ?""",
-                (today,),
-            ).fetchone()["n"]
-            recent = conn.execute(
-                """SELECT ts, kind, endpoint, tx_hash, detail FROM guard_events
-                   ORDER BY id DESC LIMIT ?""",
-                (recent_limit,),
-            ).fetchall()
-        return {
-            "lock_alive": alive,
-            "lock_probe_error": probe_error or None,
-            "blocked_total": total_blocked,
-            "blocked_today": blocked_today,
-            "by_kind": {r["kind"]: r["n"] for r in by_kind},
-            "recent_blocks": [dict(r) for r in recent],
-        }
+        return self.history.guard_stats(recent_limit)
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales — see HistoryStore.sales_summary.
@@ -1055,18 +1145,14 @@ HYBRID since 14.09:
         routes. Guessing one of them would be a phantom number on screen.
         """
         price_map = {k: round(float(v), 6) for k, v in (price_map or {}).items()}
-        # TWO SOURCES, on purpose (14.09): the sales rows come from the durable
-        # store (PostgreSQL when DATABASE_URL is set), while `payment_guards`
-        # stays on the local SQLite file so a database outage in front of the
-        # payment path cannot break the replay lock. This method joins them.
+        # Both halves now come from the durable store, but from TWO TABLES on
+        # purpose: the sales rows and the granted claims. The claim is the only
+        # honest evidence of WHICH route a payment was consumed on, so this joins
+        # them instead of guessing a route from the amount (14.09: the lock moved
+        # to PostgreSQL too — reading it from the local file would have silently
+        # emptied this evidence in production).
         rows, detail = self.history.client_sales_rows()
-        with self._connect() as conn:
-            guards = {
-                (r["tx_hash"] or "").lower(): (r["endpoint"] or "")
-                for r in conn.execute(
-                    "SELECT tx_hash, endpoint FROM payment_guards"
-                ).fetchall()
-            }
+        guards = self.history.guard_endpoint_map()
         by_sender: Dict[str, List[dict]] = {}
         for d in detail:
             by_sender.setdefault((d["sender"] or "").lower(), []).append(dict(d))

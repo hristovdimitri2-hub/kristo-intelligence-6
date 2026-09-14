@@ -281,6 +281,8 @@ class _FakePostgres:
         self.whales = []
         self.requests = []
         self.sales = []
+        self.guards = {}
+        self.guard_events = []
         self.sql = []
 
 
@@ -319,6 +321,67 @@ class _FakeCursor:
         if s.startswith("INSERT INTO request_log"):
             self.db.requests.append({"ts": params[0], "path": params[2]})
             self.rowcount = 1
+            return
+        # ── payment_guards + guard_events (durable since 14.09) ────────────
+        if s.startswith("INSERT INTO payment_guards"):
+            tx = params[0]
+            if tx in self.db.guards:
+                self.rowcount = 0                  # ON CONFLICT DO NOTHING
+            else:
+                self.db.guards[tx] = {
+                    "endpoint": params[1], "payer": params[2],
+                    "amount_usdc": params[3], "consumed_at": params[4]}
+                self.rowcount = 1
+            return
+        if s.startswith("DELETE FROM payment_guards"):
+            self.rowcount = 1 if self.db.guards.pop(params[0], None) else 0
+            return
+        if s.startswith("SELECT tx_hash, endpoint FROM payment_guards"):
+            self._rows = [{"tx_hash": k, "endpoint": v["endpoint"]}
+                          for k, v in self.db.guards.items()]
+            return
+        if s.startswith("SELECT endpoint, COUNT(*) AS n FROM payment_guards"):
+            agg = {}
+            for v in self.db.guards.values():
+                agg[v["endpoint"]] = agg.get(v["endpoint"], 0) + 1
+            self._rows = [{"endpoint": k, "n": n} for k, n in agg.items()]
+            return
+        if s.startswith("SELECT consumed_at, endpoint FROM payment_guards"):
+            items = sorted(self.db.guards.values(),
+                           key=lambda v: v["consumed_at"], reverse=True)
+            self._rows = ([{"consumed_at": items[0]["consumed_at"],
+                            "endpoint": items[0]["endpoint"]}] if items else [])
+            return
+        if s.startswith("SELECT COUNT(*) AS n FROM payment_guards WHERE"):
+            self._rows = [{"n": 1 if params[0] in self.db.guards else 0}]
+            return
+        if s.startswith("SELECT COUNT(*) AS n FROM payment_guards"):
+            self._rows = [{"n": len(self.db.guards)}]
+            return
+        if s.startswith("INSERT INTO guard_events"):
+            self.db.guard_events.append({
+                "ts": params[0], "kind": params[1], "endpoint": params[2],
+                "tx_hash": params[3], "detail": params[4]})
+            self.rowcount = 1
+            return
+        if s.startswith("SELECT kind, COUNT(*) AS n FROM guard_events"):
+            agg = {}
+            for e in self.db.guard_events:
+                agg[e["kind"]] = agg.get(e["kind"], 0) + 1
+            self._rows = [{"kind": k, "n": n}
+                          for k, n in sorted(agg.items(),
+                                             key=lambda kv: -kv[1])]
+            return
+        if (s.startswith("SELECT COUNT(*) AS n FROM guard_events")
+                and "substr" in s):
+            self._rows = [{"n": sum(1 for e in self.db.guard_events
+                                    if e["ts"][:10] == params[0])}]
+            return
+        if s.startswith("SELECT COUNT(*) AS n FROM guard_events"):
+            self._rows = [{"n": len(self.db.guard_events)}]
+            return
+        if s.startswith("SELECT ts, kind, endpoint, tx_hash, detail FROM guard_events"):
+            self._rows = list(reversed(self.db.guard_events))[:params[0]]
             return
         # ── onchain_sales (the canonical MONEY table, durable since 14.09) ──
         if s.startswith("INSERT INTO onchain_sales"):
@@ -747,6 +810,147 @@ def test_the_seed_self_heals_partial_loss_without_overwriting(tmp_path,
     assert third["present"] == 9
 
 
+def test_a_consumed_payment_proof_stays_consumed_after_a_restart(tmp_path,
+                                                                monkeypatch):
+    """Condition 3: a replay is still blocked AFTER a "restart".
+
+    Hard-won history of this guard: the claim lived in an in-RAM set (gone on
+    restart), then in the ephemeral SQLite file (gone on deploy — every consumed
+    proof was reopened). It is now a row in the durable store, so the second
+    process must refuse even though its OWN cache is empty. That emptiness is the
+    point: it proves the database is the truth and the cache is only a fast path.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    db = _install_fake_postgres(monkeypatch, _FakePostgres())
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+    tx = "0x" + "ab" * 32
+
+    first = DashboardStore(tmp_path / "a.db")
+    assert first.claim_payment_tx(tx, endpoint="/api/v1/signal",
+                                  payer="0x" + "cd" * 20,
+                                  amount_usdc=0.003) is True
+    assert first.payment_guard_stats()["consumed_total"] == 1
+
+    # "restart": a new process (cold cache) on a brand-new local file.
+    second = DashboardStore(tmp_path / "b.db")
+    assert second.history._claimed_cache == set(), "the cache must be cold here"
+    assert second.claim_payment_tx(tx, endpoint="/api/v1/signal") is False
+    # Re-pointed at a different route: the H2 binding violation, also refused.
+    assert second.claim_payment_tx(tx, endpoint="/api/v1/whaleflow") is False
+    # Nothing was re-consumed into a second row.
+    assert second.payment_guard_stats()["consumed_total"] == 1
+    assert len(db.guards) == 1
+    # The lock refuses REPLAYS, not payments: a fresh hash still works.
+    assert second.claim_payment_tx("0x" + "11" * 32) is True
+    # And the dashboard is told WHERE the lock lives.
+    stats = second.guard_stats()
+    assert stats["lock_backend"] == "postgresql"
+    assert stats["lock_durable"] is True
+    assert stats["lock_alive"] is True
+
+
+def test_an_unreachable_lock_refuses_the_payment_fail_closed(tmp_path,
+                                                             monkeypatch):
+    """Condition 4: database unreachable → REFUSE, never allow.
+
+    A guard that fails OPEN is worse than no guard: it would hand paid content to
+    a replay exactly when the lock cannot be checked. This asserts the safe
+    direction, that the log shouts about it, and that the fast path never becomes
+    a second door in.
+    """
+    import logging
+
+    from integrations.dashboard_store import DashboardStore, HistoryStore
+
+    _install_fake_postgres(monkeypatch, _FakePostgres())
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+    store = DashboardStore(tmp_path / "down.db")
+
+    # Claim one hash while the lock is healthy (this also fills the fast path).
+    warm = "0x" + "33" * 32
+    assert store.claim_payment_tx(warm, endpoint="/api/v1/signal") is True
+
+    def _boom(self):
+        raise RuntimeError("database is down")
+    monkeypatch.setattr(HistoryStore, "_pg_connection", _boom)
+
+    messages = []
+
+    class _Handler(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    handler = _Handler()
+    logger = logging.getLogger("integrations.dashboard_store")
+    logger.addHandler(handler)
+    try:
+        before = len([m for m in messages if "fail-closed" in m])
+        # (a) A hash already claimed here is refused by the FAST PATH, without
+        #     even trying the database — so no new fail-closed log line.
+        assert store.claim_payment_tx(warm, endpoint="/api/v1/signal") is False
+        assert len([m for m in messages
+                    if "fail-closed" in m]) == before, \
+            "the fast path should not need the database at all"
+        # (b) A cold hash with the lock unreachable is REFUSED (fail-closed).
+        assert store.claim_payment_tx("0x" + "44" * 32) is False
+        assert len([m for m in messages
+                    if "fail-closed" in m]) == before + 1, \
+            "the refusal must be logged loudly"
+        # (c) Telemetry must never raise, even with the database down.
+        store.record_guard_event("replay_blocked", "/api/v1/signal",
+                                 "0x" + "44" * 32, "lock unreachable")
+        # (d) The dashboard reports the lock as DEAD instead of pretending.
+        stats = store.guard_stats()
+        assert stats["lock_alive"] is False
+        assert stats["lock_probe_error"]
+        assert stats["lock_durable"] is True
+        # (e) Telemetry degrades HONESTLY instead of taking the dashboard down.
+        stats = store.payment_guard_stats()
+        assert stats["consumed_total"] is None
+        assert stats["stats_error"]
+        assert stats["lock_backend"] == "postgresql"
+        assert stats["lock_durable"] is True
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_route_evidence_comes_from_the_same_backend_as_the_lock(tmp_path,
+                                                                monkeypatch):
+    """The CLIENTS section's route proof must be read from the LOCK's backend.
+
+    Reading the sales rows from one database and the granted claims from another
+    is how the section would silently lose its only honest route evidence and
+    fall back to "the amount could be any of these routes". Both come from the
+    durable store now, so a claimed payment is named by its guard row.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    _install_fake_postgres(monkeypatch, _FakePostgres())
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
+    store = DashboardStore(tmp_path / "evidence.db")
+
+    buyer = "0x" + "9f" * 20
+    tx = "0x" + "5a" * 32
+    assert store.record_sale(tx, 0.003, sender=buyer, block_number=51_400_000,
+                             source="live") is True
+    # No claim yet → the section can only say "the price fits these routes".
+    before = store.clients_summary(price_map={"/api/v1/signal": 0.003,
+                                              "/api/v1/whaleflow": 0.003})
+    assert before["count"] == 1
+    assert before["clients"][0]["routes"][0]["evidence"] == "price_ambiguous"
+
+    # The guard grants the proof on ONE route → that route is now FACT.
+    assert store.claim_payment_tx(tx, endpoint="/api/v1/whaleflow",
+                                  payer=buyer, amount_usdc=0.003) is True
+    after = store.clients_summary(price_map={"/api/v1/signal": 0.003,
+                                             "/api/v1/whaleflow": 0.003})
+    route = after["clients"][0]["routes"][0]
+    assert route["route"] == "/api/v1/whaleflow"
+    assert route["evidence"] == "payment_guard"
+    assert after["clients"][0]["tx_hashes"] == [tx]
+
+
 def _group_by_violations(sql: str) -> list:
     """Columns selected bare while the query groups by something else.
 
@@ -892,6 +1096,12 @@ def test_guards_section_probes_a_live_lock_and_shows_the_config(client):
     assert g["config"]["h2_endpoint_binding"] is True
     assert g["blocked_total"] == 0
     assert g["recent_blocks"] == []
+    # The section must STATE where the lock lives (14.09: the lock moved to the
+    # durable store). Without DATABASE_URL the test fixture is SQLite, so the
+    # honest answer here is sqlite/False — a claim of durability would be a lie.
+    assert g["lock_backend"] == "sqlite"
+    assert g["lock_durable"] is False
+    assert g["stats_error"] is None
 
 
 def test_lock_probe_row_does_not_pollute_the_claim_count(client):
