@@ -338,8 +338,8 @@ def test_seed_manifest_reproduces_chain_truth(tmp_path):
     from integrations.verified_sales import VERIFIED_SALES, expected_totals
 
     exp = expected_totals()
-    assert exp == {"total_usdc": 0.028, "total_count": 8,
-                   "distinct_senders": 4}
+    assert exp == {"total_usdc": 0.031, "total_count": 9,
+                   "distinct_senders": 5}
     for row in VERIFIED_SALES:
         tx = row["tx_hash"]
         assert tx.startswith("0x") and len(tx) == 66, f"truncated hash: {tx}"
@@ -349,16 +349,16 @@ def test_seed_manifest_reproduces_chain_truth(tmp_path):
 
     store = DashboardStore(tmp_path / "seed.db")
     result = store.seed_verified_sales()
-    assert result["inserted"] == 8
+    assert result["inserted"] == 9
     summary = store.sales_summary()
-    assert summary["total_usdc"] == 0.028
-    assert summary["total_count"] == 8
-    assert summary["external_payers"] == 2
+    assert summary["total_usdc"] == 0.031
+    assert summary["total_count"] == 9
+    assert summary["external_payers"] == 3
     assert summary["by_class"]["canary"]["count"] == 5
     assert summary["by_class"]["sampler"]["count"] == 1
     # Idempotent: a second boot inserts nothing and changes nothing.
     assert store.seed_verified_sales()["inserted"] == 0
-    assert store.sales_summary()["total_count"] == 8
+    assert store.sales_summary()["total_count"] == 9
 
 
 def test_a_scan_row_is_never_overwritten_by_the_seed(tmp_path):
@@ -388,9 +388,9 @@ def test_admin_seed_route_repairs_a_wiped_store(client, monkeypatch):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["ok"] is True
-    assert body["onchain"]["total_usdc"] == 0.028
-    assert body["onchain"]["total_count"] == 8
-    assert body["onchain"]["external_payers"] == 2
+    assert body["onchain"]["total_usdc"] == 0.031
+    assert body["onchain"]["total_count"] == 9
+    assert body["onchain"]["external_payers"] == 3
 
 
 def test_a_published_tx_hash_cannot_be_claimed_by_another_payer(

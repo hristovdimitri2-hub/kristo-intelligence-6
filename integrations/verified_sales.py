@@ -11,14 +11,24 @@ Hard facts (chain, 100% reproducible):
 
   receiver  : 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
   token     : USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 (Base, 6 decimals)
-  transfers : 8 (ALL incoming, ALL USDC — the address has no other token flow)
-  total     : 28000 atomic = $0.028
+  transfers : 9 (ALL incoming, ALL USDC — the address has no other token flow)
+  total     : 31000 atomic = $0.031
 
 Truth vs earlier bookkeeping (see PROJECT_STATUS.md):
   * earlier notes said $0.026 / 3 external payers  → WRONG (priority-0 report)
-  * chain says      $0.028 / 2 external payers
-  * two transfers are $0.005 (0xb8a52dcd… and 0x98f63a29…), six are $0.003
-  * 0xA19F (watchlist) and 0x5f64 NEVER sent USDC to the receiver — no tx exists
+  * chain says $0.031 / 3 external payers — 0x4db7, 0x902dcf34 and 0xA19F
+  * a LATER audit said $0.028 / 2 external and DROPPED the 0xA19F transfer
+    (block 51079970, $0.003, 09.09) because the payer's history was read
+    through a paginated query. The scanner found that transfer on-chain once
+    the RPC host was fixed, which exposed the missing row. Our own mistake,
+    written down here on purpose.
+  * two transfers are $0.005 (0xb8a52dcd… and 0x98f63a29…), seven are $0.003
+  * 0x5f64 never sent USDC to the receiver — no such transaction exists
+  * 0xA19F IS a payer, and it is a CRAWLER, not a customer: 125 outgoing USDC
+    transactions to 98 distinct receivers in 30 days, first funded 2026-09-04
+    (1.01 + 49.0 USDC). A machine that pays many x402 services and arrives
+    regardless of price. HUMAN customers therefore remain exactly TWO
+    (0x4db7, 0x902dcf34).
 
 Payer classification is NOT hardcoded here: `record_sale()` re-derives
 canary/sampler/external from KNOWN_PAYERS at insert time.
@@ -87,6 +97,13 @@ VERIFIED_SALES: List[Dict[str, Any]] = [
         "sender": "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0",
         "block_number": 51033391,
         "ts_unix": 1788856129,
+    },
+    {
+        "tx_hash": "0xb66077d16909973aa1a2d0492a3e18f2e90b34b288e584f6c5377353ad7ca8a2",
+        "amount_usdc": 0.003,
+        "sender": "0xa19f621581dbc851a21d6179868111709a52accc",
+        "block_number": 51079970,
+        "ts_unix": 1788949287,
     },
     {
         "tx_hash": "0xc30268e387e84d449f433772ed11e9ab751394d80bfc310a9c7dbb5e604cce03",

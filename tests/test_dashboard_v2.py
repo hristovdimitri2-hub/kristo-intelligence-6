@@ -46,14 +46,14 @@ def test_onchain_section_carries_the_verified_chain_truth(client):
     test_client, _main, dash = client
     dash.seed_verified_sales()
     o = _sections(test_client)["onchain"]
-    assert o["total_usdc"] == 0.028
-    assert o["total_count"] == 8
-    assert o["external_payers"] == 2
+    assert o["total_usdc"] == 0.031
+    assert o["total_count"] == 9
+    assert o["external_payers"] == 3
     assert o["by_class"]["canary"] == {"count": 5, "total_usdc": 0.017}
-    assert o["by_class"]["external"] == {"count": 2, "total_usdc": 0.008}
+    assert o["by_class"]["external"] == {"count": 3, "total_usdc": 0.011}
     assert o["by_class"]["sampler"] == {"count": 1, "total_usdc": 0.003}
     # FULL 66-char hashes + the real block numbers (no truncation, no zeros).
-    assert len(o["history"]) == 8
+    assert len(o["history"]) == 9
     for row in o["history"]:
         assert len(row["tx_hash"]) == 66 and row["tx_hash"].startswith("0x")
         assert row["block_number"] > 50_000_000
@@ -62,15 +62,18 @@ def test_onchain_section_carries_the_verified_chain_truth(client):
 
 # ── 2. КЛИЕНТИ: external payers, with route honesty ─────────────────────────
 
-def test_clients_section_lists_the_two_external_payers(client):
+def test_clients_section_lists_every_external_payer(client):
     test_client, _main, dash = client
     dash.seed_verified_sales()
     c = _sections(test_client)["clients"]
-    assert c["count"] == 2
+    assert c["count"] == 3
     by_wallet = {x["wallet"]: x for x in c["clients"]}
     assert set(by_wallet) == {
         "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7",
         "0x902dcf34e53695bdea2ffb354b1a2e58bd598256",
+        # 0xA19F was dropped by an earlier audit because the payer's history was
+        # read through a paginated query; the chain scan found it later.
+        "0xa19f621581dbc851a21d6179868111709a52accc",
     }
     for row in by_wallet.values():
         assert row["payments"] == 1
@@ -117,7 +120,7 @@ def test_paid_sales_route_serves_the_store_after_a_restart(client, monkeypatch):
     """AUDIT A3: /api/sales is a PAID route ($0.005, "On-Chain Sales History").
     It read the RAM `_sales_history`, so a paying customer received
     `total_sales: 0` with an empty history after any restart/deploy while the
-    chain said $0.028 over 8 transfers. RAM is emptied here exactly like after
+    chain said $0.031 over 9 transfers. RAM is emptied here exactly like after
     a restart — the store must carry the answer."""
     test_client, main, dash = client
     # Make the test independent of test order: /api/sales is behind the
@@ -129,10 +132,10 @@ def test_paid_sales_route_serves_the_store_after_a_restart(client, monkeypatch):
     resp = test_client.get("/api/sales")
     assert resp.status_code == 200, resp.get_data(as_text=True)[:200]
     payload = resp.get_json()
-    assert payload["total_volume_usd"] == 0.028
-    assert payload["total_sales"] == 8
-    assert payload["by_token"] == {"USDC": 0.028}
-    assert len(payload["history"]) == 8
+    assert payload["total_volume_usd"] == 0.031
+    assert payload["total_sales"] == 9
+    assert payload["by_token"] == {"USDC": 0.031}
+    assert len(payload["history"]) == 9
     for row in payload["history"]:
         assert len(row["tx_hash"]) == 66
         assert row["amount_usd"] == row["amount_usdc"]
@@ -466,6 +469,56 @@ def test_postgres_dialect_is_psycopg_safe():
     assert lite_sql.endswith("= ?")
 
 
+# ── 12. The seed reproduces the FULL chain truth (9 rows) ───────────────────
+
+def test_seed_restores_all_nine_transfers_on_a_wiped_database(tmp_path,
+                                                              monkeypatch):
+    """On the next deploy the dashboard must read $0.031 / 9 IMMEDIATELY, not
+    after hours of scanner catch-up.
+
+    Why this test exists: an earlier audit concluded "$0.028 / 8 transfers / 2
+    external" and RETIRED the 0xA19F payment, because the payer's history was
+    read through a paginated query. The chain scan later found the missing
+    transfer (block 51079970, $0.003, 2026-09-09) once the RPC host was fixed.
+    The manifest now carries all nine rows, so a wiped filesystem is repaired
+    from the chain truth without waiting for anyone.
+    """
+    from integrations.dashboard_store import DashboardStore
+    from integrations.verified_sales import VERIFIED_SALES, expected_totals
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("KRISTO_DASHBOARD_DB", raising=False)
+
+    # The manifest itself: nine rows, ascending blocks, full hashes.
+    assert len(VERIFIED_SALES) == 9
+    totals = expected_totals()
+    assert totals["total_usdc"] == 0.031
+    assert totals["total_count"] == 9
+    blocks = [r["block_number"] for r in VERIFIED_SALES]
+    assert blocks == sorted(blocks)
+    assert 51079970 in blocks, "the recovered 0xA19F transfer is missing"
+    recovered = [r for r in VERIFIED_SALES
+                 if r["block_number"] == 51079970][0]
+    assert recovered["tx_hash"] == (
+        "0xb66077d16909973aa1a2d0492a3e18f2e90b34b288e584f6c5377353ad7ca8a2")
+    assert recovered["sender"] == "0xa19f621581dbc851a21d6179868111709a52accc"
+    assert recovered["amount_usdc"] == 0.003
+
+    # A brand-new (deploy-wiped) database, repaired by the boot-time seed.
+    store = DashboardStore(tmp_path / "wiped.db")
+    assert store.seed_verified_sales()["inserted"] == 9
+    summary = store.sales_summary()
+    assert summary["total_usdc"] == 0.031
+    assert summary["total_count"] == 9
+    assert summary["external_payers"] == 3
+    assert summary["by_class"]["external"] == {"count": 3,
+                                               "total_usdc": 0.011}
+    assert len(summary["history"]) == 9
+    # Idempotent on the next boot: nothing inserted, nothing changed.
+    assert store.seed_verified_sales()["inserted"] == 0
+    assert store.sales_summary()["total_usdc"] == 0.031
+
+
 def test_whales_section_is_honest_when_the_window_is_empty(client):
     test_client, _main, dash = client
     dash.set_meta("whaleflow_safe_scanned_block", "51234567")
@@ -632,16 +685,16 @@ def test_dashboard_page_no_longer_hardcodes_a_route_price(client):
 def test_dashboard_stats_agrees_with_the_chain_backed_section(client):
     """AUDIT FIX: /api/dashboard-stats read RAM `_sales_history`, so a deploy
     left it at "0 sales / $0.00" while /api/dashboard/data reported the real
-    8 on-chain transfers. Both public surfaces must report the same money."""
+    9 on-chain transfers. Both public surfaces must report the same money."""
     test_client, _main, dash = client
     dash.seed_verified_sales()
     stats = test_client.get("/api/dashboard-stats").get_json()
     onchain = _sections(test_client)["onchain"]
-    assert stats["total_volume_usd"] == onchain["total_usdc"] == 0.028
-    assert stats["total_sales"] == onchain["total_count"] == 8
-    assert stats["by_token"] == {"USDC": 0.028}
+    assert stats["total_volume_usd"] == onchain["total_usdc"] == 0.031
+    assert stats["total_sales"] == onchain["total_count"] == 9
+    assert stats["by_token"] == {"USDC": 0.031}
     # Legacy RAM key names stay available on every history row.
-    assert len(stats["history"]) == 8
+    assert len(stats["history"]) == 9
     for row in stats["history"]:
         assert row["amount_usd"] == row["amount_usdc"]
         assert row["timestamp"] == row["ts"]
