@@ -3407,6 +3407,12 @@ def _admin_overview_payload() -> dict:
             },
             "stripe": {
                 "configured": stripe_checkout.enabled,
+                # WHERE the key came from and whether it even LOOKS like a secret
+                # key. On 14.09 a key ID was pasted into the env: every checkout
+                # 503'd and nothing on screen said why.
+                "key_source": getattr(stripe_checkout, "key_source", ""),
+                "key_mode": getattr(stripe_checkout, "key_mode", "unknown"),
+                "key_format_ok": getattr(stripe_checkout, "key_format_ok", True),
                 "payment_feed_available": stripe_listing["available"],
                 "cache_state": stripe_listing.get("state", "unknown"),
                 "age_seconds": stripe_listing.get("age_seconds"),

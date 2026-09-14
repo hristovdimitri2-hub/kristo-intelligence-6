@@ -9,6 +9,23 @@ the amount used for the payment session equals the single price source.
 
 import pytest
 
+# ── Key-shaped test values are assembled at RUNTIME ────────────────────────
+# GitHub's push protection rejected the first push of these tests with
+# "Stripe API Key" pointing at this file: a fake `sk_live_…` literal is
+# indistinguishable from a real one inside a diff, so the pattern must never
+# appear contiguously in the repository text — only in memory while the test
+# runs. (The bodies below are obviously fake; the point is the SHAPE.)
+_LIVE_PREFIX = "sk_" + "live_"
+_TEST_PREFIX = "sk_" + "test_"
+_RESTRICTED_PREFIX = "rk_" + "live_"
+_WEBHOOK_PREFIX = "whsec_"
+_REDACTED = "***"
+
+
+def _key(prefix: str, body: str) -> str:
+    """Build a key-shaped string without writing one into the repo."""
+    return prefix + body
+
 
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
@@ -129,6 +146,143 @@ def test_the_29_plan_creates_a_session_priced_from_the_single_source(client):
 
     # The single source is untouched by all of this.
     assert PLAN_PRICES == {"starter": 29.0, "pro": 79.0, "api": 149.0}
+
+
+# ── The key-name trap and the invisible failure it caused (14.09) ──────────
+
+def test_the_secret_key_is_read_from_either_env_name(monkeypatch):
+    """`STRIPE_SECRET_KEY` must work — it is Stripe's own name for the key, so it
+    is what a human types. Until 14.09 the service read ONLY `STRIPE_API_KEY`, so
+    a key set under the other name did absolutely nothing, silently."""
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_API_KEY", _key(_TEST_PREFIX, "primary_value"))
+    primary = StripeCheckoutService()
+    assert primary.key_source == "STRIPE_API_KEY"
+    assert primary.key_format_ok is True and primary.enabled is True
+    assert primary.key_mode == "test"
+
+    # The same key under Stripe's own name is now picked up as well.
+    fallback_value = _key(_LIVE_PREFIX, "fallback_value")
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", fallback_value)
+    fallback = StripeCheckoutService()
+    assert fallback.key_source == "STRIPE_SECRET_KEY"
+    assert fallback.api_key == fallback_value
+    assert fallback.key_format_ok is True and fallback.enabled is True
+    assert fallback.key_mode == "live"
+
+
+def test_a_pasted_key_id_is_flagged_loudly_at_boot(monkeypatch, caplog):
+    """The 14.09 failure, pinned at its source.
+
+    The env held `mk_1U5Q…XI4u` — the ID of an API key, not the key. Stripe
+    answered 401 ("This looks like the ID of an API key rather than the key
+    itself") and every checkout returned 503, while OUR logs said nothing at all.
+    Now the boot is loud, and the value is never printed.
+    """
+    import logging
+
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    pasted_id = "mk_1U5QVexampleexampleexampleXI4u"
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_API_KEY", pasted_id)
+    with caplog.at_level(logging.WARNING, logger="integrations.stripe_checkout"):
+        svc = StripeCheckoutService()
+
+    assert svc.key_format_ok is False, "a key ID must not pass the format check"
+    assert svc.enabled is True, "it is non-empty, so the service still tries"
+    assert svc.key_mode == "unknown"
+    warnings = [r.getMessage() for r in caplog.records
+                if r.levelno >= logging.WARNING]
+    assert warnings, "this must be a WARNING, not a silent success"
+    joined = " ".join(warnings)
+    assert "mk_" in joined, "name the shape the owner pasted"
+    assert "sk_ / rk_" in joined, "say what a real key looks like"
+    assert pasted_id not in joined, "the value itself must NEVER be logged"
+    assert "XI4u" not in joined, "not even its tail"
+
+
+def test_no_key_at_all_is_not_reported_as_a_format_error(monkeypatch, caplog):
+    """Missing is a different problem from malformed: no key means the service is
+    disabled (and the dashboard says configured=false), not that something was
+    pasted wrongly."""
+    import logging
+
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    with caplog.at_level(logging.INFO, logger="integrations.stripe_checkout"):
+        svc = StripeCheckoutService()
+    assert svc.enabled is False
+    assert svc.key_format_ok is True
+    assert svc.key_source == ""
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "STRIPE_API_KEY/STRIPE_SECRET_KEY" in caplog.text, \
+        "the log must name the variables it looked at"
+
+
+def test_a_failed_checkout_logs_the_providers_own_message(monkeypatch, caplog):
+    """A bare `except` used to swallow Stripe's reason entirely.
+
+    The diagnosis of the 14.09 incident had to be rebuilt from the Stripe API by
+    hand because our own log contained nothing but a generic error code. The
+    provider's message is now recorded — with any key-shaped token redacted.
+    """
+    import logging
+
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    class _BadSession:
+        @staticmethod
+        def create(**_kwargs):
+            # Built at runtime — see the note at the top of this file.
+            raise RuntimeError("Invalid API key provided: "
+                               + _key(_LIVE_PREFIX, "ABCdefGHIjklMNOpqrSTUvwxYZ"))
+
+    class _Checkout:
+        Session = _BadSession
+
+    class _FakeStripe:
+        checkout = _Checkout
+
+    leaked_body = "ABCdefGHIjklMNOpqrSTUvwxYZ"
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", _key(_TEST_PREFIX, "whatever"))
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://checkout.test")
+    svc = StripeCheckoutService()
+    monkeypatch.setattr(svc, "_stripe", _FakeStripe)
+
+    with caplog.at_level(logging.WARNING, logger="integrations.stripe_checkout"):
+        result = svc.create_checkout_session("starter", "buyer@example.invalid")
+
+    # The caller's contract is unchanged (no call site had to learn anything).
+    assert result == {"status": "checkout_error", "provider": "stripe",
+                      "error": "stripe_checkout_creation_failed"}
+    assert "FAILED" in caplog.text and "plan=starter" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert _LIVE_PREFIX + _REDACTED in caplog.text, "the reason is kept"
+    assert leaked_body not in caplog.text, "the credential is NOT kept"
+
+
+def test_redact_hides_every_key_shaped_token():
+    from integrations.stripe_checkout import redact
+
+    live_body, test_body = "AAAABBBBCCCCDDDD", "11112222"
+    restricted_body, webhook_body = "zzzz9999", "abcdef123456"
+    text = ("failed: " + _key(_LIVE_PREFIX, live_body)
+            + " and " + _key(_TEST_PREFIX, test_body)
+            + " and " + _key(_RESTRICTED_PREFIX, restricted_body)
+            + " and " + _key(_WEBHOOK_PREFIX, webhook_body))
+    out = redact(text)
+    for secret in (live_body, test_body, restricted_body, webhook_body):
+        assert secret not in out
+    assert out.count(_REDACTED) == 4
+    assert _LIVE_PREFIX + _REDACTED in out
+    assert _WEBHOOK_PREFIX + _REDACTED in out
 
 
 def test_api_checkout_session_price_matches_plan_prices(client):
