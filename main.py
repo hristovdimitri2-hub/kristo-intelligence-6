@@ -1838,6 +1838,101 @@ def _confirmations_ok(receipt_block: int, latest_block: int,
     return (lb - rb + 1) >= need
 
 
+#: How long to wait before the SECOND head read when a settlement block sits
+#: ahead of our own view. Env-tunable so tests never sleep.
+C2_LAG_WAIT_SECONDS_DEFAULT = 2.5
+
+
+def _c2_lag_wait_seconds() -> float:
+    try:
+        return max(0.0, float(os.getenv("KRISTO_C2_LAG_WAIT_SECONDS",
+                                        str(C2_LAG_WAIT_SECONDS_DEFAULT))))
+    except ValueError:
+        return C2_LAG_WAIT_SECONDS_DEFAULT
+
+
+def _c2_read_head(read_head) -> Optional[int]:
+    """Read the chain head; None when the clock cannot be read at all."""
+    try:
+        value = int(read_head())
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
+def _confirmations_ok_with_lag_refresh(*, receipt_block, read_head, required,
+                                       endpoint, tx_hash, rail) -> bool:
+    """C2 — still FAIL-CLOSED, but RE-READ THE CLOCK BEFORE REFUSING.
+
+    Why this exists: on 14.09 the FOURTH external payer sent a valid $0.003 and
+    was refused, because the settlement block (51313253) was exactly one ahead
+    of OUR head (51313252) — a facilitator had already mined the tx while our
+    own view lagged. `block > head` there meant "our clock is stale", NOT
+    "the payment is unconfirmed", and the refusal cost a paying agent (it never
+    retried and went on to pay other services).
+
+    So the rule is unchanged in spirit and stricter in evidence:
+
+      1. evaluate exactly as before against the head we were given;
+      2. if the receipt block is AHEAD of it, RE-READ the head ONCE (a node can
+         answer a stale head) → accept if it now fits: `head_refreshed_and_accepted`;
+      3. still ahead → wait ~2.5s (one Base block is 2s) and read once more →
+         accept if it now fits: `waited_and_accepted`;
+      4. only then refuse: `node_lagging_rejected` — the node is genuinely
+         behind, and fail-closed wins.
+
+    A depth shortfall that is NOT a clock problem (block at/behind the head but
+    not buried deep enough) keeps the original event, so the two situations stay
+    distinguishable in `guard_events` for ever.
+    """
+    block = int(receipt_block or 0)
+    head = int(read_head())          # a failing read is the caller's business
+    if _confirmations_ok(block, head, required):
+        return True
+    if block <= head:
+        # Genuine depth shortfall: not a clock problem, behaviour unchanged.
+        dashboard_db.record_guard_event(
+            "c2_insufficient_confirmations", endpoint=endpoint, tx_hash=tx_hash,
+            detail=(f"{rail} rail: block {block} vs head {head}; need "
+                    f"{required} confirmations"))
+        return False
+
+    refreshed = _c2_read_head(read_head)
+    if refreshed is not None and _confirmations_ok(block, refreshed, required):
+        log.warning("C2: settlement block %s was ahead of head %s — re-read "
+                    "gives %s → ACCEPTED (%s rail, tx=%s)",
+                    block, head, refreshed, rail, tx_hash)
+        dashboard_db.record_guard_event(
+            "head_refreshed_and_accepted", endpoint=endpoint, tx_hash=tx_hash,
+            detail=(f"{rail} rail: block {block} vs head {head}, after re-read "
+                    f"{refreshed}"))
+        return True
+
+    wait = _c2_lag_wait_seconds()
+    if wait:
+        time.sleep(wait)
+    again = _c2_read_head(read_head)
+    if again is not None and _confirmations_ok(block, again, required):
+        log.warning("C2: head lag resolved after a %.1fs wait (head %s → %s) → "
+                    "ACCEPTED (%s rail, tx=%s)",
+                    wait, head, again, rail, tx_hash)
+        dashboard_db.record_guard_event(
+            "waited_and_accepted", endpoint=endpoint, tx_hash=tx_hash,
+            detail=(f"{rail} rail: block {block} vs head {head}; after a "
+                    f"{wait:.1f}s wait head was {again}"))
+        return True
+
+    log.warning("C2: node is LAGGING — settlement block %s stays ahead of the "
+                "head (first %s, re-read %s, after wait %s) → REFUSED "
+                "fail-closed (%s rail, tx=%s)",
+                block, head, refreshed, again, rail, tx_hash)
+    dashboard_db.record_guard_event(
+        "node_lagging_rejected", endpoint=endpoint, tx_hash=tx_hash,
+        detail=(f"{rail} rail: block {block} still ahead of head (first {head}, "
+                f"re-read {refreshed}, after wait {again}); need {required}"))
+    return False
+
+
 def _proof_endpoint_matches(proof_endpoint: str, request_path: str) -> bool:
     """H2 — endpoint binding.
 
@@ -1913,7 +2008,6 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
     try:
         w3 = _get_verify_web3()
         receipt = w3.eth.get_transaction_receipt(tx_hash)
-        latest_block = int(w3.eth.block_number)
     except Exception:
         # Unknown tx, RPC hiccup, or not mined yet — treat as not verified;
         # the client may retry in a few seconds.
@@ -1921,23 +2015,22 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
     try:
         if int(receipt.get("status", 0)) != 1:
             return None
-        # C2 — fail-closed confirmation-depth gate.
-        if not _confirmations_ok(int(receipt.get("blockNumber") or 0),
-                                 latest_block):
-            log.info("x402 proof not deep enough: tx=%s block=%s latest=%s "
-                     "(need %d confirmations)", tx_hash,
-                     receipt.get("blockNumber"), latest_block,
+        # C2 — fail-closed depth gate that RE-READS THE CLOCK before refusing
+        # (a facilitator can settle in a block our own view has not caught up
+        # with; that cost us a paying agent on 14.09 — see the helper).
+        block_no = int(receipt.get("blockNumber") or 0)
+        if not _confirmations_ok_with_lag_refresh(
+            receipt_block=block_no,
+            read_head=lambda: int(w3.eth.block_number),
+            required=_required_confirmations(),
+            endpoint=_current_path(), tx_hash=tx_hash, rail="proof",
+        ):
+            log.info("x402 proof not deep enough: tx=%s block=%s "
+                     "(need %d confirmations)",
+                     tx_hash, receipt.get("blockNumber"),
                      _required_confirmations())
-            block_no = int(receipt.get("blockNumber") or 0)
-            dashboard_db.record_guard_event(
-                "c2_insufficient_confirmations",
-                endpoint=_current_path(),
-                tx_hash=tx_hash,
-                detail=(f"receipt block {block_no} vs head {latest_block}; "
-                        f"need {_required_confirmations()} confirmations"),
-            )
             return None
-        _verify_block[tx_hash.lower()] = int(receipt.get("blockNumber") or 0)
+        _verify_block[tx_hash.lower()] = block_no
         usdc_addr = os.getenv(
             "BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         ).lower()
@@ -2135,21 +2228,21 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         block_number = int(receipt.get("blockNumber", 0) or 0)
         # C2 (standard rail): the facilitator only returns after the tx is
         # mined, so the default depth here is 1 — raise
-        # MIN_STANDARD_PAYMENT_CONFIRMATIONS to demand more.
-        if not _confirmations_ok(block_number, int(_w3.eth.block_number),
-                                 _required_standard_confirmations()):
+        # MIN_STANDARD_PAYMENT_CONFIRMATIONS to demand more. The head is
+        # RE-READ before any refusal: on 14.09 an external facilitator settled
+        # one block ahead of our view and a valid $0.003 was refused for a
+        # clock skew (the payer never retried).
+        if not _confirmations_ok_with_lag_refresh(
+            receipt_block=block_number,
+            read_head=lambda: int(_w3.eth.block_number),
+            required=_required_standard_confirmations(),
+            endpoint=path, tx_hash=tx_hash, rail="standard",
+        ):
             g.x402_reject_reason = (
                 f"insufficient_confirmations: settlement {tx_hash} is not "
                 f"buried deep enough yet — retry the same PAYMENT-SIGNATURE"
             )
             log.warning("standard x402 settlement not deep enough: tx=%s", tx_hash)
-            dashboard_db.record_guard_event(
-                "c2_insufficient_confirmations", endpoint=path,
-                tx_hash=tx_hash,
-                detail=(f"settlement block {block_number} vs head "
-                        f"{int(_w3.eth.block_number)}; need "
-                        f"{_required_standard_confirmations()} confirmations"),
-            )
             return False
     except Exception as exc:
         log.info("settlement receipt block fetch failed (non-fatal): %s", exc)

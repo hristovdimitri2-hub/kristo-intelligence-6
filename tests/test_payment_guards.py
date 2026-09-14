@@ -427,3 +427,124 @@ def test_a_published_tx_hash_cannot_be_claimed_by_another_payer(
         "X-Payment-Proof": _proof_header(real_tx, payer=real_sender)})
     assert genuine.status_code == 200
     assert dash.payment_guard_stats()["consumed_total"] == 1
+
+
+# ── C2 conversion fix: re-read the clock before refusing (14.09) ────────────
+
+def test_c2_refreshes_the_head_and_accepts_a_one_block_lag(client, monkeypatch):
+    """The FOURTH payer's case, exactly.
+
+    Settlement block 51313253 vs head 51313252: a facilitator had already mined
+    the tx while our own view lagged ONE block. That is a stale clock, not an
+    unconfirmed payment — refusing it lost us a paying agent (it never retried).
+    A single re-read must now settle it.
+    """
+    _test_client, main, dash = client
+    monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "0")
+    heads = iter([51313252, 51313253])            # stale, then refreshed
+
+    accepted = main._confirmations_ok_with_lag_refresh(
+        receipt_block=51313253, read_head=lambda: next(heads), required=1,
+        endpoint="/api/v1/signal",
+        tx_hash=("0x06b4c8f2bb1a9f0356c277f7c4845863430951fdea2724e47a0354"
+                 "225d658ce7"),
+        rail="standard")
+
+    assert accepted is True, "a one-block lag must not refuse a valid payment"
+    kinds = dash.guard_stats(recent_limit=5)["by_kind"]
+    assert kinds.get("head_refreshed_and_accepted") == 1
+    assert "c2_insufficient_confirmations" not in kinds
+    event = dash.guard_stats(recent_limit=1)["recent_blocks"][0]
+    assert event["endpoint"] == "/api/v1/signal"
+    assert "51313253" in event["detail"] and "51313252" in event["detail"]
+
+
+def test_c2_waits_once_then_accepts_when_the_head_catches_up(client,
+                                                             monkeypatch):
+    """If one re-read is not enough (the block landed mid-request), the read
+    after a short wait decides — and the event says it needed the wait."""
+    _test_client, main, dash = client
+    monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "0")
+    heads = iter([1000, 1000, 1001])              # stale, stale, then caught up
+    reads = []
+
+    def read_head():
+        value = next(heads)
+        reads.append(value)
+        return value
+
+    assert main._confirmations_ok_with_lag_refresh(
+        receipt_block=1001, read_head=read_head, required=1,
+        endpoint="/api/v1/signal", tx_hash="0x" + "cc" * 32,
+        rail="standard") is True
+    assert len(reads) == 3, "one re-read plus one retry after the wait"
+    assert dash.guard_stats(recent_limit=5)["by_kind"].get(
+        "waited_and_accepted") == 1
+
+
+def test_c2_still_fails_closed_when_the_node_is_really_lagging(client,
+                                                               monkeypatch):
+    """50 blocks behind is NOT a clock skew — the node is genuinely behind and
+    fail-closed wins after the re-read and the retry (philosophy preserved)."""
+    _test_client, main, dash = client
+    monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "0")
+    reads = []
+
+    def read_head():
+        reads.append(1)
+        return 950                                # never catches up to 1000
+
+    assert main._confirmations_ok_with_lag_refresh(
+        receipt_block=1000, read_head=read_head, required=1,
+        endpoint="/api/v1/signal", tx_hash="0x" + "dd" * 32,
+        rail="standard") is False, "a genuinely lagging node must still refuse"
+    assert len(reads) == 3, "it must try (re-read + retry) before refusing"
+    kinds = dash.guard_stats(recent_limit=5)["by_kind"]
+    assert kinds.get("node_lagging_rejected") == 1
+    assert kinds.get("head_refreshed_and_accepted") is None
+
+
+def test_c2_depth_shortfall_behaviour_is_unchanged(client, monkeypatch):
+    """The original case must be untouched: a block that IS known but not buried
+    deep enough keeps the old event and the old refusal — and never triggers a
+    refresh, because that is not a clock problem."""
+    _test_client, main, dash = client
+    monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "0")
+    reads = []
+
+    def read_head():
+        reads.append(1)
+        return 1000                               # and block 999 sits at the tip
+
+    assert main._confirmations_ok_with_lag_refresh(
+        receipt_block=999, read_head=read_head, required=12,
+        endpoint="/api/v1/signal", tx_hash="0x" + "ee" * 32,
+        rail="proof") is False
+    assert len(reads) == 1, "no refresh/wait for a depth shortfall"
+    kinds = dash.guard_stats(recent_limit=5)["by_kind"]
+    assert kinds.get("c2_insufficient_confirmations") == 1
+    assert "node_lagging_rejected" not in kinds
+
+    # And a deep, healthy block is still accepted with a single read, silently
+    # (980 → 21 confirmations ≥ 12). Nothing new must be recorded: compare the
+    # event counts before/after, since the depth event above is still there.
+    before = dict(kinds)
+    assert main._confirmations_ok_with_lag_refresh(
+        receipt_block=980, read_head=lambda: 1000, required=12,
+        endpoint="/api/v1/signal", tx_hash="0x" + "ff" * 32,
+        rail="proof") is True
+    assert dash.guard_stats(recent_limit=5)["by_kind"] == before, \
+        "a healthy payment must not add a guard event"
+
+
+def test_c2_lag_wait_is_configurable_and_defaults_to_one_base_block(
+        client, monkeypatch):
+    """2.5s by default (one Base block is 2s) and tunable — tests run with 0."""
+    _test_client, main, _dash = client
+    monkeypatch.delenv("KRISTO_C2_LAG_WAIT_SECONDS", raising=False)
+    assert main._c2_lag_wait_seconds() == main.C2_LAG_WAIT_SECONDS_DEFAULT
+    assert main.C2_LAG_WAIT_SECONDS_DEFAULT >= 2.0
+    monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "0.25")
+    assert main._c2_lag_wait_seconds() == 0.25
+    monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "not-a-number")
+    assert main._c2_lag_wait_seconds() == main.C2_LAG_WAIT_SECONDS_DEFAULT
