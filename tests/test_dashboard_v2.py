@@ -747,6 +747,97 @@ def test_the_seed_self_heals_partial_loss_without_overwriting(tmp_path,
     assert third["present"] == 9
 
 
+def _group_by_violations(sql: str) -> list:
+    """Columns selected bare while the query groups by something else.
+
+    PostgreSQL rejects them (GroupingError); SQLite silently allows them. This
+    is a pure SQL SEMANTICS check, which is exactly the kind of bug a
+    Python-emulated fake database cannot catch — it never parses the SQL.
+    """
+    import re
+
+    def split_top(text: str) -> list:
+        """Split on commas at parenthesis depth 0 (COALESCE(SUM(x), 0.0) is ONE
+        item — splitting naively turns it into two and invents a violation)."""
+        parts, depth, cur = [], 0, ""
+        for ch in text:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if ch == "," and depth == 0:
+                parts.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        parts.append(cur)
+        return parts
+
+    text = " ".join(sql.split())
+    up = text.upper()
+    # Only real query bodies: a docstring that merely MENTIONS the clause (as the
+    # one documenting this very bug does) must not crash the checker.
+    if not all(k in up for k in ("SELECT", "FROM", "GROUP BY")):
+        return []
+    if up.index("SELECT") > up.index("FROM"):
+        return []
+    selected = text[up.index("SELECT") + 6:up.index("FROM")]
+    grouped_raw = text[up.index("GROUP BY") + 8:]
+    for stop in ("ORDER BY", "LIMIT", "HAVING"):
+        if stop in grouped_raw.upper():
+            grouped_raw = grouped_raw[:grouped_raw.upper().index(stop)]
+    grouped = {c.strip().strip('"').lower() for c in split_top(grouped_raw)}
+    grouped_plain = {c.split("(")[0].strip().lower() for c in grouped}
+    bad = []
+    for item in split_top(selected):
+        body = re.split(r"\s+as\s+", item.strip(), flags=re.I)[0].strip()
+        low = body.lower()
+        if any(fn in low for fn in ("count(", "sum(", "min(", "max(", "avg(")):
+            continue
+        col = low.split(".")[-1].strip().strip('"')
+        if col in grouped or col in grouped_plain:
+            continue
+        bad.append(item.strip())
+    return bad
+
+
+def test_group_by_survives_both_dialects():
+    """The move to PostgreSQL (14.09) exposed a query SQLite had always allowed.
+
+    /api/dashboard/data returned HTTP 500 in production:
+        psycopg.errors.GroupingError: column "onchain_sales.sender" must appear
+        in the GROUP BY clause or be used in an aggregate function
+    The body was `SELECT sender, COUNT(*) … GROUP BY lower(sender)` — fine on
+    SQLite, illegal on PostgreSQL. The fake-Postgres tests could not see it (they
+    execute the statement in Python, so they never enforce SQL validity), so the
+    SQL itself is checked here, statically, for EVERY grouped query in the store.
+    """
+    import inspect
+    import re
+
+    from integrations import dashboard_store
+
+    src = inspect.getsource(dashboard_store)
+    bodies = [b for b in re.findall(r'"""(.*?)"""', src, re.S)
+              if all(k in b.upper() for k in ("SELECT", "FROM", "GROUP BY"))]
+    assert bodies, "no GROUP BY query found — did the store move?"
+    # The external-payer aggregate MUST be among them (it is the 14.09 regression).
+    assert any("onchain_sales" in b for b in bodies)
+    bad = {b.strip()[:80]: _group_by_violations(b) for b in bodies}
+    bad = {k: v for k, v in bad.items() if v}
+    assert not bad, f"PostgreSQL would reject these: {bad}"
+
+    # The specific regression, pinned: the external-payer aggregate selects the
+    # raw `sender`, so it must group by the raw column.
+    joined = " ".join(bodies)
+    assert "GROUP BY sender" in joined
+    assert "GROUP BY lower(sender)" not in joined
+    # Sanity: the checker really does flag the old buggy form.
+    buggy = ("SELECT sender, COUNT(*) AS n FROM onchain_sales "
+             "GROUP BY lower(sender)")
+    assert _group_by_violations(buggy) == ["sender"]
+
+
 def test_whales_section_is_honest_when_the_window_is_empty(client):
     test_client, _main, dash = client
     dash.set_meta("whaleflow_safe_scanned_block", "51234567")

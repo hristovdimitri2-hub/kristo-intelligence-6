@@ -707,13 +707,21 @@ class HistoryStore:
         Exposed separately because the guard evidence that names a route lives
         in `payment_guards`, which stays on SQLite on purpose — the caller joins
         the two sources instead of this class pretending they are one.
+
+        `GROUP BY sender` (NOT `lower(sender)`) because PostgreSQL requires every
+        bare selected column to be grouped: selecting `sender` while grouping by
+        `lower(sender)` raised psycopg GroupingError and turned
+        /api/dashboard/data into HTTP 500 in production on 14.09 (SQLite silently
+        allows it, which is exactly why the move exposed it). Grouping by the raw
+        column is safe and case-insensitive-by-construction: `record_sale` stores
+        the sender lowercased.
         """
         rows = self._run(
             """SELECT sender, COUNT(*) AS n,
                       COALESCE(SUM(amount_usdc), 0.0) AS total,
                       MIN(ts) AS first_ts, MAX(ts) AS last_ts
                FROM onchain_sales WHERE payer_class = 'external'
-               GROUP BY lower(sender)
+               GROUP BY sender
                ORDER BY total DESC, last_ts DESC""", (), "all")[0]
         detail = self._run(
             """SELECT tx_hash, sender, amount_usdc, ts, block_number,
