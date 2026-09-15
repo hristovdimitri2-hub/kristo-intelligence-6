@@ -520,23 +520,27 @@ def openapi_spec():
     )
 
     base_url = request.host_url.rstrip("/")
-    # x-payment-info shared block for all paid operations
+    # x-payment-info shared block for all paid operations.
+    # x402scan expects `protocols` to be an ARRAY OF PROTOCOL OBJECTS and a
+    # single pricing mode object with a currency — see its integration spec:
+    # "Set x-payment-info.protocols (array of protocol objects) and one pricing
+    # mode (fixed or dynamic) with currency."
+    # A plain ["x402"] array of strings is not parsed, which is why every paid
+    # route was indexed without a usable price.
+    # Receiver / chain / chain_id / token_contract remain available at the
+    # document level in info.x402, and the runtime 402 challenge stays the
+    # authoritative source of payment details.
     payment_info = {
-        "protocols": ["x402"],
         "price": {
             "mode": "fixed",
             "currency": "USD",
             "amount": str(X402_FEE_USDC),
         },
-        "free_tier_limit": FREE_TIER_LIMIT,
-        "receiver": X402_RECEIVER_ADDRESS,
-        "chain": X402_CHAIN,
-        "chain_id": X402_CHAIN_ID,
-        "token_contract": X402_USDC_CONTRACT,
+        "protocols": [{"x402": {}}],
     }
     # Standard 402 response with required payment headers
     response_402 = {
-        "description": "Payment Required — free tier exhausted, send USDC to receiver",
+        "description": "Payment Required — x402 challenge with exact USDC amount and receiver",
         "headers": {
             "X-Payment-Required": {"schema": {"type": "string"}},
             "X-Payment-Address": {"schema": {"type": "string"}},
