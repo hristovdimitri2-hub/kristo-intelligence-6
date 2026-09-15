@@ -571,7 +571,17 @@ def openapi_spec():
             "x402": {"cost_usdc": cost, "free_tier_eligible": True},
             "security": [{"x402": []}],
             "responses": {
-                "200": {"description": "Successful response"},
+                # x402scan: an operation without an input/output schema is
+                # reported as "Input/Output Schema Missing", so every paid route
+                # declares a minimal JSON response schema.
+                "200": {
+                    "description": "Successful response",
+                    "content": {
+                        "application/json": {
+                            "schema": {"type": "object"}
+                        }
+                    },
+                },
                 "402": response_402,
             },
         }
@@ -594,6 +604,11 @@ def openapi_spec():
             "version": "6.0.0",
             "description": "AI-powered DeFi trading signals and crypto market intelligence. "
                            "Uses x402 payment protocol — USDC on Base.",
+            # x402scan lists info.x-guidance among the required top-level fields;
+            # it is the agent-facing "how do I call this" hint.
+            "x-guidance": "GET-only paid JSON routes. Every unpaid call returns HTTP 402 "
+                          "with a self-describing x402 v2 challenge (exact USDC amount, "
+                          "receiver, chain); pay on Base and retry.",
             "x402": {
                 "protocol": "x402",
                 "receiver_address": X402_RECEIVER_ADDRESS,
