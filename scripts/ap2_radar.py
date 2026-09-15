@@ -82,6 +82,42 @@ THERMOMETERS: list[str] = [
     "Флаг — регулаторен документ за agent payments: **не е наблюдаван** (13.09).",
 ]
 
+# ── ИНДЕКСИРАНЕ: появяваме ли се в публичните x402 индекси? ────────────────
+# Месечна проверка с ФИКСИРАН метод, за да е сравнимо във времето:
+#   1) Coinbase bazaar discovery (каноничният публичен индекс):
+#        GET https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources
+#        → търси нашия хост в items[].resource; запиши total от pagination
+#   2) x402scan: страницата /server/<host> + (след регистрация) API-то
+#        GET /api/x402/origins/<host>/resources   (забележка: ЧЕТЯЩИТЕ
+#        endpoint-и на x402scan са платени, $0.01–0.02 x402 на заявка)
+# Регистрацията НЕ е анонимна: POST /api/x402/registry/register-origin {origin}
+# иска SIWX wallet подпис (header SIGN-IN-WITH-X) — затова се прави от браузър
+# с портфейл на https://www.x402scan.com/resources/register. Един register-origin
+# регистрира ВСИЧКИ ресурси от нашия discovery документ наведнъж.
+INDEXING_STATUS: list[dict] = [
+    {
+        "date": "2026-09-15",
+        "index": "Coinbase bazaar discovery (canonical)",
+        "total_entries": 16035,
+        "our_entries": 0,
+        "note": ("Търсено по хост в целия индекс — нула наши ресурси. "
+                 "402-та ни носи extensions.bazaar, а последният сетълмент дойде "
+                 "през външен facilitator (relayer 0x64cc42b1…). Механизмът, по "
+                 "който индексът се пълни от сетълменти, НЕ е публично "
+                 "документиран — не се измисля, само се наблюдава."),
+    },
+    {
+        "date": "2026-09-15",
+        "index": "x402scan",
+        "total_entries": "n/a",
+        "our_entries": "origin page exists, 0 resources shown",
+        "note": ("/server/<host> отговаря 200 (познати сме като origin), но "
+                 "ресурсите се зареждат client-side и не се виждат в payload-а. "
+                 "Регистрацията иска SIWX подпис; четящите API-та са платени. "
+                 "Действие за собственика: /resources/register с портфейл."),
+    },
+]
+
 
 def _get(url: str) -> requests.Response:
     return requests.get(url, headers=H, timeout=30)
@@ -282,6 +318,25 @@ def main() -> int:
               "при презаписване)", ""]
     for i, t in enumerate(THERMOMETERS, 1):
         lines.append(f"{i}. {t}")
+    lines.append("")
+
+    lines += ["## ИНДЕКСИРАНЕ — появяваме ли се в публичните x402 индекси?", ""]
+    lines.append("| Дата | Индекс | Общо записи | Наши записи |")
+    lines.append("|---|---|---|---|")
+    for row in INDEXING_STATUS:
+        lines.append("| %s | %s | %s | %s |"
+                     % (row["date"], row["index"], row["total_entries"],
+                        row["our_entries"]))
+    lines.append("")
+    for row in INDEXING_STATUS:
+        lines.append("- **%s (%s):** %s" % (row["index"], row["date"],
+                                            row["note"]))
+    lines.append("")
+    lines.append("Метод (фиксиран, за да е сравнимо): Coinbase bazaar — "
+                 "`GET https://api.cdp.coinbase.com/platform/v2/x402/discovery/"
+                 "resources`, търси нашия хост в `items[].resource`. "
+                 "Регистрация в x402scan — от браузър с портфейл (SIWX подпис), "
+                 "един `register-origin` регистрира всичките ни ресурси.")
     lines.append("")
 
     lines.append("---")

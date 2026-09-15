@@ -250,3 +250,54 @@ def test_stripe_payment_listing_reads_past_unpaid_page(monkeypatch):
     assert listing["available"] is True
     assert listing["payments"][0]["checkout_id"] == "paid-session"
     assert len(CheckoutSessions.calls) == 2
+
+
+# ── The command menu must not lie in either direction (15.09) ───────────────
+
+def test_the_published_menu_matches_the_handled_commands(monkeypatch):
+    """Advertised == handled, both ways.
+
+    Two failures were live at once: `getMyCommands` returned an EMPTY list (the
+    menu button showed nothing) and a dead second router advertised /status while
+    the live dispatcher answered "unknown command". Both are the same class of
+    lie as a phantom price, so they get the same treatment: a mechanical guard.
+    """
+    from services import telegram_sales
+
+    sent: list[tuple] = []
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr(telegram_sales, "_send_text",
+                        lambda token, chat, text, **kw:
+                        sent.append((str(chat), text)) or {"ok": True})
+    monkeypatch.setattr(telegram_sales, "_api_call",
+                        lambda *args, **kwargs: {"ok": True})
+    monkeypatch.setattr(telegram_sales, "get_market_snapshot", lambda: {})
+    monkeypatch.setattr(telegram_sales, "generate_market_bulletin",
+                        lambda snapshot: "тестов бюлетин")
+
+    advertised = {entry["command"] for entry in telegram_sales.BOT_COMMANDS}
+    assert len(advertised) == 6, "the menu is meant to carry six commands"
+
+    for command in sorted(advertised):
+        update = {"update_id": 1,
+                  "message": {"message_id": 1, "text": "/" + command,
+                              "chat": {"id": 4242, "type": "private"}}}
+        result = telegram_sales.process_webhook_update(update)
+        assert result.get("handled") is True, "/%s was not handled" % command
+        assert result.get("type") != "unknown_command", (
+            "/%s is ADVERTISED but the dispatcher does not handle it" % command)
+
+    unknown = telegram_sales.process_webhook_update(
+        {"update_id": 2,
+         "message": {"message_id": 2, "text": "/definitely-not-a-command",
+                     "chat": {"id": 4242, "type": "private"}}})
+    assert unknown.get("type") == "unknown_command"
+
+    # /start must list every command a user can then type — except itself — so a
+    # text that offers a command the dispatcher does not know is the same lie in
+    # prose form.
+    start_reply = [text for _chat, text in sent if "/help" in text][0]
+    for command in sorted(advertised - {"start"}):
+        assert "/" + command in start_reply, \
+            "/start does not mention /%s although the menu advertises it" % command
+    assert "/status" in start_reply and "/vip" in start_reply

@@ -367,9 +367,17 @@ def well_known_x402_scan():
     probes when a user submits the server URL. See:
     https://github.com/Merit-Systems/x402scan/blob/main/docs/DISCOVERY.md
     """
-    from main import X402_RECEIVER_ADDRESS, X402_FEE_USDC, FREE_TIER_LIMIT
+    from main import (X402_RECEIVER_ADDRESS, X402_FEE_USDC, FREE_TIER_LIMIT,
+                      X402_PRICE_MAP)
 
     base_url = request.host_url.rstrip("/")
+    # The price note is DERIVED, never typed: it must describe the same numbers
+    # the 402 challenges will ask for.
+    _prices = sorted({round(float(p), 6) for p in X402_PRICE_MAP.values()})
+    price_range_note = (
+        "$%.3f per call on every route" % _prices[0] if len(_prices) == 1
+        else "prices per route: %s" % ", ".join("$%.3f" % p for p in _prices)
+    )
     tier_note = (
         f"after the free tier ({FREE_TIER_LIMIT} call{'s' if FREE_TIER_LIMIT != 1 else ''} per IP) is exhausted"
         if FREE_TIER_LIMIT > 0
@@ -386,10 +394,16 @@ def well_known_x402_scan():
             f"{base_url}/api/v1/whaleflow",
         ],
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
+        # The price line is GENERATED from the price map (see the top of this
+        # module) and states a per-route range: an external agent (Circadian,
+        # issue #1 on 06.09) correctly reported that an earlier wording implied
+        # ONE price for all resources while four of them cost more. The 402 body
+        # is the authority — this text must never contradict it.
         "instructions": (
-            "Every unpaid call returns HTTP 402 with a canonical x402 v2 challenge: "
-            "send the exact USDC amount from the 402 body (from $0.003/call, USDC on "
-            "Base, chain 8453) to " + X402_RECEIVER_ADDRESS + f" {tier_note}. "
+            "Every unpaid call returns HTTP 402 with a canonical x402 v2 "
+            f"challenge: send the EXACT USDC amount from that response's "
+            f"`accepts[0].amount` ({price_range_note}, USDC on Base, chain 8453) "
+            "to " + X402_RECEIVER_ADDRESS + f" {tier_note}. "
             "Retry with the standard X-PAYMENT header (x402 v2, settled via the "
             "Coinbase x402 facilitator) or X-Payment-Proof: base64url(JSON("
             "{payer, transaction_hash, amount_usdc}))."

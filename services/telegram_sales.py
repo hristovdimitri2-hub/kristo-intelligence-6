@@ -247,6 +247,77 @@ def generate_payment_link() -> dict:
     }
 
 
+#: THE command menu — and by construction the commands this module handles.
+#: getMyCommands used to return an empty list: /start worked, but Telegram's menu
+#: button showed NOTHING, so a new user had to guess the commands. Every entry
+#: here must be handled by `process_webhook_update`
+#: (tests/test_telegram_dashboard.py asserts menu == handlers, both ways).
+BOT_COMMANDS: list[dict] = [
+    {"command": "start", "description": "Пазарен бюлетин + VIP оферта"},
+    {"command": "help", "description": "Списък с командите"},
+    {"command": "price", "description": "Цена и плащане (x402)"},
+    {"command": "bulletin", "description": "Пазарен бюлетин в момента"},
+    {"command": "status", "description": "Състояние на API и бота"},
+    {"command": "vip", "description": "Пълен VIP анализ — как се отключва"},
+]
+
+
+def register_bot_commands() -> Optional[list]:
+    """Publish the command menu with setMyCommands (runs on every deploy).
+
+    Safe to call repeatedly — Telegram overwrites the previous menu. Without
+    this the bot answers commands it never advertises.
+    """
+    token = _get_token()
+    if not token:
+        log.warning("register_bot_commands: no bot token — skipping.")
+        return None
+    result = _api_call("setMyCommands", token, {"commands": BOT_COMMANDS})
+    if result is not None:
+        log.info("Telegram command menu registered: %s",
+                 ", ".join("/" + entry["command"] for entry in BOT_COMMANDS))
+    return result
+
+
+def _status_reply() -> str:
+    """Live status for /status — reads the same state the API serves.
+
+    Imported lazily: main imports this module, so a module-level import would be
+    circular. The numbers come from main's own bot/wallet state, never guessed.
+    """
+    try:
+        import main as main_module
+
+        with main_module._lock:                      # noqa: SLF001 (same process)
+            running = main_module._bot_status.get("telegram_bot_running")
+            processed = main_module._bot_status.get("commands_processed", 0)
+            wallet = main_module._wallet_state.get("wallet_address") or ""
+            balance = main_module._wallet_state.get("usdc_balance", 0.0)
+        wallet_line = (f"{wallet[:10]}…{wallet[-6:]}" if len(wallet) > 16
+                       else (wallet or "not configured"))
+        return (
+            f"*Състояние*\n"
+            f"Бот: {'онлайн' if running else 'офлайн'}\n"
+            f"Обработени команди: {processed}\n"
+            f"Портфейл: `{wallet_line}`\n"
+            f"USDC баланс: ${float(balance or 0):.4f}"
+        )
+    except Exception as exc:                         # pragma: no cover
+        log.warning("Telegram /status degraded: %s", exc)
+        return _service_unavailable_reply()
+
+
+def _vip_reply() -> str:
+    """The VIP offer, with the amount read from the single price source."""
+    return (
+        f"*Пълен VIP анализ — {VIP_PRICE_USDC:.2f} USDC*\n\n"
+        f"Отключва пълния сигнал + on-chain анализ за текущия пазар.\n"
+        f"Плащане: {VIP_PRICE_USDC:.2f} USDC на Base към\n"
+        f"`{get_base_fee_receiver()}`\n\n"
+        f"Натиснете бутона по-долу, за да получите инструкциите за плащане."
+    )
+
+
 def _build_vip_inline_keyboard() -> dict:
     """Build a useful inline keyboard for market actions and VIP access."""
     return {
@@ -533,10 +604,12 @@ def process_webhook_update(update: dict) -> Optional[dict]:
         reply += (
             f"\n━━━━━━━━━━━━━━━━━━━━\n"
             f"💡 *Команди*:\n"
+            f"/vip — пълен VIP анализ\n"
             f"/bulletin — пазарен бюлетин\n"
             f"/price — информация за плащане (x402)\n"
+            f"/status — състояние на бота\n"
             f"/help — това съобщение\n\n"
-            f"🔓 Натиснете бутона по-долу, за да отключите пълен VIP анализ за 0.10 USDC."
+            f"🔓 Натиснете бутона по-долу, за да отключите пълен VIP анализ за {VIP_PRICE_USDC:.2f} USDC."
         )
 
         sent = _send_text(token, str(chat_id), reply, reply_markup=keyboard)
@@ -561,6 +634,15 @@ def process_webhook_update(update: dict) -> Optional[dict]:
             log.warning("Telegram /price failed: %s", exc)
             sent = _send_text(token, str(chat_id), _service_unavailable_reply())
         return {"handled": True, "type": "price_info", "response_sent": bool(sent)}
+
+    if cmd == "/status":
+        sent = _send_text(token, str(chat_id), _status_reply())
+        return {"handled": True, "type": "status", "response_sent": bool(sent)}
+
+    if cmd == "/vip":
+        sent = _send_text(token, str(chat_id), _vip_reply(),
+                          reply_markup=_build_vip_inline_keyboard())
+        return {"handled": True, "type": "vip_offer", "response_sent": bool(sent)}
 
     sent = _send_text(
         token,

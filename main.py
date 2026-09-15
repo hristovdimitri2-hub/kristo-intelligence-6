@@ -65,6 +65,7 @@ from services.telegram_sales import (
     process_webhook_update,
     telegram_sales_loop,
     register_webhook,
+    register_bot_commands,
 )
 
 # ── x402 Payment Protocol Constants ────────────────────────────────────────
@@ -4042,41 +4043,14 @@ def nexus_dashboard():
 # NOTE: The Telegram module operates exclusively in webhook mode.
 # All updates are received passively via the /api/telegram-webhook endpoint.
 # No background polling / getUpdates thread is started.
-
-def _handle_telegram_command(text: str) -> str:
-    """Handle a single Telegram command and return the reply text."""
-    cmd = text.lower().split()[0] if text.split() else ""
-    if cmd in ("/start", "/help"):
-        return (
-            "*Kristo Intelligence Bot*\n\n"
-            "Commands:\n"
-            "/status — API & bot status\n"
-            "/price — pricing & payment info\n"
-            "/help — this message\n\n"
-            "Pay with USDC on Base to unlock full API access."
-        )
-    if cmd == "/status":
-        with _lock:
-            running = _bot_status["telegram_bot_running"]
-            cmds = _bot_status["commands_processed"]
-            wallet = _wallet_state.get("wallet_address") or "not configured"
-            balance = _wallet_state.get("usdc_balance", 0.0)
-        return (
-            f"*Status*\nBot: {'Online' if running else 'Offline'}\n"
-            f"Commands processed: {cmds}\n"
-            f"Wallet: `{wallet[:10]}...{wallet[-6:] if len(wallet) > 16 else wallet}`\n"
-            f"USDC Balance: ${balance:.4f}"
-        )
-    if cmd == "/price":
-        return (
-            f"*Pricing (x402)*\n"
-            f"Per call: ${X402_FEE_USDC_BASE} USDC\n"
-            f"Volume discount (10+ calls): ${X402_FEE_USDC_DISCOUNT} USDC\n"
-            f"Monthly VIP: ${VIP_MONTHLY_USDC} USDC\n\n"
-            f"Receiver: `{X402_RECEIVER_ADDRESS}`\n"
-            f"Chain: Base (8453)"
-        )
-    return ""
+#
+# The command handling lives in services/telegram_sales.process_webhook_update
+# (`BOT_COMMANDS` is both the published menu and the list of handled commands).
+# A SECOND router used to live here — `_handle_telegram_command`, reachable by
+# nothing — and it still advertised the old pricing ("Per call: $0.005",
+# "Volume discount: $0.01") and a /status the live router did not implement.
+# Dead code that quotes prices is exactly the phantom family this project keeps
+# hunting, so it is deleted rather than left to be re-wired someday.
 
 
 # ── Startup ──────────────────────────────────────────────────────────────
@@ -4218,6 +4192,15 @@ def _start_background_threads():
         register_webhook()
     except Exception as exc:
         log.warning("Telegram webhook auto-registration failed (non-fatal): %s", exc)
+
+    # ── Auto-register the Telegram command MENU on startup ──
+    # getMyCommands used to be empty, so the bot answered commands it never
+    # advertised. Like the webhook, this is re-asserted on every deploy.
+    try:
+        register_bot_commands()
+    except Exception as exc:
+        log.warning("Telegram command-menu registration failed (non-fatal): %s",
+                    exc)
 
     log.info(
         "Background threads started (blockchain monitor + agent + catalog analytics "
