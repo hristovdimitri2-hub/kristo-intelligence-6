@@ -510,6 +510,14 @@ def openapi_spec():
         X402_USDC_CONTRACT,
         FREE_TIER_LIMIT,
     )
+    # Per-endpoint x402 prices (single source of truth: config.py). The newer
+    # routes carry a different headline price than the flat X402_FEE_USDC used
+    # by the original three operations.
+    from config import (
+        KRISTO_ARB_PRICE,
+        KRISTO_SIGNAL_PRICE,
+        KRISTO_WHALEFLOW_PRICE,
+    )
 
     base_url = request.host_url.rstrip("/")
     # x-payment-info shared block for all paid operations
@@ -536,12 +544,27 @@ def openapi_spec():
         },
     }
 
-    def _paid_op(summary, description):
+    def _paid_op(summary, description, cost_usdc=None):
+        """Paid operation entry.
+
+        `cost_usdc` overrides the flat per-call price advertised in
+        x-payment-info/x402. Omitting it keeps the historical X402_FEE_USDC
+        behaviour, so the original operations stay byte-identical.
+        """
+        cost = X402_FEE_USDC if cost_usdc is None else cost_usdc
+        if cost == X402_FEE_USDC:
+            op_payment_info = payment_info
+        else:
+            op_payment_info = dict(payment_info)
+            op_payment_info["price"] = {
+                **payment_info["price"],
+                "amount": str(cost),
+            }
         return {
             "summary": summary,
             "description": description,
-            "x-payment-info": payment_info,
-            "x402": {"cost_usdc": X402_FEE_USDC, "free_tier_eligible": True},
+            "x-payment-info": op_payment_info,
+            "x402": {"cost_usdc": cost, "free_tier_eligible": True},
             "security": [{"x402": []}],
             "responses": {
                 "200": {"description": "Successful response"},
@@ -597,6 +620,21 @@ def openapi_spec():
             "/api/bot-status": {"get": _paid_op(
                 "Telegram bot integration status",
                 "Returns the current status of the Telegram sales bot, including last bulletin time, subscriber count, and operational metrics.",
+            )},
+            "/api/arb/opportunities": {"get": _paid_op(
+                "Cross-DEX arbitrage radar",
+                "Live cross-DEX arbitrage spreads on Base (DEXScreener), refreshed every 60 seconds.",
+                KRISTO_ARB_PRICE,
+            )},
+            "/api/v1/signal": {"get": _paid_op(
+                "Live DeFi trading signal",
+                "Live DeFi trading signal: action, confidence and one-line reasoning for ETH/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live market data.",
+                KRISTO_SIGNAL_PRICE,
+            )},
+            "/api/v1/whaleflow": {"get": _paid_op(
+                "Live whale flow",
+                "Live whale flow: USDC transfers >= $50k on Base with labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the response always states the block scanned to).",
+                KRISTO_WHALEFLOW_PRICE,
             )},
             "/api/v1/agents": {"get": _free_op(
                 "Agent catalog (free)",
