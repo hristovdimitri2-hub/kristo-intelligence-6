@@ -383,6 +383,7 @@ def well_known_x402_scan():
             f"{base_url}/api/bot-status",
             f"{base_url}/api/arb/opportunities",
             f"{base_url}/api/v1/signal",
+            f"{base_url}/api/v1/whaleflow",
         ],
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
         "instructions": (
