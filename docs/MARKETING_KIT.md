@@ -11,7 +11,7 @@ live 24/7 at https://kristo-intelligence-api.onrender.com
 рџљЂ Just launched Kristo Intelligence вЂ” an AI-powered DeFi trading signals API
 that AI agents pay for autonomously via @coinbase x402 protocol.
 
-вљЎ $0.05 USDC/call on Base. No API keys, no signup вЂ” the HTTP 402 response
+вљЎ From $0.003 USDC/call on Base. No API keys, no signup вЂ” the HTTP 402 response
 IS the checkout.
 
 1 free call. Then pay & retry. Live market data, on-chain sales history.
@@ -29,8 +29,6 @@ What agents get:
 вЂў /api/stats вЂ” live market activity (CoinGecko + DEXScreener + Fear&Greed)
 вЂў /api/sales вЂ” real on-chain USDC transfer history
 вЂў /api/bot-status вЂ” bot integration status
-
-Volume discount: 10+ calls в†’ $0.01/call.
 
 curl https://kristo-intelligence-api.onrender.com/api/stats
 ```
@@ -50,7 +48,7 @@ and if you haven't paid yet, you get HTTP 402 with the exact payment
 details (USDC address, amount, chain) in the response body and headers.
 
 Pricing:
-- $0.05 USDC per call (drops to $0.01 after 10 paid calls)
+- $0.003 USDC per call (/api/v1/signal, /api/v1/whaleflow); $0.005 per call (other routes)
 - $29/month VIP вЂ” unlimited + Telegram group
 - 1 free call to try it
 
@@ -74,7 +72,7 @@ Happy to answer any questions!
 ```
 We just shipped a pay-per-call DeFi intelligence API with x402 on Base рџ’™
 
-вЂў $0.05 USDC/call, volume discount to $0.01
+вЂў $0.003-$0.005 USDC/call (per route)
 вЂў Real-time market stats (CoinGecko, DEXScreener, Fear & Greed) + real on-chain sales history
 вЂў Full machine-readable discovery: x402.json / OpenAPI / MCP / llms.txt
 вЂў No API keys вЂ” 1 free call, then 402 = pay & retry
@@ -89,7 +87,7 @@ llms.txt for agents: https://kristo-intelligence-api.onrender.com/llms.txt
 рџљЂ Kristo Intelligence API вЂ” DeFi trading СЃРёРіРЅР°Р»Рё РЅР° Base
 
 рџ¤– AI-powered СЃРёРіРЅР°Р»Рё + real-time РїР°Р·Р°СЂРЅРё РґР°РЅРЅРё
-рџ’° $0.05 USDC/call (x402 РїСЂРѕС‚РѕРєРѕР» вЂ” Р±РµР· API РєР»СЋС‡РѕРІРµ!)
+рџ’° from $0.003 USDC/call (x402 РїСЂРѕС‚РѕРєРѕР» вЂ” Р±РµР· API РєР»СЋС‡РѕРІРµ!)
 в­ђ VIP: $29/РјРµСЃ вЂ” РЅРµРѕРіСЂР°РЅРёС‡РµРЅ РґРѕСЃС‚СЉРї
 
 1 Р±РµР·РїР»Р°С‚РЅРѕ РёР·РІРёРєРІР°РЅРµ:
