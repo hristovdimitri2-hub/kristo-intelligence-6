@@ -137,7 +137,15 @@ def test_openapi_paid_operations_have_x_payment_info(client):
             f"{path} missing 'x-payment-info' extension"
         pi = op["x-payment-info"]
         assert "protocols" in pi, f"{path}: x-payment-info missing 'protocols'"
-        assert "x402" in pi["protocols"], f"{path}: 'x402' not in protocols"
+        # x402scan parses an ARRAY OF PROTOCOL OBJECTS ([{"x402": {}}]), not a
+        # plain ["x402"] string array — see the integration spec:
+        # "Set x-payment-info.protocols (array of protocol objects)".
+        assert isinstance(pi["protocols"], list) and pi["protocols"], \
+            f"{path}: protocols must be a non-empty array"
+        assert all(isinstance(p, dict) for p in pi["protocols"]), \
+            f"{path}: protocols entries must be protocol objects: {pi['protocols']}"
+        assert any("x402" in p for p in pi["protocols"]), \
+            f"{path}: 'x402' not in protocols"
         assert "price" in pi, f"{path}: x-payment-info missing 'price'"
         assert pi["price"]["mode"] == "fixed", f"{path}: price.mode must be 'fixed'"
         assert pi["price"]["currency"] == "USD", f"{path}: price.currency must be 'USD'"
