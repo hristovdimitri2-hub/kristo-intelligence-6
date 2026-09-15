@@ -14,7 +14,7 @@ that AI agents pay for autonomously via @coinbase x402 protocol.
 ⚡ From $0.003 USDC/call on Base. No API keys, no signup — the HTTP 402 response
 IS the checkout.
 
-1 free call. Then pay & retry. Live market data, on-chain sales history.
+No signup, no API keys. Every unpaid call returns a clear 402 with exact payment details. Live market data, on-chain sales history.
 
 Agents: find us via llms.txt 👇
 https://kristo-intelligence-api.onrender.com/llms.txt
@@ -29,6 +29,8 @@ What agents get:
 • /api/stats — live market activity (CoinGecko + DEXScreener + Fear&Greed)
 • /api/sales — real on-chain USDC transfer history
 • /api/bot-status — bot integration status
+
+Prices: $0.003–0.005 USDC/call (per route).
 
 curl https://kristo-intelligence-api.onrender.com/api/stats
 ```
@@ -50,7 +52,7 @@ details (USDC address, amount, chain) in the response body and headers.
 Pricing:
 - $0.003 USDC per call (/api/v1/signal, /api/v1/whaleflow); $0.005 per call (other routes)
 - $29/month VIP — unlimited + Telegram group
-- 1 free call to try it
+- No signup, no API keys. Every unpaid call returns a clear 402 with exact payment details.
 
 What you get:
 - /api/stats — live market activity from CoinGecko, DEXScreener, Fear & Greed index
@@ -75,7 +77,7 @@ We just shipped a pay-per-call DeFi intelligence API with x402 on Base 💙
 • $0.003-$0.005 USDC/call (per route)
 • Real-time market stats (CoinGecko, DEXScreener, Fear & Greed) + real on-chain sales history
 • Full machine-readable discovery: x402.json / OpenAPI / MCP / llms.txt
-• No API keys — 1 free call, then 402 = pay & retry
+• No signup, no API keys. Every unpaid call returns a clear 402 with exact payment details.
 
 Try it: https://kristo-intelligence-api.onrender.com
 llms.txt for agents: https://kristo-intelligence-api.onrender.com/llms.txt
@@ -90,7 +92,7 @@ llms.txt for agents: https://kristo-intelligence-api.onrender.com/llms.txt
 💰 from $0.003 USDC/call (x402 протокол — без API ключове!)
 ⭐ VIP: $29/мес — неограничен достъп
 
-1 безплатно извикване:
+Без регистрация, без API ключове. Всяко неплатено извикване връща ясен 402 с точните данни за плащане.
 curl https://kristo-intelligence-api.onrender.com/api/stats
 
 Dashboard: https://kristo-intelligence-api.onrender.com/dashboard
