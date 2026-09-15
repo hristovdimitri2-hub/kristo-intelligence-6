@@ -1,7 +1,8 @@
 """
 Blockchain / Base network wallet utilities.
 
-Handles the 0.10 USDC per-request fee on Base. The payment is made fully
+Handles the per-request fee on Base (the amount comes from the single price
+source in config.py — see `_fee_amount_usdc`). The payment is made fully
 non-blocking: a transaction timeout, balance pre-check, and graceful
 fallback ensure the program never hangs while waiting for a receipt.
 """
@@ -13,7 +14,23 @@ import logging
 from typing import Optional
 
 # ── Central configuration (bound wallet address) ───────────────────────────
-from config import get_base_fee_receiver
+from config import BASE_FEE_AMOUNT_USDC, get_base_fee_receiver
+
+
+def _fee_amount_usdc() -> float:
+    """The per-request fee from the SINGLE price source (config.py).
+
+    This module used to default to a literal 0.10 USDC in two places (the
+    constructor default AND the env fallback), which meant a wallet built
+    without an explicit amount would pay 20-30x the advertised price. The
+    amount now comes from `BASE_FEE_AMOUNT_USDC`, and the live per-route
+    prices live in X402_PRICE_MAP — never a literal here.
+    """
+    try:
+        return float(os.getenv("BASE_FEE_AMOUNT_USDC",
+                               str(BASE_FEE_AMOUNT_USDC)))
+    except (TypeError, ValueError):
+        return float(BASE_FEE_AMOUNT_USDC)
 
 try:
     from web3 import Web3
@@ -62,7 +79,9 @@ class Wallet:
     """Lightweight Base wallet wrapper for USDC fee payments."""
 
     def __init__(self, private_key: str, rpc_url: str, usdc_address: str,
-                 fee_receiver: str, fee_amount_usdc: float = 0.10):
+                 fee_receiver: str, fee_amount_usdc: float | None = None):
+        if fee_amount_usdc is None:
+            fee_amount_usdc = _fee_amount_usdc()
         if not _HAS_WEB3:
             raise RuntimeError(
                 "web3 is not installed. Install with: pip install web3"
@@ -101,7 +120,7 @@ class Wallet:
                     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
                 ),
                 fee_receiver=get_base_fee_receiver(),  # hard fallback to bound address
-                fee_amount_usdc=float(os.getenv("BASE_FEE_AMOUNT_USDC", "0.10")),
+                fee_amount_usdc=_fee_amount_usdc(),
             )
         except Exception as exc:
             log.error("Failed to initialize wallet: %s", exc)
@@ -120,7 +139,7 @@ class Wallet:
     # ------------------------------------------------------------------
     def pay_request_fee(self) -> bool:
         """
-        Pay the 0.10 USDC fee on Base. Never hangs:
+        Pay the configured per-request fee on Base. Never hangs:
           * pre-checks balance,
           * uses a bounded wait for the receipt,
           * falls back gracefully on any error.

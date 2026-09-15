@@ -37,7 +37,7 @@ TWITTER_API_BASE = "https://api.twitter.com/2"
 # Marketing CTA signature (mandatory)
 DEVELOPER_PITCH = (
     "🚀 Data stream provided via Kristo Intelligence API v6\n"
-    "Request cost: 0.10 USDC | Base Network\n"
+    "Request cost: from 0.003 USDC per call | Base Network\n"
     "Connect via: https://kristo-intelligence-api.onrender.com"
 )
 

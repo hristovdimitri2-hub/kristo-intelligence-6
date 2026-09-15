@@ -16,9 +16,11 @@ from __future__ import annotations
 import os
 
 # ── Base network fee receiver (HARD FALLBACK) ──────────────────────────────
-# This is the real, bound wallet address that receives the 0.10 USDC
-# per-request micro-fee on Base.  It is used unconditionally when the
-# BASE_FEE_RECEIVER environment variable is absent or empty.
+# This is the real, bound wallet address that receives the per-request
+# micro-fee on Base (the amount comes from BASE_FEE_AMOUNT_USDC below and is
+# overridden per route by X402_PRICE_MAP — never a literal in this comment).
+# It is used unconditionally when the BASE_FEE_RECEIVER environment variable is
+# absent or empty.
 BOUND_BASE_FEE_RECEIVER = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
 
 
@@ -62,3 +64,10 @@ KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.003"))   # /api/
 # Whale flow feed (built 09.09 per docs/WHALE_FLOW_SPEC.md — owner-approved).
 # Kept at the canary-proven price tier. Existing prices are NOT touched.
 KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.003"))
+
+# ── Human products (NOT x402 routes) ──────────────────────────────────────
+# The Telegram VIP-analysis unlock is paid in USDC like a route but is a HUMAN
+# product, so it is deliberately NOT in X402_PRICE_MAP. It lives here anyway so
+# the bot's button and message can never quote a number of their own.
+KRISTO_VIP_ANALYSIS_PRICE = float(
+    os.getenv("KRISTO_VIP_ANALYSIS_PRICE", "0.10"))          # Telegram VIP unlock

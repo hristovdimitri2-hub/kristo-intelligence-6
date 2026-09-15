@@ -11,8 +11,11 @@ Flask application with:
 NO DEMO DATA — all sales/stats come from real on-chain activity.
 
 Subscription tiers:
-  * Micro-request: 0.10 USDC per API call
-  * Monthly VIP:   29.00 USDC (unlimited access + Telegram VIP group)
+  * Micro-request: per route, from $0.003 USDC per API call — the single source
+    is X402_PRICE_MAP (config.py KRISTO_*_PRICE); the live 402 challenge is the
+    published price. Nothing in this file may hardcode a price.
+  * Monthly VIP:   29.00 USD (unlimited access + Telegram VIP group) — sold as a
+    HUMAN subscription through Stripe checkout, not through the x402 API.
 
 MCP/x402 compatible: /api/mcp/manifest exposes machine-readable payment spec.
 """
@@ -42,6 +45,7 @@ from config import (
     BASE_RPC_URL,
     get_base_fee_receiver,
     BASE_FEE_AMOUNT_USDC,
+    KRISTO_VIP_ANALYSIS_PRICE,
     KRISTO_STATS_PRICE,
     KRISTO_SALES_PRICE,
     KRISTO_ARB_PRICE,
@@ -116,10 +120,11 @@ CHALLENGE_DESCRIPTIONS = {
 # Falls back to relative "/" so links work even if NEXUS is served from same domain.
 NEXUS_URL = "/nexus"
 
-# Free-tier limit per client. Default 1 free call for casual evaluation.
-# Set KRISTO_FREE_TIER_LIMIT=0 in production for STRICT x402 semantics:
-# every unpaid request returns the canonical 402 payment challenge
-# (required by x402 marketplaces/verifiers such as PayAPI.market).
+# Free-tier limit per client. The env default here is 1 for casual evaluation,
+# but PRODUCTION RUNS WITH 0 (KRISTO_FREE_TIER_LIMIT=0): every unpaid request
+# then returns the canonical 402 payment challenge, which is what x402
+# marketplaces/verifiers (PayAPI.market, x402scan) expect. Any public text that
+# promises a free call is therefore a phantom claim — see the sweep test.
 FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 
 # Endpoints that require x402 payment (after free tier exhausted)
@@ -304,8 +309,11 @@ _bot_status = {
 # ── Subscription tiers & pricing ─────────────────────────────────────────
 # Per-API-call price comes from config (single source of truth).
 MICRO_FEE_USDC = BASE_FEE_AMOUNT_USDC  # Per API call
-VIP_MONTHLY_USDC = 29.00   # Monthly VIP subscription
-VIP_THRESHOLD_USDC = 0.10  # Payments above this trigger VIP invite logic
+VIP_MONTHLY_USDC = 29.00   # Monthly VIP subscription (Stripe, human product)
+# A payment at/above the Telegram VIP-analysis price triggers the VIP invite
+# logic. Both numbers come from config.py's single source, so a change there
+# cannot leave the bot offering one price and granting access at another.
+VIP_THRESHOLD_USDC = KRISTO_VIP_ANALYSIS_PRICE
 
 # Active VIP subscribers (wallet address -> {joined, invite_code, tx_hash})
 _vip_subscribers: Dict[str, dict] = {}
@@ -2814,7 +2822,8 @@ def api_telegram_webhook():
 
     This handles:
       * Text commands: /start, /help, /bulletin, /price
-      * Inline button callbacks: "🔓 Отключи пълен VIP анализ за 0.10 USDC"
+      * Inline button callbacks: the VIP-unlock button (its label and amount are
+        built from VIP_PRICE_USDC in services/telegram_sales.py — never a literal)
 
     The endpoint is always free (no x402 paywall) so Telegram can deliver
     updates without payment.
@@ -2863,9 +2872,24 @@ def home():
 
     B2D conversion page — shows developers exactly what the API does in
     10 seconds (call -> 402 -> pay -> 200) with copy-paste curl commands.
+
+    PRICES COME FROM THE SINGLE SOURCE, never typed into the template: this page
+    used to advertise a flat "$0.05 per API call" (AND a "1 free call" that
+    production does not give) while the 402 demanded 0.003-0.005 — the classic
+    phantom price, on the first page a visitor sees.
     """
     _record_request("home", True)
-    return render_template("landing.html")
+    routes = _real_routes_payload()
+    prices = [float(r["price_usdc"]) for r in routes]
+    cheapest = min(prices)
+    example = min(routes, key=lambda r: float(r["price_usdc"]))
+    return render_template(
+        "landing.html",
+        routes=routes,
+        cheapest=cheapest,
+        cheapest_route=example,
+        free_tier_limit=FREE_TIER_LIMIT,
+    )
 
 
 

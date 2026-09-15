@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kristo Intelligence — API that pays for itself (x402 / USDC on Base)</title>
-<meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Paid per call, from $0.003/call (USDC on Base), retry, get data.">
+<meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Paid per call, from ${{ '%.3f'|format(cheapest) }}/call (USDC on Base), retry, get data.">
 <style>
   :root { --bg:#0b0f1a; --panel:#111726; --line:#1e2a44; --txt:#dbe4ff;
           --green:#4ade80; --amber:#fbbf24; --blue:#60a5fa; --muted:#8294b8; }
@@ -63,9 +63,22 @@
   </div>
 
   <div class="grid">
-    <div class="card"><div class="big" style="color:var(--green)">$0.05</div><div class="lbl">per API call (USDC on Base)</div></div>
+    <div class="card"><div class="big" style="color:var(--green)">${{ '%.3f'|format(cheapest) }}</div><div class="lbl">from — per call, USDC on Base (see all six below)</div></div>
     <div class="card"><div class="big" style="color:var(--blue)">~2s</div><div class="lbl">payment settlement (Base L2)</div></div>
-    <div class="card"><div class="big" style="color:var(--amber)">1 free</div><div class="lbl">call per client — try it now</div></div>
+    <div class="card"><div class="big" style="color:var(--amber)">{% if free_tier_limit %}{{ free_tier_limit }}{% else %}0{% endif %}</div><div class="lbl">{% if free_tier_limit %}free call per client{% else %}free calls — every unpaid call is a 402{% endif %}</div></div>
+  </div>
+
+  <div class="try">
+    <p class="p" style="margin-bottom:10px">All six paid routes and their exact price (the 402 challenge always states the same amount):</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      {% for route in routes %}
+      <tr>
+        <td style="padding:3px 8px 3px 0"><code>{{ route.endpoint }}</code></td>
+        <td style="padding:3px 8px;color:var(--muted)">{{ route.name }}</td>
+        <td style="padding:3px 0;text-align:right;color:var(--green)">${{ '%.3f'|format(route.price_usdc) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
   </div>
 
   <div class="cta-row">
@@ -78,7 +91,7 @@
 
   <div class="try">
     <p class="p" style="margin-bottom:10px">Test it right now — copy, paste, no login:</p>
-    <code>curl https://kristo-intelligence-api.onrender.com/api/stats</code>
+    <code>curl https://kristo-intelligence-api.onrender.com{{ cheapest_route.endpoint }}</code>
   </div>
 
   <p class="foot">
@@ -92,13 +105,13 @@
 // Animated terminal: the exact x402 handshake an autonomous agent performs.
 const SCRIPT = [
   {t:800,  cls:'p',     html:'<span class="dim"># 1. Agent calls the API — no key, no auth</span>'},
-  {t:400,  cls:'cmd',   html:'$ curl https://kristo-intelligence-api.onrender.com/api/stats'},
+  {t:400,  cls:'cmd',   html:'$ curl https://kristo-intelligence-api.onrender.com{{ cheapest_route.endpoint }}'},
   {t:900,  cls:'warn',  html:'HTTP/1.1 <b>402 Payment Required</b>'},
-  {t:300,  cls:'ok',    html:'{ "x402_amount": "0.005", "x402_token": "USDC",<br>&nbsp;&nbsp;"x402_recipient": "0xd4cdA900...", "x402_chain_id": 8453,<br>&nbsp;&nbsp;"x402_retry_instructions": "Send USDC, retry with X-Payment-Proof" }'},
+  {t:300,  cls:'ok',    html:'{ "accepts": [{ "amount": "{{ (cheapest * 1000000)|int }}", "asset": "0x833589fC...",<br>&nbsp;&nbsp;"payTo": "0xd4cdA900...", "network": "eip155:8453" }] }'},
   {t:1100, cls:'p',     html:'<span class="dim"># 2. Agent reads the JSON contract, pays on Base (~2s)</span>'},
-  {t:400,  cls:'cmd',   html:'$ send 0.005 USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: &lt;YOUR_TX_HASH&gt; ✓</span>'},
+  {t:400,  cls:'cmd',   html:'$ send {{ '%.3f'|format(cheapest) }} USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: &lt;YOUR_TX_HASH&gt; ✓</span>'},
   {t:1000, cls:'p',     html:'<span class="dim"># 3. Retry with the payment proof</span>'},
-  {t:400,  cls:'cmd',   html:'$ curl -H "X-Payment-Proof: ..." /api/stats'},
+  {t:400,  cls:'cmd',   html:'$ curl -H "X-Payment-Proof: ..." {{ cheapest_route.endpoint }}'},
   {t:900,  cls:'ok',    html:'HTTP/1.1 <b>200 OK</b> — market intelligence delivered <span class="dim">✓</span>'},
 ];
 const term = document.getElementById('term');

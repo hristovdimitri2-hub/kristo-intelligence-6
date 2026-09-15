@@ -228,7 +228,7 @@ preserved on local disk). For new deployments, prefer Render (Option A).
 | `WALLET_PRIVATE_KEY` | ✅ Yes | — | Base wallet private key (no 0x prefix) |
 | `BASE_RPC_URL` | Optional | `https://mainnet.base.org` | Base RPC endpoint |
 | `BASE_CHAIN_ID` | Optional | `8453` | Base mainnet (8453) or Sepolia (84532) |
-| `BASE_FEE_AMOUNT_USDC` | Optional | `0.10` | Per-call fee in USDC |
+| `BASE_FEE_AMOUNT_USDC` | Optional | `0.005` | Per-call fee in USDC (route overrides live in X402_PRICE_MAP / config.py) |
 | `AGENT_AUTO_EXECUTE` | Optional | `false` | Set `true` only after testing |
 | `AGENT_MAX_POSITION_USD` | Optional | `1000` | Max single position |
 | `AGENT_MAX_EXPOSURE_USD` | Optional | `5000` | Max total exposure |
@@ -282,13 +282,13 @@ curl -H "X-Admin-Token: YOUR_TOKEN" https://YOUR-APP-NAME.onrender.com/api/admin
 
 The app supports two payment channels:
 
-### Channel 1: x402 micro-payments (0.10 USDC per API call)
+### Channel 1: x402 micro-payments (from 0.003 USDC per API call, per route)
 
 **How it works:**
 1. A client (AI agent or human) calls `/api/stats`, `/api/sales`, or `/api/bot-status`
-2. First call is free (free tier = 1 call per IP)
+2. No free tier in production (KRISTO_FREE_TIER_LIMIT=0): the first call already returns HTTP 402
 3. Subsequent calls return HTTP 402 with payment instructions
-4. Client sends 0.10 USDC on Base to `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
+4. Client sends the exact amount from the 402 body (0.003-0.005 USDC) on Base to `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
 5. After on-chain confirmation (~2 seconds on Base), client retries the endpoint
 6. Access is granted automatically (verified via ERC-20 Transfer event logs)
 

@@ -57,7 +57,7 @@ node lib/agents/market_evaluator.js --loop
 
 - USDC трансфери (ERC-20 `transfer`)
 - Баланс проверки (ETH и USDC)
-- Такса за заявка: 0.10 USDC на Base mainnet
+- Такса за заявка: от 0.003 USDC на заявка (per route: 0.003 / 0.005) на Base mainnet
 - Non-blocking изпълнение с bounded receipt wait
 - Поддръжка на web3.py v6+ и v7+
 
@@ -67,7 +67,7 @@ from blockchain.wallet import Wallet
 wallet = Wallet.from_env()  # Чете WALLET_PRIVATE_KEY от .env
 if wallet:
     usdc_bal = wallet.get_usdc_balance()
-    fee_ok = wallet.pay_request_fee()  # Плаща 0.10 USDC такса
+    fee_ok = wallet.pay_request_fee()  # Плаща таксата от config.BASE_FEE_AMOUNT_USDC
 ```
 
 **Важно:** `BASE_FEE_RECEIVER` в `.env` трябва да е реален адрес (не zero address),
@@ -184,7 +184,7 @@ python main.py --loop
 | `BASE_RPC_URL` | `https://mainnet.base.org` | Base RPC endpoint |
 | `BASE_CHAIN_ID` | `8453` | Base mainnet (8453) или Sepolia (84532) |
 | `BASE_USDC_CONTRACT` | `0x833589fCD6...` | USDC контракт на Base |
-| `BASE_FEE_AMOUNT_USDC` | `0.10` | Такса за заявка в USDC |
+| `BASE_FEE_AMOUNT_USDC` | `0.005` | Базова такса за заявка в USDC (единствен източник; per-route цените са в `X402_PRICE_MAP`) |
 | `BASE_FEE_RECEIVER` | `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` | Адрес на получател на таксата (активен; старият операторски `0xd4cdA980…` е изгорен и НЕ трябва да се използва) |
 | `AGENT_AUTO_EXECUTE` | `false` | Автоматично изпълнение на транзакции |
 | `AGENT_MAX_POSITION_USD` | `1000` | Максимален размер на една позиция |

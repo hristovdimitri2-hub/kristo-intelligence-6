@@ -6,7 +6,8 @@ This module provides:
   * `send_market_bulletin()` — sends a market bulletin to a Telegram chat,
     including the current Fear & Greed index and ETH/DEGEN prices fetched
     from `services.market_data.py`.  Every message includes an inline
-    keyboard button: "🔓 Отключи пълен VIP анализ за 0.10 USDC".
+    keyboard button: "🔓 Отключи пълен VIP анализ за <VIP_PRICE_USDC> USDC"
+    (the amount is read from config.KRISTO_VIP_ANALYSIS_PRICE, never typed).
   * `generate_payment_link()` — generates a payment link pointing to the
     Base USDC receiver address with x402 verification instructions.
   * `handle_callback_query()` — processes inline-button callbacks so users
@@ -34,6 +35,7 @@ from services.ai_engine import generate_market_bulletin
 
 # ── Central configuration (bound wallet address) ───────────────────────────
 from config import get_base_fee_receiver
+from config import KRISTO_VIP_ANALYSIS_PRICE
 
 log = logging.getLogger("kristo.v6.telegram_sales")
 
@@ -43,7 +45,9 @@ X402_RECEIVER_ADDRESS = get_base_fee_receiver()
 X402_USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 X402_CHAIN = "base"
 X402_CHAIN_ID = 8453
-VIP_PRICE_USDC = 0.10
+VIP_PRICE_USDC = KRISTO_VIP_ANALYSIS_PRICE
+# (was a literal 0.10; now the single source in config.py feeds both this price
+# and main.VIP_THRESHOLD_USDC, so the bot's button and /price can never drift)
 
 # Telegram Bot API base
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}/{method}"

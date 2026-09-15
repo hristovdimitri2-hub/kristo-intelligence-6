@@ -39,14 +39,14 @@ And here's the magic. The 402 response isn't just an error — it's a complete p
     "chain_id": 8453,
     "currency": "USDC",
     "receiver_address": "0xd4cdA900...",
-    "amount_usdc": 0.05
+    "amount_usdc": 0.003
   }
 }
 ```
 
 Plus standardized headers: `X-Payment-Required`, `X-Payment-Address`, `X-Payment-Amount-USDC`.
 
-Send 0.05 USDC on Base. Wait ~2 seconds. Retry the call. You get your data. That's the entire user experience.
+Send the exact amount from the 402 body (0.003-0.005 USDC) on Base. Wait ~2 seconds. Retry the call. You get your data. That's the entire user experience.
 
 ## Why this matters now
 
@@ -77,9 +77,9 @@ An API nobody can find makes no money. So the whole machine-readable surface shi
 
 ## The economics
 
-- $0.05 per call, dropping to $0.01 after 10 paid calls (volume discount encoded in the API logic)
-- $29/month VIP: unlimited calls + Telegram group, payable by card (Stripe) or USDC
-- 1 free call per client — enough to evaluate, not enough to farm
+- From $0.003 per call ($0.003 / $0.005 depending on the route) — the 402 always states the exact amount; no volume discount is applied (the old "$0.01 after 10 calls" never existed in the code)
+- $29/month VIP: unlimited calls + Telegram group, payable by card via Stripe
+- No free tier — every unpaid call returns HTTP 402 (that IS the product demo)
 
 Is it a business yet? Honestly — not yet. The x402 ecosystem is early. But the marginal cost of serving one more agent is near zero, and every piece of infrastructure is permanent. The bet is that machine-to-machine payments grow, and being early in the directories compounds.
 
@@ -110,7 +110,7 @@ How it works:
 
 1. Call the endpoint
 2. Get HTTP 402 back — with receiver address, amount, chain, token contract in the body
-3. Send 0.05 USDC on Base
+3. Send the exact amount from the 402 body (0.003-0.005 USDC) on Base
 4. Wait ~2 seconds
 5. Retry the call — you're in
 
@@ -159,7 +159,7 @@ An agent that knows only the domain can figure out everything else.
 
 **Туит 6 (CTA):**
 ```
-Try it yourself — 1 free call:
+Try it yourself — one paid call, no signup:
 
 curl https://kristo-intelligence-api.onrender.com/api/stats
 

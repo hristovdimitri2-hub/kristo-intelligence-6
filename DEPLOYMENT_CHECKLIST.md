@@ -49,7 +49,7 @@ In Render → your service → **Environment**, add these variables:
 | `AGENT_AUTO_EXECUTE` | `false` (keep disabled until tested!) | ✅ |
 | `KRISTO_DISABLE_BACKGROUND_THREADS` | `false` (single-process mode for Starter tier) | ✅ |
 | `BASE_RPC_URL` | `https://mainnet.base.org` (default) | (optional) |
-| `BASE_FEE_AMOUNT_USDC` | `0.05` (already set in code) | (optional) |
+| `BASE_FEE_AMOUNT_USDC` | `0.005` (single source: config.py; per-route prices in X402_PRICE_MAP) | (optional) |
 | `TELEGRAM_BOT_TOKEN` | From @BotFather | (optional) |
 | `WEBHOOK_PUBLIC_URL` | `https://kristo-intelligence-v6.onrender.com` (your Render URL) | (optional) |
 | `STRIPE_SECRET_KEY` | `sk_live_...` from Stripe dashboard | (optional) |
@@ -166,7 +166,7 @@ PayAPI.market (https://payapi.market) is another x402 marketplace with 89 live A
    - **Description:** AI-powered DeFi trading signals and crypto market intelligence on Base. Real-time prices for ETH, ONDO, KAITO, DEGEN, risk-managed portfolio recommendations, and on-chain sales history.
    - **Category:** Finance / Crypto / DeFi
    - **Base URL:** `https://kristo-intelligence-v6.onrender.com`
-   - **Pricing:** $0.05 per request (or specify your own)
+   - **Pricing:** from $0.003 per request, per route (live: the 402 challenge is the authority)
    - **Receiver wallet:** `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
    - **Chain:** Base (chain_id 8453)
    - **USDC contract:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
@@ -176,7 +176,7 @@ PayAPI.market (https://payapi.market) is another x402 marketplace with 89 live A
 
 PayAPI.market will:
 1. Make a test call to your endpoints
-2. Pay 0.05 USDC from their own wallet to your receiver address
+2. Pay the exact amount from the 402 body (0.003-0.005 USDC) from their own wallet to your receiver address
 3. Verify the payment is detected on-chain
 4. Retry the endpoint and verify access is granted
 5. If successful — award the "x402 verified" badge
@@ -334,7 +334,7 @@ After completing this checklist, you should have:
 - ✅ Listed on x402scan.com (search "Kristo Intelligence")
 - ✅ Listed on payapi.market (search "Kristo Intelligence")
 - ✅ Stripe webhook receiving events (if VIP subscriptions enabled)
-- ✅ First test payment of 0.05 USDC received from x402scan's verification bot
+- ✅ First test payment (0.003-0.005 USDC, per route) received from x402scan's verification bot
 
 Once all boxes are checked — you're live and ready to accept real customers!
 

@@ -881,17 +881,39 @@ def ai_plugin_json():
 
 @discovery_bp.route("/llms.txt")
 def llms_txt():
-    """LLM-friendly plain-text description of the API for AI agent discovery."""
+    """LLM-friendly plain-text description of the API for AI agent discovery.
+
+    PRICES ARE GENERATED, NEVER TYPED. This document used to carry a single flat
+    "$0.005 per API call" (wrong for /api/v1/signal and /api/v1/whaleflow) and a
+    "Monthly VIP $29 USDC" line (a HUMAN product sold through Stripe — it has no
+    place in a machine-paid API description). It also listed only 3 of the 6 paid
+    routes. Everything below is read from the single price source and from
+    REAL_X402_ROUTES, so it cannot drift again.
+    """
     from main import (
         X402_CHAIN_ID,
-        X402_FEE_USDC,
         X402_RECEIVER_ADDRESS,
         X402_USDC_CONTRACT,
         FREE_TIER_LIMIT,
-        VIP_MONTHLY_USDC,
+        REAL_X402_ROUTES,
     )
 
     base_url = request.host_url.rstrip("/")
+    paid = [(r["endpoint"], r["name"], float(r["price_usdc"]))
+            for r in REAL_X402_ROUTES]
+    cheapest = min(price for _e, _n, price in paid)
+    free_tier_line = (
+        f"- Free tier: {FREE_TIER_LIMIT} free call(s) per client, then payment "
+        f"required"
+        if FREE_TIER_LIMIT
+        else "- Free tier: none — every unpaid call returns HTTP 402 (no free "
+             "calls, no signup)"
+    )
+    paid_lines = "\n".join(
+        "- GET %s — %s ($%.3f USDC per call)" % (endpoint, name, price)
+        for endpoint, name, price in paid
+    )
+
     content = f"""# Kristo Intelligence API
 
 > AI-powered DeFi trading signals and crypto market intelligence.
@@ -903,27 +925,25 @@ def llms_txt():
 - Currency: USDC
 - Token contract: {X402_USDC_CONTRACT}
 - Receiver address: {X402_RECEIVER_ADDRESS}
-- Price per API call: ${X402_FEE_USDC} USDC
-- Free tier: {FREE_TIER_LIMIT} free call(s) per client, then payment required
-- Monthly VIP: ${VIP_MONTHLY_USDC} USDC (unlimited for 30 days)
+- Price per API call: from ${cheapest:.3f} USDC — see the per-route list below
+  (the HTTP 402 challenge of each route always states the exact amount)
+{free_tier_line}
 
 ## How to Pay
 
-1. Send exactly {X402_FEE_USDC} USDC on the Base network to {X402_RECEIVER_ADDRESS}
-2. Wait for on-chain confirmation (usually ~2 seconds on Base)
-3. Retry the desired endpoint with the `X-Payment-Proof` header:
-   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": {X402_FEE_USDC}}}))`
-4. The server verifies the transfer on-chain and grants access automatically
-
-For unlimited access, send {VIP_MONTHLY_USDC} USDC for a Monthly VIP subscription.
+1. Call the endpoint you want and read `accepts[0].amount` / `accepts[0].payTo`
+   from the 402 body (the amount differs per route)
+2. Send exactly that amount of USDC on Base to {X402_RECEIVER_ADDRESS}
+3. Wait for on-chain confirmation (usually ~2 seconds on Base)
+4. Retry the desired endpoint with the `X-Payment-Proof` header:
+   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the amount you sent>}}))`
+5. The server verifies the transfer on-chain and grants access automatically
 
 ## Endpoints
 
-### Paid (requires x402 payment after free tier)
+### Paid (x402 — one payment unlocks one call)
 
-- GET /api/stats — Market activity and daily stats (${X402_FEE_USDC} USDC)
-- GET /api/sales — Real on-chain sales history (${X402_FEE_USDC} USDC)
-- GET /api/bot-status — Telegram bot status (${X402_FEE_USDC} USDC)
+{paid_lines}
 
 ### Free (always accessible)
 
