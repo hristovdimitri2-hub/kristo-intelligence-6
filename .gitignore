@@ -59,3 +59,12 @@ _my_main_patch.txt
 
 # Scratch file for 'git commit -F' - must never enter the repo (it did once).
 _msg.txt
+
+# Scratch outputs from local checks / commit messages (never commit)
+t.txt
+all.txt
+out.txt
+hh.txt
+h.txt
+_m.txt
+_msg.txt
