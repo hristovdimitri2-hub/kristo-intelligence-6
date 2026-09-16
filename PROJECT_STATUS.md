@@ -2,6 +2,93 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🎯 НОВИЯТ STRIPE АКАУНТ Е ЖИВ — и трите пречки, които финалната проверка намери (16.09)
+
+**Собственикът смени ключовете. Проверката потвърди новия акаунт — и намери
+причина, поради която плащане щеше да се провали, различна от „акаунтът не може
+да приема".**
+
+### 1. Акаунтът най-накрая МОЖЕ да приема пари ✅
+
+| | стойност (от Stripe API, не догадка) |
+|---|---|
+| ключ | `sk_live_…` · 107 знака · опашка `YeHv` · **приет** |
+| акаунт | **`acct_1UFfUcPz7WIGP94b`** (новият) — старият беше `acct_1U5QViLHbochC86s` |
+| `charges_enabled` | **True** (беше False — това беше блокерът от 14.09) |
+| `payouts_enabled` / `details_submitted` | True / True |
+| `card_payments` | **active** (останалите: bancontact, blik, eps, link, mb_way, pix, revolut_pay, satispay, transfers — всички active) |
+| изисквания | `disabled_reason: None`, `currently_due: []` |
+| държава / валута | BG / eur |
+
+`python -X utf8 scripts/stripe_health.py` → **exit 0**, „Stripe CAN charge".
+
+### 2. Checkout-ът тръгна — но само след ДВА фикса, наложени от новия акаунт ✅
+
+`POST /sales/checkout` (plan=starter) → **303** → реална **`cs_live_…`** сесия,
+сверена директно в Stripe: **`$29.00 usd`, `livemode=true`**. До този резултат
+се стигна през **две** последователни грешки, които **нашият собствен лог**
+показа (диагностиката, добавена на 14.09, проработи точно по предназначение):
+
+```
+400 Unsupported parameter: payment_method_types. Managed Payments, which is
+    enabled by default on your account, handles this parameter for you.
+    Remove payment_method_types, or pass managed_payments[enabled]=false …
+    → (след retry без параметъра) →
+400 Invalid line_items[0]: the product tax code is missing. Set the product's
+    tax_code field to an eligible product tax code
+```
+
+**Причината и за двете: новият акаунт има MANAGED PAYMENTS** — Stripe е
+*merchant of record* и поема VAT/sales tax в 80+ държави (BG е в списъка с
+поддържани). Затова правилното решение е **да се подчиним на Managed Payments,
+а не да го изключваме**:
+
+1. `payment_method_types` вече е **fallback параметър**, не константа. Кодът
+   подава параметрите като **верига** — пълния набор → без
+   `payment_method_types` (данъчният код остава, Managed Payments го изисква) →
+   без двата — и преминава към следващата стъпка **само** когато съобщението на
+   Stripe назове точно параметъра, който тази стъпка маха. Всяка друга грешка
+   пада на първата заявка (без сляп retry).
+2. Всеки line item носи `product_data.tax_code = txcd_10000000`
+   (**General – Electronically Supplied Services**) — допустим код за точно
+   това, което продаваме („цифрова услуга през интернет с минимална човешка
+   намеса"), и честният избор при смесена бизнес/лична клиентела.
+   `STRIPE_PRODUCT_TAX_CODE` го сменя без deploy.
+
+**Тестове: 274 → 276 → 278 PASS** (Managed-Payments fallback-ът; данъчният код —
+default + override; веригата от 3 заявки; и че „tax code is missing" НЕ води до
+стъпка, която маха данъчния код).
+
+### 3. Липсващ webhook endpoint в новия акаунт ❌ — ЕДИНСТВЕНОТО останало
+
+```
+=== webhook endpoints ===
+    registered: 0
+```
+
+Новият акаунт има **нула** endpoint-и. Тайната в Render (`whsec_…`, опашка
+`HItS`) е от endpoint-а на **СТАРИЯ** акаунт. ⇒ При реално плащане сега Stripe
+**ще вземе парите**, но `checkout.session.completed` **не се доставя никъде**:
+CRM-ът и автоматичният достъп няма да разберат за продажбата. (Реален тест на
+доставката е невъзможен, докато няма endpoint — Stripe няма какво да изпрати.)
+
+**🔑 ПРАВИЛОТО-КАПАН, което остава за в бъдеще:** тайният ключ и
+`whsec_` **не пътуват заедно** — секретът трябва да е от endpoint в **същия**
+акаунт като ключа. Смяна на ключа без смяна на секрета = тихи **400
+invalid_signature** при всяко реално плащане, без нищо да светне, докато не се
+прочетат логовете. Затова `scripts/stripe_health.py` **вече вика силно**, когато
+списъкът с endpoint-и е празен (тихото „0" беше скъпото мълчание).
+
+**Действие (само собственикът, в НОВИЯ акаунт):** Developers → Webhooks → Add
+endpoint → `https://kristo-intelligence-api.onrender.com/api/webhooks/stripe` →
+събития `checkout.session.completed` (+ `checkout.session.expired`,
+`checkout.session.async_payment_succeeded`, `payment_intent.payment_failed`) →
+Reveal Signing secret → Render `STRIPE_WEBHOOK_SECRET` → Save. След това пускам
+**реалния тест на доставката** (създаване + изтичане на сесия → 200).
+
+**Хигиена:** трите тестови сесии в новия акаунт са **изтекли** (0 отворени) →
+изгледът Sessions е чист за реалното тест-плащане на собственика.
+
 ## 🔁 КОРЕКЦИЯ (14.09) — $0.031 / **9** трансфера / **3** external; 0xA19F **Е** платец
 
 **Как се намери:** собственикът съобщи „ново external плащане нощта на 14.09" и

@@ -1,27 +1,35 @@
-fix(stripe): send the product tax code Managed Payments requires
+fix(stripe): the two Managed Payments blockers + a readiness tool
 
-The Managed-Payments fallback landed the request one step further and Stripe
-named the next requirement in full:
+The owner switched to the newly activated live account and asked for the final
+check. The health check went green (acct_1UFfUcPz7WIGP94b, charges_enabled True,
+card_payments active, exit 0), but the checkout still answered 503 - and our own
+log (the 14.09 diagnosability fix) named the reason exactly, twice in a row:
 
-  POST /v1/checkout/sessions -> 400
-  Unsupported parameter: payment_method_types. ... Remove payment_method_types,
-  or pass managed_payments[enabled]=false to disable it ...
-    -> retried without it -> 400
-  Invalid line_items[0]: the product tax code is missing. Set the product's
-  tax_code field to an eligible product tax code
+  400 Unsupported parameter: payment_method_types. Managed Payments, which is
+      enabled by default on your account, handles this parameter for you.
+      Remove payment_method_types, or pass managed_payments[enabled]=false ...
+  -> retried without it ->
+  400 Invalid line_items[0]: the product tax code is missing.
 
-Managed Payments makes Stripe the MERCHANT OF RECORD (VAT/sales tax in 80+
-countries, BG is a supported country), so the right move is to satisfy it rather
-than disable it. Every line item now carries product_data.tax_code =
-txcd_10000000 ("General - Electronically Supplied Services"), an eligible code
-for exactly what we sell and the honest one for a mixed business/personal buyer
-base. STRIPE_PRODUCT_TAX_CODE overrides it without a code deploy.
+The new account runs MANAGED PAYMENTS (Stripe as merchant of record: VAT/sales
+tax in 80+ countries, BG supported), so the answer is to satisfy it, not to
+disable it:
 
-The parameter handling is now a small chain - full, then without
-payment_method_types (tax code kept: Managed Payments needs it), then without the
-tax code too - and each step is taken ONLY when Stripe's message names the
-parameter that step removes. A "tax code is missing" answer is a reason to SEND
-it, never to drop it, and every unrelated error still fails on the first call.
+  * payment_method_types is now a FALLBACK parameter, not a constant: the
+    parameters are tried as a chain (full -> without payment_method_types, tax
+    code kept -> without both) and each step is taken ONLY when Stripe's message
+    names the parameter that step removes. Every other error still fails on the
+    first call, so a real failure is never retried blindly.
+  * every line item now carries product_data.tax_code = txcd_10000000 (General -
+    Electronically Supplied Services, eligible for a fully automated digital
+    service), overridable with STRIPE_PRODUCT_TAX_CODE.
 
-TESTS 276 -> 278: the tax code default + override, and the chain (3 calls, step 2
-keeps the code, step 3 drops it, a missing-code error never walks step 3).
+Evidence: POST /sales/checkout -> 303 -> cs_live_... verified at Stripe at
+$29.00 usd, livemode=true. Tests 274 -> 278.
+
+Also in this commit, because the same check found it: the account has ZERO
+webhook endpoints (the whsec_ in Render belongs to the OLD account's endpoint, and
+a key and its signing secret never travel together). stripe_health.py now shouts
+when the endpoint list is empty, and scripts/stripe_readiness.py asks the whole
+question in one command - account, checkout verified at Stripe, and a REAL
+delivery observed in our own log - with exit 0 only when all three are green.

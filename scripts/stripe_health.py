@@ -146,6 +146,20 @@ def main() -> int:
             print("        status=%s livemode=%s events=%s"
                   % (e.get("status"), e.get("livemode"),
                      ", ".join(e.get("enabled_events") or [])))
+        if not eps:
+            # Silence here is the expensive failure: Stripe charges the buyer and
+            # our CRM/access automation never hears about it. Say it LOUDLY.
+            print("    !! NO webhook endpoint is registered in THIS account — a")
+            print("       real payment would be CHARGED and our side would never")
+            print("       learn about it. Add this URL in the Dashboard")
+            print("       (Developers → Webhooks), then paste its Signing secret")
+            print("       into STRIPE_WEBHOOK_SECRET:")
+            print("       https://kristo-intelligence-api.onrender.com"
+                  "/api/webhooks/stripe")
+            print("       events: checkout.session.completed (+ expired,")
+            print("               async_payment_succeeded, payment_intent.payment_failed)")
+            print("       The secret MUST come from the endpoint of the SAME")
+            print("       account as the key — the secret does not travel with it.")
 
     print("\n=== the last 8 checkout sessions ===")
     sessions = stripe_get(key, "checkout/sessions", limit=8,
