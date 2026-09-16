@@ -318,7 +318,113 @@ def test_a_managed_payments_account_falls_back_without_payment_method_types(
         "the first attempt keeps the explicit card type for older accounts"
     assert "payment_method_types" not in calls[1], \
         "the retry drops the parameter Managed Payments owns"
+    tax_codes = [li["price_data"]["product_data"]["tax_code"]
+                 for li in calls[1]["line_items"]]
+    assert tax_codes == ["txcd_10000000"], \
+        "the tax code MUST survive the retry — Managed Payments requires it"
     assert "Managed Payments" in caplog.text
+
+
+def test_the_line_item_carries_an_eligible_product_tax_code(monkeypatch):
+    """Managed Payments (Stripe as MERCHANT OF RECORD, so VAT in 80+ countries is
+    handled for us) refuses a session without a per-product tax code:
+    "Invalid line_items[0]: the product tax code is missing." The default is the
+    eligible general digital-services code, and `STRIPE_PRODUCT_TAX_CODE`
+    overrides it without a code deploy."""
+    from integrations.stripe_checkout import (StripeCheckoutService,
+                                              _DEFAULT_PRODUCT_TAX_CODE)
+
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", _key(_TEST_PREFIX, "whatever"))
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://checkout.test")
+
+    assert _DEFAULT_PRODUCT_TAX_CODE == "txcd_10000000"
+    monkeypatch.delenv("STRIPE_PRODUCT_TAX_CODE", raising=False)
+    assert StripeCheckoutService().product_tax_code == "txcd_10000000"
+
+    monkeypatch.setenv("STRIPE_PRODUCT_TAX_CODE", "txcd_10103001")
+    service = StripeCheckoutService()
+    assert service.product_tax_code == "txcd_10103001"
+
+    captured = {}
+
+    class _Created:
+        id = "cs_test_tax"
+        url = "https://checkout.stripe.com/c/pay/cs_test_tax"
+
+    class _Sessions:
+        @staticmethod
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _Created()
+
+    monkeypatch.setattr(service, "_stripe", type(
+        "S", (), {"checkout": type("C", (), {"Session": _Sessions})()})())
+    service.create_checkout_session("starter", "buyer@example.invalid")
+
+    product = captured["line_items"][0]["price_data"]["product_data"]
+    assert product["tax_code"] == "txcd_10103001"
+    assert product["name"], "the product name is still sent"
+
+
+def test_the_tax_code_is_dropped_only_for_an_account_that_refuses_it(monkeypatch,
+                                                                    caplog):
+    """The last step of the chain exists for an account with neither Managed
+    Payments nor support for the tax code. It must be reached ONLY on a message
+    that names tax_code as unsupported — a "tax code is missing" complaint is a
+    reason to SEND it, never to drop it."""
+    import logging
+
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    calls = []
+
+    class _Sessions:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(dict(kwargs))
+            if "payment_method_types" in kwargs:
+                raise RuntimeError("Unsupported parameter: payment_method_types")
+            if "tax_code" in str(kwargs):
+                raise RuntimeError("Unsupported parameter: tax_code")
+            created = type("C", (), {"id": "cs_test_bare", "url": "u"})()
+            return created
+
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", _key(_TEST_PREFIX, "whatever"))
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://checkout.test")
+    service = StripeCheckoutService()
+    monkeypatch.setattr(service, "_stripe", type(
+        "S", (), {"checkout": type("C", (), {"Session": _Sessions})()})())
+
+    with caplog.at_level(logging.WARNING, logger="integrations.stripe_checkout"):
+        result = service.create_checkout_session("starter", "b@example.invalid")
+
+    assert result["status"] == "checkout_created"
+    assert len(calls) == 3, "full → no methods → no methods and no tax code"
+    assert "tax_code" in str(calls[1]), "step 2 keeps the tax code"
+    assert "tax_code" not in str(calls[2]), "step 3 drops it"
+    assert "does not accept a product tax code" in caplog.text
+
+    # …and a "missing tax code" answer must NOT walk that last step.
+    calls.clear()
+
+    class _OnlyMissing:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(dict(kwargs))
+            if "payment_method_types" in kwargs:
+                raise RuntimeError("Unsupported parameter: payment_method_types")
+            raise RuntimeError(
+                "Invalid line_items[0]: the product tax code is missing.")
+
+    service2 = StripeCheckoutService()
+    monkeypatch.setattr(service2, "_stripe", type(
+        "S", (), {"checkout": type("C", (), {"Session": _OnlyMissing})()})())
+    result = service2.create_checkout_session("starter", "b@example.invalid")
+
+    assert result["status"] == "checkout_error"
+    assert len(calls) == 2, "no attempt to drop a tax code that is REQUIRED"
 
 
 def test_an_unrelated_stripe_error_is_not_retried(monkeypatch):

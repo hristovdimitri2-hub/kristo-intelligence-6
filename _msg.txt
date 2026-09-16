@@ -1,20 +1,27 @@
-fix(stripe): let a Managed Payments account create sessions
+fix(stripe): send the product tax code Managed Payments requires
 
-The freshly activated live account (acct_1UFfUcPz7WIGP94b) enables MANAGED
-PAYMENTS, which owns the payment-method choice and refuses the explicit
-payment_method_types=["card"] this code has always sent. Our own log said it
-plainly (the 14.09 diagnosability fix paid off):
+The Managed-Payments fallback landed the request one step further and Stripe
+named the next requirement in full:
 
-  POST https://api.stripe.com/v1/checkout/sessions -> 400
-  error_message='Unsupported parameter: payment_method_types. Managed Payments,
-  which is enabled by default on your account, handles this parameter for you.'
-  Stripe checkout session creation FAILED for plan=starter: InvalidRequestError
+  POST /v1/checkout/sessions -> 400
+  Unsupported parameter: payment_method_types. ... Remove payment_method_types,
+  or pass managed_payments[enabled]=false to disable it ...
+    -> retried without it -> 400
+  Invalid line_items[0]: the product tax code is missing. Set the product's
+  tax_code field to an eligible product tax code
 
-Older live accounts NEEDED that parameter ("No valid payment method types ..."),
-so both worlds must work: it is now a FALLBACK - try with it, and on THAT
-SPECIFIC error retry once without it. Any other error is raised unchanged, so a
-real failure is never retried blindly.
+Managed Payments makes Stripe the MERCHANT OF RECORD (VAT/sales tax in 80+
+countries, BG is a supported country), so the right move is to satisfy it rather
+than disable it. Every line item now carries product_data.tax_code =
+txcd_10000000 ("General - Electronically Supplied Services"), an eligible code
+for exactly what we sell and the honest one for a mixed business/personal buyer
+base. STRIPE_PRODUCT_TAX_CODE overrides it without a code deploy.
 
-TESTS 274 -> 276: the Managed-Payments fallback (first attempt keeps the card
-type, the retry drops it, both calls asserted) and an unrelated error that must
-not be retried. Prices, payTo and the x402 routes are untouched.
+The parameter handling is now a small chain - full, then without
+payment_method_types (tax code kept: Managed Payments needs it), then without the
+tax code too - and each step is taken ONLY when Stripe's message names the
+parameter that step removes. A "tax code is missing" answer is a reason to SEND
+it, never to drop it, and every unrelated error still fails on the first call.
+
+TESTS 276 -> 278: the tax code default + override, and the chain (3 calls, step 2
+keeps the code, step 3 drops it, a missing-code error never walks step 3).

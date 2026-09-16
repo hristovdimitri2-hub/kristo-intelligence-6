@@ -23,6 +23,36 @@ _KEY_PREFIXES = ("sk_", "rk_")
 
 _KEY_RE = re.compile(r"(sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_\-]{4,}")
 
+#: The eligible product tax code sent on every line item.
+#: MANAGED PAYMENTS (on by default on newer accounts; BG is a supported country)
+#: makes Stripe the MERCHANT OF RECORD — it collects VAT/sales tax in 80+
+#: countries — but it REQUIRES an eligible product tax code per line item. Without
+#: one every session dies with
+#:   "Invalid line_items[0]: the product tax code is missing. Set the product's
+#:    tax_code field to an eligible product tax code"
+#: `txcd_10000000` (General – Electronically Supplied Services) is on Stripe's
+#: eligible list for exactly what we sell: "a digital service provided mainly
+#: through the internet with minimal human involvement, relying on information
+#: technology". A business/personal-use SaaS code would assert a use we cannot
+#: know about a buyer, so the general digital-services code is the honest choice.
+#: Override it with `STRIPE_PRODUCT_TAX_CODE` without a code deploy.
+_DEFAULT_PRODUCT_TAX_CODE = "txcd_10000000"
+
+
+def _line_items_without_tax_code(line_items: Any):
+    """The same line items with `product_data.tax_code` removed."""
+    out = []
+    for item in line_items or []:
+        price = {k: v for k, v in item.get("price_data", {}).items()
+                 if k != "product_data"}
+        product = {k: v for k, v in
+                   item.get("price_data", {}).get("product_data", {}).items()
+                   if k != "tax_code"}
+        if product:
+            price["product_data"] = product
+        out.append({"price_data": price, "quantity": item.get("quantity", 1)})
+    return out
+
 
 def redact(text: Any) -> str:
     """Strip any key-shaped token before it can reach a log line."""
@@ -41,6 +71,8 @@ class StripeCheckoutService:
                 self.api_key, self.key_source = _value, _name
                 break
         self.webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+        self.product_tax_code = (os.getenv("STRIPE_PRODUCT_TAX_CODE", "").strip()
+                                 or _DEFAULT_PRODUCT_TAX_CODE)
         # True when there is no key at all (that is "not configured", a different
         # problem) or when the key at least LOOKS like a secret key.
         self.key_format_ok = (not self.api_key
@@ -144,7 +176,7 @@ class StripeCheckoutService:
             # as a FALLBACK parameter — see _create_session below.
             "payment_method_types": ["card"],
             "customer_email": customer_email,
-            "line_items": [{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name}, "unit_amount": int(resolved_amount * 100)}, "quantity": 1}],
+            "line_items": [{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name, "tax_code": self.product_tax_code}, "unit_amount": int(resolved_amount * 100)}, "quantity": 1}],
             "metadata": metadata,
             "success_url": f"{public_url}/sales/checkout?status=success&plan={plan_key}&session_id={{CHECKOUT_SESSION_ID}}",
             "cancel_url": f"{public_url}/sales/checkout?status=cancelled&plan={plan_key}",
@@ -202,31 +234,61 @@ class StripeCheckoutService:
         )
 
     def _create_session(self, session_kwargs: dict):
-        """Create the Checkout Session, tolerating Managed Payments accounts.
+        """Create the Checkout Session, tolerating both worlds of Stripe accounts.
 
-        Live accounts used to REQUIRE an explicit `payment_method_types` ("No
-        valid payment method types ..." when the dashboard had none activated),
-        so the parameter has always been sent. New accounts enable MANAGED
-        PAYMENTS, which owns that parameter and refuses it outright:
+        Two account settings fight over the SAME session parameters, and both
+        were seen live on this project:
 
+        * older live accounts REQUIRE `payment_method_types` ("No valid payment
+          method types ..." when the dashboard had none activated);
+        * accounts with MANAGED PAYMENTS (default on new accounts) own the
+          payment-method choice and refuse it:
             400 Unsupported parameter: payment_method_types. Managed Payments,
             which is enabled by default on your account, handles this parameter
+            for you. Remove payment_method_types, or pass
+            managed_payments[enabled]=false ...
+        * with Managed Payments the product tax code becomes MANDATORY:
+            400 Invalid line_items[0]: the product tax code is missing.
 
-        Both worlds must work, so the parameter is a fallback: try with it, and
-        on that SPECIFIC error retry once without it. Any other error is raised
-        unchanged (the caller logs the provider's own message).
+        So the parameters are tried as a small CHAIN, and each step is taken only
+        when Stripe's own message names exactly the parameter that step removes:
+        full → without payment_method_types (keeps the tax code, which Managed
+        Payments needs) → without the tax code. Any other error is raised
+        unchanged, so a real failure (bad key, bad amount) is never retried.
         """
-        try:
-            return self._stripe.checkout.Session.create(**session_kwargs)
-        except Exception as exc:
-            if "payment_method_types" not in str(exc):
-                raise
-            log.warning("Stripe: this account uses Managed Payments, which "
-                        "rejects payment_method_types — retrying the session "
-                        "without it (Stripe picks the methods).")
-            retry_kwargs = dict(session_kwargs)
-            retry_kwargs.pop("payment_method_types", None)
-            return self._stripe.checkout.Session.create(**retry_kwargs)
+        attempts = [dict(session_kwargs)]
+        without_methods = {k: v for k, v in session_kwargs.items()
+                           if k != "payment_method_types"}
+        attempts.append(without_methods)
+        without_both = dict(without_methods)
+        without_both["line_items"] = _line_items_without_tax_code(
+            without_methods.get("line_items"))
+        attempts.append(without_both)
+
+        for index, attempt in enumerate(attempts):
+            try:
+                return self._stripe.checkout.Session.create(**attempt)
+            except Exception as exc:
+                message = str(exc)
+                following = attempts[index + 1] if index + 1 < len(attempts) else None
+                if following is None:
+                    raise
+                if ("Unsupported parameter: payment_method_types" in message
+                        and "payment_method_types" in attempt
+                        and "payment_method_types" not in following):
+                    log.warning(
+                        "Stripe: this account uses Managed Payments, which owns "
+                        "the payment-method choice — retrying without "
+                        "payment_method_types (the tax code stays: Managed "
+                        "Payments requires it).")
+                elif (("nsupported" in message or "nknown parameter" in message)
+                        and "tax_code" in message
+                        and "tax_code" not in str(following)):
+                    log.warning(
+                        "Stripe: this account does not accept a product tax "
+                        "code — retrying without it.")
+                else:
+                    raise
 
     def verify_webhook(self, payload: bytes, signature: str) -> Optional[Dict[str, Any]]:
         """Verify and decode a Stripe webhook using the configured signing secret."""
