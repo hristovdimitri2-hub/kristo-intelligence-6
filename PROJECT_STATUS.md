@@ -59,34 +59,44 @@
 default + override; веригата от 3 заявки; и че „tax code is missing" НЕ води до
 стъпка, която маха данъчния код).
 
-### 3. Липсващ webhook endpoint в новия акаунт ❌ — ЕДИНСТВЕНОТО останало
+### 3. ✅ ПРАВИЛОТО-КАПАН, вече затворено автоматично
+
+Тайният ключ и `whsec_` **не пътуват заедно** — секретът принадлежи на endpoint в
+**същия** акаунт. Смяна на ключа без смяна на секрета = тихи **400
+invalid_signature** при всяко реално плащане. Затова:
+
+- `scripts/wire_stripe_webhook.py` — целият сценарий „нов акаунт" на една
+  команда: създава endpoint-а в акаунта зад `STRIPE_API_KEY` (**Stripe връща
+  signing secret-а само веднъж — при създаването**) и записва секрета в Render с
+  **единична** промяна на ключа (пълна подмяна на env може да загуби променлива).
+  Пази се: отказва втори endpoint за същия URL, прекъсва преди Render, ако
+  Stripe не върне `whsec_`, и отчита непокътнатия ключ и броя променливи.
+- `scripts/stripe_health.py` **вика силно** при празен списък endpoint-и (тихото
+  „0" беше скъпото мълчание).
+- `scripts/stripe_readiness.py` — трите въпроса (акаунт → checkout, сверено **в
+  Stripe** → **реална** доставка в нашия лог), exit 0 само при три зелени.
+
+**Изпълнено на 16.09 (с разрешение на собственика):** endpoint
+`we_1UGCgzPz7WIGP94b5J2uH2Dj` — `status=enabled`, `livemode=true`, събития
+`checkout.session.completed`, `checkout.session.expired`,
+`checkout.session.async_payment_succeeded`, `payment_intent.payment_failed` ·
+`STRIPE_WEBHOOK_SECRET` подменен (старият беше от бившия акаунт) · deploy `live`.
+
+**Финалната проверка: ЧЕТИРИ ЗЕЛЕНИ, exit 0**
 
 ```
-=== webhook endpoints ===
-    registered: 0
+account   GREEN   acct_1UFfUcPz7WIGP94b · charges_enabled True · card_payments active · 1 endpoint
+checkout  GREEN   303 → cs_live_… · $29.00 usd · livemode=True (сверено в Stripe)
+endpoint  GREEN   …/api/webhooks/stripe (enabled) · всичките 4 събития
+delivery  GREEN   реален Stripe delivery → "POST /api/webhooks/stripe HTTP/1.1" 200
 ```
 
-Новият акаунт има **нула** endpoint-и. Тайната в Render (`whsec_…`, опашка
-`HItS`) е от endpoint-а на **СТАРИЯ** акаунт. ⇒ При реално плащане сега Stripe
-**ще вземе парите**, но `checkout.session.completed` **не се доставя никъде**:
-CRM-ът и автоматичният достъп няма да разберат за продажбата. (Реален тест на
-доставката е невъзможен, докато няма endpoint — Stripe няма какво да изпрати.)
+Доказателството е от **двете страни** — нашият лог (`10.196.80.54 … 200`) и
+Stripe (`checkout.session.expired` c `pending_webhooks = 0`). В същия лог се
+вижда и фиксът в действие: `400 payment_method_types` → предупреждение → retry →
+**200**, сесията създадена.
 
-**🔑 ПРАВИЛОТО-КАПАН, което остава за в бъдеще:** тайният ключ и
-`whsec_` **не пътуват заедно** — секретът трябва да е от endpoint в **същия**
-акаунт като ключа. Смяна на ключа без смяна на секрета = тихи **400
-invalid_signature** при всяко реално плащане, без нищо да светне, докато не се
-прочетат логовете. Затова `scripts/stripe_health.py` **вече вика силно**, когато
-списъкът с endpoint-и е празен (тихото „0" беше скъпото мълчание).
-
-**Действие (само собственикът, в НОВИЯ акаунт):** Developers → Webhooks → Add
-endpoint → `https://kristo-intelligence-api.onrender.com/api/webhooks/stripe` →
-събития `checkout.session.completed` (+ `checkout.session.expired`,
-`checkout.session.async_payment_succeeded`, `payment_intent.payment_failed`) →
-Reveal Signing secret → Render `STRIPE_WEBHOOK_SECRET` → Save. След това пускам
-**реалния тест на доставката** (създаване + изтичане на сесия → 200).
-
-**Хигиена:** трите тестови сесии в новия акаунт са **изтекли** (0 отворени) →
+**Хигиена:** всички тестови сесии в новия акаунт са **изтекли** (0 отворени) →
 изгледът Sessions е чист за реалното тест-плащане на собственика.
 
 ## 🔁 КОРЕКЦИЯ (14.09) — $0.031 / **9** трансфера / **3** external; 0xA19F **Е** платец
