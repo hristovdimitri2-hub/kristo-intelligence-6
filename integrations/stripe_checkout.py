@@ -135,19 +135,22 @@ class StripeCheckoutService:
         if agent_sku:
             metadata["agent_sku"] = agent_sku
 
+        session_kwargs = {
+            "mode": "payment",
+            # Explicit card payment type: live-mode accounts reject sessions
+            # WITHOUT it when no dashboard payment methods are activated
+            # ("No valid payment method types ..."). It is also the parameter
+            # that accounts with MANAGED PAYMENTS refuse outright, so it is sent
+            # as a FALLBACK parameter — see _create_session below.
+            "payment_method_types": ["card"],
+            "customer_email": customer_email,
+            "line_items": [{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name}, "unit_amount": int(resolved_amount * 100)}, "quantity": 1}],
+            "metadata": metadata,
+            "success_url": f"{public_url}/sales/checkout?status=success&plan={plan_key}&session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{public_url}/sales/checkout?status=cancelled&plan={plan_key}",
+        }
         try:
-            session = self._stripe.checkout.Session.create(
-                mode="payment",
-                # Explicit card payment type: live-mode accounts reject
-                # sessions without it when no dashboard payment methods are
-                # activated ("No valid payment method types ...").
-                payment_method_types=["card"],
-                customer_email=customer_email,
-                line_items=[{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name}, "unit_amount": int(resolved_amount * 100)}, "quantity": 1}],
-                metadata=metadata,
-                success_url=f"{public_url}/sales/checkout?status=success&plan={plan_key}&session_id={{CHECKOUT_SESSION_ID}}",
-                cancel_url=f"{public_url}/sales/checkout?status=cancelled&plan={plan_key}",
-            )
+            session = self._create_session(session_kwargs)
             return {
                 "status": "checkout_created",
                 "provider": "stripe",
@@ -197,6 +200,33 @@ class StripeCheckoutService:
             amount_usd=amount_usd,
             agent_sku=agent_sku,
         )
+
+    def _create_session(self, session_kwargs: dict):
+        """Create the Checkout Session, tolerating Managed Payments accounts.
+
+        Live accounts used to REQUIRE an explicit `payment_method_types` ("No
+        valid payment method types ..." when the dashboard had none activated),
+        so the parameter has always been sent. New accounts enable MANAGED
+        PAYMENTS, which owns that parameter and refuses it outright:
+
+            400 Unsupported parameter: payment_method_types. Managed Payments,
+            which is enabled by default on your account, handles this parameter
+
+        Both worlds must work, so the parameter is a fallback: try with it, and
+        on that SPECIFIC error retry once without it. Any other error is raised
+        unchanged (the caller logs the provider's own message).
+        """
+        try:
+            return self._stripe.checkout.Session.create(**session_kwargs)
+        except Exception as exc:
+            if "payment_method_types" not in str(exc):
+                raise
+            log.warning("Stripe: this account uses Managed Payments, which "
+                        "rejects payment_method_types — retrying the session "
+                        "without it (Stripe picks the methods).")
+            retry_kwargs = dict(session_kwargs)
+            retry_kwargs.pop("payment_method_types", None)
+            return self._stripe.checkout.Session.create(**retry_kwargs)
 
     def verify_webhook(self, payload: bytes, signature: str) -> Optional[Dict[str, Any]]:
         """Verify and decode a Stripe webhook using the configured signing secret."""

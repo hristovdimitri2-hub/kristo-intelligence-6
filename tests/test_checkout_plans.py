@@ -268,6 +268,88 @@ def test_a_failed_checkout_logs_the_providers_own_message(monkeypatch, caplog):
     assert leaked_body not in caplog.text, "the credential is NOT kept"
 
 
+def test_a_managed_payments_account_falls_back_without_payment_method_types(
+        monkeypatch, caplog):
+    """The new live account enables MANAGED PAYMENTS, which refuses
+    `payment_method_types` with 400 "Unsupported parameter: payment_method_types"
+    (observed live on 16.09: every checkout returned 503 *while the account could
+    charge*). Accounts without Managed Payments still need the explicit card type,
+    so the parameter is a fallback: try with it, retry ONCE without it on that
+    exact error, and leave every other error alone.
+    """
+    import logging
+
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    calls = []
+
+    class _Created:
+        id = "cs_test_managed"
+        url = "https://checkout.stripe.com/c/pay/cs_test_managed"
+
+    class _Sessions:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(dict(kwargs))
+            if "payment_method_types" in kwargs:
+                raise RuntimeError(
+                    "Request req_x: Unsupported parameter: payment_method_types. "
+                    "Managed Payments, which is enabled by default on your "
+                    "account, handles this parameter for you.")
+            return _Created()
+
+    class _FakeStripe:
+        checkout = type("Checkout", (), {"Session": _Sessions})()
+
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", _key(_TEST_PREFIX, "whatever"))
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://checkout.test")
+    service = StripeCheckoutService()
+    monkeypatch.setattr(service, "_stripe", _FakeStripe)
+
+    with caplog.at_level(logging.WARNING, logger="integrations.stripe_checkout"):
+        result = service.create_checkout_session("starter",
+                                                 "buyer@example.invalid")
+
+    assert result["status"] == "checkout_created"
+    assert result["checkout_id"] == "cs_test_managed"
+    assert len(calls) == 2, "it must retry exactly once"
+    assert calls[0].get("payment_method_types") == ["card"], \
+        "the first attempt keeps the explicit card type for older accounts"
+    assert "payment_method_types" not in calls[1], \
+        "the retry drops the parameter Managed Payments owns"
+    assert "Managed Payments" in caplog.text
+
+
+def test_an_unrelated_stripe_error_is_not_retried(monkeypatch):
+    """Only the Managed-Payments refusal triggers the fallback — a real failure
+    (bad key, bad amount) must surface immediately instead of being retried."""
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    calls = []
+
+    class _Sessions:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(dict(kwargs))
+            raise RuntimeError("Invalid API key provided: sk_test_***")
+
+    class _FakeStripe:
+        checkout = type("Checkout", (), {"Session": _Sessions})()
+
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", _key(_TEST_PREFIX, "whatever"))
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://checkout.test")
+    service = StripeCheckoutService()
+    monkeypatch.setattr(service, "_stripe", _FakeStripe)
+
+    result = service.create_checkout_session("starter", "buyer@example.invalid")
+
+    assert result == {"status": "checkout_error", "provider": "stripe",
+                      "error": "stripe_checkout_creation_failed"}
+    assert len(calls) == 1, "no blind retry for an unrelated error"
+
+
 def test_redact_hides_every_key_shaped_token():
     from integrations.stripe_checkout import redact
 

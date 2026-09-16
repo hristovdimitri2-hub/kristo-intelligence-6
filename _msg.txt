@@ -1,0 +1,20 @@
+fix(stripe): let a Managed Payments account create sessions
+
+The freshly activated live account (acct_1UFfUcPz7WIGP94b) enables MANAGED
+PAYMENTS, which owns the payment-method choice and refuses the explicit
+payment_method_types=["card"] this code has always sent. Our own log said it
+plainly (the 14.09 diagnosability fix paid off):
+
+  POST https://api.stripe.com/v1/checkout/sessions -> 400
+  error_message='Unsupported parameter: payment_method_types. Managed Payments,
+  which is enabled by default on your account, handles this parameter for you.'
+  Stripe checkout session creation FAILED for plan=starter: InvalidRequestError
+
+Older live accounts NEEDED that parameter ("No valid payment method types ..."),
+so both worlds must work: it is now a FALLBACK - try with it, and on THAT
+SPECIFIC error retry once without it. Any other error is raised unchanged, so a
+real failure is never retried blindly.
+
+TESTS 274 -> 276: the Managed-Payments fallback (first attempt keeps the card
+type, the retry drops it, both calls asserted) and an unrelated error that must
+not be retried. Prices, payTo and the x402 routes are untouched.
