@@ -56,3 +56,6 @@ secrets/
 temp_*.err
 pyout.txt
 _my_main_patch.txt
+
+# Scratch file for 'git commit -F' - must never enter the repo (it did once).
+_msg.txt
