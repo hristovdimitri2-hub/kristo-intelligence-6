@@ -137,11 +137,25 @@ Stripe (`checkout.session.expired` c `pending_webhooks = 0`). В същия ло
    (HMAC-SHA256 над `t.payload`, проверен от самия Stripe SDK, без monkeypatch) →
    200 и записани факти; подправен подпис → 400; refund преди плащане → отказ.
 
-**Допълване на вече случилото се връщане** (истинският източник, не измислица):
-**Resend на `charge.refunded`** от Stripe Dashboard (едно кликване — събитието
-вече има абонат, така че доставката е реална и минава през новия код), или
-`scripts/backfill_payment_facts.py` (пуснат отвътре в Render; носи сверените
-стойности: $34.80 / 2026-09-17T06:23:30+00:00).
+**✅ ДОПЪЛВАНЕТО Е ИЗПЪЛНЕНО (17.09, 07:45:34 UTC) — Resend-ът на `charge.refunded`
+пристигна по ИСТИНСКИЯ път** (събитието вече имаше абонат, така че доставката е
+реална: `10.195.129.162 → POST /api/webhooks/stripe` **200**) и handler-ът записа
+`refund_usd = 34.80` + `refunded_at = 2026-09-17T06:23:31+00:00` (времето на САМОТО
+събитие, не на ресента), с единствения INFO ред:
+
+```
+Stripe refund received: checkout_id=cs_live_a14DQk… amount=$34.80
+refunded_total=$34.80 refund_id=(none) customer=hr•••@gmail.com
+```
+
+**Одитът: ЧЕТИРИ ЗЕЛЕНИ, exit 0** — `stripe event delivered` · `refund recorded in
+Stripe` · `payment facts in CRM` · **`refunds visible in CRM`** (CRM $34.80 == Stripe
+$34.80). „`refund_id=(none)`" е честно: `charge.refunded` не носи списъка с refunds
+(идва от `refund.created`), а сумата и часът са верни от `amount_refunded`/`created`.
+
+**Резервен път** (ако някой ден няма как да се ресендне събитие):
+`scripts/backfill_payment_facts.py`, пуснат отвътре в Render — носи същите сверени
+стойности ($34.80 / 2026-09-17T06:23:30+00:00) и предпазни проверки.
 
 ##  ОФИЦИАЛНИЯТ MCP REGISTRY НИ ИМА — И ЗАПИСЪТ Е СЧУПЕН (17.09)
 
