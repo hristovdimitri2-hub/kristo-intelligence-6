@@ -112,7 +112,7 @@ Stripe (`checkout.session.expired` c `pending_webhooks = 0`). В същия ло
 | 3 | **CRM (Postgres)** | `hristovdimitri2@gmail.com` → `payment_status=paid` · `plan=starter` · `amount_usd=34.80` · `status=qualified` · lead от **08:55:30** (35 s преди плащането — точно както изисква handler-ът: непознат lead се игнорира) · pipeline `paid=1` |
 | 4 | **Табло** | $34.80 / 1 запис · `excluded_from_onchain=true` · `storage_backend=postgresql` (durable) · **стабилно** при три последователни четения · админ таблицата вече носи **реалния checkout_id** |
 | 5 | **Entitlement** | **Не се издава** — по дизайн: `_is_vip_plan = {pro, vip, vip_monthly}` (starter не е VIP), а `agent_entitlements` е за catalog agent SKU-та. `metrics`: `active_vip_plans=0`, `active_agent_entitlements=0`. Купувачът получава success страницата („Системата е готова за onboarding") — onboarding-ът е човешки/Telegram |
-| 6 | **Refund** | **0** направени (собственикът предстои) |
+| 6 | **Refund** | ✅ **ИЗВЪРШЕН (17.09 06:23 UTC)** — `re_3UGEdKPz7WIGP94b0eWVeE61` · **$34.80 (пълна, цялата сума по картата) · succeeded** · reason `requested_by_customer`; charge `ch_3UGEdKPz7WIGP94b0H7e62si` amount $34.80 / refunded $34.80 · `fully=True`. ⚠️ **Невидим в нашите повърхности** — виж находката по-долу |
 | 7 | **Веригата** | **$0.037 / 11 tx / 4 external** = 9 seed реда + **2 live-намерени**; guards живи: `lock_alive=true`, backend **postgresql** (durable), `consumed_total=1`, C2 12/1, H2 endpoint binding · 6-те маршрута: **402 с обявените цени**, `payTo` = `BASE_FEE_RECEIVER` (…6fd08f) |
 
 **Веригата не е „непокътната" в смисъл на непроменена — тя ПОРАСНА:** нов 11-и
@@ -163,23 +163,33 @@ Stripe (`checkout.session.expired` c `pending_webhooks = 0`). В същия ло
    пази, тоест успешният паричен път беше неразличим от сгрешен. Имейлът остава
    маскиран, както на всеки друг екран.
 
-**Състояние на живите данни:** миграцията е **жива** — записът вече връща
-`paid_at`/`checkout_id` (празни за първата продажба, защото колоните са нови).
-Допълването на ИСТОРИЧЕСКИЯ ред не е направено и няма да бъде измисляно:
+**Състояние на живите данни (след Resend + Refund, 17.09):**
 
-- Postgres хостът (`dpg-…`) е **вътрешен за Render** и не се резолвва отвън, така
-  че директен запис от тук е невъзможен;
-- подправен „подписан" delivery НЕ се прави нарочно: логът трябва да остане
-  доказателство, а фалшиво събитие в него би било точно обратното.
+- ✅ **Resend-ът на `evt_1UGEdQPz7WIGP94b829zoDXH` пристигна** (17.09 **06:14:12 UTC**,
+  `10.196.80.54` → `POST /api/webhooks/stripe` **200**) и новият код записа
+  **двата факта в живия ред**: `paid_at = 2026-09-16T08:56:08+00:00` (== `event.created`)
+  и `checkout_id = cs_live_a14DQk…`. Таблото вече датира продажбата по **времето на
+  плащането**, а редът носи и препратката към Stripe сесията.
+- ✅ **INFO редът при успех е доказан на живо** (първият в историята на проекта):
+  `Stripe money event checkout.session.completed received: checkout_id=… plan=starter
+  amount=$34.80 paid_at=2026-09-16T08:56:08+00:00 customer=<маскиран>`.
+- ✅ **Сверката CRM ↔ Stripe е зелена:** `stripe_link.status = in_sync` —
+  „Stripe snapshot: 1 плащане(и) на $34.80 — сверени с CRM ($34.80): съвпадат"
+  (трите полета съвпадат: сума, `checkout_id`, `paid_at` == `event.created`).
 
-**Два честни пътя (по избор на собственика):** (1) Stripe Dashboard → Events →
-`evt_1UGEdQPz7WIGP94b829zoDXH` → **Resend** — едно кликване, истински delivery,
-handler-ът записва `paid_at` = `event.created` + `checkout_id` и пише INFO реда;
-(2) `scripts/backfill_payment_facts.py` (пуснат **отвътре в Render** — има
-вградени стойности от свереното събитие и предпазни проверки). Дотогава админ
-изгледът вече показва точния час на продажбата от **Stripe feed-а**
-(`created` на сесията, `payment_source: stripe_checkout`), а таблото честно
-показва датата на lead-а като fallback за този един ред.
+**🔴 НОВА НАХОДКА (от самия refund): възстановената сума е НЕВИДИМА за нас.** Три
+неща я скриват: (1) CRM-ът няма понятие „refund" — редът остава
+`payment_status = paid`; (2) Stripe не сменя `payment_status` на Checkout сесията
+при refund, затова feed-ът продължава да я показва като платена; (3) нашият
+webhook endpoint **не е абониран за нито едно refund събитие** (4 събития:
+`checkout.session.completed/expired/async_payment_succeeded`,
+`payment_intent.payment_failed`) ⇒ приложението не е било уведомено. Таблото ще
+продължи да показва $34.80 „платено", без намек, че е върнато.
+**Фикс (иска решение):** абониране за `charge.refunded` (+ `refund.created`) →
+поле `refunded_at`/`refund_usd` в CRM-а (или ред в леджера) → показване в
+off-chain секцията („1 от 1 върнато"); и backfill на този refund от сверените
+Stripe данни. По избор: Stripe **не връща** таксата си при refund — тя остава за
+собственика.
 
 **Тестове: 278 → 281 PASS** (StripeObject-заместител, който хвърля при `.get()`;
 трите състояния на сверката; честният клон на стражите). `node --check: OK`.
