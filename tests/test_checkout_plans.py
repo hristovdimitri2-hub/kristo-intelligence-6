@@ -483,3 +483,62 @@ def test_api_checkout_session_price_matches_plan_prices(client):
                                       "plan": key}).get_json()
         assert body["payment_session"]["amount_usd"] == PLAN_PRICES[key]
         assert body["payment_session"]["plan"] == key
+
+
+def test_the_stripe_payment_feed_survives_stripeobject_fields(monkeypatch):
+    """The Stripe payment feed was UNAVAILABLE for days, failing once a minute,
+    because of ONE call: `metadata.get("plan", "")` on a StripeObject.
+
+        AttributeError: 'get' is a dict method, but a StripeObject is not a dict.
+
+    The admin view then silently fell back to the CRM list (`detail:
+    "stripe_list_unavailable"`, "Stripe snapshot: не") while the Stripe API itself
+    answered 200 — a working feed presented as broken, with the real cause only in
+    a log line nobody read. SDK objects expose fields as ATTRIBUTES, so the reader
+    must never use .get() on them.
+    """
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    class StripeObject:
+        """Faithful stand-in: attribute access, .get() raises like the SDK."""
+
+        def __init__(self, **fields):
+            self.__dict__.update(fields)
+
+        def get(self, *args, **kwargs):
+            raise AttributeError(
+                "'get' is a dict method, but a StripeObject is not a dict. "
+                "Use .to_dict() to convert it.")
+
+    class Sessions:
+        data = [StripeObject(
+            id="cs_live_paid", payment_status="paid", amount_total=3480,
+            currency="usd", created=1758000000, customer_email="",
+            customer_details=StripeObject(email="buyer@example.com"),
+            metadata=StripeObject(plan="starter", campaign="launch"))]
+        has_more = False
+
+    class Session:
+        @staticmethod
+        def list(**kwargs):
+            return Sessions()
+
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", _key(_TEST_PREFIX, "whatever"))
+    service = StripeCheckoutService()
+    monkeypatch.setattr(service, "_stripe", type(
+        "S", (), {"checkout": type("C", (), {"Session": Session})()})())
+
+    result = service.list_recent_completed_payments()
+
+    assert result["available"] is True, result.get("reason", result)
+    assert len(result["payments"]) == 1
+    payment = result["payments"][0]
+    assert payment["plan"] == "starter", "the metadata plan must survive"
+    assert payment["amount_usd"] == 34.8
+    assert payment["email"] == "buyer@example.com"
+    assert payment["checkout_id"] == "cs_live_paid"
+    assert payment["provider"] == "stripe"
+    # …and the trap is still a trap: this is what used to kill the whole feed.
+    with pytest.raises(AttributeError):
+        Sessions.data[0].metadata.get("plan")

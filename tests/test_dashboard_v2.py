@@ -1249,3 +1249,84 @@ def test_dashboard_page_renders_all_the_new_sections(client):
     assert "setInterval(load, 45000)" in html  # "LIVE" really is live
 
 
+
+
+# ── 9. THE GUARDS PANEL: "no data" must never look like "the guard is dead" ──
+
+def test_a_missing_guards_section_is_not_painted_as_a_red_alarm(client):
+    """The owner's screen showed a RED lamp, the word СПРЯЛ and "undefined" in
+    every PAYMENT GUARDS card while the guards were provably alive
+    (lock_alive=True, C1 in PostgreSQL, consumed_total=1 live).
+
+    Cause: `renderGuards(s.guards || {})` — an ABSENT section became `{}`, and the
+    renderer read `undefined` as "the lock is dead". No data and a measured
+    failure must not look the same, and a numeric card must never print
+    "undefined". The lock's storage is also named from the payload: the panel kept
+    saying "SQLite" long after the lock moved to PostgreSQL.
+    """
+    test_client, _main, _dash = client
+    html = test_client.get("/dashboard").get_data(as_text=True)
+
+    # 1. the honest branch: unknown ⇒ amber + words, red ONLY for a failed probe
+    assert "typeof g.lock_alive === 'boolean'" in html
+    assert "НЯМА ДАННИ" in html
+    # 2. numbers fall back to a dash instead of the string "undefined"
+    assert "v === null || v === undefined ? '—'" in html
+    # 3. the backend is read from the payload, never hardcoded
+    assert "C1 replay-lock (SQLite " not in html
+    assert "g.lock_backend" in html
+
+    # the live payload still carries the real state (this is what "ЖИВ" renders)
+    guards = _sections(test_client)["guards"]
+    assert guards["lock_alive"] is True
+    assert guards["lock_backend"] in ("postgresql", "sqlite")
+
+
+# ── 10. THE STRIPE↔CRM LINK: cross-checked, never assumed ───────────────────
+
+def _set_stripe_snapshot(main, monkeypatch, **snapshot):
+    base = {"available": True, "payments": [], "state": "fresh",
+            "fetched_at": None, "reason": None}
+    base.update(snapshot)
+    monkeypatch.setattr(main, "_stripe_snapshot", base)
+
+
+def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
+    """`source` must name the feed that produced the ROWS (the CRM), and the Stripe
+    feed must be presented as a SECOND OPINION: its own list of paid sessions has
+    to agree with the CRM records on screen.
+
+    Until 17.09 nobody could tell whether they agreed, because one
+    `metadata.get("plan")` on a StripeObject raised every 60 seconds and the feed
+    reported `stripe_list_unavailable` — so the section showed "Stripe snapshot: не"
+    and fell back silently. All three states are now visible in words:
+    недостъпен / сверка ОК / РАЗЛИКА.
+    """
+    test_client, main, _dash = client
+
+    _set_stripe_snapshot(main, monkeypatch, available=False,
+                         reason="stripe_list_unavailable")
+    crm = _sections(test_client)["crm_stripe"]
+    assert crm["source"] == "crm_paid_events", "the label must name the CRM rows"
+    assert crm["stripe_link"]["status"] == "unavailable"
+    assert "недостъпен" in crm["stripe_link"]["detail"]
+
+    # Stripe agrees with the CRM (built from whatever the CRM actually holds)
+    _set_stripe_snapshot(main, monkeypatch, payments=[
+        {"amount_usd": i["amount_usd"], "plan": i["plan"],
+         "checkout_id": "cs_live_aligned", "provider": "stripe"}
+        for i in crm["items"]])
+    link = _sections(test_client)["crm_stripe"]["stripe_link"]
+    assert link["status"] == "in_sync", link
+    assert "съвпадат" in link["detail"]
+
+    # Stripe holds money the CRM does not know about — never silent
+    _set_stripe_snapshot(main, monkeypatch, payments=[
+        {"amount_usd": 99.0, "plan": "pro", "checkout_id": "cs_live_ghost",
+         "provider": "stripe"}])
+    link = _sections(test_client)["crm_stripe"]["stripe_link"]
+    assert link["status"] == "mismatch", link
+    assert "РАЗЛИКА" in link["detail"]
+
+    html = test_client.get("/dashboard").get_data(as_text=True)
+    assert 'id="crm-note"' in html and "stripe_link" in html

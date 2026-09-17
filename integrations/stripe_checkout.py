@@ -59,6 +59,26 @@ def redact(text: Any) -> str:
     return _KEY_RE.sub(lambda m: m.group(1) + "***", str(text))
 
 
+def stripe_field(obj: Any, name: str, default: Any = None) -> Any:
+    """Read one field from a Stripe API object OR a plain dict.
+
+    Modern stripe-python returns `StripeObject`s, which are NOT dicts: calling
+    `.get()` on them raises
+
+        AttributeError: 'get' is a dict method, but a StripeObject is not a dict.
+        Use .to_dict() to convert it.
+
+    On 17.09 that single call (`metadata.get("plan", "")`) made the whole Stripe
+    payment feed unavailable every 60 seconds, and the dashboard silently fell
+    back to the CRM list with `detail: "stripe_list_unavailable"` — a live feed
+    reported as broken with no clue in the payload about which line broke it.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    value = getattr(obj, name, default)
+    return default if value is None else value
+
+
 class StripeCheckoutService:
     """Create Stripe Checkout sessions and verify signed webhook events."""
 
@@ -321,19 +341,22 @@ class StripeCheckoutService:
                     break
 
                 for session in batch:
-                    if getattr(session, "payment_status", "") != "paid":
+                    if stripe_field(session, "payment_status", "") != "paid":
                         continue
-                    metadata = getattr(session, "metadata", {}) or {}
-                    customer_details = getattr(session, "customer_details", None)
+                    metadata = stripe_field(session, "metadata", {}) or {}
+                    customer_details = stripe_field(session, "customer_details",
+                                                    None)
                     payments.append(
                         {
-                            "checkout_id": getattr(session, "id", ""),
-                            "email": getattr(customer_details, "email", None)
-                            or getattr(session, "customer_email", ""),
-                            "amount_usd": float(getattr(session, "amount_total", 0) or 0) / 100,
-                            "currency": (getattr(session, "currency", "usd") or "usd").upper(),
-                            "plan": metadata.get("plan", ""),
-                            "created": getattr(session, "created", None),
+                            "checkout_id": stripe_field(session, "id", ""),
+                            "email": stripe_field(customer_details, "email", None)
+                            or stripe_field(session, "customer_email", ""),
+                            "amount_usd": float(stripe_field(session, "amount_total", 0) or 0) / 100,
+                            "currency": (stripe_field(session, "currency", "usd") or "usd").upper(),
+                            # NOT metadata.get(...): a StripeObject raises on .get()
+                            # and that one call killed the whole feed (17.09).
+                            "plan": stripe_field(metadata, "plan", ""),
+                            "created": stripe_field(session, "created", None),
                             "provider": "stripe",
                             "payment_status": "paid",
                         }

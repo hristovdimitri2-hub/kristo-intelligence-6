@@ -168,6 +168,7 @@
         <thead><tr><th>Дата</th><th>Клиент (маскиран)</th><th>План</th><th>Сума</th><th>Източник</th></tr></thead>
         <tbody id="crm-body"><tr><td colspan="5" class="empty">…</td></tr></tbody>
       </table>
+      <div class="note" id="crm-note" style="margin:8px 0;"></div>
     </div>
   </div>
 
@@ -280,19 +281,34 @@ function renderWhales(w) {
     ' · ' + (w.last_error ? 'ГРЕШКА: ' + w.last_error : (w.note || ''));
 }
 
+// A MISSING section is "no data yet", NOT "the guard is dead". The old version
+// painted a red lamp + the word СПРЯЛ and "undefined" in every card whenever the
+// payload had no guards section (seen by the owner mid-deploy) — a real alarm
+// signal used for a non-event on a healthy system. Red is now reserved for a
+// MEASURED failure (the lock probe ran and failed); an absent section is amber
+// and says so, in words.
 function renderGuards(g) {
   const cfg = g.config || {};
   const kinds = g.by_kind || {};
-  const lamp = g.lock_alive ? 'green' : 'red';
+  const known = typeof g.lock_alive === 'boolean';
+  const lamp = !known ? 'amber' : (g.lock_alive ? 'green' : 'red');
+  const num = v => (v === null || v === undefined ? '—' : v);
+  const lockLabel = 'C1 replay-lock (' + (g.lock_backend
+    ? esc(g.lock_backend) + (g.lock_durable ? ', durable' : ', НЕ е durable')
+    : esc(cfg.c1_table || 'хранилище неизвестно')) + ')';
   $('guard-cards').innerHTML =
-    card(`<span class="lamp ${lamp}"></span>${g.lock_alive ? 'ЖИВ' : 'СПРЯЛ'}`,
-         'C1 replay-lock (SQLite ' + esc(cfg.c1_table || '') + ')', true) +
-    card(g.consumed_total, 'Изразходвани плащания (еднократни)') +
-    card(g.blocked_total, `Блокирани опити (днес: ${g.blocked_today})`) +
-    card(cfg.c2_proof_confirmations, 'C2 потвърждения (proof рейл)') +
-    card(cfg.c2_standard_confirmations, 'C2 потвърждения (стандартен рейл)') +
-    card(cfg.h2_endpoint_binding ? 'да' : 'НЕ', 'H2 endpoint binding');
+    card(`<span class="lamp ${lamp}"></span>${!known ? 'НЯМА ДАННИ' : (g.lock_alive ? 'ЖИВ' : 'СПРЯЛ')}`,
+         lockLabel, true) +
+    card(num(g.consumed_total), 'Изразходвани плащания (еднократни)') +
+    card(num(g.blocked_total), `Блокирани опити (днес: ${num(g.blocked_today)})`) +
+    card(num(cfg.c2_proof_confirmations), 'C2 потвърждения (proof рейл)') +
+    card(num(cfg.c2_standard_confirmations), 'C2 потвърждения (стандартен рейл)') +
+    card(!known ? '—' : (cfg.h2_endpoint_binding ? 'да' : 'НЕ'), 'H2 endpoint binding');
   const bits = [];
+  if (!known) {
+    bits.push('секцията „Стражи" не пристигна в payload-а (напр. по време на deploy) — ' +
+      'това НЕ значи спрял страж: нулите тук са „не се знае", не „нула"');
+  }
   if (g.lock_probe_error) bits.push('проблем с lock-а: ' + g.lock_probe_error);
   if (g.last_claim_at) {
     bits.push('последно разрешено плащане: ' + utc(g.last_claim_at) +
@@ -403,11 +419,20 @@ function renderCrm(c) {
     ? '<span class="lamp green"></span>CRM хранилище: ' + esc(c.storage_backend) + ' (durable)'
     : '<span class="lamp amber"></span>CRM хранилище: ' + esc(c.storage_backend || 'unknown')
       + ' — ' + esc(c.storage_note || 'не е durable');
+  const link = c.stripe_link || {};
   $('crm-cards').innerHTML =
     card(usd2(c.total_usd), 'Off-chain приходи (CRM/Stripe)') +
     card(c.count, 'Платени записи') +
     card(esc(c.source), 'Източник') +
-    card(c.stripe_available ? 'свързан' : 'не', 'Stripe snapshot');
+    // The card answers a question the rows alone cannot: does Stripe's own list
+    // agree with the CRM records this table shows? "свързан" would only say the
+    // feed runs; the numbers are what can actually disagree.
+    card(link.status === 'in_sync' ? 'свързан · сверка ОК'
+         : link.status === 'mismatch' ? 'РАЗЛИКА' : 'не',
+         'Stripe snapshot');
+  $('crm-note').textContent = link.detail || '';
+  $('crm-note').style.color = link.status === 'mismatch' ? 'var(--red)'
+    : 'var(--muted)';
   const rows = (c.items || []).map(i =>
     `<tr><td class="num">${esc(i.date)}</td><td class="mono">${esc(i.customer)}</td>
      <td>${esc(i.plan || '—')}</td><td class="num">${usd2(i.amount_usd)}</td>

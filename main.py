@@ -3830,6 +3830,41 @@ def _canonical_dashboard_payload() -> dict:
     ]
     crm_total = round(sum(i["amount_usd"] for i in crm_items), 2)
 
+    # The Stripe↔CRM link, made explicit and CROSS-CHECKED. The rows below come
+    # from the CRM (one durable record per sale), so `source` names the CRM even
+    # when Stripe is reachable: a label reading "stripe" over CRM rows is a lie
+    # nobody can see. What Stripe IS good for is the second opinion — its own list
+    # of PAID sessions must agree with the CRM — and until 17.09 that feed was
+    # dead (one `StripeObject.get()` call raised, once a minute), so "does Stripe
+    # agree?" could not be answered at all.
+    stripe_payments = stripe.get("payments") or []
+    stripe_total = round(sum(float(p.get("amount_usd") or 0)
+                             for p in stripe_payments), 2)
+    if not stripe.get("available"):
+        stripe_status = "unavailable"
+    elif (len(stripe_payments) == len(crm_items)
+          and abs(stripe_total - crm_total) < 0.01):
+        stripe_status = "in_sync"
+    else:
+        stripe_status = "mismatch"
+    if stripe_status == "unavailable":
+        stripe_detail = ("Stripe snapshot недостъпен (%s) — числата идват само от "
+                         "CRM записите." % (stripe.get("reason") or "без обяснение"))
+    else:
+        stripe_detail = ("Stripe snapshot: %d плащане(и) на $%.2f — сверени с CRM "
+                         "($%.2f): %s"
+                         % (len(stripe_payments), stripe_total, crm_total,
+                            "съвпадат" if stripe_status == "in_sync" else "РАЗЛИКА"))
+    stripe_link = {
+        "status": stripe_status,
+        "available": bool(stripe.get("available")),
+        "state": stripe.get("state"),
+        "reason": stripe.get("reason"),
+        "count": len(stripe_payments),
+        "total_usd": stripe_total,
+        "detail": stripe_detail,
+    }
+
     onchain_total = sales["total_usdc"]
     # Priority-0 guard: the on-chain total must NEVER contain off-chain money.
     assert isinstance(onchain_total, (int, float))
@@ -3947,11 +3982,12 @@ def _canonical_dashboard_payload() -> dict:
             "crm_stripe": {
                 "label": "OFF-CHAIN — НЕ е включено в on-chain сумите",
                 "excluded_from_onchain": True,
-                "source": "stripe" if (stripe.get("available") and stripe.get("payments")) else "crm_paid_events",
+                "source": "crm_paid_events",
                 "count": len(crm_items),
                 "total_usd": crm_total,
                 "items": crm_items[:50],
                 "stripe_available": bool(stripe.get("available")),
+                "stripe_link": stripe_link,
                 # AUDIT A2: with DATABASE_URL unset the CRM is SQLite on the
                 # EPHEMERAL disk, so every deploy wipes leads, paid leads and
                 # the whole pipeline. The on-chain numbers are protected by the
