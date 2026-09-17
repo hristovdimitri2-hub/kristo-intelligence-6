@@ -241,13 +241,12 @@ def test_the_registry_server_json_is_generated_from_the_price_map(client):
             "%s: tool price is not the route price" % row["name"]
 
 
-def test_glama_json_is_the_documented_ownership_file(client):
-    """Glama's own schema requires exactly ONE key — `maintainers`, the GitHub
+def test_glama_server_ownership_file_is_served_verbatim(client):
+    """Glama's SERVER schema requires exactly ONE key — `maintainers`, the GitHub
     usernames allowed to maintain the server. The connector Glama holds for us is
-    `io.github.hristovdimitri2-hub/kristo-intelligence`, currently Unhealthy with
-    an EMPTY health-check URL and the legacy repo, so this file is what proves the
-    GitHub account may claim it. It is served verbatim from both paths a probe may
-    look at, and the file stays the single source of truth.
+    `io.github.hristovdimitri2-hub/kristo-intelligence`, so this file is what
+    proves the GitHub account may claim it. `/glama.json` serves it verbatim from
+    the repo — one source of truth (the file their repo probe reads too).
     """
     _test_client, main = client
     with open(REPO_ROOT + "/glama.json", encoding="utf-8") as handle:
@@ -257,10 +256,38 @@ def test_glama_json_is_the_documented_ownership_file(client):
     assert "hristovdimitri2-hub" in doc["maintainers"], \
         "the repo owner must be in maintainers or the claim cannot be verified"
 
-    for path in ("/glama.json", "/.well-known/glama.json"):
-        served = main.app.test_client().get(path)
-        assert served.status_code == 200, "%s -> %s" % (path, served.status_code)
-        assert served.get_json() == doc, "%s differs from the file" % path
+    served = main.app.test_client().get("/glama.json")
+    assert served.status_code == 200, "/glama.json -> %s" % served.status_code
+    assert served.get_json() == doc, "/glama.json differs from the file"
+
+
+def test_glama_connector_claim_is_live_at_the_well_known_path(client):
+    """Glama's CONNECTOR http challenge (their claim window, step 2) must be
+    served at `/.well-known/glama.json` — the exact URL that window points at —
+    carrying the EXACT document it shows. It is pure ownership proof: static, so
+    no wallet address, price or endpoint can ever leak through this route.
+    """
+    _test_client, main = client
+    path = REPO_ROOT + "/glama-connector-claim.json"
+    with open(path, "rb") as handle:
+        raw = handle.read()
+    doc = json.loads(raw)
+
+    assert doc == {
+        "$schema": "https://glama.ai/mcp/schemas/connector.json",
+        "claim": "glama_claim_e-w2Yrd4h6-G4ECF-YRdZ291LHRQ7kpH",
+    }, "the claim document must match Glama's window exactly"
+
+    served = main.app.test_client().get("/.well-known/glama.json")
+    assert served.status_code == 200, \
+        "/.well-known/glama.json -> %s" % served.status_code
+    assert served.mimetype == "application/json"
+    assert served.get_data() == raw, "the claim must be served verbatim"
+
+    text = raw.decode("utf-8").lower()
+    for banned in ("0xd4cda900839c0fed4374ee37ea0db8e4c6fd08f", "payto", "price",
+                   "usdc", "onrender"):
+        assert banned not in text, "the claim file leaks %r" % banned
 def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
     """Publishing the NEXT version must not require a code edit (`--version 6.0.1`),
     and a typo must be caught HERE rather than by `mcp-publisher publish` — the

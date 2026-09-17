@@ -265,10 +265,31 @@ def mcp_info():
     })
 
 
+def _repo_json_file(filename: str):
+    """Serve a JSON file from the repo root VERBATIM (no re-serialisation).
+
+    Verbatim on purpose: a claim file is compared as-is by third-party probes,
+    and jsonify() would re-order keys and re-escape the document.
+    """
+    import logging
+    import os as _os
+
+    repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))))
+    path = _os.path.join(repo_root, filename)
+    try:
+        with open(path, "rb") as handle:
+            return Response(handle.read(), mimetype="application/json")
+    except Exception as exc:                      # missing or unreadable
+        logging.getLogger(__name__).warning(
+            "%s could not be served from %s: %s", filename, path, exc)
+        return jsonify({"ok": False, "error": "claim_file_unavailable",
+                        "file": filename}), 503
+
+
 @discovery_bp.route("/glama.json")
-@discovery_bp.route("/.well-known/glama.json")
 def glama_json():
-    """Glama's ownership file, served where their probe can find it.
+    """Glama's SERVER ownership file (their listing probe looks here too).
 
     Glama's OWN schema (`https://glama.ai/mcp/schemas/server.json`) defines exactly
     one required key — `maintainers`, "GitHub usernames that have permission to
@@ -281,20 +302,20 @@ def glama_json():
     endpoint it health-checks (`{base}/mcp`), which is generated from our single
     price source.
     """
-    import json as _json
-    import logging
-    import os as _os
+    return _repo_json_file("glama.json")
 
-    repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
-        _os.path.abspath(__file__))))
-    path = _os.path.join(repo_root, "glama.json")
-    try:
-        with open(path, encoding="utf-8") as handle:
-            return jsonify(_json.load(handle))
-    except Exception as exc:                      # missing or unreadable
-        logging.getLogger(__name__).warning(
-            "glama.json could not be served from %s: %s", path, exc)
-        return jsonify({"ok": False, "error": "glama_json_unavailable"}), 503
+
+@discovery_bp.route("/.well-known/glama.json")
+def glama_connector_claim():
+    """Glama's CONNECTOR HTTP challenge (step 2 of their claim window).
+
+    A different document from the server-ownership file above, and a different
+    schema (`.../schemas/connector.json`): it is the one-time `claim` token their
+    window shows, bound to the owner's Glama account, served so their
+    "Check HTTP challenge" button can read it back. Static by design — no
+    addresses, prices or endpoints — so it can never disturb the payment layer.
+    """
+    return _repo_json_file("glama-connector-claim.json")
 
 
 @discovery_bp.route("/api/mcp/manifest")
