@@ -50,8 +50,12 @@ def _usd(value) -> float:
     return round(float(value), 6)
 
 
-def build() -> dict:
-    """Assemble the document from the app's own sources of truth."""
+def build(version: str = VERSION) -> dict:
+    """Assemble the document from the app's own sources of truth.
+
+    `version` is a parameter (CLI: `--version 6.0.1`) so a future release does not
+    need a code edit — bumping the version and republishing is the whole ritual.
+    """
     import main
     from app.blueprints.discovery import _mcp_tools
 
@@ -87,7 +91,7 @@ def build() -> dict:
         "description": (
             "Pay-per-call DeFi intelligence for AI agents on Base — x402, USDC, "
             "no keys."),
-        "version": VERSION,
+        "version": version,
         "websiteUrl": BASE_URL,
         "repository": {
             "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6",
@@ -149,6 +153,11 @@ def validate(doc: dict) -> list:
     for field in ("name", "description", "version"):
         if not doc.get(field):
             problems.append("missing required field: %s" % field)
+    # The registry REJECTS version ranges ("^1.2.3", "~1.2.3", ">=1.2.3", "1.x"),
+    # so a `--version` typo must be caught here rather than by `publish`.
+    version = str(doc.get("version") or "")
+    if version and not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        problems.append("version must be plain semver, never a range: %r" % version)
     for field, (low, high, pattern) in _LIMITS.items():
         value = doc.get(field)
         if value is None:
@@ -180,11 +189,13 @@ def validate(doc: dict) -> list:
 
 def main_cli() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--version", default=VERSION,
+                    help="the registry version to publish (default %s)" % VERSION)
     ap.add_argument("--check", action="store_true",
                     help="do not write; fail if the file is out of date")
     args = ap.parse_args()
 
-    doc = build()
+    doc = build(args.version)
     problems = validate(doc)
     if problems:
         print("x server.json would be INVALID:")

@@ -261,3 +261,27 @@ def test_glama_json_is_the_documented_ownership_file(client):
         served = main.app.test_client().get(path)
         assert served.status_code == 200, "%s -> %s" % (path, served.status_code)
         assert served.get_json() == doc, "%s differs from the file" % path
+def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
+    """Publishing the NEXT version must not require a code edit (`--version 6.0.1`),
+    and a typo must be caught HERE rather than by `mcp-publisher publish` — the
+    registry rejects version ranges outright ("^1.2.3", "~1.2.3", ">=1.2.3", "1.x").
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_registry_server_json",
+        os.path.join(REPO_ROOT, "scripts", "build_registry_server_json.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.build()["version"] == module.VERSION == "6.0.0"
+    bumped = module.build("6.0.1")
+    assert bumped["version"] == "6.0.1"
+    assert module.validate(bumped) == [], module.validate(bumped)
+    # the bump changes ONLY the version — prices, remotes and tools are the same
+    assert {k: v for k, v in bumped.items() if k != "version"} == \
+        {k: v for k, v in module.build().items() if k != "version"}
+
+    for bad in ("^6.0.0", "~6.0.0", ">=6.0.0", "6.x", "6.0", ""):
+        problems = module.validate(dict(bumped, version=bad))
+        assert any("version" in p for p in problems), (bad, problems)

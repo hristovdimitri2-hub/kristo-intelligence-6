@@ -224,7 +224,30 @@ schema и се сервира идентично от двата пътя.
   $0.10/обаждане;
 - ⚠️ CLI токенът остава в `~/.config/mcp-publisher/token.json` и дава права за
   публикуване върху **целия** namespace `io.github.hristovdimitri2-hub/*` —
-  `mcp-publisher logout` го изчиства, когато не е нужен (нова авторизация = 30 s).
+  `mcp-publisher logout` може да го изчисти, но **токенът ОСТАВА (решение на
+  собственика, 17.09)** — следващите версии ще се публикуват със същата авторизация.
+
+  **Рисковата бележка (namespace-wide — цитат от тяхната документация):** „когато се
+  автентикираш към **организационен** namespace, полученият registry token може да
+  публикува — **и да презаписва** — **всеки** сървър под `io.github.<org>/*`, не само
+  този в репото". Тук това е `io.github.hristovdimitri2-hub/*` ⇒ права върху целия
+  профил. Затова: (1) файлът **никога** не влиза в git, чат или CI без GitHub
+  Environment secret; (2) само този Windows профил трябва да може да го чете;
+  (3) JWT-ът изтича — при `Invalid or expired Registry JWT token` се пуска
+  `mcp-publisher login github` (нов device flow, ~30 s); (4) за CI/отдалечен достъп —
+  отделен токен в Environment secret с required reviewer, не копие на този файл.
+
+  **🛠 Локален инструментариум (извън репото, запазен нарочно, 17.09):**
+  **`C:\Users\<потребител>\Desktop\_mcp_publisher\`** — официалният `mcp-publisher.exe`
+  (v1.8.1, sha256 сверен с публикувания digest `399ad0d6…`), `prep.py` (сваляне +
+  validate), `publish.py` (чака login → publish → жива проверка), `verify.py`,
+  `retire_legacy.py`, `status_check.py`, `log_check.py` + логовете от device flow-а.
+  **Нищо от това не е в git.** Ритуалът за следваща версия:
+  `python -X utf8 scripts/build_registry_server_json.py --version 6.0.1` (генерира
+  `server.json` от `X402_PRICE_MAP`) → `.\mcp-publisher.exe validate` →
+  `.\mcp-publisher.exe publish` (от папката на проекта); проверка —
+  `python -X utf8 _mcp_publisher\verify.py` или техния API
+  (`/v0.1/servers?search=hristovdimitri2` → `isLatest: true` + верен URL).
 
 ## 💳 ПЪРВОТО ЧОВЕШКО ПЛАЩАНЕ (16.09): $29 Starter — пътят карта→Stripe→webhook→CRM→табло е доказан докрай
 
