@@ -2,6 +2,35 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 📮 PULSEMCP (19.09) — статус: **ЧАКА ПОДАВАНЕ** (не автоматично, не ръчно)
+
+Жива read-only проверка (17.09 UTC) **не потвърждава**, че формата е отворена:
+
+- `pulsemcp.com/servers?q=kristo` → **НЕ сме там**: 5 резултата, всички чужди
+  (`kjozsa-git`, `kjozsa-jenkins`, `krzko-google-cloud`, `kristofferstrube-blazor-webmcp`,
+  `agentcrush`). Нула наши записи;
+- `pulsemcp.com/submit` → „submissions and changes are **temporarily paused**" ·
+  *Last updated: September 3, 2026*; банерът на `/servers` повтаря „**still paused**" ⇒
+  автоматичното взимане от Registry-то още не се е случило;
+- техният `/api` казва откъде пълнят директорията: ръчни подавания + scraping + **интеграция
+  с официалния MCP Registry** ⇒ каналът, по който ще ни вземат, е Registry-ът, а той вече ни
+  държи правилно: **v6.0.0 · isLatest=True · active** · `/mcp` + `/mcp/sse` ·
+  repo `kristo-intelligence-6` · pricing **0.003–0.005 USDC**;
+- директорията им: **21 880** сървъра.
+
+**Затова нищо не се подава и нищо не се праща.** Готовата заявка е записана в
+**`docs/PULSEMCP_SUBMISSION_READY.md`** (копи-пейст блок + ръчни стъпки за собственика).
+Данните в нея са сверени на живо: URL `/mcp` ✅ · трите tools (`get_market_stats`,
+`get_onchain_sales`, `get_bot_status`) ✅ · цени **$0.003–$0.005 от `X402_PRICE_MAP`** ✅ ·
+repo `hristovdimitri2-hub/kristo-intelligence-6` ✅ · **нула стари цени и фантоми** ✅
+(„$0.05/call" и „1 free call" не съществуват вече в нито един наш публичен текст — махнати
+днес и от двата PR-а; sweep-тестът пази твърденията).
+
+**Следващата стъпка е човешка:** щом банерът „still paused" изчезне (или дойде тяхно
+съобщение), първо се проверява дали не сме се появили **автоматично** през Registry-то —
+тогава само сверка на данните, без подаване; ако още ни няма — подаване от готовия блок.
+
+
 ## ⏱ RENDER ЧАСОВЕ (17.09): предупреждението „70%" НЕ застрашава нашия API — той е на **Starter**
 
 **Най-важната находка, преди всичко останало:** `kristo-intelligence-api` е на план
