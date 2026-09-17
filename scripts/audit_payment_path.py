@@ -100,8 +100,9 @@ for e in completed[:5]:
           % (mask_email((obj.get("customer_details") or {}).get("email")
                         or obj.get("customer_email")),
              json.dumps(obj.get("metadata") or {})))
+event_delivered = any((e.get("pending_webhooks") == 0) for e in completed)
 
-print("\n=== 2. REFUNDS (the owner still has to do this) ===")
+print("\n=== 2. REFUNDS (money going back out) ===")
 refunds = requests.get("https://api.stripe.com/v1/refunds", headers=auth,
                        params={"limit": 5}, timeout=60).json()
 print("    refunds found:", len(refunds.get("data", [])))
@@ -109,10 +110,14 @@ for r in refunds.get("data", []):
     print("    %s | %s | $%.2f | status=%s"
           % (r.get("id"), ts(r.get("created")), (r.get("amount") or 0) / 100.0,
              r.get("status")))
+stripe_refunded_total = round(sum(
+    (r.get("amount") or 0) for r in refunds.get("data", [])
+    if (r.get("status") or "") in ("succeeded", "pending")) / 100.0, 2)
 
 print("\n=== 3. CRM (Postgres, via the admin API) ===")
 leads = requests.get(BASE + "/api/admin/leads",
                      headers={"X-Admin-Token": admin}, timeout=90)
+the_lead = {}
 print("    GET /api/admin/leads →", leads.status_code)
 if leads.status_code == 200:
     body = leads.json()
@@ -120,6 +125,7 @@ if leads.status_code == 200:
     print("    total leads:", body.get("total"))
     for lead in body.get("leads", []):
         if lead.get("email", "").lower() == LEAD_EMAIL:
+            the_lead = lead
             print("    ── THE PAID LEAD ──")
             print(json.dumps({k: (mask_email(v) if k == "email" else v)
                               for k, v in lead.items()},
@@ -265,3 +271,29 @@ for entry in receipt.get("logs", []):
         found = True
         break
 print("    Transfer log found:", found)
+
+print("\n=== VERDICT: the four greens ===")
+crm_refunded = round(float(the_lead.get("refund_usd") or 0), 2)
+greens = {
+    "stripe event delivered": event_delivered,
+    "refund recorded in Stripe": stripe_refunded_total > 0,
+    "payment facts in CRM": bool(the_lead.get("paid_at")
+                                 and the_lead.get("checkout_id")),
+    # The point of the 17.09 fix: the book must COUNT what came back, and its
+    # number must equal Stripe's — a refund visible in Stripe but invisible in the
+    # CRM is money missing from our own records.
+    "refunds visible in CRM": (crm_refunded > 0
+                               and bool(the_lead.get("refunded_at"))
+                               and abs(crm_refunded - stripe_refunded_total) < 0.01),
+}
+for name, ok in greens.items():
+    print("    %-28s %s" % (name, "GREEN" if ok else "RED"))
+print("    CRM refunded $%.2f · Stripe refunded $%.2f · refunded_at=%s"
+      % (crm_refunded, stripe_refunded_total,
+         the_lead.get("refunded_at") or "(unset)"))
+if all(greens.values()):
+    print("    ALL FOUR GREEN — the payment path AND the refund path agree end "
+          "to end.")
+    raise SystemExit(0)
+print("    NOT ALL GREEN: %s" % ", ".join(k for k, v in greens.items() if not v))
+raise SystemExit(1)

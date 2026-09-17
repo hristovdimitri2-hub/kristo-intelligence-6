@@ -421,7 +421,12 @@ function renderCrm(c) {
       + ' — ' + esc(c.storage_note || 'не е durable');
   const link = c.stripe_link || {};
   $('crm-cards').innerHTML =
-    card(usd2(c.total_usd), 'Off-chain приходи (CRM/Stripe)') +
+    card(usd2(c.total_usd), 'Off-chain приходи (платено)') +
+    // Paid and refunded are separate numbers on purpose: the sale happened AND
+    // the money came back — one figure cannot say both.
+    card(c.refunded_usd ? '− ' + usd2(c.refunded_usd) : usd2(0),
+         'Върнато (' + (c.refunded_count || 0) + ' от ' + (c.count || 0) + ')') +
+    card(usd2(c.net_usd != null ? c.net_usd : c.total_usd), 'Нетно') +
     card(c.count, 'Платени записи') +
     card(esc(c.source), 'Източник') +
     // The card answers a question the rows alone cannot: does Stripe's own list
@@ -430,12 +435,15 @@ function renderCrm(c) {
     card(link.status === 'in_sync' ? 'свързан · сверка ОК'
          : link.status === 'mismatch' ? 'РАЗЛИКА' : 'не',
          'Stripe snapshot');
-  $('crm-note').textContent = link.detail || '';
+  $('crm-note').textContent = [c.refund_note, link.detail]
+    .filter(Boolean).join(' · ');
   $('crm-note').style.color = link.status === 'mismatch' ? 'var(--red)'
     : 'var(--muted)';
   const rows = (c.items || []).map(i =>
     `<tr><td class="num">${esc(i.date)}</td><td class="mono">${esc(i.customer)}</td>
-     <td>${esc(i.plan || '—')}</td><td class="num">${usd2(i.amount_usd)}</td>
+     <td>${esc(i.plan || '—')}</td><td class="num">${usd2(i.amount_usd)}${i.refunded_usd
+        ? '<br><span class="bad">− ' + usd2(i.refunded_usd) + ' върнато</span>'
+        : ''}</td>
      <td>${esc(i.provider)}${i.checkout_id
         ? ' · <span class="mono" title="' + esc(i.checkout_id) + '">Stripe '
           + esc(short(i.checkout_id, 14)) + '…</span>' : ''}</td></tr>`);

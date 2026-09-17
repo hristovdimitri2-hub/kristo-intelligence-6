@@ -603,3 +603,148 @@ def test_the_paid_webhook_records_the_event_time_and_reports_it_once(
     assert "plan=starter" in money_lines[0] and "$34.80" in money_lines[0]
     assert "2026-09-16T08:56:08" in money_lines[0]
     assert "gergana@example.com" not in money_lines[0], "emails stay masked"
+def _refund_payload(event_created=1789626210):
+    """A `charge.refunded` event shaped exactly like Stripe's own."""
+    return {
+        "type": "charge.refunded",
+        "created": event_created,
+        "data": {"object": {
+            "id": "ch_3UGEdKPz7WIGP94b0H7e62si",
+            "object": "charge",
+            "amount": 3480,
+            "amount_refunded": 3480,
+            "billing_details": {"email": "gergana@example.com"},
+            "refunds": {"data": [{"id": "re_3UGEdKPz7WIGP94b0eWVeE61",
+                                  "amount": 3480,
+                                  "created": event_created}]},
+        }},
+    }
+
+
+def test_the_refund_webhook_marks_the_sale_and_reports_it(client, monkeypatch,
+                                                          caplog, tmp_path):
+    """The refund path did not exist before 17.09: the endpoint was not subscribed
+    to any refund event, so a refunded sale stayed "paid" everywhere while the money
+    was gone. Now one refund event marks the row (refund_usd / refunded_at) and logs
+    ONE line — the money path is audible on the way back too.
+    """
+    import logging
+    from datetime import datetime, timezone
+
+    from integrations.crm_store import CRMStore
+
+    test_client, main = client
+    monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
+    main.crm_store.add_lead(main.LeadRecord(
+        email="gergana@example.com", source="website", campaign="launch",
+        plan="Starter"))
+    main.crm_store.mark_paid("gergana@example.com", 34.80, "starter",
+                             checkout_id="cs_live_first_paid",
+                             paid_at="2026-09-16T08:56:08+00:00")
+    monkeypatch.setattr(main.stripe_checkout, "verify_webhook",
+                        lambda _payload, _signature: _refund_payload())
+
+    with caplog.at_level(logging.INFO, logger="kristo.v6.main"):
+        response = test_client.post("/api/webhooks/stripe", data=b"{}",
+                                    headers={"Stripe-Signature": "test"})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "refunded", body
+    assert body["amount_usd"] == 34.80 and body["refunded_usd"] == 34.80
+    assert body["checkout_id"] == "cs_live_first_paid"
+
+    stored = main.crm_store.find_by_email("gergana@example.com")
+    assert stored["refund_usd"] == 34.80
+    assert stored["refunded_at"] == datetime.fromtimestamp(
+        1789626210, tz=timezone.utc).isoformat(), "the refund's own timestamp"
+    assert stored["payment_status"] == "paid", "the sale itself is unchanged"
+
+    refund_lines = [r.getMessage() for r in caplog.records
+                    if "refund received" in r.getMessage()]
+    assert len(refund_lines) == 1, refund_lines
+    assert "checkout_id=cs_live_first_paid" in refund_lines[0]
+    assert "amount=$34.80" in refund_lines[0]
+    assert "refunded_total=$34.80" in refund_lines[0]
+    assert "gergana@example.com" not in refund_lines[0], "emails stay masked"
+
+
+def test_a_refund_for_an_unpaid_lead_is_refused(client, monkeypatch, caplog,
+                                                tmp_path):
+    """Refund BEFORE payment (the edge case): the lead exists but was never paid.
+    `mark_refund` refuses, the handler answers 200 with that verdict, and nothing is
+    written — a return of money we never booked would be a negative sale."""
+    import logging
+
+    from integrations.crm_store import CRMStore
+
+    test_client, main = client
+    monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
+    main.crm_store.add_lead(main.LeadRecord(
+        email="gergana@example.com", source="website", campaign="launch",
+        plan="Starter"))                      # pending, never paid
+    monkeypatch.setattr(main.stripe_checkout, "verify_webhook",
+                        lambda _payload, _signature: _refund_payload())
+
+    with caplog.at_level(logging.WARNING, logger="integrations.crm_store"):
+        response = test_client.post("/api/webhooks/stripe", data=b"{}",
+                                    headers={"Stripe-Signature": "test"})
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "refund_refused_not_paid"
+    stored = main.crm_store.find_by_email("gergana@example.com")
+    assert not stored["refunded_at"] and float(stored["refund_usd"] or 0) == 0.0
+    assert stored["payment_status"] != "paid"
+    assert any("Refusing a refund" in r.getMessage() for r in caplog.records)
+def test_the_refund_path_sits_behind_a_real_signature(client, monkeypatch,
+                                                      tmp_path):
+    """The strongest local version of "verify with a real delivery": the body is
+    signed the way Stripe signs it (HMAC-SHA256 over `t.payload` with the endpoint's
+    secret) and verified by the Stripe SDK itself — the verification is NOT
+    monkeypatched, so the refund branch is proven to work BEHIND the signature
+    check. A tampered signature is still rejected with 400.
+    """
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    import stripe
+
+    from integrations.crm_store import CRMStore
+
+    test_client, main = client
+    secret = _WEBHOOK_PREFIX + "refund_signature_probe"   # assembled at runtime
+    monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
+    main.crm_store.add_lead(main.LeadRecord(
+        email="gergana@example.com", source="website", campaign="launch",
+        plan="Starter"))
+    main.crm_store.mark_paid("gergana@example.com", 34.80, "starter",
+                             checkout_id="cs_live_first_paid",
+                             paid_at="2026-09-16T08:56:08+00:00")
+    monkeypatch.setattr(main.stripe_checkout, "webhook_secret", secret)
+    monkeypatch.setattr(main.stripe_checkout, "_stripe", stripe)
+
+    payload = json.dumps(_refund_payload(), separators=(",", ":")).encode()
+    timestamp = int(time.time())
+
+    def signature_for(body, stamp):
+        signed = ("%d.%s" % (stamp, body.decode())).encode()
+        digest = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+        return "t=%d,v1=%s" % (stamp, digest)
+
+    accepted = test_client.post(
+        "/api/webhooks/stripe", data=payload,
+        headers={"Stripe-Signature": signature_for(payload, timestamp),
+                 "Content-Type": "application/json"})
+    assert accepted.status_code == 200, accepted.get_data(as_text=True)
+    assert accepted.get_json()["status"] == "refunded"
+    assert main.crm_store.find_by_email("gergana@example.com")["refund_usd"] \
+        == 34.80
+
+    tampered = test_client.post(
+        "/api/webhooks/stripe", data=payload,
+        headers={"Stripe-Signature": signature_for(payload, timestamp)[:-4]
+                 + "beef", "Content-Type": "application/json"})
+    assert tampered.status_code == 400
+    assert tampered.get_json()["error"] == "invalid_signature"

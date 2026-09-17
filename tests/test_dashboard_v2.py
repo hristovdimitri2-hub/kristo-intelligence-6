@@ -1330,3 +1330,36 @@ def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
 
     html = test_client.get("/dashboard").get_data(as_text=True)
     assert 'id="crm-note"' in html and "stripe_link" in html
+# ── 11. REFUNDS ON SCREEN: paid, refunded and net are three numbers ─────────
+
+def test_the_offchain_section_separates_paid_from_refunded(client, monkeypatch,
+                                                           tmp_path):
+    """A refunded sale must stay visible as a SALE while the return is its own
+    number. Until 17.09 the section showed $34.80 "платено" and nothing else, even
+    after the money was returned — the dashboard would have kept counting money that
+    was no longer there.
+    """
+    test_client, main, _dash = client
+    from integrations.crm_store import CRMStore
+
+    store = CRMStore(tmp_path / "crm.db")
+    monkeypatch.setattr(main, "crm_store", store)
+    store.add_lead(main.LeadRecord(email="buyer@example.com", source="website",
+                                   campaign="launch", plan="Starter"))
+    store.mark_paid("buyer@example.com", 34.80, "starter",
+                    checkout_id="cs_live_first_paid",
+                    paid_at="2026-09-16T08:56:08+00:00")
+    store.mark_refund("buyer@example.com", 34.80, "2026-09-17T06:23:30+00:00")
+
+    crm = _sections(test_client)["crm_stripe"]
+    assert crm["total_usd"] == 34.80, "the sale is what was charged"
+    assert crm["refunded_usd"] == 34.80 and crm["refunded_count"] == 1
+    assert crm["net_usd"] == 0.0, "net = paid − refunded"
+    assert crm["refund_note"] == "върнати: $34.80 (1 от 1)"
+    item = crm["items"][0]
+    assert item["refunded_usd"] == 34.80 and item["refunded_at"]
+    assert item["checkout_id"] == "cs_live_first_paid"
+
+    html = test_client.get("/dashboard").get_data(as_text=True)
+    assert "Върнато (" in html, "the refund card must be on the page"
+    assert "refund_note" in html, "the note line must be rendered"

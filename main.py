@@ -3301,6 +3301,62 @@ def api_agent_access(agent_id: str):
     )
 
 
+def _refund_event_details(event_type: str, event_data: dict,
+                          payload: dict) -> Optional[dict]:
+    """Read the refund facts out of either refund event, in ONE shape.
+
+    `charge.refunded` is self-sufficient: the charge carries the customer and the
+    CUMULATIVE `amount_refunded`, so two partial refunds add up. `refund.created`
+    carries the refund object itself — and no email — so the charge is fetched once
+    to resolve the customer; if THAT call fails the caller answers 503 and Stripe
+    retries, rather than writing a refund against the wrong (or no) customer.
+    """
+    def _iso(seconds):
+        try:
+            return datetime.fromtimestamp(int(seconds),
+                                          tz=timezone.utc).isoformat()
+        except (TypeError, ValueError):
+            return ""
+
+    when = _iso(payload.get("created"))
+
+    if event_type == "charge.refunded":
+        charge = event_data or {}
+        refunds = ((charge.get("refunds") or {}).get("data") or [])
+        latest = refunds[-1] if refunds else {}
+        billing = charge.get("billing_details") or {}
+        return {
+            "email": (billing.get("email")
+                      or charge.get("receipt_email") or "").strip(),
+            "amount_usd": float(latest.get("amount")
+                                or charge.get("amount_refunded") or 0) / 100.0,
+            "refund_usd": float(charge.get("amount_refunded") or 0) / 100.0,
+            "refunded_at": _iso(latest.get("created")) or when,
+            "charge_id": charge.get("id") or "",
+            "refund_id": latest.get("id") or "",
+        }
+
+    if event_type == "refund.created":
+        refund = event_data or {}
+        charge_id = (refund.get("charge") or "").strip()
+        charge = stripe_checkout.retrieve_charge(charge_id) if charge_id else None
+        if charge is None:
+            return {"lookup_failed": True, "charge_id": charge_id}
+        billing = charge.get("billing_details") or {}
+        return {
+            "email": (billing.get("email")
+                      or charge.get("receipt_email") or "").strip(),
+            "amount_usd": float(refund.get("amount") or 0) / 100.0,
+            "refund_usd": float(charge.get("amount_refunded")
+                                or refund.get("amount") or 0) / 100.0,
+            "refunded_at": _iso(refund.get("created")) or when,
+            "charge_id": charge_id,
+            "refund_id": refund.get("id") or "",
+        }
+
+    return None
+
+
 @app.route("/api/webhooks/stripe", methods=["POST"])
 def stripe_webhook_handler():
     """Stripe-compatible webhook handler for payment confirmation."""
@@ -3418,6 +3474,46 @@ def stripe_webhook_handler():
                 "vip_access": vip_access["status"],
             })
 
+    if event_type in {"charge.refunded", "refund.created"}:
+        # Money going BACK OUT. Until 17.09 this path did not exist at all: the
+        # endpoint was not subscribed to any refund event, so a refunded sale stayed
+        # "paid" everywhere while the money was gone. One INFO line per refund makes
+        # the return audible, exactly like the payment path.
+        details = _refund_event_details(event_type, event_data, payload)
+        if details is None:
+            return jsonify({"ok": True, "status": "refund_unrecognised",
+                            "event_type": event_type})
+        if details.get("lookup_failed"):
+            # a provider hiccup, not a verdict: let Stripe retry the delivery
+            return jsonify({"ok": True, "status": "refund_lookup_unavailable"}), 503
+        email = details.get("email", "")
+        if not email:
+            log.warning("Refund event %s carries no customer (charge=%s) — nothing "
+                        "to match against the CRM.", event_type,
+                        details.get("charge_id"))
+            return jsonify({"ok": True, "status": "refund_without_customer"})
+        if crm_store.find_by_email(email) is None:
+            log.warning("Ignoring a refund for an unknown CRM lead.")
+            return jsonify({"ok": True, "status": "ignored_unknown_lead"})
+        marked = crm_store.mark_refund(email, details["refund_usd"],
+                                      details["refunded_at"])
+        if marked is None:
+            # mark_refund refuses anything that is not already paid — by design
+            return jsonify({"ok": True, "status": "refund_refused_not_paid",
+                            "event_type": event_type})
+        log.info("Stripe refund received: checkout_id=%s amount=$%.2f "
+                 "refunded_total=$%.2f refund_id=%s customer=%s",
+                 marked.get("checkout_id") or "(unknown)", details["amount_usd"],
+                 details["refund_usd"], details.get("refund_id") or "(none)",
+                 _mask_email(email))
+        return jsonify({
+            "ok": True,
+            "status": "refunded",
+            "checkout_id": marked.get("checkout_id") or "",
+            "amount_usd": details["amount_usd"],
+            "refunded_usd": details["refund_usd"],
+        })
+
     return jsonify({"ok": True, "received": True, "event_type": event_type})
 
 
@@ -3472,6 +3568,9 @@ def _admin_overview_payload() -> dict:
             # The sale happened when the MONEY arrived, not when the lead was made.
             "created": lead.get("paid_at") or lead.get("created_at", ""),
             "checkout_id": lead.get("checkout_id", ""),
+            # A refund is its own fact, not a change of what was paid.
+            "refunded_usd": round(float(lead.get("refund_usd") or 0), 2),
+            "refunded_at": lead.get("refunded_at", ""),
             "provider": "crm_paid_event",
             "payment_status": "paid",
         }
@@ -3854,11 +3953,22 @@ def _canonical_dashboard_payload() -> dict:
             # one).
             "paid_at": l.get("paid_at") or "",
             "checkout_id": l.get("checkout_id") or "",
+            # Money going back OUT, kept SEPARATE from what was paid: a refunded
+            # sale is still a sale that happened, and folding the return into the
+            # paid figure would be the same class of lie as a phantom price.
+            "refunded_usd": round(float(l.get("refund_usd") or 0), 2),
+            "refunded_at": l.get("refunded_at") or "",
             "provider": "crm_paid_event",
         }
         for l in paid_leads
     ]
     crm_total = round(sum(i["amount_usd"] for i in crm_items), 2)
+    refunded_total = round(sum(i["refunded_usd"] for i in crm_items), 2)
+    refunded_count = sum(1 for i in crm_items if (i["refunded_usd"] or 0) > 0)
+    net_total = round(crm_total - refunded_total, 2)
+    refund_note = ("върнати: $%.2f (%d от %d)" % (refunded_total, refunded_count,
+                                                  len(crm_items))
+                   if refunded_total else "няма върнати суми")
 
     # The Stripe↔CRM link, made explicit and CROSS-CHECKED. The rows below come
     # from the CRM (one durable record per sale), so `source` names the CRM even
@@ -4015,6 +4125,12 @@ def _canonical_dashboard_payload() -> dict:
                 "source": "crm_paid_events",
                 "count": len(crm_items),
                 "total_usd": crm_total,
+                # Paid / refunded / net, all three visible: the sale figure stays
+                # what was charged, and the return is its own number (17.09).
+                "refunded_usd": refunded_total,
+                "refunded_count": refunded_count,
+                "net_usd": net_total,
+                "refund_note": refund_note,
                 "items": crm_items[:50],
                 "stripe_available": bool(stripe.get("available")),
                 "stripe_link": stripe_link,

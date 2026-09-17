@@ -95,3 +95,95 @@ def test_an_old_database_gains_the_payment_columns_in_place(tmp_path):
     store.mark_paid("first@example.com", 34.8, "Starter",
                     checkout_id="cs_live_old", paid_at=PAID_AT)
     assert store.find_by_email("first@example.com")["checkout_id"] == "cs_live_old"
+# ── REFUNDS: the mirror of the payment facts, with ONE writer ───────────────
+
+REFUND_AT = "2026-09-17T06:23:30+00:00"
+
+
+def test_mark_refund_records_the_return_and_add_lead_cannot_touch_it(tmp_path):
+    """`mark_refund` is the ONLY writer of refund facts — exactly like `mark_paid`
+    for payments. A refunded sale is still a sale that happened, so the payment
+    facts stay exactly as they were and the return is its own pair of fields.
+    """
+    store = CRMStore(tmp_path / "crm.db")
+    store.add_lead(_lead())
+    store.mark_paid("buyer@example.com", 34.80, "starter",
+                    checkout_id=CHECKOUT, paid_at=PAID_AT)
+
+    refunded = store.mark_refund("buyer@example.com", 34.80, REFUND_AT)
+
+    assert refunded["refund_usd"] == 34.80
+    assert refunded["refunded_at"] == REFUND_AT
+    # the sale itself is untouched
+    assert refunded["payment_status"] == "paid"
+    assert refunded["amount_usd"] == 34.80 and refunded["paid_at"] == PAID_AT
+
+    # a re-submitted form carries "pending"/$0 and no refund fields: it must not
+    # erase the return either
+    again = store.add_lead(_lead(utm_source="twitter"))
+    assert again["refund_usd"] == 34.80 and again["refunded_at"] == REFUND_AT
+    assert again["payment_status"] == "paid"
+
+
+def test_a_refund_before_its_payment_is_refused_by_design(tmp_path, caplog):
+    """Money that was never booked as received cannot be refunded on the books:
+    the refusal is the correct answer, and it is LOGGED (a silent no-op would look
+    like a recorded refund)."""
+    import logging
+
+    store = CRMStore(tmp_path / "crm.db")
+    store.add_lead(_lead())                      # exists, but payment_status=pending
+
+    with caplog.at_level(logging.WARNING, logger="integrations.crm_store"):
+        refused = store.mark_refund("buyer@example.com", 34.80, REFUND_AT)
+
+    assert refused is None, "refund before payment must not be written"
+    stored = store.find_by_email("buyer@example.com")
+    assert stored["refund_usd"] in (0, 0.0, None) and not stored["refunded_at"]
+    assert any("Refusing a refund" in r.getMessage() for r in caplog.records)
+    assert "buyer@example.com" not in caplog.text, "emails stay masked in logs"
+
+
+def test_partial_refunds_accumulate_through_the_cumulative_amount(tmp_path):
+    """Stripe reports `amount_refunded` CUMULATIVELY, and that is what the handler
+    stores: two partial refunds must add up, never overwrite each other."""
+    store = CRMStore(tmp_path / "crm.db")
+    store.add_lead(_lead())
+    store.mark_paid("buyer@example.com", 34.80, "starter",
+                    checkout_id=CHECKOUT, paid_at=PAID_AT)
+
+    store.mark_refund("buyer@example.com", 10.00, "2026-09-17T07:00:00+00:00")
+    final = store.mark_refund("buyer@example.com", 34.80, REFUND_AT)
+
+    assert final["refund_usd"] == 34.80, "the cumulative total, not the last part"
+    assert final["refunded_at"] == REFUND_AT
+
+
+def test_an_old_database_gains_the_refund_columns_in_place(tmp_path):
+    """The live CRM predates these columns too: they are ALTERed in, and the row
+    holding the first sale survives."""
+    path = tmp_path / "old.db"
+    with sqlite3.connect(str(path)) as conn:
+        conn.execute(
+            """CREATE TABLE leads (
+                email TEXT PRIMARY KEY, source TEXT, campaign TEXT,
+                utm_source TEXT, utm_medium TEXT, utm_campaign TEXT,
+                status TEXT DEFAULT 'new', created_at TEXT, plan TEXT,
+                telegram_chat_id TEXT, amount_usd REAL DEFAULT 0.0,
+                payment_status TEXT DEFAULT 'pending', paid_at TEXT,
+                checkout_id TEXT)""")
+        conn.execute(
+            "INSERT INTO leads (email, created_at, plan, amount_usd, "
+            "payment_status, paid_at) VALUES ('first@example.com', "
+            "'2026-09-16T08:55:30+00:00', 'Starter', 34.8, 'paid', "
+            "'2026-09-16T08:56:08+00:00')")
+
+    store = CRMStore(path)
+    with sqlite3.connect(str(path)) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(leads)")}
+
+    assert {"refunded_at", "refund_usd"} <= columns
+    kept = store.find_by_email("first@example.com")
+    assert kept["payment_status"] == "paid" and kept["paid_at"]
+    assert store.mark_refund("first@example.com", 34.8, REFUND_AT)["refund_usd"] \
+        == 34.8

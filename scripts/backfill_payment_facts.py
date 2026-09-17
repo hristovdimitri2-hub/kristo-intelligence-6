@@ -33,6 +33,11 @@ DEFAULT_EMAIL = "hristovdimitri2@gmail.com"
 DEFAULT_PAID_AT = "2026-09-16T08:56:08+00:00"
 DEFAULT_CHECKOUT = ("cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZr"
                     "BsojexK")
+#: The refund of that same sale, verified at Stripe on 17.09 (refund
+#: `re_3UGEdKPz7WIGP94b0eWVeE61`, charge `ch_3UGEdKPz7WIGP94b0H7e62si`,
+#: `amount_refunded` 3480, status succeeded, created 06:23:30 UTC).
+DEFAULT_REFUND_USD = 34.80
+DEFAULT_REFUNDED_AT = "2026-09-17T06:23:30+00:00"
 
 
 def render_env():
@@ -64,15 +69,21 @@ ap.add_argument("--email", default=DEFAULT_EMAIL)
 ap.add_argument("--paid-at", default=DEFAULT_PAID_AT,
                 help="the Stripe EVENT's created time (ISO-8601, UTC)")
 ap.add_argument("--checkout-id", default=DEFAULT_CHECKOUT)
+ap.add_argument("--refund-usd", type=float, default=DEFAULT_REFUND_USD,
+                help="the CUMULATIVE refunded amount (Stripe's amount_refunded)")
+ap.add_argument("--refunded-at", default=DEFAULT_REFUNDED_AT,
+                help="the refund's own created time (ISO-8601, UTC)")
 args = ap.parse_args()
 EMAIL, PAID_AT, CHECKOUT = args.email, args.paid_at, args.checkout_id
+REFUND_USD, REFUNDED_AT = args.refund_usd, args.refunded_at
 
 import psycopg  # noqa: E402
 from psycopg.rows import dict_row  # noqa: E402
 
 with psycopg.connect(url, row_factory=dict_row) as conn, conn.cursor() as cur:
     cur.execute("SELECT email, plan, amount_usd, payment_status, created_at, "
-                "paid_at, checkout_id FROM leads WHERE email = %s",
+                "paid_at, checkout_id, refund_usd, refunded_at "
+                "FROM leads WHERE email = %s",
                 (EMAIL,))
     before = cur.fetchone()
     print("BEFORE:", before)
@@ -81,7 +92,7 @@ with psycopg.connect(url, row_factory=dict_row) as conn, conn.cursor() as cur:
     if (before.get("payment_status") or "") != "paid":
         sys.exit("the row is NOT paid — refusing to touch it")
     if before.get("paid_at"):
-        print("already backfilled — nothing to do")
+        print("payment facts already backfilled")
     else:
         cur.execute(
             """
@@ -90,13 +101,31 @@ with psycopg.connect(url, row_factory=dict_row) as conn, conn.cursor() as cur:
             WHERE email = %s AND payment_status = 'paid' AND paid_at IS NULL
             """,
             (PAID_AT, CHECKOUT, EMAIL))
-        print("rows updated:", cur.rowcount)
+        print("payment rows updated:", cur.rowcount)
+
+    if float(before.get("refund_usd") or 0) > 0:
+        print("refund already recorded:", before.get("refund_usd"))
+    else:
+        cur.execute(
+            """
+            UPDATE leads
+            SET refund_usd = %s,
+                refunded_at = CASE WHEN %s <> '' THEN %s ELSE refunded_at END
+            WHERE email = %s AND payment_status = 'paid'
+            """,
+            (REFUND_USD, REFUNDED_AT, REFUNDED_AT, EMAIL))
+        print("refund rows updated:", cur.rowcount)
     conn.commit()
     cur.execute("SELECT email, plan, amount_usd, payment_status, created_at, "
-                "paid_at, checkout_id FROM leads WHERE email = %s", (EMAIL,))
+                "paid_at, checkout_id, refund_usd, refunded_at "
+                "FROM leads WHERE email = %s", (EMAIL,))
     after = cur.fetchone()
 print("AFTER :", after)
 print("paid_at == the Stripe event time:",
       after.get("paid_at") == PAID_AT)
 print("checkout_id matches the verified session:",
       after.get("checkout_id") == CHECKOUT)
+print("refund_usd == the verified cumulative refund:",
+      float(after.get("refund_usd") or 0) == REFUND_USD)
+print("refunded_at == the refund's own time:",
+      after.get("refunded_at") == REFUNDED_AT)

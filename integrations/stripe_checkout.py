@@ -321,6 +321,29 @@ class StripeCheckoutService:
             return event.to_dict()
         return dict(event)
 
+    def retrieve_charge(self, charge_id: str) -> Optional[Dict[str, Any]]:
+        """Read one charge — used to resolve the customer of a `refund.created`
+        event, which carries no email.
+
+        Returns a PLAIN DICT (never a StripeObject), so the caller can use `.get()`
+        safely; that trap already killed the payment feed once (see `stripe_field`).
+        None means "could not read it", and the caller decides to retry rather than
+        to guess.
+        """
+        if not self.enabled or self._stripe is None or not charge_id:
+            return None
+        try:
+            charge = self._stripe.Charge.retrieve(charge_id)
+        except Exception as exc:
+            log.warning("Stripe charge lookup failed for %s: %s", charge_id,
+                        redact(exc))
+            return None
+        if hasattr(charge, "to_dict_recursive"):
+            return charge.to_dict_recursive()
+        if hasattr(charge, "to_dict"):
+            return charge.to_dict()
+        return dict(charge)
+
     def list_recent_completed_payments(self, limit: int = 25) -> Dict[str, Any]:
         """Return recent completed Checkout payments for the protected admin view."""
         if not self.enabled or self._stripe is None:

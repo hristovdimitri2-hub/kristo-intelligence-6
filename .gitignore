@@ -68,3 +68,7 @@ hh.txt
 h.txt
 _m.txt
 _msg.txt
+
+# Downloaded registry CLI / archive (owner's step, never part of the repo)
+mcp-publisher.exe
+mcp-publisher.tar.gz
