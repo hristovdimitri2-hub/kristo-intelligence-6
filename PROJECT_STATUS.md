@@ -2,6 +2,30 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🔐 GLAMA CONNECTOR HTTP CHALLENGE (17.09) — файлът е ЖИВ
+
+Glama поиска ownership proof за конектора; прозорчето им (стъпка 2) сочи точно
+**`https://kristo-intelligence-api.onrender.com/.well-known/glama.json`**.
+
+- **Документът** (точно, 2 ключа, нищо друго) — `glama-connector-claim.json` в корена:
+  `{"$schema": "https://glama.ai/mcp/schemas/connector.json", "claim": "glama_claim_e-w2Yrd4h6-G4ECF-YRdZ291LHRQ7kpH"}`;
+- **route-ът** (нов, `app/blueprints/discovery.py`): `/.well-known/glama.json` сервира
+  файла **дословно** чрез `Response(bytes, mimetype="application/json")` — умишлено не
+  `jsonify`, което би разместило ключовете и би попречило на байтово сравнение;
+  `/glama.json` продължава да сервира **server** ownership файла
+  (`.../schemas/server.json` + `maintainers`); двете са различни схеми и остават
+  разделени (един helper `_repo_json_file()` за двете);
+- **деплой**: Render редеплойна автоматично след push (`57903e6 → e351af7`), ~1 мин;
+- **жива проверка (17.09 11:57 UTC)**: `http=200` · `content-type: application/json` ·
+  тялото **байт по байт** = файла (сравнено в опашката) · точно 2 ключа · `/glama.json`
+  непроменен (200 + server claim);
+- **защити, проверени на живо**: `payTo = 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`,
+  USDC `0x8335…2913`, `/api/v1/signal` → **402** с `amount 3000` ($0.003), endpoint-ите и
+  цените непокътнати; **303/303** теста (2 нови + 1 обновен; единият пинира точния token
+  и `$schema`, с guard срещу изтичане на адрес/цена/endpoint в claim файла).
+- ⏭ **Остава собственикът да натисне „Check HTTP challenge"** в браузъра си.
+
+
 ## 📡 СЕДМИЧЕН МОНИТОР (17.09) — беше СЛЯП и „тишината" се четеше като „празна седмица"; сега чете 100% от прозореца
 
 **Пуснат:** `python scripts/listing_monitor.py`. Първото пускане излезе **зелено и
