@@ -21,6 +21,7 @@ is about what we SERVE, not about what we remember.
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import pytest
@@ -183,3 +184,80 @@ def test_the_telegram_vip_button_quotes_the_config_price(client):
     payment = telegram_sales.generate_payment_link()
     assert round(float(payment["amount_usdc"]), 6) == \
         round(KRISTO_VIP_ANALYSIS_PRICE, 6)
+
+
+# ── The files we hand to REGISTRIES: same guard, no second price source ─────
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PUBLISHER_KEY = "io.modelcontextprotocol.registry/publisher-provided"
+LIVE_BASE = "https://kristo-intelligence-api.onrender.com"
+
+
+def test_the_registry_server_json_is_generated_from_the_price_map(client):
+    """`server.json` goes to the OFFICIAL MCP Registry, where it replaces an entry
+    (published 05.08) that still advertises the legacy product: a Vercel endpoint
+    answering 405 to `initialize`, 15 tools and $0.10/call. That drift happened
+    because the numbers were typed by hand — so this test pins every one of them
+    to X402_PRICE_MAP, and pins the schema's own limits too (a 320-character
+    description looks fine and would be REJECTED: `description` maxLength is 100).
+    """
+    _test_client, main = client
+    with open(REPO_ROOT + "/server.json", encoding="utf-8") as handle:
+        raw = handle.read()
+    doc = json.loads(raw)
+
+    # the schema's required fields, in the authenticated GitHub namespace
+    assert doc["name"] == "io.github.hristovdimitri2-hub/kristo-intelligence"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", doc["version"]), "semver, never a range"
+    assert 1 <= len(doc["description"]) <= 100
+    assert 1 <= len(doc["title"]) <= 100
+    assert len(doc["name"]) <= 200
+
+    # the remote must point at OUR live MCP endpoint
+    remotes = {r["type"]: r["url"] for r in doc["remotes"]}
+    assert remotes["streamable-http"] == LIVE_BASE + "/mcp"
+    assert remotes["sse"] == LIVE_BASE + "/mcp/sse"
+    assert "vercel" not in raw.lower(), "the dead legacy endpoint must not return"
+
+    # EVERY price comes from the map
+    meta = doc["_meta"][PUBLISHER_KEY]
+    published = {row["endpoint"]: round(float(row["price_usd"]), 6)
+                 for row in meta["paid_endpoints"]}
+    expected = {endpoint: round(float(price), 6)
+                for endpoint, price in main.X402_PRICE_MAP.items()}
+    assert published == expected, "server.json prices drifted from X402_PRICE_MAP"
+    assert meta["pricing"]["min_usd"] == min(expected.values())
+    assert meta["pricing"]["max_usd"] == max(expected.values())
+
+    # the tools it advertises are the tools we SERVE, at their route's price
+    from app.blueprints.discovery import _mcp_tools
+    served = {tool["name"]: "/" + (tool["x402"]["endpoint"]
+                                   .split(LIVE_BASE, 1)[-1].lstrip("/"))
+              for tool in _mcp_tools(LIVE_BASE)}
+    listed = {row["name"]: row["endpoint"] for row in meta["tools"]}
+    assert listed == served, "server.json tools differ from the served /mcp tools"
+    for row in meta["tools"]:
+        assert round(float(row["price_usd"]), 6) == expected[row["endpoint"]], \
+            "%s: tool price is not the route price" % row["name"]
+
+
+def test_glama_json_is_the_documented_ownership_file(client):
+    """Glama's own schema requires exactly ONE key — `maintainers`, the GitHub
+    usernames allowed to maintain the server. The connector Glama holds for us is
+    `io.github.hristovdimitri2-hub/kristo-intelligence`, currently Unhealthy with
+    an EMPTY health-check URL and the legacy repo, so this file is what proves the
+    GitHub account may claim it. It is served verbatim from both paths a probe may
+    look at, and the file stays the single source of truth.
+    """
+    _test_client, main = client
+    with open(REPO_ROOT + "/glama.json", encoding="utf-8") as handle:
+        doc = json.load(handle)
+
+    assert doc["$schema"] == "https://glama.ai/mcp/schemas/server.json"
+    assert "hristovdimitri2-hub" in doc["maintainers"], \
+        "the repo owner must be in maintainers or the claim cannot be verified"
+
+    for path in ("/glama.json", "/.well-known/glama.json"):
+        served = main.app.test_client().get(path)
+        assert served.status_code == 200, "%s -> %s" % (path, served.status_code)
+        assert served.get_json() == doc, "%s differs from the file" % path

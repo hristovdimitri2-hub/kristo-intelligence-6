@@ -265,6 +265,38 @@ def mcp_info():
     })
 
 
+@discovery_bp.route("/glama.json")
+@discovery_bp.route("/.well-known/glama.json")
+def glama_json():
+    """Glama's ownership file, served where their probe can find it.
+
+    Glama's OWN schema (`https://glama.ai/mcp/schemas/server.json`) defines exactly
+    one required key — `maintainers`, "GitHub usernames that have permission to
+    maintain the server". That is ownership, not product metadata, so this route
+    serves that file VERBATIM from the repository root (one source of truth: the
+    same file GitHub and their repo probe read) instead of restating it here.
+
+    The tools, prices and endpoint URL are deliberately NOT invented into this
+    file: the schema does not define them, and Glama reads them from the live MCP
+    endpoint it health-checks (`{base}/mcp`), which is generated from our single
+    price source.
+    """
+    import json as _json
+    import logging
+    import os as _os
+
+    repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))))
+    path = _os.path.join(repo_root, "glama.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return jsonify(_json.load(handle))
+    except Exception as exc:                      # missing or unreadable
+        logging.getLogger(__name__).warning(
+            "glama.json could not be served from %s: %s", path, exc)
+        return jsonify({"ok": False, "error": "glama_json_unavailable"}), 503
+
+
 @discovery_bp.route("/api/mcp/manifest")
 def api_mcp_manifest():
     """MCP (Model Context Protocol) manifest for AI agent M2M payments."""

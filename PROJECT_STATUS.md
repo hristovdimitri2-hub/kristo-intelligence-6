@@ -99,6 +99,59 @@ Stripe (`checkout.session.expired` c `pending_webhooks = 0`). В същия ло
 **Хигиена:** всички тестови сесии в новия акаунт са **изтекли** (0 отворени) →
 изгледът Sessions е чист за реалното тест-плащане на собственика.
 
+##  ОФИЦИАЛНИЯТ MCP REGISTRY НИ ИМА — И ЗАПИСЪТ Е СЧУПЕН (17.09)
+
+**Откритие:** в `registry.modelcontextprotocol.io` **вече съществува** запис на наше
+име — публикуван **05.08.2026**, `version 5.0.0`, `status: active`, `isLatest: true`:
+
+| поле | стойност (проверена през техния API) |
+|---|---|
+| name | `io.github.hristovdimitri2-hub/kristo-intelligence` |
+| repository | `github.com/hristovdimitri2-hub/**kristo-travel-api**` ← стария repo (сега частен) |
+| remotes | `https://kristo-intelligence.vercel.app/mcp` ← **Vercel**, не Render |
+| publisher-provided | `price_per_call: 0.1` · `tools: 15` (v5 наборът) |
+
+**Защо е счупен, не просто стар:** `GET …vercel.app/mcp` връща конфиг JSON
+(„10 paid endpoints (0.10 USDC/call)… 2 freemium"), но **`POST /mcp` → HTTP 405** —
+това не е MCP сървър. Всеки MCP клиент, който ни намери през официалния registry,
+удря 405, докато му е обещано $0.10. Записът се **заменя** от **v6.0.0** (новата
+версия става `isLatest`; изтриване не е нужно).
+
+**Какво е подготвено (готово за публикуване):**
+
+- **`server.json`** (коренът) — **генериран** от
+  `scripts/build_registry_server_json.py` от **X402_PRICE_MAP** (не ръчно):
+  name/version 6.0.0, `remotes` = `…onrender.com/mcp` (streamable-http) + `/mcp/sse`
+  (sse), repository = `-6`, икона = `/favicon.svg`,
+  `_meta["…/publisher-provided"]` с 3-те MCP tools, 6-те платени маршрута,
+  диапазон $0.003–$0.005 и discovery линковете.
+  **Валидиран срещу живата схема** `2025-12-11` (`jsonschema`) — тя хвана реален
+  проблем: `description` има `maxLength: 100`, а първата версия беше 320 знака и
+  `mcp-publisher publish` щеше да падне. Ограниченията са вкарани в генератора.
+  **Ключово от схемата: поле `price` НЕ съществува** — цените законно живеят само в
+  свободния `publisher-provided` блок (`additionalProperties: true`).
+- **`glama.json`** (коренът) — **техният** schema
+  (`glama.ai/mcp/schemas/server.json`) изисква **само** `maintainers`
+  („GitHub usernames that have permission to maintain the server") ⇒ файлът е точно
+  това: `{"$schema": …, "maintainers": ["hristovdimitri2-hub"]}`. Сервира се
+  **дословно** от `/glama.json` и `/.well-known/glama.json` (един източник: файла в
+  repo-то). Tools/цени/URL **не се измислят** във файла — Glama ги чете от живия
+  `/mcp`, който тя health-check-ва.
+- **Glama състояние (живо):** connector-ът ни съществува
+  (`io.github.hristovdimitri2-hub/kristo-intelligence`), но е **Unhealthy**, с
+  **празен** health-check URL и сочи стария repo `kristo-travel-api`; страницата
+  казва: „claim ownership, then add or update a test profile under Admin → Test
+  Profile". Т.е. fix-ът е claim + URL + test profile, не нов листинг.
+
+**Тестове: 287 → 289 PASS** — два нови guard-а: (1) всяка цена в `server.json`
+идва от `X402_PRICE_MAP`, tools-ите съвпадат с реално сервираните, remote-ът е
+нашият `/mcp` и „vercel" не се появява; (2) `glama.json` е валиден по техния
+schema и се сервира идентично от двата пътя.
+
+**Публикуването е на собственика** (не публикуваме сами): `npx mcp-publisher init`
+→ `login github` (device flow) → `validate` → `publish`; след това проверка през
+техния API (`search=hristovdimitri2` → `isLatest: true`, верен URL).
+
 ## 💳 ПЪРВОТО ЧОВЕШКО ПЛАЩАНЕ (16.09): $29 Starter — пътят карта→Stripe→webhook→CRM→табло е доказан докрай
 
 **Собственикът плати $29 Starter с карта (Gergana) на жива сесия от сайта.**

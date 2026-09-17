@@ -1,0 +1,105 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hristovdimitri2-hub/kristo-intelligence",
+  "title": "Kristo Intelligence",
+  "description": "Pay-per-call DeFi intelligence for AI agents on Base — x402, USDC, no keys.",
+  "version": "6.0.0",
+  "websiteUrl": "https://kristo-intelligence-api.onrender.com",
+  "repository": {
+    "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://kristo-intelligence-api.onrender.com/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://kristo-intelligence-api.onrender.com/mcp"
+    },
+    {
+      "type": "sse",
+      "url": "https://kristo-intelligence-api.onrender.com/mcp/sse"
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "protocol": "x402",
+      "pricing": {
+        "model": "pay-per-call",
+        "asset": "USDC",
+        "chain_id": 8453,
+        "network": "base",
+        "min_usd": 0.003,
+        "max_usd": 0.005,
+        "note": "Every unpaid call answers HTTP 402 with the canonical x402 challenge; the amount in that response is the price. No free tier, no signup, no API keys."
+      },
+      "tools": [
+        {
+          "name": "get_market_stats",
+          "description": "Market activity, daily stats, and live market data (CoinGecko, DEXScreener, Fear & Greed). Paid via x402.",
+          "endpoint": "/api/stats",
+          "price_usd": 0.005
+        },
+        {
+          "name": "get_onchain_sales",
+          "description": "Real on-chain sales history (USDC transfers to the Kristo fee receiver). Paid via x402.",
+          "endpoint": "/api/sales",
+          "price_usd": 0.005
+        },
+        {
+          "name": "get_bot_status",
+          "description": "Telegram bot integration status. Paid via x402.",
+          "endpoint": "/api/bot-status",
+          "price_usd": 0.005
+        }
+      ],
+      "paid_endpoints": [
+        {
+          "endpoint": "/api/arb/opportunities",
+          "price_usd": 0.005,
+          "name": "Cross-DEX Arbitrage Radar"
+        },
+        {
+          "endpoint": "/api/bot-status",
+          "price_usd": 0.005,
+          "name": "Bot & Service Status"
+        },
+        {
+          "endpoint": "/api/sales",
+          "price_usd": 0.005,
+          "name": "On-Chain Sales History"
+        },
+        {
+          "endpoint": "/api/stats",
+          "price_usd": 0.005,
+          "name": "Market Activity & Daily Stats"
+        },
+        {
+          "endpoint": "/api/v1/signal",
+          "price_usd": 0.003,
+          "name": "Trading-Agent Signals"
+        },
+        {
+          "endpoint": "/api/v1/whaleflow",
+          "price_usd": 0.003,
+          "name": "Whale Flow (Live Base Feed)"
+        }
+      ],
+      "discovery": {
+        "mcp": "https://kristo-intelligence-api.onrender.com/mcp",
+        "mcp_sse": "https://kristo-intelligence-api.onrender.com/mcp/sse",
+        "mcp_manifest": "https://kristo-intelligence-api.onrender.com/api/mcp/manifest",
+        "x402": "https://kristo-intelligence-api.onrender.com/.well-known/x402",
+        "openapi": "https://kristo-intelligence-api.onrender.com/openapi.json",
+        "llms_txt": "https://kristo-intelligence-api.onrender.com/llms.txt"
+      }
+    }
+  }
+}
