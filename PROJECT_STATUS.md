@@ -206,9 +206,25 @@ $34.80). „`refund_id=(none)`" е честно: `charge.refunded` не носи
 нашият `/mcp` и „vercel" не се появява; (2) `glama.json` е валиден по техния
 schema и се сервира идентично от двата пътя.
 
-**Публикуването е на собственика** (не публикуваме сами): `npx mcp-publisher init`
-→ `login github` (device flow) → `validate` → `publish`; след това проверка през
-техния API (`search=hristovdimitri2` → `isLatest: true`, верен URL).
+**✅ ПУБЛИКУВАНО (17.09, 07:57 UTC) — направено от агента, с device-flow
+авторизация от собственика:**
+
+- официалният CLI е свален от GitHub Releases
+  (`mcp-publisher_windows_amd64.tar.gz`, **sha256 сверен с публикувания digest** —
+  `399ad0d6…`), извлечен ИЗВЪН репото; `validate` → „**✅ server.json is valid**";
+- `login github` (device flow: код на екрана, въведен от собственика) → `publish` →
+  „**✓ Server io.github.hristovdimitri2-hub/kristo-intelligence version 6.0.0**";
+- живата проверка през техния API: **v6.0.0 · `isLatest: True` · `status: active`** ·
+  `remotes = …onrender.com/mcp (+ /mcp/sse)` · `repository = kristo-intelligence-6` ·
+  `pricing $0.003–$0.005` (от `X402_PRICE_MAP`) · 3 tools · 6 платени endpoint-а ·
+  **нула следи от `vercel` / `0.10` / `travel-api` / `15 tools`**;
+- старият **v5.0.0 е пенсиониран** (`status --status deleted`, обратимо с
+  `--status active`) и **изчезна от търсенето** — преди това всеки MCP клиент, който
+  го намереше, удряше **HTTP 405** на мъртвия Vercel endpoint, докато му е обещавано
+  $0.10/обаждане;
+- ⚠️ CLI токенът остава в `~/.config/mcp-publisher/token.json` и дава права за
+  публикуване върху **целия** namespace `io.github.hristovdimitri2-hub/*` —
+  `mcp-publisher logout` го изчиства, когато не е нужен (нова авторизация = 30 s).
 
 ## 💳 ПЪРВОТО ЧОВЕШКО ПЛАЩАНЕ (16.09): $29 Starter — пътят карта→Stripe→webhook→CRM→табло е доказан докрай
 
