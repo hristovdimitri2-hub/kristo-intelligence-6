@@ -1,16 +1,26 @@
-"""Backfill the FIRST sale's payment facts — the one row that predates the columns.
+"""Fill the payment facts of a sale that predates them (paid_at / checkout_id).
 
-The values are not invented: both come from the verified Stripe event of
-2026-09-16 08:56:08 UTC (event `evt_1UGEdQPz7WIGP94b829zoDXH`, session
-`cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK`, $34.80 =
-$29.00 + $5.80 VAT), the same pair the audit proved and the Stripe feed
-cross-checks.
+WHY IT MUST RUN INSIDE RENDER: the database host (`dpg-…`) is internal to Render's
+network and does not resolve from the outside, so this cannot be run from a laptop
+against production. On a Render shell (or a one-off job) it works as is.
+
+Use it for rows written before 17.09 — the columns did not exist, so their sale is
+still dated by the LEAD, and the dashboard falls back to that. Never guess the
+values: take them from the verified Stripe event (`GET /v1/events/<evt_id>`:
+`created` and `data.object.id`), the same pair the Stripe feed cross-checks.
+
+Default values are the project's FIRST sale, verified twice (event
+`evt_1UGEdQPz7WIGP94b829zoDXH`, session `cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK`,
+$34.80 = $29.00 + $5.80 VAT):
+
+    python -X utf8 scripts/backfill_payment_facts.py
 
 Guards: touches exactly two columns, only on a row that is ALREADY paid, and only
-when `paid_at` is still empty (idempotent — a second run changes nothing).
+while `paid_at` is still empty (idempotent — a second run changes nothing).
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import time
@@ -19,9 +29,10 @@ import requests
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVICE = "srv-d9maroe7bikc73adkaug"
-EMAIL = "hristovdimitri2@gmail.com"
-PAID_AT = "2026-09-16T08:56:08+00:00"
-CHECKOUT = "cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK"
+DEFAULT_EMAIL = "hristovdimitri2@gmail.com"
+DEFAULT_PAID_AT = "2026-09-16T08:56:08+00:00"
+DEFAULT_CHECKOUT = ("cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZr"
+                    "BsojexK")
 
 
 def render_env():
@@ -47,6 +58,14 @@ def render_env():
 url = (render_env().get("DATABASE_URL") or "").strip()
 if not url:
     sys.exit("no DATABASE_URL in the Render env")
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--email", default=DEFAULT_EMAIL)
+ap.add_argument("--paid-at", default=DEFAULT_PAID_AT,
+                help="the Stripe EVENT's created time (ISO-8601, UTC)")
+ap.add_argument("--checkout-id", default=DEFAULT_CHECKOUT)
+args = ap.parse_args()
+EMAIL, PAID_AT, CHECKOUT = args.email, args.paid_at, args.checkout_id
 
 import psycopg  # noqa: E402
 from psycopg.rows import dict_row  # noqa: E402
