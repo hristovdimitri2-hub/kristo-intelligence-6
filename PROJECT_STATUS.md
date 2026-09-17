@@ -2,6 +2,46 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🏅 GLAMA SCORE ИЗЛЕЗЕ (17.09) — конекторът е claim-нат · A 3.6/5.0 · значката е в README
+
+**Живата страница:** `glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence`
+
+- **Status: Healthy** · Last tested **2026-09-17 09:32 UTC** · Transport **Streamable HTTP · MCP 2025-11-25**;
+- **Score: A 3.6/5.0**, scored **08:45**, across **3 tools** — `get_market_stats`,
+  `get_onchain_sales`, `get_bot_status` (**съвпадат с нашите** ✅);
+- URL на страницата: **`…onrender.com/mcp`** ✅ (в HTML-а стоят `/mcp` и нашият
+  `/.well-known/glama.json` — доказателството, което тяхната проверка прочете);
+- Quality: Disambiguation **5/5** · Naming **5/5** · Tool Count **5/5** · Completeness 4/5;
+  най-слабият детайл: `get_bot_status` **C 2.8/5.0** (няма изрично „read-only", няма
+  описание на върнатия формат, няма „кога да го ползваш вместо siblings") → **евтин,
+  конкретен ъпгрейд** на описанията, ако искаме по-висок резултат;
+- **Цени на страницата няма** (Glama не чете цени) — и слава Богу, защото сверката
+  показа, че **фалшивите цени стояха в нашите PR-вписвания**, не в Glama.
+
+**Значката:** `https://glama.ai/mcp/connectors/<slug>/badges/score.svg` → **200
+`image/svg+xml`**, SVG-ът сам рендерира „kristo-intelligence – MCP connector rated A on
+Glama" (динамична, не ръкописна) → сложена в нашия README (комит `178d859`).
+
+**PR #13219 (Frank Fiegel, awesome-mcp-servers):** badge-ът сочеше
+`glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6`, което **404** (SVG:
+„This MCP server is not listed on Glama") → пренасочен към **живия конектор**; и
+**фалшивите твърдения поправени**: „0.05 USDC/call" (10× над реалната цена) →
+**$0.003–$0.005**, „1 free call" → **няма безплатен tier** (production работи с
+`KRISTO_FREE_TIER_LIMIT=0`; собственият ни код нарича такова обещание **фантомно
+твърдение** — виж `main.py` /home). Коментар до Frank: оценката е готова + изричен
+въпрос дали конекторът удовлетворява новия bot-checklist (servers badge + Dockerfile).
+
+**Почистване:** **PR #1081 (awesome-x402) е ЗАТВОРЕН** като остарял (Vercel табло,
+легаси репо `kristo-travel-api`, 10 endpoint-а по $0.01, които вече не съществуват) →
+оцелява **#1308**, в който същите две фалшиви твърдения също са поправени. #12799 и
+#11557 бяха вече затворени, #10 (awesome-remote-mcp-servers) — merged.
+
+**Остава за собственика (само ако Frank настоява за този формат):** bot-ът иска листинг и
+на `glama.ai/mcp/servers` (+ Dockerfile в Glama). Нашият `Dockerfile` **вече е в репото**,
+но `mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` още **404** → подаване от
+браузъра (1 мин форма), след което сменям badge-а в `OWNER/REPO` формата.
+
+
 ## ⚖️ ИСТИНАТА > ХУБАВОТО ЧИСЛО (17.09) — 4-ият „external" се оказа CRAWLER (98 получатели)
 
 **Коригирано.** `0xA19F` стоеше в `WATCHLIST` като „оператор/клиент" от **09.09**
