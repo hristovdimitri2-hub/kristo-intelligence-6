@@ -1,7 +1,30 @@
-"""FINAL audit of the first human payment — path 1..5, READ-ONLY.
+"""Audit ONE payment end to end, in the order the money travels — READ-ONLY.
 
-Every call here is a GET: our own service, Stripe's read endpoints, the Render
-env (read) and the Render log API. Nothing is written, nothing is sent to anyone.
+Written for the project's FIRST human payment ($29 Starter, 16.09) and used for
+every sale after it. Every call is a GET: our own service, Stripe's read
+endpoints, the Render log API and (for the chain) a Base RPC read. Nothing is
+written, nothing is sent to anyone, and no secret is ever printed.
+
+It answers, in order:
+
+  1. STRIPE      — the money event, its delivery state (pending_webhooks = 0 means
+                   Stripe considers it delivered) and what the customer actually
+                   paid (subtotal vs tax: Managed Payments adds VAT on top)
+  2. REFUNDS     — whether the owner has refunded it yet
+  3. CRM         — the paid lead behind that email, through the ADMIN API
+                   (payment_status, plan, amount, when the lead was created)
+  4. OUR LOG     — the durable request log for /api/webhooks/stripe, plus the
+                   Stripe feed's own state (cache_state / detail / age)
+  5. STABILITY   — three consecutive dashboard reads must agree: a number that
+                   changes between refreshes is a bug, not a fluctuation
+  6. ROUTES      — every x402 route answers 402 with EXACTLY the price it
+                   advertises, and payTo still equals the configured receiver
+  7. THE LINK    — whether Stripe's paid list agrees with the CRM records
+  8. THE CHAIN   — every on-chain row, plus an independent receipt check on the
+                   newest transfer (status, token, receiver, amount)
+
+Usage:
+    python -X utf8 scripts/audit_payment_path.py
 """
 from __future__ import annotations
 

@@ -99,6 +99,64 @@ Stripe (`checkout.session.expired` c `pending_webhooks = 0`). В същия ло
 **Хигиена:** всички тестови сесии в новия акаунт са **изтекли** (0 отворени) →
 изгледът Sessions е чист за реалното тест-плащане на собственика.
 
+## 💳 ПЪРВОТО ЧОВЕШКО ПЛАЩАНЕ (16.09): $29 Starter — пътят карта→Stripe→webhook→CRM→табло е доказан докрай
+
+**Собственикът плати $29 Starter с карта (Gergana) на жива сесия от сайта.**
+Проверката е read-only и мина по реда на парите; всяко звено е доказано с данни
+от **двете страни**, не с „изглежда наред".
+
+| # | Звено | Доказателство |
+|---|---|---|
+| 1 | **Stripe** | `evt_1UGEdQPz7WIGP94b829zoDXH` · **2026-09-16 08:56:08 UTC** · `pending_webhooks = 0` (= доставено) · сесия `cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK` · `payment_status=paid` · **$34.80 = $29.00 + $5.80 BG VAT** · `metadata: plan=starter, source=website, campaign=launch` |
+| 2 | **Webhook** | Реален delivery, приет от нашия endpoint (Stripe: `pending_webhooks=0`) → **200**; `request_log`/Render логът пазят само последните минути, затова доказателството е от Stripe + **durable записа** по-долу |
+| 3 | **CRM (Postgres)** | `hristovdimitri2@gmail.com` → `payment_status=paid` · `plan=starter` · `amount_usd=34.80` · `status=qualified` · lead от **08:55:30** (35 s преди плащането — точно както изисква handler-ът: непознат lead се игнорира) · pipeline `paid=1` |
+| 4 | **Табло** | $34.80 / 1 запис · `excluded_from_onchain=true` · `storage_backend=postgresql` (durable) · **стабилно** при три последователни четения · админ таблицата вече носи **реалния checkout_id** |
+| 5 | **Entitlement** | **Не се издава** — по дизайн: `_is_vip_plan = {pro, vip, vip_monthly}` (starter не е VIP), а `agent_entitlements` е за catalog agent SKU-та. `metrics`: `active_vip_plans=0`, `active_agent_entitlements=0`. Купувачът получава success страницата („Системата е готова за onboarding") — onboarding-ът е човешки/Telegram |
+| 6 | **Refund** | **0** направени (собственикът предстои) |
+| 7 | **Веригата** | **$0.037 / 11 tx / 4 external** = 9 seed реда + **2 live-намерени**; guards живи: `lock_alive=true`, backend **postgresql** (durable), `consumed_total=1`, C2 12/1, H2 endpoint binding · 6-те маршрута: **402 с обявените цени**, `payTo` = `BASE_FEE_RECEIVER` (…6fd08f) |
+
+**Веригата не е „непокътната" в смисъл на непроменена — тя ПОРАСНА:** нов 11-и
+трансфер `0x08bc0939…` · **16.09 17:29:40** · $0.003 · блок **51395216** · **сверен
+директно на веригата** (receipt `status=0x1`, USDC → нашия получател, 3000 atomic) и
+**преминал през гарда** (`waited_and_accepted` на `/api/v1/signal` — C2 изчака
+блока вместо да откаже). Платецът е познатият crawler `0xA19F…` (вече 2 плащания),
+⇒ **„човешки клиенти = 2" остава вярно**.
+
+### Находки (3 бъга, 2 поправени в `a2de777`)
+
+1. **Stripe feed-ът беше МЪРТЪВ — и го казваше тихо.** Всеки 60 s:
+   `Stripe payment snapshot refresh failed: AttributeError: 'get' is a dict method,
+   but a StripeObject is not a dict` — причинен от **един ред**
+   (`metadata.get("plan")` върху `StripeObject`), докато Stripe API-то отговаряше
+   200. Таблото се снижаваше до CRM списъка с `detail: "stripe_list_unavailable"`.
+   **Поправено:** всички полета минават през `stripe_field()` (атрибут за
+   `StripeObject`, ключ за dict). Живо сега: `payment_feed_available=true`,
+   `cache_state=fresh`, `detail=connected`.
+2. **`source` щеше да стане ЛЪЖА.** Редовете се строят от CRM, а `source` се
+   вдигаше на `"stripe"` само защото feed-ът е достъпен — етикет за източник,
+   който не е произвёл данните (поправянето на (1) щеше да включи лъжата).
+   **Поправено:** `source` казва CRM-а (вярно), а Stripe е **сверка**:
+   `stripe_link.status = unavailable | in_sync | mismatch` + ред на екрана.
+   Живо: **`in_sync` — „Stripe snapshot: 1 плащане(и) на $34.80 — сверени с CRM
+   ($34.80): съвпадат"**. Разликата вече е ЧЕРВЕНА, не мълчалива.
+3. **Липсваща секция „Стражи" се рисуваше като червена тревога** (екранът на
+   собственика: червена лампа + „СПРЯЛ" + `undefined`), защото
+   `renderGuards(s.guards || {})` четеше `undefined` като „ключалката е мъртва".
+   **Поправено:** неизвестно = жълто „НЯМА ДАННИ" + „—" вместо `undefined`;
+   червено е запазено за **измерен** провал; хранилището се чете от payload-а
+   (`lock_backend`) вместо твърдото „SQLite", което още пишеше.
+
+**Докладвани, но НЕ пипани (искат решение на собственика):** `mark_paid` не
+записва `paid_at` нито `checkout_id`, затова админ таблицата показва времето на
+**lead-а** като време на продажбата (тук разликата е 38 s; при продажба, платена
+часове след lead-а, датата ще е грешна) и няма join към Stripe записа от самата
+CRM таблица; успешният път на webhook-а **не логва нищо** (200 се вижда само в
+access лога, който не се пази).
+
+**Тестове: 278 → 281 PASS** (StripeObject-заместител, който хвърля при `.get()`;
+трите състояния на сверката; честният клон на стражите). `node --check: OK`.
+payTo / цени / x402 маршрути / webhook път — недокоснати.
+
 ## 🔁 КОРЕКЦИЯ (14.09) — $0.031 / **9** трансфера / **3** external; 0xA19F **Е** платец
 
 **Как се намери:** собственикът съобщи „ново external плащане нощта на 14.09" и
