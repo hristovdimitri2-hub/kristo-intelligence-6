@@ -2,6 +2,89 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 📡 СЕДМИЧЕН МОНИТОР (17.09) — беше СЛЯП и „тишината" се четеше като „празна седмица"; сега чете 100% от прозореца
+
+**Пуснат:** `python scripts/listing_monitor.py`. Първото пускане излезе **зелено и
+празно** — и точно това беше бъгът.
+
+### Листинг слой (без промени vs 07.09 ✅)
+
+band=established · score=69.7 · computed_at 06.09 19:31 · `defi #1/3` · `whale #1/1` ·
+`rug #2/2` · `signals #2` · `eth/ondo/kaito/degen` ABSENT. Каталогът под нас порасна
+(`eth` 4→11 резултата, `signals` 9→11) — позициите издържаха.
+
+### 🐛 Находка: receiver scan-ът беше сляп (и мълчеше)
+
+`[warn] get_logs …-… failed: 413 Client Error: Payload Too Large` на **всеки**
+5000-блоков чанк от `https://mainnet.base.org` (локално `BASE_RPC_URL` не е зададен,
+има само `.env.example`). `fetch_incoming_transfers` хващаше грешката, печаташе
+`[warn]` и **продължаваше** ⇒ 7-дневният прозорец не беше прочетен, а мониторът
+печаташе нищо = „никой не е платил". **Същият дефект и в `fingerprint_payer`**
+(`except Exception: pass`), където нечетен прозорец се класифицираше като **`human`**
+— а точно този bucket храни launch-сигнала (`external_unique_payers`).
+
+**Измерено на живо (17.09), преди да пипаме код:**
+
+| RPC | recipient-филтриран `eth_getLogs` |
+|---|---|
+| `mainnet.base.org` | 5000 блока → **413** · 1000 → **OK** · 250 → **OK** |
+| `base.drpc.org` | HTTPError (не сервира `getLogs` на free tier) |
+| `base-pokt.nodies.app` | Web3RPCError |
+| `base-rpc.publicnode.com` | HTTPError |
+
+⇒ лекът не е смяна на RPC, а **адаптивно разцепване**.
+
+### 🔧 Фиксът
+
+- нов споделен `_get_logs_adaptive()` в `scripts/competitor_recon.py`: започва от
+  работещата ширина (1000 блока) и при отказ **цепи диапазона на две** надолу до
+  `MIN_CHUNK_BLOCKS = 100`; връща `(logs, coverage)` с `requested_blocks`,
+  `scanned_blocks`, `failed_ranges`, `split_retries`, `chunks`, **`complete`**;
+- `fetch_incoming_transfers(..., stats={})` попълва покритието (обратно съвместим —
+  връща същия списък), `--chunk` по подразбиране вече е 1000;
+- `fingerprint_payer` ползва същия helper и при непрочетен прозорец казва
+  **`unknown`**, никога `human` (+ `scan_complete` / `scan_failed_ranges` / `scan_blocks`);
+- мониторът **винаги** печата какво е прочел и вика `[!] RECEIVER SCAN INCOMPLETE —
+  „не е плащано" НЕ е доказано`, ако има дупка.
+
+### ✅ Резултат след фикса (същият ден, същият RPC)
+
+```
+receiver scan (7d, blocks 51120107..51422507): 302401/302401 blocks read
+                                             in 303 chunks (0 splits), 4 txs
+*** LAUNCH SIGNAL: external payers: 3 | payments: 3 | total 0.011 USDC ***
+    0x902dCf34E53695bDEA2fFB354b1a2e58bD598256  1 tx  $0.005   (12.09)
+    0xe3Badbd4F38214b9Eae528a1a5398f6678f63fB3  1 tx  $0.003   (четвъртият external)
+    0xA19F621581DBc851a21D6179868111709a52aCCC  1 tx  $0.003   ← CRAWLER, не човек (виж по-долу)
+HEARTBEAT (в набора): chet_payapi_verification — 1 tx, $0.003
+*** OPERATOR REPEAT (all-time): operator_watch_a19f — 2 плащания → operator deal *** ← фалшив (виж по-долу)
+ФУНЪЛ (днес): signal 341 chall → 0 · bot-status 68 → 0 · sales 44 → 0 · stats 42 → 0 ·
+              opportunities 18 → 0 · whaleflow 18 → 0
+```
+
+Тоест **реално прочетените 7 дни = 4 плащания**: 2 външни купувача ($0.008), 1 crawler
+и 1 канарка. Ако `0xA19F` бъде преместен (виж отворения въпрос по-долу), същите данни
+се четат като **external = 2 / $0.008** + 2 heartbeat реда, без тригера.
+
+**Тестове:** 4 нови в `tests/test_competitor_recon.py` с fake web3 (без мрежа):
+цепене + пълно покритие, непрочетен прозорец → `complete=False` + видими дупки,
+декодиране на трансфер, fingerprint ≠ `human` при нечетен прозорец. **19/19** в
+файла, **302/302** общо.
+
+### ⚠️ ОТВОРЕНО за собственика: `0xA19F` още е в `WATCHLIST` като „оператор"
+
+`WATCHLIST` е от **09.09** (`d5e65f3`: „0xA19F + 0x4dB7 — реални клиенти"), но
+**14.09** (`baff322`) доказа на веригата, че `0xA19F` е **crawler** (125 изходящи
+транзакции към **98 различни** получатели ≥ прага 50) и че „човешки клиенти = 2"
+(0x4dB7, 0x902dcf34). Кодът не последва корекцията, затова сега мониторът брои
+машината като external и вдига фалшив „operator deal" тригер. **Промоцията**
+(`0xA19F` → `KNOWN_PAYERS["market_crawler_a19f"]` + `PAYER_CLASSES[...]="sampler"`,
+тестът, който пинира старата класификация, се обновява) ще направи: монитор
+`external = 2` (съвпада с „човешки клиенти = 2"), тригерът изчезва, а таблото
+**4 external → 3** след `reclassify_known_payers()`. **Чака изрично „да"** — мести
+число, което следим ($0.037 / 11 tx / 4 external).
+
+
 ## 🎯 НОВИЯТ STRIPE АКАУНТ Е ЖИВ — и трите пречки, които финалната проверка намери (16.09)
 
 **Собственикът смени ключовете. Проверката потвърди новия акаунт — и намери

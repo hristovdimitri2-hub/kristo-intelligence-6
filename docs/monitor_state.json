@@ -11,7 +11,7 @@
   "ranks": {
     "eth": {
       "position": null,
-      "total": 4
+      "total": 11
     },
     "defi": {
       "position": 1,
@@ -19,7 +19,7 @@
     },
     "signals": {
       "position": 2,
-      "total": 9
+      "total": 11
     },
     "whale": {
       "position": 1,

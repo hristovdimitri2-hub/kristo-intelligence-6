@@ -2,6 +2,7 @@
 
 import importlib
 import sys
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -209,3 +210,125 @@ def test_operator_repeats_ignores_non_watchlisted_payers():
     RANDOM = "0x" + "9" * 40
     transfers = [_t(RANDOM, 0.003), _t(RANDOM, 0.003, tx="0x" + "9" * 63 + "1")]
     assert recon.operator_repeats(transfers) == []
+
+
+# ── 17.09: the public RPC answers 413 above ~1000 blocks for our filter ─────
+# The old code dropped refused chunks and moved on, so the weekly monitor
+# reported an EMPTY week. An unread window is not an empty one — these tests
+# pin the fix: halve the range, read the whole window, and REPORT any gap.
+
+
+class _FakeNode:
+    """get_logs stub: refuses any range wider than `max_width` (like the RPC)."""
+
+    def __init__(self, max_width, latest=10_000, logs=None):
+        self.max_width = max_width
+        self.block_number = latest
+        self.logs = list(logs or [])
+        self.calls = []
+        self.eth = self
+
+    def get_logs(self, query):
+        width = query["toBlock"] - query["fromBlock"] + 1
+        self.calls.append((query["fromBlock"], query["toBlock"]))
+        if width > self.max_width:
+            raise Exception("413 Client Error: Payload Too Large "
+                            "for url: https://mainnet.base.org/")
+        return list(self.logs)
+
+
+def _install_fake_web3(monkeypatch, node):
+    """Patch `sys.modules['web3']` — the module imports Web3 inside the call."""
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda *a, **k: None)
+        to_checksum_address = staticmethod(lambda a: a)
+        to_hex = staticmethod(lambda b: "0x" + bytes(b).hex())
+
+        def __init__(self, provider, request_kwargs=None):
+            self.eth = node
+
+        def is_connected(self):
+            return True
+
+    module = types.ModuleType("web3")
+    module.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", module)
+    return node
+
+
+def _log(payer_hex, amount_units, block=42):
+    return {
+        "topics": [bytes(32), bytes(12) + bytes.fromhex(payer_hex),
+                   bytes(12) + bytes.fromhex("cd" * 20)],
+        "transactionHash": bytes.fromhex("11" * 32),
+        "data": amount_units.to_bytes(32, "big"),
+        "blockNumber": block,
+    }
+
+
+def test_get_logs_splits_ranges_the_node_refuses_and_reads_the_whole_window(monkeypatch):
+    """1000-block chunks get 413 → each is halved and retried, so a 10k-block
+    window is read end to end instead of silently returning nothing."""
+    node = _install_fake_web3(monkeypatch, _FakeNode(max_width=500, latest=10_000))
+    stats = {}
+    transfers = recon.fetch_incoming_transfers(
+        "https://fake", recon.DEFAULT_RECEIVER, from_block=1, to_block=10_000,
+        chunk_size=1000, pause_seconds=0, stats=stats)
+
+    assert transfers == []
+    assert stats["complete"] is True
+    assert stats["scanned_blocks"] == stats["requested_blocks"] == 10_000
+    assert stats["failed_ranges"] == []
+    assert stats["split_retries"] == 10                 # every 1000-wide chunk split
+    assert stats["chunks"] == 20                        # …into 2×500 that worked
+    assert max(e - s + 1 for s, e in node.calls) == 1000  # started at the limit
+
+
+def test_unreadable_window_is_reported_instead_of_looking_empty(monkeypatch):
+    """A node that refuses everything must leave `complete=False` + the failed
+    ranges — never a silent 'no payments' week."""
+    _install_fake_web3(monkeypatch, _FakeNode(max_width=0, latest=1_000))
+    stats = {}
+    transfers = recon.fetch_incoming_transfers(
+        "https://fake", recon.DEFAULT_RECEIVER, from_block=1, to_block=1_000,
+        chunk_size=1000, pause_seconds=0, stats=stats)
+
+    assert transfers == []
+    assert stats["complete"] is False
+    assert stats["scanned_blocks"] == 0
+    assert stats["failed_ranges"]                       # the gap stays visible
+    assert all(e - s + 1 <= recon.MIN_CHUNK_BLOCKS for s, e in stats["failed_ranges"])
+    assert stats["split_retries"] >= 8                  # 1000 → … → 100 blocks
+
+
+def test_fetch_decodes_transfers_and_reports_full_coverage(monkeypatch):
+    """Happy path unchanged: a node that serves the range returns the payments
+    with full coverage (no bogus split, no incomplete flag)."""
+    node = _install_fake_web3(
+        monkeypatch, _FakeNode(max_width=10_000, latest=500, logs=[_log("ab" * 20, 3000)]))
+    stats = {}
+    transfers = recon.fetch_incoming_transfers(
+        "https://fake", recon.DEFAULT_RECEIVER, from_block=1, to_block=500,
+        chunk_size=1000, pause_seconds=0, stats=stats)
+
+    assert len(transfers) == 1
+    assert transfers[0]["payer"] == "0x" + "ab" * 20
+    assert transfers[0]["amount_usdc"] == 0.003
+    assert transfers[0]["tx_hash"] == "0x" + "11" * 32
+    assert stats["complete"] is True and stats["split_retries"] == 0
+    assert stats["chunks"] == 1 and node.calls == [(1, 500)]
+
+
+def test_fingerprint_never_calls_an_unread_payer_human(monkeypatch):
+    """`human` feeds external_unique_payers (the launch signal) — so a window we
+    could not read must classify as `unknown`, not as a human customer."""
+    _install_fake_web3(monkeypatch, _FakeNode(max_width=0, latest=1_000))
+    fp = recon.fingerprint_payer("https://fake", "0x" + "a" * 40, days=1,
+                                 chunk_size=1000)
+
+    assert fp["classification"] == "unknown"
+    assert fp["scan_complete"] is False
+    assert fp["scan_failed_ranges"]
+    assert fp["distinct_receivers"] == 0
+    assert fp["scan_blocks"] == "0/1000"

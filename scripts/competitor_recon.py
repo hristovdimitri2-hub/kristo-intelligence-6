@@ -25,6 +25,13 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 BLOCK_TIME_SECONDS = 2.0  # Base mainnet ~2s blocks
+# Measured 17.09 on the public RPC (https://mainnet.base.org): a recipient-
+# filtered eth_getLogs above ~1000 blocks answers **413 Payload Too Large**
+# (5000-block chunks used to work — the endpoint tightened). Ranges are halved
+# on refusal down to this floor; below it we stop and REPORT the gap, because
+# an unscanned window must never be mistaken for "nobody paid".
+MIN_CHUNK_BLOCKS = 100
+DEFAULT_CHUNK_BLOCKS = 1000
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 DEFAULT_RECEIVER = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
 DEFAULT_RPC = "https://mainnet.base.org"
@@ -120,19 +127,94 @@ def _decode_amount(data) -> float:
     return int.from_bytes(raw or b"\x00", "big") / (10 ** USDC_DECIMALS)
 
 
+def _get_logs_adaptive(
+    w3,
+    Web3,
+    query: dict,
+    chunk_size: int = DEFAULT_CHUNK_BLOCKS,
+    min_chunk: int = MIN_CHUNK_BLOCKS,
+    pause_seconds: float = 0.15,
+    progress: bool = False,
+) -> tuple:
+    """Run a get_logs query over its whole range, halving refused chunks.
+
+    The public Base RPC answers **413 Payload Too Large** for recipient-filtered
+    ranges above ~1000 blocks (measured 17.09; 5000-block chunks worked in the
+    past). The old code dropped such chunks and moved on — which is exactly how
+    the weekly monitor came to report an EMPTY week: an unread window is not an
+    empty one.
+
+    Returns (logs, coverage) where coverage carries requested_blocks,
+    scanned_blocks, failed_ranges, split_retries, chunks and `complete`.
+    """
+    from_block, to_block = query["fromBlock"], query["toBlock"]
+    logs: List = []
+    failed: List[list] = []
+    retries = 0
+    scanned = 0
+    chunks = 0
+    queue: List[tuple] = []
+    start = from_block
+    while start <= to_block:                       # start at the known-good width
+        queue.append((start, min(start + chunk_size - 1, to_block)))
+        start += chunk_size
+    while queue:
+        start, end = queue.pop(0)
+        try:
+            logs.extend(w3.eth.get_logs(dict(query, fromBlock=start, toBlock=end)))
+        except Exception as exc:
+            width = end - start + 1
+            if width > min_chunk:
+                mid = start + width // 2 - 1
+                queue.insert(0, (mid + 1, end))    # the refused range is retried
+                queue.insert(0, (start, mid))      # as two halves
+                retries += 1
+                continue
+            print(f"[warn] get_logs {start}-{end} failed: {exc}")
+            failed.append([start, end])
+            continue
+        scanned += end - start + 1
+        chunks += 1
+        if progress and chunks % 100 == 0:
+            total = to_block - from_block + 1
+            print(f"[..] scanned {100.0 * scanned / total:.0f}% (block {end}, "
+                  f"{chunks} chunks, {len(logs)} txs)")
+        if queue:
+            time.sleep(pause_seconds)
+    requested = to_block - from_block + 1
+    return logs, {
+        "requested_blocks": requested,
+        "scanned_blocks": scanned,
+        "failed_ranges": failed,
+        "split_retries": retries,
+        "chunks": chunks,
+        "complete": not failed and scanned == requested,
+    }
+
+
 def fetch_incoming_transfers(
     rpc_url: str,
     receiver: str,
     usdc_contract: str = USDC_BASE,
     from_block: int = 0,
     to_block: Optional[int] = None,
-    chunk_size: int = 5000,
+    chunk_size: int = DEFAULT_CHUNK_BLOCKS,
     pause_seconds: float = 0.15,
+    stats: Optional[dict] = None,
 ) -> List[dict]:
     """Fetch incoming USDC transfers to `receiver` via eth_getLogs.
 
-    Read-only and rate-friendly (chunked with pacing). Returns a list of
-    {tx_hash, payer, amount_usdc, block_number}.
+    Read-only and rate-friendly. Chunks are ADAPTIVE: when the node refuses a
+    range (public Base RPC → 413 above ~1000 blocks), the range is halved and
+    both halves are retried down to MIN_CHUNK_BLOCKS. A weekly 7-day window
+    therefore gets scanned end to end instead of silently returning nothing.
+
+    Pass `stats` (dict, filled in place) for the coverage report:
+    rpc_url / from_block / to_block / requested_blocks / scanned_blocks /
+    failed_ranges / split_retries / complete. `complete=False` means the window
+    was NOT fully read — silence is not proof that nobody paid.
+
+    Returns a list of {tx_hash, payer, amount_usdc, block_number}.
     """
     from web3 import Web3
 
@@ -147,37 +229,34 @@ def fetch_incoming_transfers(
         from_block = max(1, to_block - int(7 * 86400 / BLOCK_TIME_SECONDS))
 
     padded = _pad_topic(receiver)
+    logs, coverage = _get_logs_adaptive(
+        w3, Web3,
+        {
+            "fromBlock": from_block,
+            "toBlock": to_block,
+            "address": Web3.to_checksum_address(usdc_contract),
+            "topics": [TRANSFER_TOPIC, None, padded],
+        },
+        chunk_size, pause_seconds=pause_seconds, progress=stats is not None,
+    )
     transfers: List[dict] = []
-    start = from_block
-    while start <= to_block:
-        end = min(start + chunk_size - 1, to_block)
+    for lg in logs:
         try:
-            logs = w3.eth.get_logs({
-                "fromBlock": start,
-                "toBlock": end,
-                "address": Web3.to_checksum_address(usdc_contract),
-                "topics": [TRANSFER_TOPIC, None, padded],
+            sender = Web3.to_checksum_address(
+                "0x" + bytes(lg["topics"][1]).hex()[-40:]
+            )
+            transfers.append({
+                "tx_hash": Web3.to_hex(lg["transactionHash"]),
+                "payer": sender,
+                "amount_usdc": _decode_amount(lg["data"]),
+                "block_number": lg["blockNumber"],
             })
-        except Exception as exc:
-            print(f"[warn] get_logs {start}-{end} failed: {exc}")
-            start = end + 1
+        except Exception:
             continue
-        for lg in logs:
-            try:
-                sender = Web3.to_checksum_address(
-                    "0x" + bytes(lg["topics"][1]).hex()[-40:]
-                )
-                transfers.append({
-                    "tx_hash": Web3.to_hex(lg["transactionHash"]),
-                    "payer": sender,
-                    "amount_usdc": _decode_amount(lg["data"]),
-                    "block_number": lg["blockNumber"],
-                })
-            except Exception:
-                continue
-        start = end + 1
-        if start <= to_block:
-            time.sleep(pause_seconds)
+    if stats is not None:
+        stats.update({"rpc_url": rpc_url, "from_block": from_block,
+                      "to_block": to_block})
+        stats.update(coverage)
     return transfers
 
 
@@ -207,24 +286,16 @@ def fingerprint_payer(
     from_block = max(1, to_block - int(days * 86400 / BLOCK_TIME_SECONDS))
     padded = "0x" + "0" * 24 + payer.lower().replace("0x", "")
     receivers: Dict[str, List[float]] = {}
-    start = from_block
-    while start <= to_block:
-        end = min(start + chunk_size - 1, to_block)
-        try:
-            logs = w3.eth.get_logs({
-                "fromBlock": start, "toBlock": end,
-                "address": Web3.to_checksum_address(usdc_contract),
-                "topics": [TRANSFER_TOPIC, padded, None],
-            })
-            for lg in logs:
-                recv = "0x" + bytes(lg.topics[2]).hex()[-40:]
-                amt = _decode_amount(lg["data"])
-                receivers.setdefault(recv, []).append(amt)
-        except Exception:
-            pass
-        start = end + 1
-        if start <= to_block:
-            time.sleep(0.05)
+    logs, coverage = _get_logs_adaptive(
+        w3, Web3,
+        {"fromBlock": from_block, "toBlock": to_block,
+         "address": Web3.to_checksum_address(usdc_contract),
+         "topics": [TRANSFER_TOPIC, padded, None]},
+        chunk_size, pause_seconds=0.05)
+    for lg in logs:
+        recv = "0x" + bytes(lg.topics[2]).hex()[-40:]
+        amt = _decode_amount(lg["data"])
+        receivers.setdefault(recv, []).append(amt)
 
     n_recv = len(receivers)
     n_tx = sum(len(v) for v in receivers.values())
@@ -232,6 +303,10 @@ def fingerprint_payer(
         kind = "crawler"
     elif n_recv <= LOOP_MAX_RECEIVERS and n_tx >= LOOP_MIN_TXS:
         kind = "loop"
+    elif not coverage["complete"]:
+        # A window we could NOT read must never be sold as a "human" payer —
+        # that bucket is what feeds the launch signal (external_unique_payers).
+        kind = "unknown"
     else:
         kind = "human"
     return {
@@ -248,6 +323,9 @@ def fingerprint_payer(
             key=lambda e: (-e["txs"], -e["total_usdc"]),
         )[:10],
         "classification": kind,
+        "scan_complete": coverage["complete"],
+        "scan_failed_ranges": coverage["failed_ranges"],
+        "scan_blocks": f"{coverage['scanned_blocks']}/{coverage['requested_blocks']}",
     }
 
 
@@ -371,7 +449,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--days", type=int, default=7, help="lookback window in days")
     ap.add_argument("--rpc", default=os.getenv("BASE_RPC_URL", DEFAULT_RPC))
     ap.add_argument("--contract", default=USDC_BASE)
-    ap.add_argument("--chunk", type=int, default=5000)
+    ap.add_argument("--chunk", type=int, default=DEFAULT_CHUNK_BLOCKS,
+                    help="initial blocks per eth_getLogs call; ranges are halved "
+                         "automatically when the node refuses them")
     ap.add_argument("--out", default="", help="write JSON report here")
     args = ap.parse_args(argv)
 

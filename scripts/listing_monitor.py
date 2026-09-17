@@ -55,11 +55,26 @@ def receiver_scan() -> Optional[dict]:
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         latest = w3.eth.block_number
         from_b = max(1, latest - int(7 * 86400 / 2))
+        scan: dict = {}
         transfers = fetch_incoming_transfers(
-            rpc_url, DEFAULT_RECEIVER, from_block=from_b, to_block=latest)
+            rpc_url, DEFAULT_RECEIVER, from_block=from_b, to_block=latest,
+            stats=scan)
         report = classify_transfers(transfers, known_payers=KNOWN_PAYERS)
         external = report.get("payers", [])
         launch = report.get("external_unique_payers", 0) > 0
+        # ALWAYS state what was actually READ. On 17.09 every chunk 413'd on the
+        # public RPC and the pulse looked like an empty week — silence is not
+        # proof that nobody paid.
+        print(f"\nreceiver scan (7d, blocks {scan.get('from_block')}.."
+              f"{scan.get('to_block')}): {scan.get('scanned_blocks')}/"
+              f"{scan.get('requested_blocks')} blocks read in "
+              f"{scan.get('chunks')} chunks ({scan.get('split_retries')} splits), "
+              f"{len(transfers)} txs, rpc {scan.get('rpc_url')}")
+        if not scan.get("complete"):
+            print("[!] RECEIVER SCAN INCOMPLETE — the 7d window was NOT fully "
+                  "read, so 'no payments' is NOT proven. Failed ranges: "
+                  f"{scan.get('failed_ranges')[:5]} — re-run with a working "
+                  "BASE_RPC_URL.")
         if launch:
             total = report.get("total_usdc", 0)
             print("\n*** LAUNCH SIGNAL: external human/unknown payer detected ***")
