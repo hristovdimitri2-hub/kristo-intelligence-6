@@ -1,5 +1,7 @@
 # Kristo Intelligence — DeFi Signals API on Base
 
+[![Kristo Intelligence MCP connector — Glama score](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence/badges/score.svg)](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence)
+
 **Paid DeFi market intelligence for AI agents. x402-native: agents pay per
 call in USDC, from $0.003 — no signup, no API keys, no subscriptions.**
 
