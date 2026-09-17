@@ -227,6 +227,24 @@ def test_promoted_crawler_a19f_never_fires_the_operator_deal_trigger():
     assert recon.operator_repeats(twice) == []
 
 
+def test_promoted_crawler_e3ba_is_a_heartbeat_not_a_customer():
+    """The 17.09 fingerprint (707 distinct receivers in 30 days, 1771 tx, wallet
+    bootstrapped by ONE operator address) made 0xE3BA the second wallet promoted
+    straight to known crawl infrastructure: its payment is a heartbeat, and the
+    launch signal / customer list must not carry it.
+    """
+    E3BA = "0xE3Badbd4F38214b9Eae528a1a5398f6678f63fB3"
+    assert recon.KNOWN_PAYERS[E3BA.lower()] == "market_crawler_e3ba"
+    assert E3BA.lower() not in recon.WATCHLIST
+
+    report = recon.classify_transfers([_t(E3BA, 0.003)])
+    assert report["external_unique_payers"] == 0
+    assert report["total_txs"] == 0
+    assert report["known_verification_txs"] == 1
+    assert report["known_verifications"][0]["label"] == "market_crawler_e3ba"
+    assert report["known_verifications"][0]["total_usdc"] == 0.003
+
+
 def test_operator_repeats_fires_on_second_payment():
     """First payment = first-touch (no trigger). Second payment from the
     SAME watchlisted wallet = OPERATOR REPEAT (the deal trigger)."""

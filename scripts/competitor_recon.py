@@ -73,6 +73,15 @@ KNOWN_PAYERS = {
     # now: "human customers = 2" (0x4dB7, 0x902dcf34) must stay true, and the
     # OPERATOR-REPEAT deal trigger must never fire for a machine.
     "0xa19f621581dbc851a21d6179868111709a52accc": "market_crawler_a19f",
+    # Fingerprinted 17.09 (30-day outgoing fan-out, sender-filtered get_logs,
+    # 1,296,001/1,296,001 blocks read): **707 distinct receivers** / 1771 tx /
+    # $15.85 — broader than 0x6777 (386) and 0x54e1 (325), i.e. the same
+    # continuous-indexator class, so a machine by our own threshold (50).
+    # Corroborating: its whole wallet was bootstrapped on 2026-09-03 by ONE
+    # operator address (1.00 + 19.00 USDC from 0x4B5c7108…34F6 — the same
+    # "1 + N" seeding we saw for A19F). It paid our $0.003 tier once
+    # (2026-09-14 19:57 UTC, block 51313253) → heartbeat, never a launch signal.
+    "0xe3badbd4f38214b9eae528a1a5398f6678f63fb3": "market_crawler_e3ba",
 }
 
 # ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──

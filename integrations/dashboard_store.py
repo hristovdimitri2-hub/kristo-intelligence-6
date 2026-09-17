@@ -62,6 +62,10 @@ PAYER_CLASSES = {
     # 98 distinct receivers on the chain beat the "operator" label it carried
     # since 09.09. Class `sampler` = heartbeat, never a launch signal.
     "market_crawler_a19f": "sampler",
+    # 17.09: 0xE3BA never got a customer label — the 30-day fingerprint found
+    # 707 distinct receivers (threshold: 50), so it was a crawler from the
+    # start. Class `sampler` = heartbeat, never a launch signal.
+    "market_crawler_e3ba": "sampler",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
