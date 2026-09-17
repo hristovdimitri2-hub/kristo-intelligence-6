@@ -909,6 +909,20 @@ def _dashboard_scan_loop():
                 log.warning("Dashboard PayAPI refresh failed: %s", exc)
 
 
+def whaleflow_scan_enabled() -> bool:
+    """Is the network-wide whale scan allowed to spend RPC requests?
+
+    The whale scan reads EVERY USDC transfer on Base, so it is by far the most
+    request-hungry loop in the app: on 17.09 it was found burning a PAID RPC
+    (95.3M compute units in 4 days at 10-block chunks). WHALEFLOW_ENABLED=0
+    pauses it HONESTLY — no requests are issued at all, the store reports
+    `whaleflow_state = scan_paused_by_owner`, and the watermark is kept so a
+    later re-enable resumes exactly where it stopped instead of silently dying.
+    """
+    return os.getenv("WHALEFLOW_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off", "")
+
+
 def _whaleflow_scan_loop():
     """Whale flow: bounded backfill, then a 60s incremental scan.
 
@@ -923,6 +937,23 @@ def _whaleflow_scan_loop():
     pipeline end-to-end; history then accumulates on its own. Raise
     WHALEFLOW_BACKFILL_HOURS if you want the deep history paid for in time.
     """
+    if not whaleflow_scan_enabled():
+        log.warning(
+            "Whale flow scan PAUSED (WHALEFLOW_ENABLED=0): scan_paused_by_owner "
+            "— no RPC requests are issued and the watermark is kept.")
+        try:
+            dashboard_db.set_meta("whaleflow_state", "scan_paused_by_owner")
+            dashboard_db.set_meta("whaleflow_state_at",
+                                  datetime.now(timezone.utc).isoformat())
+        except Exception as exc:
+            log.warning("Could not record the paused whale state: %s", exc)
+        return
+    try:  # re-enabled: clear the paused mark so the state cannot linger
+        dashboard_db.set_meta("whaleflow_state", "")
+        dashboard_db.set_meta("whaleflow_state_at",
+                              datetime.now(timezone.utc).isoformat())
+    except Exception:
+        pass
     interval = max(30, int(os.getenv("WHALEFLOW_SCAN_INTERVAL", "60")))
     hours = max(1, int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "1")))
     log.info("Whale flow scan loop started (backfill=%dh, interval=%ss).",
@@ -4081,6 +4112,7 @@ def _canonical_dashboard_payload() -> dict:
             "whales": {
                 "label": "Китове (Whale Flow) — мрежови USDC трансфери ≥ праг",
                 "state": whales["state"],
+                "paused_at": whales.get("paused_at"),
                 "count": whales["count"],
                 "all_time_count": whales["all_time_count"],
                 "last_event_at": whales["last_event_at"],
@@ -4094,7 +4126,9 @@ def _canonical_dashboard_payload() -> dict:
                 "whales": whales["whales"],
                 "note": ("Празно е ЧЕСТНО състояние: watermark-ът се движи и "
                          "сканът работи — просто няма трансфер ≥ прага. "
-                         "'scan_failed' значи счупен скан, не празна мрежа."),
+                         "'scan_failed' значи счупен скан, не празна мрежа. "
+                         "'scan_paused_by_owner' значи, че сканерът е СПРЯН "
+                         "нарочно (нула заявки към RPC) — виж paused_at."),
             },
             "guards": {
                 "label": "Стражи на плащането (C1/C2/H2) — живо състояние",

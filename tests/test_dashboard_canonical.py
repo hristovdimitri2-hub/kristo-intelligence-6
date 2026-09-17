@@ -424,3 +424,42 @@ def test_scan_increment_uses_persisted_watermark(tmp_path, monkeypatch):
     assert store.get_meta("last_scanned_block") == "10005"
     assert store.sales_summary()["total_count"] == 1
 
+def test_the_whale_scan_can_be_paused_truthfully(tmp_path):
+    """17.09: the network-wide whale scan was burning a PAID RPC (95.3M compute
+    units in 4 days at 10-block chunks). Pausing it must be a visible, honest
+    state — never an empty feed that looks like a quiet market.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "paused.db")
+    store.set_meta("whaleflow_state", "scan_paused_by_owner")
+    store.set_meta("whaleflow_state_at", "2026-09-17T13:40:00+00:00")
+    summary = store.whaleflow_summary()
+    assert summary["state"] == "scan_paused_by_owner"
+    assert summary["paused_at"] == "2026-09-17T13:40:00+00:00"
+    assert summary["count"] == 0
+
+    # The deliberate stop outranks a fault — it is the actual reason why the
+    # feed is empty, so it must not be masked by a stale error string.
+    store.set_meta("whaleflow_last_error", "boom")
+    assert store.whaleflow_summary()["state"] == "scan_paused_by_owner"
+
+    # Re-enabled (the loop clears the mark): the previous honesty ladder returns.
+    store.set_meta("whaleflow_state", "")
+    assert store.whaleflow_summary()["state"] == "scan_failed"
+    assert store.whaleflow_summary()["paused_at"] is None
+    store.set_meta("whaleflow_last_error", "")
+    assert store.whaleflow_summary()["state"] == "scan_not_started"
+
+
+def test_the_whale_scan_switch_honours_the_env(monkeypatch):
+    """WHALEFLOW_ENABLED=0 alone must stop the scanner from issuing requests."""
+    import main
+
+    for value, expected in (("0", False), ("false", False), ("no", False),
+                            ("off", False), ("", False), ("1", True),
+                            ("true", True)):
+        monkeypatch.setenv("WHALEFLOW_ENABLED", value)
+        assert main.whaleflow_scan_enabled() is expected, value
+    monkeypatch.delenv("WHALEFLOW_ENABLED", raising=False)
+    assert main.whaleflow_scan_enabled() is True      # default: scanning

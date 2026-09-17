@@ -1628,11 +1628,21 @@ HYBRID since 14.09:
             # "scan_failed" is the opposite: the scanner itself is broken, and
             # showing "чакаме кит" for it would hide a dead paid feed.
             # "scanning" covers the first (minutes-long) network-wide walk.
-            "state": ("live_data" if whales
+            # "scan_paused_by_owner" is a DELIBERATE stop (17.09: the scan was
+            # burning a paid RPC) — first in precedence, because it is the only
+            # state where the reason for an empty feed is a human decision,
+            # not a fault.
+            "state": ("scan_paused_by_owner"
+                      if (self.get_meta("whaleflow_state")
+                          == "scan_paused_by_owner")
+                      else "live_data" if whales
                       else "scan_failed" if last_error
                       else "awaiting_whale" if scanned_until
                       else "scanning" if last_attempt
                       else "scan_not_started"),
+            "paused_at": (self.get_meta("whaleflow_state_at") or None)
+            if self.get_meta("whaleflow_state") == "scan_paused_by_owner"
+            else None,
             "last_attempt_at": last_attempt or None,
             "last_error": last_error or None,
             "effective_chunk_blocks": (int(effective_chunk)

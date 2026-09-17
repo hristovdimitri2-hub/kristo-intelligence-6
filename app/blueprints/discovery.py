@@ -75,8 +75,14 @@ def _mcp_tools(base_url):
         {
             "name": "get_market_stats",
             "description": (
-                "Market activity, daily stats, and live market data "
-                "(CoinGecko, DEXScreener, Fear & Greed). Paid via x402."
+                "Read-only operation — no side effects, no parameters. Returns "
+                "the live Base market snapshot: aggregated activity, daily "
+                "request/sales counters, the official agent catalog, and "
+                "real-time market data (CoinGecko, DEXScreener, Fear & Greed). "
+                "Use it for market context and price/indicator lookups; use "
+                "get_onchain_sales for paid-call revenue and get_bot_status for "
+                "integration health. Paid via x402 (HTTP 402 challenge with the "
+                "exact USDC amount and receiver on Base)."
             ),
             "inputSchema": {"type": "object", "properties": {},
                             "additionalProperties": False},
@@ -88,8 +94,15 @@ def _mcp_tools(base_url):
         {
             "name": "get_onchain_sales",
             "description": (
-                "Real on-chain sales history (USDC transfers to the Kristo "
-                "fee receiver). Paid via x402."
+                "Read-only operation — no side effects, no parameters. Returns "
+                "the real on-chain payment history to this service's fee "
+                "receiver on Base: total_volume_usd, total_sales, by_token, up "
+                "to 100 history rows (tx hash, payer, amount, block, "
+                "timestamp), source=\"real_blockchain\", plus the wallet state "
+                "and a market snapshot. Use it when you need provable revenue "
+                "or settlement evidence; use get_market_stats for prices and "
+                "get_bot_status for integration health. Paid via x402 (HTTP 402 "
+                "challenge with the exact USDC amount and receiver on Base)."
             ),
             "inputSchema": {"type": "object", "properties": {},
                             "additionalProperties": False},
@@ -100,7 +113,18 @@ def _mcp_tools(base_url):
         },
         {
             "name": "get_bot_status",
-            "description": "Telegram bot integration status. Paid via x402.",
+            "description": (
+                "Read-only operation — no side effects, no parameters. Returns "
+                "the service's Telegram integration status as JSON: "
+                "telegram_bot_running, telegram_token_configured, "
+                "last_heartbeat, uptime_started, messages_sent, active_users, "
+                "commands_processed, vip_invites_sent, plus the wallet state. "
+                "Use it to confirm this service's own monitoring is alive (and "
+                "its heartbeat recent) before trusting other outputs; use "
+                "get_market_stats for market data or get_onchain_sales for "
+                "provable revenue. Paid via x402 (HTTP 402 challenge with the "
+                "exact USDC amount and receiver on Base)."
+            ),
             "inputSchema": {"type": "object", "properties": {},
                             "additionalProperties": False},
             "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
