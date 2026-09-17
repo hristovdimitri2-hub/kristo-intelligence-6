@@ -542,3 +542,64 @@ def test_the_stripe_payment_feed_survives_stripeobject_fields(monkeypatch):
     # …and the trap is still a trap: this is what used to kill the whole feed.
     with pytest.raises(AttributeError):
         Sessions.data[0].metadata.get("plan")
+
+
+def test_the_paid_webhook_records_the_event_time_and_reports_it_once(
+        client, monkeypatch, caplog, tmp_path):
+    """Two things the first human payment taught us (16.09):
+
+    1. the sale must be dated by the EVENT's own timestamp — the owner's check is
+       `paid_at == event created`; before this the dashboard dated a sale by the
+       LEAD's creation (38 s early that time, hours early if a buyer pays later);
+    2. a successful money path must be AUDIBLE. The 200 lives only in the access
+       log, which is not retained, so a silent success was indistinguishable from
+       a silent failure. Exactly ONE INFO line, with the checkout id, plan and
+       amount — and the customer masked, like every other surface.
+    """
+    import logging
+    from datetime import datetime, timezone
+
+    from integrations.crm_store import CRMStore
+
+    test_client, main = client
+    monkeypatch.setattr(main, "crm_store", CRMStore(tmp_path / "crm.db"))
+    main.crm_store.add_lead(main.LeadRecord(
+        email="gergana@example.com", source="website", campaign="launch",
+        plan="Starter"))
+
+    event_created = 1789548968            # 2026-09-16 08:56:08 UTC — the sale
+    monkeypatch.setattr(main.stripe_checkout, "verify_webhook",
+                        lambda _payload, _signature: {
+                            "type": "checkout.session.completed",
+                            "created": event_created,
+                            "data": {"object": {
+                                "id": "cs_live_first_paid",
+                                "customer_email": "gergana@example.com",
+                                "amount_total": 3480,
+                                "currency": "usd",
+                                "payment_status": "paid",
+                                "metadata": {"plan": "starter"},
+                            }},
+                        })
+
+    with caplog.at_level(logging.INFO, logger="kristo.v6.main"):
+        response = test_client.post("/api/webhooks/stripe", data=b"{}",
+                                    headers={"Stripe-Signature": "test"})
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "paid"
+
+    lead = main.crm_store.find_by_email("gergana@example.com")
+    assert lead["paid_at"] == datetime.fromtimestamp(
+        event_created, tz=timezone.utc).isoformat(), "paid_at == event created"
+    assert lead["checkout_id"] == "cs_live_first_paid"
+    assert lead["plan"] == "starter" and lead["amount_usd"] == 34.80
+    assert lead["payment_status"] == "paid"
+
+    money_lines = [r.getMessage() for r in caplog.records
+                   if "money event" in r.getMessage()]
+    assert len(money_lines) == 1, money_lines
+    assert "checkout_id=cs_live_first_paid" in money_lines[0]
+    assert "plan=starter" in money_lines[0] and "$34.80" in money_lines[0]
+    assert "2026-09-16T08:56:08" in money_lines[0]
+    assert "gergana@example.com" not in money_lines[0], "emails stay masked"

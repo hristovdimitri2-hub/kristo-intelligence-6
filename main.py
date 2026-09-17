@@ -3332,6 +3332,18 @@ def stripe_webhook_handler():
         amount = float(event_data.get("amount_total") or 0.0) / 100.0
         payment_status = (event_data.get("payment_status") or "").strip().lower()
         currency = (event_data.get("currency") or "").strip().lower()
+        # WHEN THE MONEY ARRIVED: the EVENT's own timestamp, not the lead's
+        # creation time. The dashboard used to date a sale by the lead, which is
+        # right only by luck (38 s on the first sale, hours when a buyer pays
+        # later) — and the CRM row and Stripe can now be compared to the second.
+        event_created = payload.get("created")
+        paid_at = ""
+        if event_created:
+            try:
+                paid_at = datetime.fromtimestamp(
+                    int(event_created), tz=timezone.utc).isoformat()
+            except (TypeError, ValueError):
+                paid_at = ""
         if payment_status != "paid":
             return jsonify(
                 {
@@ -3363,7 +3375,9 @@ def stripe_webhook_handler():
                         {"ok": True, "status": "ignored_unmatched_catalog_checkout"}
                     )
             already_paid = prior_lead.get("payment_status") == "paid"
-            paid_lead = crm_store.mark_paid(email, amount, plan_key)
+            paid_lead = crm_store.mark_paid(email, amount, plan_key,
+                                            checkout_id=checkout_id,
+                                            paid_at=paid_at)
             if agent_sku:
                 catalog_store.confirm_checkout_payment(
                     checkout_id,
@@ -3387,6 +3401,15 @@ def stripe_webhook_handler():
                     plan_key,
                     already_paid,
                 )
+            # ONE INFO line per money event — a successful money path must be
+            # visible on its own. The 200 lives only in the access log, which is
+            # not retained, so a silent SUCCESS was indistinguishable from a silent
+            # FAILURE. The email is masked like everywhere else on this surface.
+            log.info(
+                "Stripe money event %s received: checkout_id=%s plan=%s "
+                "amount=$%.2f paid_at=%s customer=%s",
+                event_type, checkout_id or "(none)", plan_key, amount,
+                paid_at or "(unknown)", _mask_email(email))
             return jsonify({
                 "ok": True,
                 "status": "paid",
@@ -3446,7 +3469,9 @@ def _admin_overview_payload() -> dict:
             "email": lead.get("email", ""),
             "plan": lead.get("plan", ""),
             "amount_usd": float(lead.get("amount_usd") or 0),
-            "created": lead.get("created_at", ""),
+            # The sale happened when the MONEY arrived, not when the lead was made.
+            "created": lead.get("paid_at") or lead.get("created_at", ""),
+            "checkout_id": lead.get("checkout_id", ""),
             "provider": "crm_paid_event",
             "payment_status": "paid",
         }
@@ -3461,7 +3486,7 @@ def _admin_overview_payload() -> dict:
             "email": lead.get("email", ""),
             "plan": lead.get("plan", ""),
             "amount_usd": float(lead.get("amount_usd") or 0),
-            "activated_at": lead.get("created_at", ""),
+            "activated_at": lead.get("paid_at") or lead.get("created_at", ""),
             "telegram_linked": bool(lead.get("telegram_chat_id")),
             "status": "active_paid_vip",
         }
@@ -3823,7 +3848,12 @@ def _canonical_dashboard_payload() -> dict:
             "customer": _mask_email(l.get("email", "")),
             "plan": l.get("plan", ""),
             "amount_usd": round(float(l.get("amount_usd") or 0), 2),
-            "date": (l.get("created_at") or "")[:10],
+            "date": (l.get("paid_at") or l.get("created_at") or "")[:10],
+            # Traceability: WHICH Stripe session paid this row (so the off-chain
+            # table can be joined to a Stripe payment instead of merely resembling
+            # one).
+            "paid_at": l.get("paid_at") or "",
+            "checkout_id": l.get("checkout_id") or "",
             "provider": "crm_paid_event",
         }
         for l in paid_leads

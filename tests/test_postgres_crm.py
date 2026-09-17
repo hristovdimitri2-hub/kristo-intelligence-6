@@ -1,4 +1,5 @@
-from integrations.crm_store import CRMStore, PostgresCRMStore, create_crm_store
+from integrations.crm_store import (CRMStore, LeadRecord, PostgresCRMStore,
+                                    create_crm_store)
 
 
 def test_create_crm_store_prefers_postgres_when_database_url_is_available(
@@ -137,3 +138,79 @@ def test_postgres_crm_booting_survives_an_unreachable_database(monkeypatch,
     # store that mysteriously returns nothing.
     assert any("schema init failed" in r.getMessage()
                for r in caplog.records), "the failure must be logged"
+
+
+def test_postgres_schema_and_mark_paid_carry_the_payment_facts(monkeypatch):
+    """The Postgres store needs the same two columns as SQLite, ALTERed in for the
+    live table (which predates them), and `mark_paid` must write both — while the
+    upsert must refuse to downgrade a paid lead (the re-submitted form sends
+    "pending"/$0)."""
+    executed = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            executed.append(str(sql))
+
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            # A real upsert / UPDATE ... RETURNING always yields the stored row.
+            return {"email": "buyer@example.com", "payment_status": "pending",
+                    "amount_usd": 0.0, "paid_at": None, "checkout_id": None}
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+        def commit(self):
+            executed.append("COMMIT")
+
+    monkeypatch.setattr(PostgresCRMStore, "_connect", lambda self: FakeConn())
+    store = PostgresCRMStore("postgresql://user:pw@example.invalid:5432/db")
+
+    def code_only(parts):
+        """The SQL with its `--` comments stripped: the comments TALK about the
+        columns (that is their job), so they must not satisfy an assertion."""
+        text = ""
+        for part in parts:
+            for line in str(part).splitlines():
+                text += " " + line.split("--")[0]
+        return " ".join(text.split())
+
+    schema = code_only(executed)
+    assert "paid_at TEXT" in schema and "checkout_id TEXT" in schema
+    assert "ALTER TABLE leads ADD COLUMN IF NOT EXISTS" in schema, \
+        "the live table must be migrated, not recreated"
+
+    executed.clear()
+    store.add_lead(LeadRecord(email="buyer@example.com", source="website",
+                              campaign="launch"))
+    upsert = code_only(executed)
+    assert "INSERT INTO leads" in upsert and "DO UPDATE SET" in upsert
+    # The upsert keeps the payment facts of a paid row.
+    assert "leads.payment_status = 'paid'" in upsert
+    assert "THEN leads.amount_usd ELSE EXCLUDED.amount_usd END" in upsert
+    update_part = upsert.split("DO UPDATE SET")[1]
+    assert "paid_at" not in update_part and "checkout_id" not in update_part, \
+        "add_lead must never write payment facts — only mark_paid does"
+
+    executed.clear()
+    store.mark_paid("buyer@example.com", 34.8, "starter",
+                    checkout_id="cs_live_first", paid_at="2026-09-16T08:56:08+00:00")
+    mark = code_only(executed)
+    assert "paid_at = CASE WHEN" in mark, mark
+    assert "checkout_id = CASE WHEN" in mark, mark
+    assert "RETURNING *" in mark

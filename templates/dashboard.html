@@ -436,7 +436,9 @@ function renderCrm(c) {
   const rows = (c.items || []).map(i =>
     `<tr><td class="num">${esc(i.date)}</td><td class="mono">${esc(i.customer)}</td>
      <td>${esc(i.plan || '—')}</td><td class="num">${usd2(i.amount_usd)}</td>
-     <td>${esc(i.provider)}</td></tr>`);
+     <td>${esc(i.provider)}${i.checkout_id
+        ? ' · <span class="mono" title="' + esc(i.checkout_id) + '">Stripe '
+          + esc(short(i.checkout_id, 14)) + '…</span>' : ''}</td></tr>`);
   $('crm-body').innerHTML = rows.length ? rows.join('') :
     '<tr><td colspan="5" class="empty">няма платени off-chain записи</td></tr>';
 }
