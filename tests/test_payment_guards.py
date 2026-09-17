@@ -353,9 +353,9 @@ def test_seed_manifest_reproduces_chain_truth(tmp_path):
     summary = store.sales_summary()
     assert summary["total_usdc"] == 0.031
     assert summary["total_count"] == 9
-    assert summary["external_payers"] == 3
+    assert summary["external_payers"] == 2
     assert summary["by_class"]["canary"]["count"] == 5
-    assert summary["by_class"]["sampler"]["count"] == 1
+    assert summary["by_class"]["sampler"]["count"] == 2   # 54E1 + promoted A19F
     # Idempotent: a second boot inserts nothing and changes nothing.
     assert store.seed_verified_sales()["inserted"] == 0
     assert store.sales_summary()["total_count"] == 9
@@ -390,7 +390,7 @@ def test_admin_seed_route_repairs_a_wiped_store(client, monkeypatch):
     assert body["ok"] is True
     assert body["onchain"]["total_usdc"] == 0.031
     assert body["onchain"]["total_count"] == 9
-    assert body["onchain"]["external_payers"] == 3
+    assert body["onchain"]["external_payers"] == 2
 
 
 def test_a_published_tx_hash_cannot_be_claimed_by_another_payer(

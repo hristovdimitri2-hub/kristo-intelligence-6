@@ -181,25 +181,63 @@ def test_filter_not_too_broad_new_payer_fires_alongside_crawler_54e1():
 
 
 def test_watchlist_registry_has_operator_wallets():
-    """0xA19F and 0x4dB7 are watchlisted OPERATORS — never KNOWN_PAYERS
-    (they are real customers and must keep counting as external)."""
+    """0x4dB7 is a watchlisted OPERATOR (a real customer, must keep counting as
+    external). 0xA19F is NOT: the 14.09 chain audit found 125 outgoing transfers
+    to 98 distinct receivers, so it was promoted to known crawl infrastructure on
+    17.09 — WATCHLIST labels are revisable, the chain is the judge.
+    """
     A19F = "0xa19f621581dbc851a21d6179868111709a52accc"
-    assert A19F in recon.WATCHLIST
-    assert A19F not in recon.KNOWN_PAYERS
+    assert A19F in recon.KNOWN_PAYERS
+    assert recon.KNOWN_PAYERS[A19F] == "market_crawler_a19f"
+    assert A19F not in recon.WATCHLIST
     assert "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7" in recon.WATCHLIST
+
+
+def test_every_known_payer_label_has_a_dashboard_class():
+    """The taxonomy lives in two files: `KNOWN_PAYERS` (labels) and the
+    dashboard's `PAYER_CLASSES` (classes). A label without a class silently
+    falls back to `sampler`, which is how a promotion can go half-done — pin
+    that the two agree, and that the 17.09 promotion is covered on both sides.
+    """
+    from integrations.dashboard_store import PAYER_CLASSES
+
+    for label in recon.KNOWN_PAYERS.values():
+        assert label in PAYER_CLASSES, "%s has no dashboard class" % label
+    assert PAYER_CLASSES["market_crawler_a19f"] == "sampler"
+
+
+def test_promoted_crawler_a19f_is_a_heartbeat_not_a_customer():
+    """After the promotion the machine can no longer masquerade as a launch
+    signal: its payment lands in the heartbeat bucket (label + class `sampler`)
+    and the totals stay honest."""
+    A19F = "0xA19F621581DBc851a21D6179868111709a52aCCC"
+    report = recon.classify_transfers([_t(A19F, 0.003)])
+    assert report["external_unique_payers"] == 0
+    assert report["total_txs"] == 0                # excluded from operator stats
+    assert report["known_verification_txs"] == 1
+    assert report["known_verifications"][0]["label"] == "market_crawler_a19f"
+    assert report["known_verifications"][0]["total_usdc"] == 0.003  # still paid
+
+
+def test_promoted_crawler_a19f_never_fires_the_operator_deal_trigger():
+    """A second payment from the crawler is NOT a deal trigger — only 0x4dB7
+    (the watchlisted human operator) can fire it now."""
+    A19F = "0xA19F621581DBc851a21D6179868111709a52aCCC"
+    twice = [_t(A19F, 0.003), _t(A19F, 0.003, tx="0x" + "c" * 64)]
+    assert recon.operator_repeats(twice) == []
 
 
 def test_operator_repeats_fires_on_second_payment():
     """First payment = first-touch (no trigger). Second payment from the
     SAME watchlisted wallet = OPERATOR REPEAT (the deal trigger)."""
-    A19F = "0xA19F621581DBc851a21D6179868111709a52aCCC"
-    first = [_t(A19F, 0.003)]
+    OP = "0x4dB7AAFbe797a39Cd6Cc4E7aa64d970F7F6E02B7"
+    first = [_t(OP, 0.003)]
     assert recon.operator_repeats(first) == []          # first touch — silent
 
-    second = first + [_t(A19F, 0.003, tx="0x" + "b" * 64)]
+    second = first + [_t(OP, 0.003, tx="0x" + "b" * 64)]
     repeats = recon.operator_repeats(second)
     assert len(repeats) == 1
-    assert repeats[0]["label"] == "operator_watch_a19f"
+    assert repeats[0]["label"] == "operator_watch_4db7"
     assert repeats[0]["txs"] == 2
     assert repeats[0]["total_usdc"] == 0.006
 

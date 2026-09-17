@@ -48,10 +48,12 @@ def test_onchain_section_carries_the_verified_chain_truth(client):
     o = _sections(test_client)["onchain"]
     assert o["total_usdc"] == 0.031
     assert o["total_count"] == 9
-    assert o["external_payers"] == 3
+    assert o["external_payers"] == 2
     assert o["by_class"]["canary"] == {"count": 5, "total_usdc": 0.017}
-    assert o["by_class"]["external"] == {"count": 3, "total_usdc": 0.011}
-    assert o["by_class"]["sampler"] == {"count": 1, "total_usdc": 0.003}
+    # 17.09: 0xA19F (98 distinct receivers) moved external → sampler, so the
+    # chain truth reads 2 humans / $0.008 and 2 heartbeats / $0.006.
+    assert o["by_class"]["external"] == {"count": 2, "total_usdc": 0.008}
+    assert o["by_class"]["sampler"] == {"count": 2, "total_usdc": 0.006}
     # FULL 66-char hashes + the real block numbers (no truncation, no zeros).
     assert len(o["history"]) == 9
     for row in o["history"]:
@@ -66,15 +68,15 @@ def test_clients_section_lists_every_external_payer(client):
     test_client, _main, dash = client
     dash.seed_verified_sales()
     c = _sections(test_client)["clients"]
-    assert c["count"] == 3
+    assert c["count"] == 2
     by_wallet = {x["wallet"]: x for x in c["clients"]}
     assert set(by_wallet) == {
         "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7",
         "0x902dcf34e53695bdea2ffb354b1a2e58bd598256",
-        # 0xA19F was dropped by an earlier audit because the payer's history was
-        # read through a paginated query; the chain scan found it later.
-        "0xa19f621581dbc851a21d6179868111709a52accc",
     }
+    # 0xA19F LEFT this list on 17.09: the chain verdict (125 outgoing transfers
+    # to 98 distinct receivers) made it known crawl infrastructure. Its payment
+    # row stays in the on-chain history — only its class changed (sampler).
     for row in by_wallet.values():
         assert row["payments"] == 1
         assert row["last_ts"]
@@ -671,9 +673,9 @@ def test_seed_restores_all_nine_transfers_on_a_wiped_database(tmp_path,
     summary = store.sales_summary()
     assert summary["total_usdc"] == 0.031
     assert summary["total_count"] == 9
-    assert summary["external_payers"] == 3
-    assert summary["by_class"]["external"] == {"count": 3,
-                                               "total_usdc": 0.011}
+    assert summary["external_payers"] == 2
+    assert summary["by_class"]["external"] == {"count": 2,
+                                               "total_usdc": 0.008}
     assert len(summary["history"]) == 9
     # Idempotent on the next boot: nothing inserted, nothing changed.
     assert store.seed_verified_sales()["inserted"] == 0
@@ -712,8 +714,8 @@ def test_onchain_sales_survives_a_deploy_without_re_seeding(tmp_path,
     summary = second.sales_summary()
     assert summary["total_usdc"] == 0.031, "the money table did not survive"
     assert summary["total_count"] == 9
-    assert summary["external_payers"] == 3
-    assert summary["by_class"]["external"] == {"count": 3, "total_usdc": 0.011}
+    assert summary["external_payers"] == 2
+    assert summary["by_class"]["external"] == {"count": 2, "total_usdc": 0.008}
     assert second.seed_verified_sales()["inserted"] == 0
     # The money table really is on the PostgreSQL side, not on the local file
     # that the deploy wipes.
@@ -754,7 +756,7 @@ def test_the_seed_is_a_bootstrap_and_never_a_cover_up(tmp_path, monkeypatch):
     after_scan = store.sales_summary()
     assert after_scan["total_usdc"] == 0.038          # 0.031 + 0.007, no reset
     assert after_scan["total_count"] == 10
-    assert after_scan["external_payers"] == 4
+    assert after_scan["external_payers"] == 3       # 2 humans + this new wallet
 
     # 3. The next boot re-runs the seed: nothing is touched.
     assert store.seed_verified_sales()["mode"] == "already_complete"

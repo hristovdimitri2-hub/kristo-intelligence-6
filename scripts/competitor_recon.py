@@ -65,6 +65,14 @@ KNOWN_PAYERS = {
     # paid our signal route once; same continuous-indexator class as 6777.
     # Its payment is a heartbeat ('in the crawl set'), never a launch signal.
     "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0": "market_crawler_54e1",
+    # PROMOTED 17.09 (sat in WATCHLIST as "operator_watch_a19f" since 09.09).
+    # The 14.09 chain audit settled it: 125 outgoing USDC transfers to **98
+    # DISTINCT receivers** in 30 days — past our own CRAWLER_MIN_RECEIVERS=50
+    # threshold, i.e. market crawl infrastructure, not a customer. It stays a
+    # real payer (2 payments to us, counted in the totals) but it is a HEARTBEAT
+    # now: "human customers = 2" (0x4dB7, 0x902dcf34) must stay true, and the
+    # OPERATOR-REPEAT deal trigger must never fire for a machine.
+    "0xa19f621581dbc851a21d6179868111709a52accc": "market_crawler_a19f",
 }
 
 # ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──
@@ -72,8 +80,12 @@ KNOWN_PAYERS = {
 # customers: they must stay counted as external. A second payment from a
 # watchlisted wallet flips the trigger: "OPERATOR REPEAT" → operator-deal
 # conversation (see NEW_OPERATOR_ANALYSIS).
+# LESSON (17.09): this list is a JUDGEMENT, not a fact, and every judgement is
+# revisable. 0xA19F lived here for 8 days until the chain proved it was a
+# crawler (98 distinct receivers) — a machine was one repeat away from being
+# offered a deal. Re-check WATCHLIST labels whenever the chain hands down a new
+# verdict: fingerprint first, label second.
 WATCHLIST = {
-    "0xa19f621581dbc851a21d6179868111709a52accc": "operator_watch_a19f",
     "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7": "operator_watch_4db7",
 }
 

@@ -220,6 +220,20 @@ try:
 except Exception as _seeded_exc:  # pragma: no cover - defensive
     log.warning("Verified-sales seed failed (non-fatal): %s", _seeded_exc)
 
+# ── Payer taxonomy is re-applied at BOOT (17.09) ──────────────────────────
+# Rows are classified when they are written, so a wallet fingerprinted as
+# market infrastructure LATER keeps its old class until something re-runs the
+# taxonomy. The scanner cycles do it, but they need an RPC and a free thread —
+# so a boot where the chain is unreachable would leave the dashboard telling an
+# old, flattering story (a crawler counted as a customer). Idempotent.
+try:
+    _reclassified = dashboard_db.reclassify_known_payers()
+    if _reclassified:
+        log.info("Payer taxonomy re-applied at boot: %d row(s) reclassified.",
+                 _reclassified)
+except Exception as _reclass_exc:  # pragma: no cover - defensive
+    log.warning("Payer reclassify failed (non-fatal): %s", _reclass_exc)
+
 # ── Off-chain record durability (audit A2) ────────────────────────────────
 # The ON-CHAIN numbers are re-seeded from the chain on every boot, so a deploy
 # cannot zero them. The CRM (leads / paid leads / sales pipeline) has no such

@@ -58,6 +58,10 @@ PAYER_CLASSES = {
     "market_sampler_c59e": "sampler",
     "market_crawler_6777": "sampler",
     "market_crawler_54e1": "sampler",
+    # 17.09: 0xA19F promoted from WATCHLIST to known crawl infrastructure —
+    # 98 distinct receivers on the chain beat the "operator" label it carried
+    # since 09.09. Class `sampler` = heartbeat, never a launch signal.
+    "market_crawler_a19f": "sampler",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
