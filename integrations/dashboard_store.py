@@ -415,8 +415,22 @@ class HistoryStore:
                    updated_at TEXT
                )"""
         )
+        self._run(
+            """CREATE TABLE IF NOT EXISTS vip_invites (
+                   code       TEXT PRIMARY KEY,
+                   wallet     TEXT,
+                   tx_hash    TEXT,
+                   chat_id    TEXT,
+                   created    TEXT,
+                   used       INTEGER DEFAULT 0,
+                   source     TEXT
+               )"""
+        )
+        self._run("CREATE INDEX IF NOT EXISTS idx_vip_invites_wallet "
+                  "ON vip_invites (wallet)")
         log.info("Durable store ready (%s): request_log + whaleflow_events + "
-                 "onchain_sales + payment_guards + guard_events + dashboard_meta.",
+                 "onchain_sales + payment_guards + guard_events + dashboard_meta "
+                 "+ vip_invites.",
                  self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
@@ -762,6 +776,51 @@ class HistoryStore:
         row = self._run("SELECT value FROM dashboard_meta WHERE key = ?",
                         (key,), "one")[0]
         return row["value"] if row else default
+
+    def record_vip_invite(self, code: str, wallet: str, tx_hash: str = "",
+                          chat_id: str = "", source: str = "onchain") -> bool:
+        """Persist one VIP invite — 18.09: they lived in RAM and died with every
+        deploy, so an invite issued minutes before a deploy vanished while the
+        sale that paid for it stayed in Postgres. Same rule as the money: durable."""
+        _rows, rowcount = self._run(
+            """INSERT INTO vip_invites
+                   (code, wallet, tx_hash, chat_id, created, used, source)
+               VALUES (?, ?, ?, ?, ?, 0, ?)
+               ON CONFLICT (code) DO NOTHING""",
+            (code, (wallet or "").lower(), (tx_hash or "").lower(),
+             str(chat_id or ""), datetime.now(timezone.utc).isoformat(), source))
+        return rowcount > 0
+
+    def vip_invite_by_code(self, code: str) -> Optional[dict]:
+        row = self._run("SELECT code, wallet, tx_hash, chat_id, created, used, "
+                        "source FROM vip_invites WHERE code = ?",
+                        (code,), "one")[0]
+        return dict(row) if row else None
+
+    def vip_invite_for_wallet(self, wallet: str) -> Optional[dict]:
+        """The invite issued to a wallet, if any (drives the 'already VIP' check)."""
+        row = self._run("SELECT code, wallet, tx_hash, chat_id, created, used, "
+                        "source FROM vip_invites WHERE wallet = ? "
+                        "ORDER BY created DESC LIMIT 1",
+                        ((wallet or "").lower(),), "one")[0]
+        return dict(row) if row else None
+
+    def mark_vip_invite_used(self, code: str) -> bool:
+        _rows, rowcount = self._run(
+            "UPDATE vip_invites SET used = 1 WHERE code = ? AND used = 0",
+            (code,))
+        return rowcount > 0
+
+    def vip_invites_summary(self) -> Dict[str, Any]:
+        """Counts for the status surfaces — durable, so a deploy cannot zero them."""
+        total = self._run("SELECT COUNT(*) AS n FROM vip_invites", (), "one")[0]
+        used = self._run("SELECT COUNT(*) AS n FROM vip_invites WHERE used = 1",
+                         (), "one")[0]
+        wallets = self._run("SELECT COUNT(DISTINCT wallet) AS n FROM vip_invites "
+                            "WHERE wallet != ''", (), "one")[0]
+        return {"total": total["n"] if total else 0,
+                "used": used["n"] if used else 0,
+                "wallets": wallets["n"] if wallets else 0}
 
     def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
         """The recorded sale for one tx hash, or None — used by the Telegram VIP
@@ -1330,6 +1389,27 @@ HYBRID since 14.09:
     def track_record(self, now: Optional[datetime] = None) -> Dict[str, Any]:
         """Business clock + three numbers — see HistoryStore.track_record."""
         return self.history.track_record(now)
+
+    def record_vip_invite(self, code: str, wallet: str, tx_hash: str = "",
+                          chat_id: str = "", source: str = "onchain") -> bool:
+        """VIP invite persistence — see HistoryStore.record_vip_invite."""
+        return self.history.record_vip_invite(code, wallet, tx_hash, chat_id, source)
+
+    def vip_invite_by_code(self, code: str) -> Optional[dict]:
+        """VIP invite lookup — see HistoryStore.vip_invite_by_code."""
+        return self.history.vip_invite_by_code(code)
+
+    def vip_invite_for_wallet(self, wallet: str) -> Optional[dict]:
+        """'Already VIP?' check — see HistoryStore.vip_invite_for_wallet."""
+        return self.history.vip_invite_for_wallet(wallet)
+
+    def mark_vip_invite_used(self, code: str) -> bool:
+        """Mark a code consumed — see HistoryStore.mark_vip_invite_used."""
+        return self.history.mark_vip_invite_used(code)
+
+    def vip_invites_summary(self) -> Dict[str, Any]:
+        """Invite counts — see HistoryStore.vip_invites_summary."""
+        return self.history.vip_invites_summary()
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales — see HistoryStore.sales_summary.

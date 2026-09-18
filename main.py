@@ -384,18 +384,33 @@ def _activate_stripe_vip_access(
     return telegram_flow.deliver_vip_invite(chat_id, checkout_id, "Pro")
 
 
-def _generate_vip_invite(wallet_address: str, tx_hash: str) -> Optional[str]:
+def _generate_vip_invite(wallet_address: str, tx_hash: str,
+                         chat_id: str = "") -> Optional[str]:
     """
     Generate a Telegram VIP invite code for a wallet that paid >= VIP_THRESHOLD.
+
+    DURABLE since 18.09: the code is written to the Postgres `vip_invites` table
+    first (the in-RAM dicts remain as a mirror for the status counters). Before
+    this, an invite issued minutes before a deploy simply ceased to exist while
+    the sale that paid for it stayed — the same class of bug the money table had.
     Returns the invite code string, or None on failure.
     """
     invite_code = f"KRI-VIP-{secrets.token_hex(4).upper()}"
+    stored = False
+    try:
+        stored = dashboard_db.record_vip_invite(invite_code, wallet_address,
+                                                tx_hash, chat_id=chat_id,
+                                                source="onchain")
+    except Exception as exc:
+        log.warning("VIP invite not persisted (non-fatal): %s", exc)
     with _lock:
         _vip_invites[invite_code] = {
             "wallet": wallet_address,
             "tx_hash": tx_hash,
+            "chat_id": str(chat_id or ""),
             "created": datetime.now(timezone.utc).isoformat(),
             "used": False,
+            "durable": stored,
         }
         _vip_subscribers[wallet_address] = {
             "joined": datetime.now(timezone.utc).isoformat(),
@@ -404,7 +419,8 @@ def _generate_vip_invite(wallet_address: str, tx_hash: str) -> Optional[str]:
         }
         _bot_status["vip_invites_sent"] += 1
 
-    log.info("VIP invite generated: code=%s for wallet=%s (tx=%s)", invite_code, wallet_address, tx_hash)
+    log.info("VIP invite generated: code=%s for wallet=%s (tx=%s, durable=%s)",
+             invite_code, wallet_address, tx_hash, stored)
 
     # Best-effort: send Telegram notification if bot token is configured
     _send_telegram_vip_notification(wallet_address, invite_code, tx_hash)
@@ -807,7 +823,15 @@ def _record_real_sale(token: str, amount_usd: float, tx_hash: str, sender: str =
     if amount_usd >= VIP_THRESHOLD_USDC and sender:
         tier = _classify_payment(amount_usd)
         log.info("Payment classified as '%s' ($%.6f) — checking VIP invite...", tier, amount_usd)
-        if sender not in _vip_subscribers:
+        # Durable first (18.09): the RAM dict forgot every invite on a deploy, so
+        # a wallet that had already paid could be issued a SECOND code.
+        already = sender in _vip_subscribers
+        if not already:
+            try:
+                already = dashboard_db.vip_invite_for_wallet(sender) is not None
+            except Exception as exc:
+                log.debug("Durable VIP lookup failed (using RAM): %s", exc)
+        if not already:
             invite = _generate_vip_invite(sender, tx_hash)
             if invite:
                 log.info("VIP invite %s generated for %s payment by %s", invite, tier, sender)
@@ -2942,7 +2966,16 @@ def api_telegram_webhook():
         result = process_webhook_update(payload)
         _record_request("api_telegram_webhook", True)
         _record_telegram_activity(payload, result)
-        log.info("Telegram webhook processed: %s", result)
+        # The chat id is logged on purpose (18.09): configuring TELEGRAM_VIP_CHAT_ID
+        # needs the OWNER's private chat id, and this is the operator's own log —
+        # Telegram only reveals a user's id when they message the bot, so there is
+        # no other way to read it without asking the user to dig it out.
+        _msg = payload.get("message") or {}
+        _cb = (payload.get("callback_query") or {})
+        _chat = (_msg.get("chat") or (_cb.get("message") or {}).get("chat") or {})
+        log.info("Telegram webhook processed: %s | chat_id=%s type=%s from=%s",
+                 result, _chat.get("id"), _chat.get("type"),
+                 (_cb.get("from") or _msg.get("from") or {}).get("id"))
         return jsonify({"ok": True, "result": result})
     except Exception as exc:
         _record_request("api_telegram_webhook", False)
@@ -3689,6 +3722,15 @@ def _admin_overview_payload() -> dict:
         live_requests = list(_live_request_log)[-100:]
         invite_count = len(_vip_invites)
         onchain_vips = len(_vip_subscribers)
+
+    # The DURABLE counts win (18.09): the RAM dicts reset on every deploy, so this
+    # status surface used to report "0 invites" for money that was actually paid.
+    try:
+        durable_vips = dashboard_db.vip_invites_summary()
+        invite_count = max(invite_count, durable_vips["total"])
+        onchain_vips = max(onchain_vips, durable_vips["wallets"])
+    except Exception as exc:
+        log.debug("Durable VIP summary failed (using RAM): %s", exc)
 
     crm_revenue = round(sum(payment["amount_usd"] for payment in crm_payments), 2)
     catalog_metrics = catalog_store.get_metrics_24h()

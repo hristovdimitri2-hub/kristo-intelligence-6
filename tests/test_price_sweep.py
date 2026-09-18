@@ -750,3 +750,157 @@ def test_the_boot_backfill_resumes_from_the_durable_watermark(tmp_path, monkeypa
     store.whaleflow_backfill(hours=24)
     assert seen["f"] == 99950
     assert seen["t"] == 100_000
+
+# ── VIP: private chat, durable invites, owner confirmation (18.09) ──────────
+
+def test_a_vip_invite_is_durable_not_ram(tmp_path):
+    """Invites used to live in RAM and died with every deploy — an invite issued
+    minutes before a deploy vanished while the sale that paid for it stayed. They
+    now follow the money: Postgres (SQLite here), same store, same rules."""
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "vips.db")
+    assert store.record_vip_invite("KRI-VIP-TEST0001", "0x" + "ab" * 20,
+                                   "0x" + "cd" * 32, chat_id="777",
+                                   source="manual") is True
+    assert store.record_vip_invite("KRI-VIP-TEST0001", "0x" + "ab" * 20) is False
+
+    # A fresh process on the same durable DB still sees it.
+    again = DashboardStore(tmp_path / "vips.db")
+    invite = again.vip_invite_by_code("KRI-VIP-TEST0001")
+    assert invite and invite["chat_id"] == "777" and invite["used"] == 0
+    assert again.vip_invite_for_wallet("0x" + "ab" * 20)["code"] == "KRI-VIP-TEST0001"
+    assert again.vip_invites_summary() == {"total": 1, "used": 0, "wallets": 1}
+    assert again.mark_vip_invite_used("KRI-VIP-TEST0001") is True
+    assert again.mark_vip_invite_used("KRI-VIP-TEST0001") is False   # idempotent
+    assert again.vip_invites_summary()["used"] == 1
+
+
+def test_only_the_owner_can_issue_an_invite(client, monkeypatch):
+    """`/invite` is the human confirmation step of the claim path: a stranger who
+    sends it gets nothing, the owner gets a delivery receipt, and the buyer gets
+    the code in a PRIVATE message (durably stored first)."""
+    import services.telegram_sales as telegram_sales
+    from datetime import datetime
+
+    _test_client, main = client
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "@Kristointeligent")
+    monkeypatch.setenv("TELEGRAM_VIP_CHAT_ID", "999")     # the owner's private chat
+    sends = []
+    monkeypatch.setattr(
+        telegram_sales, "_send_text",
+        lambda token, chat, text, **kw: sends.append((str(chat), text)) or {"ok": True})
+
+    tx = "0x" + "ef" * 32
+    main.dashboard_db.record_sale(tx_hash=tx, amount_usdc=0.10,
+                                  sender="0x" + "77" * 20, block_number=5,
+                                  ts=datetime.fromisoformat("2026-09-18T10:00:00+00:00"),
+                                  source="live")
+
+    denied = telegram_sales.process_webhook_update(
+        {"message": {"message_id": 1, "text": "/invite 555", "chat":
+                     {"id": 555, "type": "private"}}})
+    assert denied["type"] == "invite_denied"
+    assert main.dashboard_db.vip_invites_summary()["total"] == 0
+    sends.clear()                                   # keep the two calls apart
+
+    issued = telegram_sales.process_webhook_update(
+        {"message": {"message_id": 2, "text": "/invite 555 " + tx,
+                     "chat": {"id": 999, "type": "private"}}})
+    assert issued["type"] == "invite_issued" and issued["durable"] is True
+    code = issued["code"]
+    buyer_text = [t for c, t in sends if c == "555"][0]
+    assert code in buyer_text and "VIP достъп отключен" in buyer_text
+    owner_text = [t for c, t in sends if c == "999"][0]
+    assert code in owner_text                      # private chat: full receipt
+    assert main.dashboard_db.vip_invite_by_code(code)["chat_id"] == "555"
+    assert main.dashboard_db.vip_invite_by_code(code)["wallet"] == "0x" + "77" * 20
+
+
+
+def test_the_invite_code_never_lands_in_the_public_channel(client, monkeypatch):
+    """With TELEGRAM_VIP_CHAT_ID unset our only chat IS the public channel, so the
+    owner's receipt must not carry the code — the buyer still gets it privately."""
+    import services.telegram_sales as telegram_sales
+
+    _test_client, main = client
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "@Kristointeligent")
+    monkeypatch.delenv("TELEGRAM_VIP_CHAT_ID", raising=False)
+    sends = []
+    monkeypatch.setattr(
+        telegram_sales, "_send_text",
+        lambda token, chat, text, **kw: sends.append((str(chat), text)) or {"ok": True})
+
+    issued = telegram_sales.process_webhook_update(
+        {"message": {"message_id": 3, "text": "/invite 555",
+                     "chat": {"id": "@Kristointeligent", "type": "channel"}}})
+    assert issued["type"] == "invite_issued"
+    code = issued["code"]
+    public = [t for c, t in sends if c == "@Kristointeligent"][0]
+    assert code not in public
+    assert "не се публикува" in public
+    assert code in [t for c, t in sends if c == "555"][0]
+
+
+def test_the_vip_button_answers_in_a_private_chat(client, monkeypatch):
+    """The button lives in the public channel; the payment steps belong to the
+    person who tapped. Private first, and when Telegram refuses the DM the channel
+    gets a HINT instead of the instructions (never someone's payment steps)."""
+    import services.telegram_sales as telegram_sales
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    sends = []
+    monkeypatch.setattr(
+        telegram_sales, "_send_text",
+        lambda token, chat, text, **kw: sends.append((str(chat), text)) or {"ok": True})
+
+    telegram_sales.handle_callback_query("unlock_vip_analysis",
+                                         "@Kristointeligent", 7, user_id=777)
+    assert [c for c, _ in sends] == ["777"], "the instructions went to the channel"
+    assert "Инструкции за плащане" in sends[0][1]
+
+    # Telegram refuses (the user never started the bot): the DM returns None.
+    sends.clear()
+
+    def _dm_fails(token, chat, text, **kwargs):
+        sends.append((str(chat), text))
+        return None if str(chat) == "777" else {"ok": True}
+
+    monkeypatch.setattr(telegram_sales, "_send_text", _dm_fails)
+    telegram_sales.handle_callback_query("unlock_vip_analysis",
+                                         "@Kristointeligent", 7, user_id=777)
+    assert [c for c, _ in sends] == ["777", "@Kristointeligent"]
+    hint = sends[-1][1]
+    assert "насаме" in hint and "Инструкции за плащане" not in hint
+    assert "basescan.org" not in hint
+
+
+def test_the_claim_tells_the_owner_how_to_deliver(client, monkeypatch):
+    """The claim path stays human-in-the-loop: the owner gets the claim AND the
+    exact command that delivers it (no auto-issue — a tx hash is public)."""
+    import services.telegram_sales as telegram_sales
+    from datetime import datetime
+
+    _test_client, main = client
+    tx = "0x" + "ab" * 32
+    main.dashboard_db.record_sale(tx_hash=tx, amount_usdc=0.10,
+                                  sender="0x" + "33" * 20, block_number=9,
+                                  ts=datetime.fromisoformat("2026-09-18T10:00:00+00:00"),
+                                  source="live")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "@Kristointeligent")
+    monkeypatch.setenv("TELEGRAM_VIP_CHAT_ID", "999")
+    sends = []
+    monkeypatch.setattr(
+        telegram_sales, "_send_text",
+        lambda token, chat, text, **kw: sends.append((str(chat), text)) or {"ok": True})
+
+    result = telegram_sales.process_webhook_update(
+        {"message": {"message_id": 4, "text": "платих " + tx,
+                     "chat": {"id": 555, "type": "private"}}})
+    assert result["type"] == "vip_claim" and result["found"] is True
+    owner_text = [t for c, t in sends if c == "999"][0]
+    assert "/invite 555 " + tx in owner_text
+    assert main.dashboard_db.vip_invites_summary()["total"] == 0   # NOT auto-issued

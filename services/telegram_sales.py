@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -511,12 +512,17 @@ def send_market_bulletin(chat_id: Optional[str] = None) -> Optional[dict]:
 
 # ── Callback query handling (inline button) ──────────────────────────────────
 
-def handle_callback_query(callback_data: str, chat_id: str, message_id: int) -> Optional[dict]:
+def handle_callback_query(callback_data: str, chat_id: str, message_id: int,
+                          user_id: Optional[str] = None) -> Optional[dict]:
     """
     Handle an inline keyboard callback query.
 
     When the user taps the VIP unlock button (its label carries the price from
-    the single source), we reply with the payment link and x402 instructions.
+    the single source), we reply with the payment instructions. The button lives
+    in the PUBLIC channel, so since 18.09 the instructions go to the TAPPING
+    USER'S private chat whenever Telegram allows it (they must have started the
+    bot); otherwise the channel gets the text plus the honest hint on how to get
+    it privately. Nobody's payment steps belong in a public feed.
     """
     token = _get_token()
     if not token:
@@ -566,6 +572,20 @@ def handle_callback_query(callback_data: str, chat_id: str, message_id: int) -> 
                 # explorer our dashboard links to), plus the honest claim path.
                 f"🔍 Проверка на адреса: {payment['explorer_link']}"
             )
+            # Private first: a tap in the public channel must not publish one
+            # buyer's payment steps to the feed.
+            if user_id and str(user_id) != str(chat_id):
+                dm = _send_text(token, str(user_id), reply_text)
+                if dm is not None:
+                    return dm
+                log.info("VIP instructions could not be DM'd to %s — falling back "
+                         "to the channel with a hint.", user_id)
+                return _send_text(
+                    token, chat_id,
+                    "🔒 Инструкциите за плащане се изпращат насаме.\n"
+                    "Отворете бота и натиснете /start (или /price) — тогава "
+                    "бутонът ще ви отговори в личния чат.",
+                    reply_to_message_id=message_id)
             return _send_text(token, chat_id, reply_text, reply_to_message_id=message_id)
         except Exception as exc:
             log.warning("VIP callback failed: %s", exc)
@@ -595,6 +615,80 @@ def answer_callback_query(callback_query_id: str) -> Optional[dict]:
 
 #: A Base tx hash, as a buyer would paste it out of their wallet.
 _TX_HASH_RE = re.compile(r"0x[0-9a-fA-F]{64}")
+
+
+def _owner_chat_ids() -> set:
+    """Chats allowed to run owner-only commands (never a public channel)."""
+    return {c.strip() for c in (os.getenv("TELEGRAM_VIP_CHAT_ID", ""),
+                                os.getenv("TELEGRAM_CHAT_ID", "")) if c.strip()}
+
+
+def _is_public_chat(chat_id) -> bool:
+    """True when a chat is the PUBLIC channel (where a code must never be posted).
+
+    With TELEGRAM_VIP_CHAT_ID unset our only configured chat IS the public
+    channel, so anything secret — the invite code — has to stay out of it.
+    """
+    vip = os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip()
+    return (not vip) and str(chat_id) == os.getenv("TELEGRAM_CHAT_ID", "").strip()
+
+
+def _handle_owner_invite(text: str, chat_id: str, token: str) -> dict:
+    """Owner-only `/invite <chat_id> [tx_hash]` — the human confirmation step.
+
+    The claim path deliberately does NOT auto-issue: a tx hash is public on-chain,
+    so handing a code to whoever claims first could hand VIP to a stranger. The
+    owner reads the claim, decides, and delivers with this command: the code is
+    persisted (durable, so a deploy cannot eat it) and sent to the BUYER's chat.
+    """
+    if str(chat_id) not in _owner_chat_ids():
+        _send_text(token, str(chat_id),
+                   "Тази команда е само за собственика.")
+        return {"handled": True, "type": "invite_denied", "response_sent": True}
+
+    parts = (text or "").split()
+    if len(parts) < 2 or not re.fullmatch(r"-?\d+", parts[1]):
+        _send_text(token, str(chat_id),
+                   "Употреба: `/invite <chat_id> [tx_hash]`\n"
+                   "(chat id-то идва от заявката „🔔 Заявка за VIP покана“.)")
+        return {"handled": True, "type": "invite_usage", "response_sent": True}
+
+    target = parts[1]
+    tx_hash = parts[2].lower() if len(parts) > 2 else ""
+    code = "KRI-VIP-" + secrets.token_hex(4).upper()
+    wallet = ""
+    stored = False
+    try:
+        import main as main_module
+
+        if tx_hash:
+            sale = main_module.dashboard_db.sale_by_tx(tx_hash)
+            wallet = (sale or {}).get("sender") or ""
+        stored = main_module.dashboard_db.record_vip_invite(
+            code, wallet, tx_hash, chat_id=target, source="manual")
+    except Exception as exc:
+        log.warning("Manual VIP invite not persisted: %s", exc)
+
+    delivered = _send_text(
+        token, str(target),
+        "🎉 *VIP достъп отключен*\n\n"
+        f"Код: `{code}`\n\n"
+        "Запазете кода — той е вашият VIP достъп. Благодарим за плащането!")
+
+    # The receipt for the owner — WITHOUT the code when the only chat we have is
+    # the public channel (the code is the product).
+    if _is_public_chat(chat_id):
+        receipt = ("✅ Покана издадена и изпратена насаме на `%s`.\n"
+                   "(Кодът не се публикува тук — задайте TELEGRAM_VIP_CHAT_ID, "
+                   "за да го виждате в личния си чат.)" % target)
+    else:
+        receipt = ("✅ Покана издадена и изпратена насаме.\n"
+                   f"Код: `{code}`\nКупувач: `{target}`\n"
+                   f"Tx: `{tx_hash or '—'}`\nЗаписана: {'да' if stored else 'НЕ (грешка)'}")
+    _send_text(token, str(chat_id), receipt)
+    return {"handled": True, "type": "invite_issued", "delivered": bool(delivered),
+            "code": code, "target": target, "durable": stored,
+            "response_sent": True}
 
 
 def _handle_vip_claim(text: str, chat_id: str, token: str) -> Optional[dict]:
@@ -639,9 +733,11 @@ def _handle_vip_claim(text: str, chat_id: str, token: str) -> Optional[dict]:
                "Поканата се изпраща насаме след проверка.")
     owner_chat = (os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip() or _get_chat_id())
     if owner_chat:
+        # The owner decides, so tell them HOW to deliver — never auto-issue.
         _send_text(token, str(owner_chat),
                    "🔔 *Заявка за VIP покана*\n"
-                   f"От чат: `{chat_id}`\nTx: `{tx_hash}`\n{verdict}")
+                   f"От чат: `{chat_id}`\nTx: `{tx_hash}`\n{verdict}\n\n"
+                   f"За издаване: `/invite {chat_id} {tx_hash}`")
     return {"handled": True, "type": "vip_claim", "tx_hash": tx_hash,
             "found": bool(sale), "response_sent": True}
 
@@ -667,10 +763,14 @@ def process_webhook_update(update: dict) -> Optional[dict]:
         data = cb.get("data", "")
         chat_id = cb.get("message", {}).get("chat", {}).get("id")
         message_id = cb.get("message", {}).get("message_id")
+        # Who TAPPED it (not where it was tapped): the VIP instructions go to that
+        # user's private chat, so a public-channel tap stays private (18.09).
+        user_id = (cb.get("from") or {}).get("id")
         try:
             answer_callback_query(cb_id)
             if chat_id and message_id:
-                sent = handle_callback_query(data, str(chat_id), message_id)
+                sent = handle_callback_query(data, str(chat_id), message_id,
+                                             user_id=user_id)
                 return {
                     "handled": True,
                     "type": "callback_query",
@@ -701,10 +801,12 @@ def process_webhook_update(update: dict) -> Optional[dict]:
 
     # A buyer who already paid sends their tx hash (step 4 of the payment
     # instructions). Handled BEFORE the command table so it can never fall into
-    # the "Не разпознах командата" dead end after money moved.
-    claim = _handle_vip_claim(text, str(chat_id), token)
-    if claim:
-        return claim
+    # the "Не разпознах командата" dead end — but NEVER for commands: `/invite
+    # <chat> <tx>` carries a hash too and must reach its own handler.
+    if not text.startswith("/"):
+        claim = _handle_vip_claim(text, str(chat_id), token)
+        if claim:
+            return claim
 
     if cmd in ("/start", "/help"):
         try:
@@ -771,6 +873,11 @@ def process_webhook_update(update: dict) -> Optional[dict]:
     if cmd == "/bulletin":
         sent = send_market_bulletin(chat_id=str(chat_id))
         return {"handled": True, "type": "bulletin_sent", "response_sent": bool(sent)}
+
+    if cmd == "/invite":
+        # Owner-only confirmation for a claim (item 2 of the 18.09 decisions):
+        # the human decides, the bot delivers the durable code to the buyer.
+        return _handle_owner_invite(text, str(chat_id), token)
 
     if cmd == "/price":
         try:
