@@ -527,3 +527,133 @@ def test_the_vip_invite_code_is_never_posted_to_a_public_chat(monkeypatch):
     private = posted[-1]
     assert private["chat_id"] == "987654"
     assert "KRI-VIP-DEADBEEF" in private["text"]
+
+# ── Track record: the business clock (18.09) ────────────────────────────────
+
+def test_the_track_record_clock_starts_at_the_first_external_payment(tmp_path):
+    """The clock must start at the first payment from a STRANGER — not at today,
+    not at our own canary. Seeded with the real shape of our data: canary first
+    (02-03.09), then the two human payers (06.09 and 12.09), plus a crawler."""
+    from datetime import datetime, timezone
+
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "track.db")
+    canary = "0x7e6b6556322c4e26c567a867964ac793f5ee2b1c"
+    stranger_a = "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7"
+    stranger_b = "0x902dcf34e53695bdea2ffb354b1a2e58bd598256"
+    crawler = "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0"
+    rows = [
+        (canary, "2026-09-02T13:28:41+00:00"),
+        (canary, "2026-09-03T10:11:15+00:00"),
+        (stranger_a, "2026-09-06T06:41:03+00:00"),
+        (crawler, "2026-09-08T08:28:49+00:00"),
+        (stranger_b, "2026-09-12T17:05:27+00:00"),
+    ]
+    for index, (sender, ts) in enumerate(rows):
+        store.record_sale(tx_hash="0x" + "%064x" % (index + 1), amount_usdc=0.003,
+                          sender=sender, block_number=1000 + index,
+                          ts=datetime.fromisoformat(ts), source="live")
+
+    record = store.track_record(now=datetime(2026, 9, 18, tzinfo=timezone.utc))
+    assert record["started_date"] == "06.09.2026"   # NOT 02.09 (canary), NOT today
+    assert record["started_payer"] == stranger_a
+    assert record["days_live"] == 12
+    assert record["months_live"] == 0.4             # 12 / 30.44
+    assert record["paying_strangers"] == 2          # crawlers are not strangers
+    assert [p["first_paid_date"] for p in record["payers"]] == \
+        ["06.09.2026", "12.09.2026"]
+    assert record["retention"] == "N/A"             # nobody has come back yet
+    assert "втори път" in record["retention_note"]
+    assert "06.09.2026" in record["sentence"]
+    assert "0x4db7" in record["sentence"]
+
+
+
+def test_the_track_record_numbers_are_derived_not_typed(tmp_path):
+    """Sweep guard: change the DATA and the served numbers must change with it.
+    A hardcoded "06.09.2026" / "2" / "N/A" would survive a different dataset."""
+    from datetime import datetime, timezone
+
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "derived.db")
+    stranger = "0x1111111111111111111111111111111111111111"
+    for index, ts in enumerate(("2026-07-01T00:00:00+00:00",
+                                "2026-08-15T00:00:00+00:00")):
+        store.record_sale(tx_hash="0x" + "%064x" % (index + 90), amount_usdc=0.005,
+                          sender=stranger, block_number=2000 + index,
+                          ts=datetime.fromisoformat(ts), source="live")
+
+    record = store.track_record(now=datetime(2026, 9, 18, tzinfo=timezone.utc))
+    assert record["started_date"] == "01.07.2026"      # follows the data
+    assert record["paying_strangers"] == 1
+    # ONE payer, TWO payments → retention stops being N/A and becomes a ratio.
+    assert record["retention"] == "1 от 1"
+    assert record["repeat_payers"] == 1
+    assert record["months_live"] == round(79 / 30.44, 1)
+
+
+def test_the_dashboard_serves_the_track_record_with_the_real_date(client):
+    """The public surface: the sentence, the three numbers, and an honest N/A —
+    with a date that comes from the store rather than from the wall clock."""
+    from datetime import datetime
+
+    _test_client, main = client
+    stranger = "0x2222222222222222222222222222222222222222"
+    main.dashboard_db.record_sale(
+        tx_hash="0x" + "cd" * 32, amount_usdc=0.003, sender=stranger,
+        block_number=3000, ts=datetime.fromisoformat("2026-09-06T06:41:03+00:00"),
+        source="live")
+
+    section = _test_client.get("/api/dashboard/data").get_json()[
+        "sections"]["track_record"]
+    assert section["started_date"] == "06.09.2026"
+    assert section["paying_strangers"] == 1
+    assert section["retention"] == "N/A" and section["retention_note"]
+    assert "Public track record started: 06.09.2026" in section["sentence"]
+    # The anti-"today" guard: a clock that started at the first external payment
+    # can never report the day the dashboard was loaded.
+    assert datetime.now().strftime("%d.%m.%Y") not in section["sentence"]
+
+    # And the dashboard page itself must render the section (not just the API).
+    page = _test_client.get("/dashboard").get_data(as_text=True)
+    assert "track-cards" in page and "Track record" in page
+
+
+def test_the_store_reads_survive_postgres_dict_rows(tmp_path, monkeypatch):
+    """Postgres returns `dict_row`, SQLite returns `sqlite3.Row`. Code that reads
+    rows POSITIONALLY works on SQLite and breaks on production — found on 18.09
+    while wiring the track record: `sale_by_tx` zipped column names with a dict,
+    so on Postgres it returned {column: column} and the VIP claim path would have
+    answered "not found" for every real sale. Both reads must work either way."""
+    from datetime import datetime, timezone
+
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "dictrows.db")
+    history = store.history
+    store.record_sale(tx_hash="0x" + "ee" * 32, amount_usdc=0.003,
+                      sender="0x" + "33" * 20, block_number=1,
+                      ts=datetime.fromisoformat("2026-09-06T06:41:03+00:00"),
+                      source="live")
+
+    real_run = history._run
+
+    def _dict_run(sql, params=(), fetch=""):
+        rows, rowcount = real_run(sql, params, fetch)
+        if rows is None:
+            return None, rowcount
+        if fetch == "one":
+            return (dict(rows) if rows else None), rowcount
+        return [dict(r) for r in rows], rowcount
+
+    monkeypatch.setattr(history, "_run", _dict_run)
+
+    sale = store.sale_by_tx("0x" + "ee" * 32)
+    assert sale and sale["amount_usdc"] == 0.003
+    assert sale["tx_hash"] == "0x" + "ee" * 32          # not {col: col}
+    record = store.track_record(now=datetime(2026, 9, 18, tzinfo=timezone.utc))
+    assert record["started_date"] == "06.09.2026"
+    assert record["paying_strangers"] == 1
+

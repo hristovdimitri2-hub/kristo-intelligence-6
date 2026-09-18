@@ -4104,6 +4104,7 @@ def _canonical_dashboard_payload() -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "receiver_address": X402_RECEIVER_ADDRESS,
         "sections": {
+            "track_record": dashboard_db.track_record(),
             "onchain": {
                 "label": "ИСТИНА — веригата",
                 "total_usdc": onchain_total,

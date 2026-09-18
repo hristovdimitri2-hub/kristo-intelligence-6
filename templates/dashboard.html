@@ -88,6 +88,10 @@
     <span id="generated-at"></span>
   </div>
 
+  <h2>⏱ Track record <span class="src">часовникът тръгва от първото ВЪНШНО плащане, не от днес</span></h2>
+  <div class="cards" id="track-cards"></div>
+  <div class="note" id="track-note" style="margin:8px 0;"></div>
+
   <h2>⬢ On-Chain Sales <span class="src">истина: реални USDC трансфери към payTo</span></h2>
   <div class="cards" id="onchain-cards"></div>
   <div class="note" id="onchain-classes" style="margin-bottom:10px;"></div>
@@ -451,12 +455,31 @@ function renderCrm(c) {
     '<tr><td colspan="5" class="empty">няма платени off-chain записи</td></tr>';
 }
 
+function renderTrack(t) {
+  // The clock and its three numbers come from the store (chain-verified sales),
+  // never from this file: started_date is the FIRST external payment, retention
+  // is the literal "N/A" while nobody has returned, and the note says why.
+  $('track-cards').innerHTML =
+    card((t.months_live != null ? t.months_live : '—') + ' м.',
+         'Месеци жив опит (от ' + esc(t.started_date || '—') + ')', true) +
+    card(t.paying_strangers != null ? t.paying_strangers : '—',
+         'Платили непознати (external)') +
+    card(esc(t.retention || 'N/A'), 'Retention (повторна покупка)');
+  const payers = (t.payers || []).map(p =>
+    esc(p.short) + ' (' + esc(p.first_paid_date || '—') + ', ' + p.payments + '×)');
+  $('track-note').innerHTML =
+    esc(t.sentence || '') +
+    (payers.length ? ' · платци: ' + payers.join(', ') : '') +
+    ' · ' + esc(t.retention_note || '');
+}
+
 async function load() {
   try {
     const r = await fetch('/api/dashboard/data', {cache: 'no-store'});
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     const s = d.sections || {};
+    renderTrack(s.track_record || {});
     renderOnchain(s.onchain || {});
     renderClients(s.clients || {});
     renderWhales(s.whales || {});

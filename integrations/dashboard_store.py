@@ -744,11 +744,107 @@ class HistoryStore:
             ((tx_hash or "").lower(),), "one")[0]
         if not row:
             return None
-        keys = ("tx_hash", "amount_usdc", "sender", "ts", "block_number",
-                "payer_class", "payer_label", "source")
-        return dict(zip(keys, row))
+        # Backend-agnostic: SQLite hands back sqlite3.Row, Postgres dict_row. A
+        # positional zip() silently produced {column: column} on Postgres, i.e.
+        # the VIP claim path would have answered "not found" for every real sale.
+        return dict(row)
 
 
+
+    def track_record(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        """The business clock and its three numbers — DERIVED, never typed.
+
+        The clock starts at the FIRST EXTERNAL payment: a human paying for a real
+        product — not a canary (our own verification wallet) and not a market
+        crawler. In our data that is 06.09.2026, tx 0xb881f9dcdd0d… from
+        0x4db7aafbe7. Everything below is read from `onchain_sales`, the
+        chain-verified money table, so the date cannot drift into "today" and no
+        number can be hand-edited:
+
+          * months_live      — months since that first external payment
+          * paying_strangers — DISTINCT external senders, each with the date of
+                               their first payment
+          * retention        — payers who came back a SECOND time. Today nobody
+                               has, so the answer is the literal "N/A" WITH the
+                               reason attached: a blank or hidden retention field
+                               would read as a good number, which is exactly the
+                               class of phantom this dashboard exists to prevent.
+        """
+
+        def _parse(value: Optional[str]) -> Optional[datetime]:
+            if not value:
+                return None
+            try:
+                parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+        def _short(addr: str) -> str:
+            return ("%s…%s" % (addr[:6], addr[-4:])) if len(addr or "") > 12 else (addr or "")
+
+        now = now or datetime.now(timezone.utc)
+        rows = self._run(
+            "SELECT ts, sender, tx_hash, amount_usdc FROM onchain_sales "
+            "WHERE payer_class = 'external' ORDER BY ts", (), "all")[0] or []
+
+        started = _parse(rows[0]["ts"]) if rows else None
+        # Calendar days, not 24h blocks: "06.09 → 18.09" is 12 days to a human,
+        # while (now - started).days would say 11 because the first payment landed
+        # at 06:41 and the clock is read before that hour.
+        days_live = max(0, (now.date() - started.date()).days) if started else 0
+
+        payers: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            ts, sender = row["ts"], row["sender"]
+            tx_hash, amount = row["tx_hash"], row["amount_usdc"]
+            entry = payers.setdefault((sender or "").lower(), {
+                "sender": (sender or "").lower(), "payments": 0,
+                "first_paid_at": ts, "first_tx": tx_hash, "total_usdc": 0.0})
+            entry["payments"] += 1
+            entry["total_usdc"] = round(entry["total_usdc"] + float(amount or 0), 6)
+
+        repeat = [p for p in payers.values() if p["payments"] > 1]
+        if repeat:
+            retention = "%d от %d" % (len(repeat), len(payers))
+            retention_note = "повторна покупка: %s" % ", ".join(
+                _short(p["sender"]) for p in repeat)
+        else:
+            retention = "N/A"
+            retention_note = ("още нямаме втори път от нито един от %d-мата "
+                              "платили непознати — показваме N/A, не 0%%"
+                              % len(payers))
+
+        return {
+            "started_at": rows[0]["ts"] if rows else None,
+            "started_date": started.strftime("%d.%m.%Y") if started else None,
+            "started_payer": rows[0]["sender"] if rows else None,
+            "started_tx": rows[0]["tx_hash"] if rows else None,
+            "days_live": days_live,
+            "months_live": round(days_live / 30.44, 1),
+            "paying_strangers": len(payers),
+            "payers": [
+                {
+                    "sender": p["sender"],
+                    "short": _short(p["sender"]),
+                    "first_paid_at": p["first_paid_at"],
+                    "first_paid_date": (_parse(p["first_paid_at"]).strftime(
+                        "%d.%m.%Y") if _parse(p["first_paid_at"]) else None),
+                    "first_tx": p["first_tx"],
+                    "payments": p["payments"],
+                    "total_usdc": p["total_usdc"],
+                }
+                for p in payers.values()
+            ],
+            "retention": retention,
+            "retention_note": retention_note,
+            "repeat_payers": len(repeat),
+            "sentence": (
+                "Public track record started: %s (първото външно плащане, %s)"
+                % (started.strftime("%d.%m.%Y") if started else "—",
+                   _short(rows[0]["sender"]) if rows else "—")
+            ),
+        }
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales straight from the durable table."""
@@ -1181,6 +1277,10 @@ HYBRID since 14.09:
     def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
         """Sale lookup — see HistoryStore.sale_by_tx (Telegram VIP claim path)."""
         return self.history.sale_by_tx(tx_hash)
+
+    def track_record(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        """Business clock + three numbers — see HistoryStore.track_record."""
+        return self.history.track_record(now)
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales — see HistoryStore.sales_summary.
