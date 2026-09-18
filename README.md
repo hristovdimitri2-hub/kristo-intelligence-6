@@ -15,7 +15,7 @@ L2). Every call returns machine-readable market intelligence:
 
 - **Trading-agent signals** — for ETH, ONDO, KAITO and DEGEN: action,
   0–1 confidence score, current USD price, and one-line reasoning
-- **Whale flow** — large USDC transfer tracking on Base
+- **Whale flow** — large USDC transfer tracking on Base (transfers ≥ $5M, labeled counterparties)
 - **Arbitrage radar** — cross-DEX spreads, refreshed every 60 seconds
 - **Rug-risk checks** — pre-trade safety screening
 - **Market stats** — aggregated activity (CoinGecko, DEXScreener,

@@ -110,7 +110,7 @@ CHALLENGE_DESCRIPTIONS = {
         "market data."
     ),
     "/api/v1/whaleflow": (
-        "Live whale flow: USDC transfers ≥ $50k on Base with labeled "
+        "Live whale flow: USDC transfers ≥ $5M on Base with labeled "
         "counterparties — scanned continuously (freshness follows the RPC "
         "provider's limits; the response always states the block scanned to)."
     ),
@@ -201,7 +201,11 @@ research_store = create_research_store(RESEARCH_DATA_FILE)
 # ── Canonical dashboard store (persistent — survives deploys) ──────────────
 # On-chain sales / request log / PayAPI listing state live in SQLite so a
 # gunicorn restart NEVER zeroes the dashboard numbers. See DASHBOARD_AUDIT.md.
-from integrations.dashboard_store import DashboardStore, redact_rpc  # noqa: E402
+from integrations.dashboard_store import (  # noqa: E402
+    WHALE_RETENTION_DAYS_DEFAULT,
+    DashboardStore,
+    redact_rpc,
+)
 DASHBOARD_DB_FILE = os.path.join(os.path.dirname(__file__), "data", "dashboard_state.db")
 dashboard_db = DashboardStore(DASHBOARD_DB_FILE)
 
@@ -233,6 +237,18 @@ try:
                  _reclassified)
 except Exception as _reclass_exc:  # pragma: no cover - defensive
     log.warning("Payer reclassify failed (non-fatal): %s", _reclass_exc)
+
+# ── Whale retention at BOOT (18.09) ───────────────────────────────────────
+# The whale feed is ROLLING (the paid route serves a 24h window), so rows older
+# than the retention horizon are ballast — and at the previous $50k threshold
+# they were a storage hazard too (427 MB in under five days on a 1 GB plan).
+# Idempotent: a second run deletes 0 rows.
+try:
+    _purged = dashboard_db.purge_old_whale_events()
+    log.info("Whale retention: %d row(s) older than %d days removed.",
+             _purged, WHALE_RETENTION_DAYS_DEFAULT)
+except Exception as _purge_exc:  # pragma: no cover - defensive
+    log.warning("Whale retention failed (non-fatal): %s", _purge_exc)
 
 # ── Off-chain record durability (audit A2) ────────────────────────────────
 # The ON-CHAIN numbers are re-seeded from the chain on every boot, so a deploy
@@ -1736,7 +1752,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "whale-flow",
         "name": "Whale Flow (Live Base Feed)",
-        "description": "Network-wide USDC transfers ≥ $50k on Base with honestly labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the feed reports the block it has scanned to).",
+        "description": "Network-wide USDC transfers ≥ $5M on Base with honestly labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the feed reports the block it has scanned to).",
         "category": "onchain_intelligence",
         "endpoint": "/api/v1/whaleflow",
         "method": "GET",

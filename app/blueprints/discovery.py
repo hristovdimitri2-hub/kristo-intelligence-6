@@ -405,7 +405,7 @@ def api_mcp_manifest():
                 {"path": "/api/v1/signal", "method": "GET", "cost_usdc": KRISTO_SIGNAL_PRICE,
                  "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN"},
                 {"path": "/api/v1/whaleflow", "method": "GET", "cost_usdc": KRISTO_WHALEFLOW_PRICE,
-                 "description": "Network-wide whale flow: USDC transfers >= $50k on Base with labeled counterparties (60s refresh)"},
+                 "description": "Network-wide whale flow: USDC transfers >= $5M on Base with labeled counterparties (60s refresh)"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
                  "description": "This manifest (free)"},
                 {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0,
@@ -743,7 +743,7 @@ def openapi_spec():
             )},
             "/api/v1/whaleflow": {"get": _paid_op(
                 "Live whale flow",
-                "Live whale flow: USDC transfers >= $50k on Base with labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the response always states the block scanned to).",
+                "Live whale flow: USDC transfers >= $5M on Base with labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the response always states the block scanned to).",
                 KRISTO_WHALEFLOW_PRICE,
             )},
             "/api/v1/agents": {"get": _free_op(
@@ -990,9 +990,10 @@ def llms_txt():
     )
 
     base_url = request.host_url.rstrip("/")
-    paid = [(r["endpoint"], r["name"], float(r["price_usdc"]))
+    paid = [(r["endpoint"], r["name"], float(r["price_usdc"]),
+             (r.get("description") or "").strip())
             for r in REAL_X402_ROUTES]
-    cheapest = min(price for _e, _n, price in paid)
+    cheapest = min(price for _e, _n, price, _d in paid)
     free_tier_line = (
         f"- Free tier: {FREE_TIER_LIMIT} free call(s) per client, then payment "
         f"required"
@@ -1001,8 +1002,9 @@ def llms_txt():
              "calls, no signup)"
     )
     paid_lines = "\n".join(
-        "- GET %s — %s ($%.3f USDC per call)" % (endpoint, name, price)
-        for endpoint, name, price in paid
+        "- GET %s — %s ($%.3f USDC per call)%s"
+        % (endpoint, name, price, ("\n  " + description) if description else "")
+        for endpoint, name, price, description in paid
     )
 
     content = f"""# Kristo Intelligence API

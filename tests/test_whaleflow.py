@@ -174,7 +174,7 @@ def test_truthful_empty_result(tmp_path):
     assert s["whales"] == []
     assert s["count"] == 0
     assert s["window_hours"] == 24
-    assert s["threshold_usdc"] == 50000.0
+    assert s["threshold_usdc"] == 5_000_000.0      # the 18.09 default ($5M)
     assert s["scanned_until_block"] is None
 
 
@@ -193,7 +193,7 @@ def test_whaleflow_route_402_price_and_description(client, monkeypatch):
     assert payload["x402Version"] == 2
     desc = payload["resource"]["description"]
     assert "whale flow" in desc.lower()
-    assert "50k" in desc
+    assert "$5M" in desc                       # 18.09: $50k was noise, not whales
     # The old text promised "refreshed every 60 seconds". With the public RPC
     # capping a network-wide window at ONE block, that was provably false on a
     # PAID route — the wording now claims only what is true (continuous scan,
@@ -215,7 +215,7 @@ def test_whaleflow_route_truthful_response(client, monkeypatch):
     assert payload["ok"] is True
     assert payload["whales"] == []
     assert payload["count"] == 0
-    assert payload["threshold_usdc"] == 50000.0
+    assert payload["threshold_usdc"] == 5_000_000.0
     assert "scanned_until_block" in payload
     assert payload["source"] == "onchain_eth_getlogs"
 

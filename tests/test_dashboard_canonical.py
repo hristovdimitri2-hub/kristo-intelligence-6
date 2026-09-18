@@ -482,7 +482,7 @@ def test_whale_events_are_deduped_by_tx_hash_and_log_index(tmp_path):
     tx = "0x" + "ab" * 32
 
     for _ in range(3):          # three overlapping backfill passes, one log
-        store.history.record_whale_event(tx, 7, ts, "USDC", 600000.0,
+        store.history.record_whale_event(tx, 7, ts, "USDC", 6_000_000.0,
                                          "0x" + "11" * 20, "0x" + "22" * 20,
                                          51416322)
 
@@ -491,7 +491,7 @@ def test_whale_events_are_deduped_by_tx_hash_and_log_index(tmp_path):
     assert summary["all_time_count"] == 1
 
     # A different log index in the SAME transaction is a different transfer.
-    store.history.record_whale_event(tx, 8, ts, "USDC", 50000.0,
+    store.history.record_whale_event(tx, 8, ts, "USDC", 5_000_000.0,
                                      "0x" + "11" * 20, "0x" + "33" * 20, 51416322)
     summary = store.whaleflow_summary()
     assert summary["count"] == 2
@@ -502,3 +502,27 @@ def test_whale_events_are_deduped_by_tx_hash_and_log_index(tmp_path):
     store.history.record_whale_event("0x" + "cd" * 32, 1, ts, "USDC", 1000.0,
                                      "0x" + "11" * 20, "0x" + "44" * 20, 51416323)
     assert store.whaleflow_summary()["all_time_count"] == 2
+
+
+def test_whale_retention_deletes_only_rows_past_the_horizon(tmp_path):
+    """Retention (30 days) runs at boot: the whale feed is rolling, so old rows go —
+    and the pass is idempotent, so a second boot deletes nothing.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "retention.db")
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+    fresh_ts = datetime.now(timezone.utc).isoformat()
+    store.history.record_whale_event("0x" + "aa" * 32, 1, old_ts, "USDC",
+                                     6000000.0, "0x" + "11" * 20,
+                                     "0x" + "22" * 20, 1)
+    store.history.record_whale_event("0x" + "bb" * 32, 1, fresh_ts, "USDC",
+                                     7000000.0, "0x" + "11" * 20,
+                                     "0x" + "33" * 20, 2)
+    assert store.whaleflow_summary()["all_time_count"] == 2
+
+    assert store.purge_old_whale_events() == 1        # the 40-day-old row
+    assert store.whaleflow_summary()["all_time_count"] == 1
+    assert store.purge_old_whale_events() == 0        # idempotent

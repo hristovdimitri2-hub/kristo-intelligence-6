@@ -322,11 +322,12 @@ def _whale_reply(limit: int = 5) -> str:
             lines.append("  %s UTC" % ts)
     else:
         lines.append("_В прозореца няма трансфер над прага._")
-    # The all-time count is REAL and verified (18.09): the live Postgres shows
+    # The all-time count is REAL and verified (18.09): the live Postgres showed
     # 1,043,954 rows / 1,043,954 distinct (tx_hash, log_index) — ZERO duplicates
     # — and 3/3 sampled rows matched actual USDC transfers on-chain to the cent.
-    # The number is huge because a NETWORK-WIDE ≥$50k filter is huge (~227k
-    # transfers/day on Base), which is a threshold/product decision, not a bug.
+    # That volume came from a NETWORK-WIDE ≥$50k filter (~227k/day on Base),
+    # which the owner replaced with ≥$5M on 18.09 (~53/day): the numbers were
+    # never wrong, "whale" simply meant something too small.
     lines.append("")
     lines.append("Всичко за всички времена: %s · последен: %s"
                  % (summary.get("all_time_count", 0),

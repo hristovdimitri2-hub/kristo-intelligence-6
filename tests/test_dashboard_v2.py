@@ -1072,7 +1072,7 @@ def test_whales_section_switches_to_live_data_with_a_real_event(client):
                     to_addr, block_number, recorded_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             ("0x" + "ab" * 32, 0, datetime.now(timezone.utc).isoformat(),
-             "USDC", 250_000.0, "0x" + "cd" * 20, "0x" + "ef" * 20,
+             "USDC", 6_000_000.0, "0x" + "cd" * 20, "0x" + "ef" * 20,
              51234000, datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
@@ -1081,7 +1081,7 @@ def test_whales_section_switches_to_live_data_with_a_real_event(client):
     assert w["count"] == 1
     assert w["all_time_count"] == 1
     whale = w["whales"][0]
-    assert whale["amount_usdc"] == 250_000.0
+    assert whale["amount_usdc"] == 6_000_000.0
     assert whale["from_label"] == "unknown" and whale["to_label"] == "unknown"
     assert whale["block"] == 51234000
 

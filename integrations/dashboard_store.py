@@ -89,7 +89,13 @@ FUNNEL_ROUTES = [
 ]
 
 # ── Whale flow defaults (env-regulatable, read at RUNTIME not import) ──────
-WHALE_THRESHOLD_DEFAULT = 50_000.0   # USDC
+WHALE_THRESHOLD_DEFAULT = 5_000_000.0   # USDC
+# Raised from $50k on 18.09.2026 by the owner: at $50k the network-wide scan
+# produced ~227,000 events/day on Base — that is market noise, not whale flow.
+# At $5M it is ~53/day: a feed a human can actually read. The events themselves
+# were always real (verified against on-chain USDC transfers), so this is a
+# product decision about what "whale" means, not a data fix.
+WHALE_RETENTION_DAYS_DEFAULT = 30       # rows older than this are deleted at boot
 WHALE_WINDOW_HOURS_DEFAULT = 24      # rolling window served by the route
 WHALE_BACKFILL_HOURS_DEFAULT = 24    # initial backfill on first run
 
@@ -539,6 +545,22 @@ class HistoryStore:
         }
 
     # ── whale flow reads ─────────────────────────────────────────────────────
+    def purge_old_whale_events(self, days: int = WHALE_RETENTION_DAYS_DEFAULT) -> int:
+        """Retention: delete whale rows older than `days` (idempotent).
+
+        Runs at boot (main.py) next to the payer reclassify. Whale events are a
+        ROLLING feed — the paid route serves a 24h window — so rows older than
+        the retention horizon are ballast. This also bounds the table on the free
+        Postgres plan: at the previous $50k threshold it reached 427 MB in under
+        five days and would have hit the 1 GB cap in about a week.
+        Returns the number of rows removed (0 on a second call = idempotent).
+        """
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(days=max(1, int(days)))).isoformat()
+        _rows, rowcount = self._run(
+            "DELETE FROM whaleflow_events WHERE ts < ?", (cutoff,))
+        return max(0, rowcount)
+
     def whale_rows(self, window_hours: int, limit: int,
                    threshold: float) -> Dict[str, Any]:
         """The rolling whale window plus the honest empty-vs-all-time context."""
@@ -1040,6 +1062,10 @@ HYBRID since 14.09:
         the sales rows live in the durable store rather than the local file.
         """
         return self.history.reclassify_known_payers()
+
+    def purge_old_whale_events(self, days: int = WHALE_RETENTION_DAYS_DEFAULT) -> int:
+        """Retention pass — see HistoryStore.purge_old_whale_events (30 days)."""
+        return self.history.purge_old_whale_events(days)
 
     def get_meta(self, key: str, default: Optional[str] = None) -> Optional[str]:
         with self._connect() as conn:

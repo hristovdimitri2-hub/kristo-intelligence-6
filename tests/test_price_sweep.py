@@ -288,6 +288,44 @@ def test_glama_connector_claim_is_live_at_the_well_known_path(client):
     for banned in ("0xd4cda900839c0fed4374ee37ea0db8e4c6fd08f", "payto", "price",
                    "usdc", "onrender"):
         assert banned not in text, "the claim file leaks %r" % banned
+def test_the_whale_threshold_is_5m_on_every_public_surface(client):
+    """18.09: the owner raised the whale threshold to $5M (at $50k the network-wide
+    scan produced ~227k events/day — noise, not whales). Every surface the world
+    can read must state the new number and no $50k remnant may survive, which is
+    the same class of guard as the price sweep — checked on the SERVED bytes, not
+    on the source, so historical comments cannot mask a stale advertisement.
+    """
+    from integrations import dashboard_store as ds
+
+    assert ds.WHALE_THRESHOLD_DEFAULT == 5_000_000.0
+    assert ds.WHALE_RETENTION_DAYS_DEFAULT == 30
+
+    _test_client, main = client
+    c = main.app.test_client()
+    checked = descriptive = 0
+    for path in ("/llms.txt", "/openapi.json", "/.well-known/x402.json",
+                 "/.well-known/x402", "/api/mcp/manifest"):
+        body = c.get(path).get_data(as_text=True)
+        assert "$50k" not in body, "%s still advertises the old $50k threshold" % path
+        if "whaleflow" not in body.lower():
+            continue
+        checked += 1
+        if "USDC transfers" in body:          # surfaces that DESCRIBE the route
+            descriptive += 1
+            assert "$5M" in body, "%s does not state the $5M threshold" % path
+    assert checked >= 4, "expected the whale route on at least four surfaces"
+    assert descriptive >= 3, "the route description must state the threshold"
+
+    # The paid challenge itself must describe the product the same way.
+    challenge = c.get("/api/v1/whaleflow")
+    assert challenge.status_code == 402
+    text = challenge.get_data(as_text=True)
+    assert "$50k" not in text
+    assert "$5M" in text, "the 402 challenge does not state the new threshold"
+
+    readme = open(REPO_ROOT + "/README.md", encoding="utf-8").read()
+    assert "$50k" not in readme
+    assert "≥ $5M" in readme
 def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
     """Publishing the NEXT version must not require a code edit (`--version 6.0.1`),
     and a typo must be caught HERE rather than by `mcp-publisher publish` — the
