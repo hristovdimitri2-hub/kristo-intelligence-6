@@ -708,3 +708,45 @@ def test_the_whale_reply_survives_telegram_markdown(client, monkeypatch):
     assert "live data" in text
     assert "live_data" not in text
     assert "51470299" in text          # the watermark the buyer reads
+def test_the_boot_backfill_resumes_from_the_durable_watermark(tmp_path, monkeypatch):
+    """The backfill exists to fill the rolling window on a COLD start. After a
+    deploy it must CONTINUE from the durable watermark — otherwise the durable
+    watermark is decorative and every push still re-walks 24h of chain (~900
+    getLogs on the free RPC, ~35 minutes of a stale PAID feed)."""
+    import sys
+    import types
+
+    from integrations.dashboard_store import BLOCK_TIME_SECONDS, DashboardStore
+
+    fake = types.ModuleType("web3")
+
+    class FakeEth:
+        block_number = 100_000
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
+
+        def __init__(self, provider):
+            self.eth = FakeEth()
+
+        def is_connected(self):
+            return True
+
+    fake.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+
+    store = DashboardStore(tmp_path / "resume.db")
+    seen = {}
+    monkeypatch.setattr(store, "scan_whale_window",
+                        lambda f, t, rpc_url="": seen.update(f=f, t=t) or 0)
+
+    # COLD start: no watermark anywhere → the whole window is walked once.
+    store.whaleflow_backfill(hours=24)
+    assert seen["f"] == 100_000 - int(24 * 3600 / BLOCK_TIME_SECONDS)
+    assert seen["t"] == 100_000
+
+    # WARM start (a deploy): the watermark is near the head → only the gap.
+    store.set_meta("whaleflow_last_block", "99950")
+    store.whaleflow_backfill(hours=24)
+    assert seen["f"] == 99950
+    assert seen["t"] == 100_000

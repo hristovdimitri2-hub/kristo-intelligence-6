@@ -1788,6 +1788,15 @@ HYBRID since 14.09:
         # found (the boot backfill is meant to fill the 24h window the paid route
         # serves), but now the knob does what it says.
         from_block = max(1, latest - int(hours * 3600 / BLOCK_TIME_SECONDS))
+        # RESUME from the durable watermark (18.09). A COLD start (no watermark)
+        # still fills the whole rolling window, but a restart after a deploy
+        # continues where the scan stopped. Without this the durable watermark was
+        # decorative: auto-deploy is ON, so every push re-walked a full day of
+        # chain (~900 getLogs on the free RPC) and the PAID feed lagged reality by
+        # ~35 minutes — six times on 18.09 alone.
+        watermark = int(self.get_meta("whaleflow_last_block", "0") or 0)
+        if watermark > from_block:
+            from_block = min(watermark, latest)
         added = self.scan_whale_window(from_block, latest, rpc_url=rpc_url)
         # Watermark = last CONTIGUOUS safe block (failed chunks retry next cycle)
         safe = int(self.get_meta("whaleflow_safe_scanned_block", "0") or 0)
