@@ -395,6 +395,59 @@ def test_whale_backfill_hours_really_means_hours(tmp_path, monkeypatch):
     # request walk on the free RPC instead of ~864.
 
 
+def test_whale_watermark_advances_chunk_by_chunk(tmp_path, monkeypatch):
+    """The watermark moves per COMPLETED chunk, not only at the end of the walk.
+
+    A boot backfill walks hours of chain (measured 18.09: 39,051 blocks), and the
+    dashboard used to report "scanned until: nothing" for that whole hour. Now the
+    last completed chunk is persisted immediately — so the freshness indicator
+    advances during the catch-up and a crash resumes from there.
+    """
+    import sys
+    import types
+
+    from integrations.dashboard_store import DashboardStore
+
+    fake = types.ModuleType("web3")
+
+    class FakeEth:
+        def get_logs(self, spec):
+            if spec["fromBlock"] >= 1100:          # the RPC refuses from here on
+                raise RuntimeError("429 Too Many Requests")
+            return []
+
+        def get_block(self, n):
+            return {"timestamp": NOW_TS}
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
+
+        def __init__(self, provider):
+            self.eth = FakeEth()
+
+        def is_connected(self):
+            return True
+
+        @staticmethod
+        def to_checksum_address(a):
+            return a
+
+        @staticmethod
+        def to_hex(h):
+            return str(h)
+
+    fake.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+
+    store = DashboardStore(tmp_path / "walk.db")
+    store.scan_whale_window(1000, 1200, chunk_blocks=50, pause_seconds=0.0)
+    # Chunks 1000-1049 and 1050-1099 landed; everything from 1100 on was refused
+    # at span 1 → the watermark must sit on the last COMPLETED chunk, never 0.
+    assert store.get_meta("whaleflow_safe_scanned_block") == "1099"
+    assert store.get_meta("whaleflow_last_block") == "1099"
+    assert store.get_meta("whaleflow_effective_chunk") == "1"
+
+
 def test_whale_chunk_env_is_not_clamped_upwards(tmp_path, monkeypatch):
     """The sales scan lost days to a hidden `max(50, …)` floor; the whale scan
     must respect WHALEFLOW_CHUNK_BLOCKS literally."""

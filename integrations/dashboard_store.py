@@ -154,7 +154,8 @@ def _norm_tx(tx_hash: str) -> str:
 
 def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
                        chunk_blocks: int, pause_seconds: float,
-                       handle_logs, address: str = USDC_BASE):
+                       handle_logs, address: str = USDC_BASE,
+                       on_progress=None):
     """Chunked, PACED `eth_getLogs` with adaptive halving — THE one place that
     knows how to talk to a rate-limited / range-capped free RPC.
 
@@ -202,6 +203,13 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
         safe_end = end
         effective_span = min(effective_span, span)
         handle_logs(logs)
+        if on_progress is not None:
+            try:
+                # Called after every ACCEPTED chunk so a caller can persist
+                # progress mid-walk. Telemetry must never break the walk.
+                on_progress(safe_end, effective_span)
+            except Exception:
+                log.debug("progress callback failed (non-fatal)", exc_info=True)
         start = end + 1
         if start <= to_block:
             _time.sleep(pause_seconds)
@@ -1560,9 +1568,19 @@ HYBRID since 14.09:
 
         # SAME chunk/pacing/halving machine as the sales scan — the network-wide
         # query is simply a wider topic filter, not a second implementation.
+        def _progress(safe: int, span: int) -> None:
+            # The watermark moves DURING the walk (18.09). A boot backfill walks
+            # hours of chain, and the dashboard used to say "scanned until:
+            # nothing" for that entire hour — a truthful-looking blank is still a
+            # lie about the feed's freshness. It also means a crash resumes from
+            # the last COMPLETED chunk instead of re-scanning the whole window.
+            self.set_meta("whaleflow_safe_scanned_block", str(max(0, safe)))
+            self.set_meta("whaleflow_last_block", str(max(0, safe)))
+            self.set_meta("whaleflow_effective_chunk", str(span))
+
         safe_end, effective_span = _adaptive_get_logs(
             w3, from_block, to_block, [TRANSFER_TOPIC, None, None],  # all
-            chunk_blocks, pause_seconds, _collect,
+            chunk_blocks, pause_seconds, _collect, on_progress=_progress,
         )
 
         # Record the last CONTIGUOUS scanned block — failed chunks are retried
