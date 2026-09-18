@@ -332,10 +332,12 @@ def _whale_reply(limit: int = 5) -> str:
                  % (summary.get("all_time_count", 0),
                     str(summary.get("last_event_at") or "—")[:16].replace("T", " ")))
     if summary.get("state") == "scan_paused_by_owner":
-        lines.append("⚠️ Сканът е *спрян от собственика* (%s UTC) — данните са "
-                     "до блок %s."
-                     % (str(summary.get("paused_at") or "—")[:16].replace("T", " "),
-                        summary.get("scanned_until_block") or "—"))
+        lines.append("⚠️ Сканът е *спрян от собственика* — данните са до блок %s. "
+                     "(Състоянието е проверено при последния старт: %s UTC — "
+                     "watermark-ите живеят в локалния файл, затова датата не е "
+                     "историческата.)"
+                     % (summary.get("scanned_until_block") or "—",
+                        str(summary.get("paused_at") or "—")[:16].replace("T", " ")))
     else:
         lines.append("Сканирано до блок %s (състояние: %s)."
                      % (summary.get("scanned_until_block") or "—",

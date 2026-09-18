@@ -942,9 +942,13 @@ def _whaleflow_scan_loop():
             "Whale flow scan PAUSED (WHALEFLOW_ENABLED=0): scan_paused_by_owner "
             "— no RPC requests are issued and the watermark is kept.")
         try:
+            # Keep the ORIGINAL pause moment: a boot must not rewrite history
+            # (the timestamp is what tells the owner when the stop happened).
+            if (dashboard_db.get_meta("whaleflow_state")
+                    != "scan_paused_by_owner"):
+                dashboard_db.set_meta("whaleflow_state_at",
+                                      datetime.now(timezone.utc).isoformat())
             dashboard_db.set_meta("whaleflow_state", "scan_paused_by_owner")
-            dashboard_db.set_meta("whaleflow_state_at",
-                                  datetime.now(timezone.utc).isoformat())
         except Exception as exc:
             log.warning("Could not record the paused whale state: %s", exc)
         return
