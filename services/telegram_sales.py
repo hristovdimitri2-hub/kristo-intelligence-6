@@ -217,7 +217,8 @@ def generate_payment_link() -> dict:
 
     Returns a dict with:
       * receiver_address  — Base USDC address
-      * amount_usdc       — 0.10
+      * amount_usdc       — the VIP price from the single source
+                            (config.VIP_PRICE_USDC), never a literal
       * chain / chain_id   — base / 8453
       * token_contract    — USDC on Base
       * instructions      — human-readable x402 verification steps
@@ -247,6 +248,15 @@ def generate_payment_link() -> dict:
     }
 
 
+#: Attribution footer on EVERY bulletin (17.09 — the bot's "second screen" role).
+#: The link is a LIVE 402 demonstration: opening it in a browser shows the real
+#: x402 challenge (exact USDC amount + receiver) — the product itself, not a
+#: landing page. No signup, no keys, nothing to install.
+SOURCE_FOOTER = (
+    "Source: Kristo Intelligence API — on-chain data, x402\n"
+    "https://kristo-intelligence-api.onrender.com/api/v1/signal"
+)
+
 #: THE command menu — and by construction the commands this module handles.
 #: getMyCommands used to return an empty list: /start worked, but Telegram's menu
 #: button showed NOTHING, so a new user had to guess the commands. Every entry
@@ -257,6 +267,7 @@ BOT_COMMANDS: list[dict] = [
     {"command": "help", "description": "Списък с командите"},
     {"command": "price", "description": "Цена и плащане (x402)"},
     {"command": "bulletin", "description": "Пазарен бюлетин в момента"},
+    {"command": "whale", "description": "Последните китове (USDC ≥ прага)"},
     {"command": "status", "description": "Състояние на API и бота"},
     {"command": "vip", "description": "Пълен VIP анализ — как се отключва"},
 ]
@@ -277,6 +288,57 @@ def register_bot_commands() -> Optional[list]:
         log.info("Telegram command menu registered: %s",
                  ", ".join("/" + entry["command"] for entry in BOT_COMMANDS))
     return result
+
+
+def _whale_reply(limit: int = 5) -> str:
+    """The last whales from the PERSISTENT store, with the honest scan state.
+
+    Reads `main.dashboard_db.whaleflow_summary()` — the same numbers the paid
+    /api/v1/whaleflow route serves (Postgres, survives deploys). The watermark
+    line is MANDATORY: "scanned until block X" while the scanner runs, or the
+    owner's pause with its timestamp when it does not. An empty list must never
+    read as "no whales exist" — that is the same class of lie as a phantom price.
+    """
+    try:
+        import main as main_module
+
+        summary = main_module.dashboard_db.whaleflow_summary(limit=limit)
+    except Exception as exc:
+        log.warning("Telegram /whale failed: %s", exc)
+        return _service_unavailable_reply()
+
+    whales = summary.get("whales") or []
+    threshold = summary.get("threshold_usdc") or 0.0
+    lines = ["🐋 *Китове — мрежови USDC ≥ $%s*" % f"{threshold:,.0f}", ""]
+    if whales:
+        for w in whales:
+            frm = w.get("from_label") or (w.get("from") or "")[:10] + "…"
+            to = w.get("to_label") or (w.get("to") or "")[:10] + "…"
+            ts = str(w.get("ts") or "")[:16].replace("T", " ")
+            lines.append("• *%s %s* · блок %s"
+                         % (f"{float(w.get('amount_usdc') or 0):,.0f}",
+                            w.get("token") or "USDC", w.get("block")))
+            lines.append("  `%s` → `%s`" % (frm, to))
+            lines.append("  %s UTC" % ts)
+    else:
+        lines.append("_В прозореца няма трансфер над прага._")
+    # NOTE (17.09): the store's `all_time_count` (1,043,954 "whales" ≥ $50k) is
+    # NOT published here — the number is implausible for Base and smells like a
+    # unit-scaling bug in the whale table. A command must not repeat a number we
+    # cannot vouch for; the window list + the watermark below are checkable.
+    lines.append("")
+    if summary.get("state") == "scan_paused_by_owner":
+        lines.append("⚠️ Сканът е *спрян от собственика* (%s UTC) — данните са "
+                     "до блок %s."
+                     % (str(summary.get("paused_at") or "—")[:16].replace("T", " "),
+                        summary.get("scanned_until_block") or "—"))
+    else:
+        lines.append("Сканирано до блок %s (състояние: %s)."
+                     % (summary.get("scanned_until_block") or "—",
+                        summary.get("state") or "—"))
+    lines.append("")
+    lines.append(SOURCE_FOOTER)
+    return "\n".join(lines)
 
 
 def _status_reply() -> str:
@@ -381,7 +443,8 @@ def _format_bulletin_text(snapshot: dict) -> str:
         f"🪙 *DEGEN*: ${_fmt(degen_price)} ({_fmt_change(degen_change)})\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"Искате ли по-задълбочен анализ, DeFi сигнали и trading решения?\n"
-        f"Натиснете бутона по-долу 👇"
+        f"Натиснете бутона по-долу 👇\n\n"
+        f"{SOURCE_FOOTER}"
     )
 
 
@@ -391,7 +454,8 @@ def send_market_bulletin(chat_id: Optional[str] = None) -> Optional[dict]:
 
     The bulletin includes the current Fear & Greed index and ETH/DEGEN
     prices (from `market_data.get_market_snapshot()`), plus an inline
-    button: "🔓 Отключи пълен VIP анализ за 0.10 USDC".
+    button: "🔓 Отключи пълен VIP анализ за {VIP_PRICE_USDC} USDC" — the amount
+    comes from the single price source, so it can never drift from the API.
 
     Returns the Telegram API result dict on success, or None on failure.
     """
@@ -428,8 +492,8 @@ def handle_callback_query(callback_data: str, chat_id: str, message_id: int) -> 
     """
     Handle an inline keyboard callback query.
 
-    When the user taps "🔓 Отключи пълен VIP анализ за 0.10 USDC",
-    we reply with the payment link and x402 verification instructions.
+    When the user taps the VIP unlock button (its label carries the price from
+    the single source), we reply with the payment link and x402 instructions.
     """
     token = _get_token()
     if not token:
@@ -606,10 +670,12 @@ def process_webhook_update(update: dict) -> Optional[dict]:
             f"💡 *Команди*:\n"
             f"/vip — пълен VIP анализ\n"
             f"/bulletin — пазарен бюлетин\n"
+            f"/whale — последните китове\n"
             f"/price — информация за плащане (x402)\n"
             f"/status — състояние на бота\n"
             f"/help — това съобщение\n\n"
-            f"🔓 Натиснете бутона по-долу, за да отключите пълен VIP анализ за {VIP_PRICE_USDC:.2f} USDC."
+            f"🔓 Натиснете бутона по-долу, за да отключите пълен VIP анализ за {VIP_PRICE_USDC:.2f} USDC.\n\n"
+            f"{SOURCE_FOOTER}"
         )
 
         sent = _send_text(token, str(chat_id), reply, reply_markup=keyboard)
@@ -634,6 +700,11 @@ def process_webhook_update(update: dict) -> Optional[dict]:
             log.warning("Telegram /price failed: %s", exc)
             sent = _send_text(token, str(chat_id), _service_unavailable_reply())
         return {"handled": True, "type": "price_info", "response_sent": bool(sent)}
+
+    if cmd == "/whale":
+        sent = _send_text(token, str(chat_id), _whale_reply())
+        return {"handled": True, "type": "whale_feed",
+                "response_sent": bool(sent)}
 
     if cmd == "/status":
         sent = _send_text(token, str(chat_id), _status_reply())

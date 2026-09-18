@@ -276,7 +276,7 @@ def test_the_published_menu_matches_the_handled_commands(monkeypatch):
                         lambda snapshot: "тестов бюлетин")
 
     advertised = {entry["command"] for entry in telegram_sales.BOT_COMMANDS}
-    assert len(advertised) == 6, "the menu is meant to carry six commands"
+    assert len(advertised) == 7, "the menu is meant to carry seven commands"
 
     for command in sorted(advertised):
         update = {"update_id": 1,
@@ -301,3 +301,93 @@ def test_the_published_menu_matches_the_handled_commands(monkeypatch):
         assert "/" + command in start_reply, \
             "/start does not mention /%s although the menu advertises it" % command
     assert "/status" in start_reply and "/vip" in start_reply
+# ── "Second screen" prep (17.09): attribution + /whale ──────────────────────
+
+def test_every_bulletin_carries_the_source_footer():
+    """The bulletin IS the second screen: each one names the source and links to a
+    LIVE 402 demonstration (the product itself), never a landing page.
+    """
+    from services import telegram_sales as ts
+
+    text = ts._format_bulletin_text({})
+    assert "Source: Kristo Intelligence API — on-chain data, x402" in text
+    assert "https://kristo-intelligence-api.onrender.com/api/v1/signal" in text
+    assert text.rstrip().endswith(ts.SOURCE_FOOTER.strip())
+
+
+def test_whale_reply_reports_the_pause_honestly(monkeypatch):
+    """An empty whale list must never read as "no whales exist": when the scan is
+    paused by the owner the reply says so, with the timestamp and the watermark.
+    """
+    import main
+    from services import telegram_sales as ts
+
+    class _Store:
+        def whaleflow_summary(self, limit=50):
+            return {"whales": [], "count": 0, "threshold_usdc": 50000.0,
+                    "scanned_until_block": 51425782, "all_time_count": 25,
+                    "last_event_at": "2026-09-16T17:00:00+00:00",
+                    "state": "scan_paused_by_owner",
+                    "paused_at": "2026-09-17T10:39:47+00:00"}
+
+    monkeypatch.setattr(main, "dashboard_db", _Store())
+    text = ts._whale_reply()
+    assert "спрян от собственика" in text
+    assert "2026-09-17 10:39" in text              # paused_at, UTC
+    assert "51425782" in text                      # scanned until block
+    assert "В прозореца няма трансфер над прага" in text
+    assert "Source: Kristo Intelligence API" in text
+
+
+def test_whale_reply_lists_events_with_the_watermark(monkeypatch):
+    """While the scanner runs, the reply lists the events AND the honest
+    "scanned until block X" — never a bare list with no provenance.
+    """
+    import main
+    from services import telegram_sales as ts
+
+    class _Store:
+        def whaleflow_summary(self, limit=50):
+            return {"whales": [{"ts": "2026-09-17T09:00:00+00:00", "token": "USDC",
+                                "amount_usdc": 250000.0, "from": "0x" + "ab" * 20,
+                                "to": "0x" + "cd" * 20, "from_label": "unknown",
+                                "to_label": "market_crawler_e3ba",
+                                "tx_hash": "0x" + "11" * 32, "block": 51400000}],
+                    "count": 1, "threshold_usdc": 50000.0,
+                    "scanned_until_block": 51425782, "all_time_count": 26,
+                    "last_event_at": "2026-09-17T09:00:00+00:00",
+                    "state": "live_data", "paused_at": None}
+
+    monkeypatch.setattr(main, "dashboard_db", _Store())
+    text = ts._whale_reply()
+    assert "250,000 USDC" in text
+    assert "51400000" in text
+    assert "market_crawler_e3ba" in text
+    assert "Сканирано до блок 51425782" in text
+    assert "спрян от собственика" not in text
+
+
+def test_whale_command_is_dispatched_end_to_end(monkeypatch):
+    """/whale must be a real command: advertised in the menu AND answered."""
+    import main
+    from services import telegram_sales as ts
+
+    sent: list[str] = []
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr(ts, "_send_text",
+                        lambda token, chat, text, **kw:
+                        sent.append(text) or {"ok": True})
+
+    class _Store:
+        def whaleflow_summary(self, limit=50):
+            return {"whales": [], "threshold_usdc": 50000.0,
+                    "scanned_until_block": 1, "all_time_count": 0,
+                    "last_event_at": None, "state": "scanning"}
+
+    monkeypatch.setattr(main, "dashboard_db", _Store())
+    result = ts.process_webhook_update(
+        {"update_id": 3, "message": {"message_id": 3, "text": "/whale",
+                                     "chat": {"id": 4242, "type": "private"}}})
+    assert result["handled"] is True
+    assert result["type"] == "whale_feed"
+    assert sent and "Китове" in sent[0]
