@@ -326,6 +326,16 @@ def test_the_whale_threshold_is_5m_on_every_public_surface(client):
     readme = open(REPO_ROOT + "/README.md", encoding="utf-8").read()
     assert "$50k" not in readme
     assert "≥ $5M" in readme
+
+    # The x402 security blurb must never state ONE flat amount again: the routes
+    # cost different prices (0.003 / 0.005) and "send 0.005 USDC" made a buyer
+    # overpay on the cheap ones. It now points at the route's own 402 challenge.
+    spec = c.get("/openapi.json").get_json()
+    blurb = spec["components"]["securitySchemes"]["x402"]["description"]
+    assert "402 challenge" in blurb
+    assert "send 0.005 USDC" not in blurb
+    assert "$%.3f" % min(float(p) for p in
+                         __import__("main").X402_PRICE_MAP.values()) in blurb
 def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
     """Publishing the NEXT version must not require a code edit (`--version 6.0.1`),
     and a typo must be caught HERE rather than by `mcp-publisher publish` — the

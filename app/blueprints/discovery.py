@@ -451,6 +451,7 @@ def well_known_x402_scan():
     # The price note is DERIVED, never typed: it must describe the same numbers
     # the 402 challenges will ask for.
     _prices = sorted({round(float(p), 6) for p in X402_PRICE_MAP.values()})
+    _cheapest = _prices[0]
     price_range_note = (
         "$%.3f per call on every route" % _prices[0] if len(_prices) == 1
         else "prices per route: %s" % ", ".join("$%.3f" % p for p in _prices)
@@ -501,6 +502,10 @@ def mcp_json():
         VIP_MONTHLY_USDC,
     )
     from config import KRISTO_SIGNAL_PRICE, KRISTO_ARB_PRICE
+
+    # Cheapest real route price — the same derived-floor rule as the OpenAPI
+    # security blurb: never quote one flat amount for routes that differ.
+    _cheapest = min(float(KRISTO_SIGNAL_PRICE), float(KRISTO_ARB_PRICE))
 
     base_url = request.host_url.rstrip("/")
     return jsonify({
@@ -576,7 +581,9 @@ def mcp_json():
         },
         "cache_ttl_minutes": 15,
         "instructions": {
-            "payment": f"Send {X402_FEE_USDC} USDC on Base to {X402_RECEIVER_ADDRESS}",
+            "payment": f"Send the EXACT USDC amount stated by the endpoint's 402 "
+                       f"challenge (from ${_cheapest:.3f}) on Base to "
+                       f"{X402_RECEIVER_ADDRESS}",
             "verification": "Payments verified on-chain via ERC-20 Transfer event logs",
             "retry": "After payment confirmation, retry the endpoint to access data",
         },
@@ -609,6 +616,13 @@ def openapi_spec():
         KRISTO_SIGNAL_PRICE,
         KRISTO_WHALEFLOW_PRICE,
     )
+
+    # The security-scheme blurb used to state one flat amount ("send 0.005 USDC")
+    # while the routes cost 0.003-0.005 — a buyer could overpay or misread the
+    # product. It now points at the only authoritative number, the route's own 402
+    # challenge, and quotes the cheapest route as a floor (derived, never typed).
+    _cheapest = min(float(KRISTO_ARB_PRICE), float(KRISTO_SIGNAL_PRICE),
+                    float(KRISTO_WHALEFLOW_PRICE))
 
     base_url = request.host_url.rstrip("/")
     # x-payment-info shared block for all paid operations.
@@ -786,7 +800,8 @@ def openapi_spec():
                     "in": "header",
                     "name": "X-Payment-Address",
                     "description": (
-                        f"x402 payment: send {X402_FEE_USDC} USDC on Base to "
+                        "x402 payment: send the EXACT USDC amount stated by the "
+                        f"endpoint's 402 challenge (from ${_cheapest:.3f}) on Base to "
                         f"{X402_RECEIVER_ADDRESS}. After payment, retry the endpoint "
                         "with X-Payment-Address header set to the sender wallet address."
                     ),
