@@ -734,6 +734,21 @@ class HistoryStore:
             )
             updated += max(0, rowcount)
         return updated
+    def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
+        """The recorded sale for one tx hash, or None — used by the Telegram VIP
+        claim path (18.09): a buyer who already paid sends their tx hash, and the
+        bot must be able to say whether our monitor actually recorded it."""
+        row = self._run(
+            "SELECT tx_hash, amount_usdc, sender, ts, block_number, payer_class, "
+            "payer_label, source FROM onchain_sales WHERE tx_hash = ?",
+            ((tx_hash or "").lower(),), "one")[0]
+        if not row:
+            return None
+        keys = ("tx_hash", "amount_usdc", "sender", "ts", "block_number",
+                "payer_class", "payer_label", "source")
+        return dict(zip(keys, row))
+
+
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales straight from the durable table."""
@@ -1162,6 +1177,10 @@ HYBRID since 14.09:
         states WHERE the replay lock lives instead of implying durability.
         """
         return self.history.guard_stats(recent_limit)
+
+    def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
+        """Sale lookup — see HistoryStore.sale_by_tx (Telegram VIP claim path)."""
+        return self.history.sale_by_tx(tx_hash)
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales — see HistoryStore.sales_summary.

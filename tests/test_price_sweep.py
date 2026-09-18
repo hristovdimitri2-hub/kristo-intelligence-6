@@ -360,3 +360,146 @@ def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
     for bad in ("^6.0.0", "~6.0.0", ">=6.0.0", "6.x", "6.0", ""):
         problems = module.validate(dict(bumped, version=bad))
         assert any("version" in p for p in problems), (bad, problems)
+
+
+# ── VIP flow: the button a REAL buyer taps (18.09) ──────────────────────────
+
+def test_the_vip_payment_payload_has_no_fabricated_link():
+    """The owner, testing as a buyer, tapped "VIP анализ 0.10 USDC" and hit
+    DNS_PROBE_FINISHED_NXDOMAIN: the payload carried
+    `https://wallet.pay/base/<USDC>/transfer?address=…&uint256=…` — an EIP-681
+    URI body with an invented HTTPS host glued on. No such product exists, and no
+    HTTPS wallet-transfer URL exists either. The link is gone; what a buyer needs
+    is the amount, the address, and a way to VERIFY the address — and the
+    instructions must not promise what the code does not do.
+    """
+    import services.telegram_sales as telegram_sales
+
+    payment = telegram_sales.generate_payment_link()
+    assert "deep_link" not in payment, "the fabricated deep link came back"
+    assert "wallet.pay" not in repr(payment)
+    assert payment["explorer_link"] == (
+        "https://basescan.org/address/" + payment["receiver_address"])
+
+    instructions = payment["instructions"]
+    assert "on-chain монитор" in instructions      # what actually detects it
+    assert "tx хеша" in instructions               # the claim path, now real
+    assert "x402 автоматично" not in instructions  # x402 never watched this
+    assert "натиснете бутона отново" not in instructions   # tapping again only
+    #                                                        re-sent this text
+
+
+def test_the_vip_button_reply_has_no_dead_link(monkeypatch):
+    """The exact message behind the button: no dead host, a link that exists."""
+    import services.telegram_sales as telegram_sales
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    sent = {}
+
+    def _capture(token, chat_id, text, **kwargs):
+        sent["chat_id"], sent["text"] = str(chat_id), text
+        return {"ok": True}
+
+    monkeypatch.setattr(telegram_sales, "_send_text", _capture)
+    telegram_sales.handle_callback_query("unlock_vip_analysis", "123", 7)
+
+    assert "wallet.pay" not in sent["text"]
+    assert "basescan.org/address/" in sent["text"]
+    assert "Инструкции за плащане" in sent["text"]
+    # Every link in the message must be one we can stand behind.
+    for url in re.findall(r"https?://[^\s`)]+", sent["text"]):
+        assert url.startswith("https://basescan.org/"), url
+
+
+
+def test_a_buyer_can_claim_with_a_tx_hash(client, monkeypatch):
+    """Step 4 of the instructions is now real. Before this, a pasted tx hash got
+    "Не разпознах командата" — a dead end for someone who had just sent money.
+    The hash is checked against the durable sales record and a human is told; the
+    code is NOT auto-issued, because a tx hash is public and the first claimer
+    could be a stranger."""
+    from datetime import datetime, timezone
+
+    import services.telegram_sales as telegram_sales
+
+    _test_client, main = client
+    tx = "0x" + "ab" * 32
+    assert main.dashboard_db.record_sale(
+        tx_hash=tx, amount_usdc=0.10, sender="0x" + "cd" * 20, block_number=123,
+        ts=datetime.now(timezone.utc), source="live")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "@somechannel")
+    monkeypatch.delenv("TELEGRAM_VIP_CHAT_ID", raising=False)
+    sends = []
+    monkeypatch.setattr(
+        telegram_sales, "_send_text",
+        lambda token, chat_id, text, **kw: sends.append((str(chat_id), text))
+        or {"ok": True})
+
+    result = telegram_sales.process_webhook_update(
+        {"message": {"chat": {"id": 555}, "text": "Платих: " + tx}})
+    assert result["type"] == "vip_claim" and result["found"] is True
+
+    buyer = [text for chat, text in sends if chat == "555"][0]
+    assert "Заявка за VIP покана" in buyer and "0.10" in buyer
+    owner = [text for chat, text in sends if chat == "@somechannel"][0]
+    assert tx in owner and "Заявка" in owner
+
+
+def test_a_random_message_is_still_not_a_claim(client, monkeypatch):
+    """Only a real tx hash triggers the claim path — everything else keeps the
+    ordinary "unknown command" reply (no accidental VIP for chit-chat)."""
+    import services.telegram_sales as telegram_sales
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    sends = []
+    monkeypatch.setattr(
+        telegram_sales, "_send_text",
+        lambda token, chat_id, text, **kw: sends.append(text) or {"ok": True})
+
+    result = telegram_sales.process_webhook_update(
+        {"message": {"chat": {"id": 555}, "text": "здравейте"}})
+    assert result["type"] == "unknown_command"
+    assert "Не разпознах командата" in sends[-1]
+
+
+
+def test_the_vip_invite_code_is_never_posted_to_a_public_chat(monkeypatch):
+    """OUR channel @Kristointeligent is public and TELEGRAM_VIP_CHAT_ID is unset,
+    so the invite code — the product itself — was posted to the world along with
+    the payer's wallet. The code may only travel to an explicitly configured VIP
+    chat; the channel gets a redacted receipt."""
+    import requests
+
+    import main
+
+    posted = []
+
+    class _Resp:
+        status_code = 200
+
+    def _fake_post(url, json=None, timeout=None, **kwargs):
+        posted.append(json)
+        return _Resp()
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "@Kristointeligent")
+    monkeypatch.delenv("TELEGRAM_VIP_CHAT_ID", raising=False)
+
+    wallet = "0x" + "ab" * 20
+    main._send_telegram_vip_notification(wallet, "KRI-VIP-DEADBEEF",
+                                         "0x" + "cd" * 32)
+    assert posted, "the owner still needs to hear about a payment"
+    public = posted[-1]
+    assert public["chat_id"] == "@Kristointeligent"
+    assert "KRI-VIP-DEADBEEF" not in public["text"]
+    assert wallet not in public["text"]          # only a truncated form
+
+    monkeypatch.setenv("TELEGRAM_VIP_CHAT_ID", "987654")
+    main._send_telegram_vip_notification(wallet, "KRI-VIP-DEADBEEF",
+                                         "0x" + "cd" * 32)
+    private = posted[-1]
+    assert private["chat_id"] == "987654"
+    assert "KRI-VIP-DEADBEEF" in private["text"]

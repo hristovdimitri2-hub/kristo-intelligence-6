@@ -413,26 +413,51 @@ def _generate_vip_invite(wallet_address: str, tx_hash: str) -> Optional[str]:
 
 
 def _send_telegram_vip_notification(wallet_address: str, invite_code: str, tx_hash: str):
-    """Send a Telegram message about a new VIP subscriber (best-effort, non-blocking)."""
+    """Announce a new VIP subscriber — privately whenever possible.
+
+    18.09 (found by the owner while testing as a buyer): with only
+    TELEGRAM_CHAT_ID set — ours is the PUBLIC channel @Kristointeligent — this
+    posted the buyer's wallet AND the invite code to the whole world. The code is
+    the product: anyone reading the channel could claim it first, and the payer's
+    address was published for no reason. The full message now goes ONLY to an
+    explicitly configured TELEGRAM_VIP_CHAT_ID; otherwise the channel gets a
+    redacted receipt (truncated wallet, no code) and the code stays in the log.
+    """
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     # Audit A4: this read ONLY TELEGRAM_VIP_CHAT_ID while /sales/checkout read
     # `TELEGRAM_VIP_CHAT_ID or TELEGRAM_CHAT_ID` — two paths, one config, so a
     # deployment with only TELEGRAM_CHAT_ID set silently dropped VIP alerts here.
-    chat_id = (os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip()
-               or os.getenv("TELEGRAM_CHAT_ID", "").strip())
+    # The fallback stays (the owner must hear about a payment), but it no longer
+    # carries anything private.
+    owner_chat = os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip()
+    public_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    chat_id = owner_chat or public_chat
     if not token or not chat_id:
         log.info("Telegram VIP notification skipped (no token/chat_id). Invite code: %s", invite_code)
         return
 
     try:
         import requests as _requests
-        msg = (
-            f"🎉 New VIP Subscriber!\n"
-            f"Wallet: {wallet_address[:10]}...{wallet_address[-6:]}\n"
-            f"Invite Code: {invite_code}\n"
-            f"Tx: {tx_hash[:18]}...\n"
-            f"Time: {datetime.now(timezone.utc).isoformat()}"
-        )
+        stamp = datetime.now(timezone.utc).isoformat()
+        if owner_chat:
+            msg = (
+                f"🎉 New VIP Subscriber!\n"
+                f"Wallet: {wallet_address[:10]}...{wallet_address[-6:]}\n"
+                f"Invite Code: {invite_code}\n"
+                f"Tx: {tx_hash[:18]}...\n"
+                f"Time: {stamp}"
+            )
+        else:
+            # Public channel: a receipt, never the product.
+            log.info("VIP invite %s NOT posted publicly (no TELEGRAM_VIP_CHAT_ID); "
+                     "redacted notice only.", invite_code)
+            msg = (
+                f"🎉 Нов VIP абонат — плащане потвърдено on-chain\n"
+                f"Портфейл: {wallet_address[:10]}...{wallet_address[-6:]}\n"
+                f"Tx: {tx_hash[:18]}...\n"
+                f"Time: {stamp}\n"
+                f"(Кодът се изпраща насаме — не се публикува.)"
+            )
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         _requests.post(url, json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}, timeout=10)
         with _lock:

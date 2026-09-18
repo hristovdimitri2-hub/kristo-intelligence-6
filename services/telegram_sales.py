@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -212,8 +213,8 @@ def register_webhook() -> Optional[dict]:
 
 def generate_payment_link() -> dict:
     """
-    Generate a payment link/payload pointing to the Base USDC receiver
-    address with x402 verification instructions.
+    Generate a payment payload pointing to the Base USDC receiver address,
+    with instructions a human can actually follow.
 
     Returns a dict with:
       * receiver_address  — Base USDC address
@@ -221,14 +222,21 @@ def generate_payment_link() -> dict:
                             (config.VIP_PRICE_USDC), never a literal
       * chain / chain_id   — base / 8453
       * token_contract    — USDC on Base
-      * instructions      — human-readable x402 verification steps
-      * deep_link         — optional wallet deep link (erc20 transfer)
+      * instructions      — human-readable payment + claim steps
+      * explorer_link     — a REAL, verifiable page for the receiver address
+
+    HISTORY (18.09): this returned a `deep_link` of
+    `https://wallet.pay/base/<USDC>/transfer?address=…&uint256=…` — a domain
+    that does not exist (the owner, testing as a buyer, landed on
+    DNS_PROBE_FINISHED_NXDOMAIN). The payload was an EIP-681 URI body
+    (`address=` + `uint256=`) with a fabricated HTTPS host glued on: there is no
+    "wallet.pay" product, and no HTTPS wallet-transfer URL exists either — a
+    wallet transfer needs the `ethereum:` scheme, which desktop Telegram cannot
+    open and which most wallets only accept as a QR code. So the link is gone
+    instead of being replaced with another guess. What a buyer needs at that
+    moment is the exact amount, the address, and a way to VERIFY the address —
+    that is what is here now (basescan.org, already used by our own dashboard).
     """
-    amount_raw = int(VIP_PRICE_USDC * 10 ** 6)  # USDC has 6 decimals on Base
-    deep_link = (
-        f"https://wallet.pay/base/{X402_USDC_CONTRACT}/transfer"
-        f"?address={X402_RECEIVER_ADDRESS}&uint256={amount_raw}"
-    )
     return {
         "receiver_address": X402_RECEIVER_ADDRESS,
         "amount_usdc": VIP_PRICE_USDC,
@@ -236,15 +244,16 @@ def generate_payment_link() -> dict:
         "chain_id": X402_CHAIN_ID,
         "token_contract": X402_USDC_CONTRACT,
         "instructions": (
-            f"1. Изпратете точно {VIP_PRICE_USDC:.2f} USDC в мрежата Base "
-            f"към адрес:\n`{X402_RECEIVER_ADDRESS}`\n"
+            f"1. Отворете вашия портфейл (който поддържа Base) и изпратете "
+            f"точно {VIP_PRICE_USDC:.2f} USDC към адреса по-горе.\n"
             f"2. Изчакайте on-chain потвърждение (~2 секунди на Base).\n"
-            f"3. Платежната система x402 автоматично ще засече транзакцията "
-            f"и ще отключи пълния VIP анализ.\n"
-            f"4. Алтернативно, върнете се в бота и натиснете бутона отново — "
-            f"достъпът ще бъде предоставен веднага след потвърждение."
+            f"3. Нашият on-chain монитор засича преводите към този адрес и "
+            f"записва плащането като продажба (това не е x402 маршрут — "
+            f"пращате ръчно от собствения си портфейл).\n"
+            f"4. Ако не получите VIP покана след потвърждението, изпратете tx "
+            f"хеша на бота — поканата ще ви бъде изпратена насаме."
         ),
-        "deep_link": deep_link,
+        "explorer_link": f"https://basescan.org/address/{X402_RECEIVER_ADDRESS}",
     }
 
 
@@ -543,8 +552,12 @@ def handle_callback_query(callback_data: str, chat_id: str, message_id: int) -> 
                 f"🔓 *Отключи пълен VIP анализ*\n\n"
                 f"Цена: *{payment['amount_usdc']:.2f} USDC* (Base мрежа)\n"
                 f"Получател: `{payment['receiver_address']}`\n\n"
-                f"*Инструкции за x402 верификация:*\n{payment['instructions']}\n\n"
-                f"🔗 *Wallet deep link*:\n{payment['deep_link']}"
+                f"*Инструкции за плащане:*\n{payment['instructions']}\n\n"
+                # 18.09: a fabricated `wallet.pay` deep link lived here and led
+                # straight to NXDOMAIN. What replaces it is a link that exists
+                # and lets the buyer VERIFY the address on-chain (the same
+                # explorer our dashboard links to), plus the honest claim path.
+                f"🔍 Проверка на адреса: {payment['explorer_link']}"
             )
             return _send_text(token, chat_id, reply_text, reply_to_message_id=message_id)
         except Exception as exc:
@@ -572,6 +585,59 @@ def answer_callback_query(callback_query_id: str) -> Optional[dict]:
 
 
 # ── Webhook payload processing ───────────────────────────────────────────────
+
+#: A Base tx hash, as a buyer would paste it out of their wallet.
+_TX_HASH_RE = re.compile(r"0x[0-9a-fA-F]{64}")
+
+
+def _handle_vip_claim(text: str, chat_id: str, token: str) -> Optional[dict]:
+    """A buyer who already paid sends their tx hash — verify it and tell a human.
+
+    18.09: the payment instructions end with "send the tx hash to the bot", but an
+    unrecognised message only got "Не разпознах командата" — a dead end for
+    somebody who had just sent money. This makes that step real: the hash is
+    checked against `onchain_sales` (Postgres, deploy-proof) and the claim is
+    forwarded to the owner, who delivers the invite privately.
+
+    Deliberately NOT auto-issuing: a tx hash is public on-chain, so handing a code
+    to whoever claims first would give VIP to a stranger. A human confirms.
+    """
+    match = _TX_HASH_RE.search(text or "")
+    if not match:
+        return None
+    tx_hash = match.group(0).lower()
+    try:
+        import main as main_module
+
+        sale = main_module.dashboard_db.sale_by_tx(tx_hash)
+    except Exception as exc:
+        log.warning("VIP claim lookup failed: %s", exc)
+        sale = None
+
+    amount = float((sale or {}).get("amount_usdc") or 0.0)
+    sender = (sale or {}).get("sender") or ""
+    if sale and amount >= VIP_PRICE_USDC:
+        verdict = (f"✅ Записано плащане: {amount:.2f} USDC от "
+                   f"{sender[:10]}…{sender[-6:]} (праг {VIP_PRICE_USDC:.2f} USDC).")
+    elif sale:
+        verdict = (f"⚠️ Плащането е записано ({amount:.2f} USDC), но е под прага "
+                   f"{VIP_PRICE_USDC:.2f} USDC за VIP покана.")
+    else:
+        verdict = ("⚠️ Няма записано плащане с този tx хеш. Ако току-що платихте, "
+                   "изчакайте минута (мониторът сканира блокове) и опитайте пак.")
+
+    _send_text(token, str(chat_id),
+               "📨 *Заявка за VIP покана*\n\n"
+               f"Tx: `{tx_hash}`\n{verdict}\n\n"
+               "Поканата се изпраща насаме след проверка.")
+    owner_chat = (os.getenv("TELEGRAM_VIP_CHAT_ID", "").strip() or _get_chat_id())
+    if owner_chat:
+        _send_text(token, str(owner_chat),
+                   "🔔 *Заявка за VIP покана*\n"
+                   f"От чат: `{chat_id}`\nTx: `{tx_hash}`\n{verdict}")
+    return {"handled": True, "type": "vip_claim", "tx_hash": tx_hash,
+            "found": bool(sale), "response_sent": True}
+
 
 def process_webhook_update(update: dict) -> Optional[dict]:
     """
@@ -625,6 +691,13 @@ def process_webhook_update(update: dict) -> Optional[dict]:
         return {"handled": False, "reason": "no_text"}
 
     cmd = text.lower().split()[0] if text.split() else ""
+
+    # A buyer who already paid sends their tx hash (step 4 of the payment
+    # instructions). Handled BEFORE the command table so it can never fall into
+    # the "Не разпознах командата" dead end after money moved.
+    claim = _handle_vip_claim(text, str(chat_id), token)
+    if claim:
+        return claim
 
     if cmd in ("/start", "/help"):
         try:
