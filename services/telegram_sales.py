@@ -352,9 +352,13 @@ def _whale_reply(limit: int = 5) -> str:
                      % (summary.get("scanned_until_block") or "—",
                         str(summary.get("paused_at") or "—")[:16].replace("T", " ")))
     else:
+        # Telegram's legacy Markdown treats `_` as the italic marker, and a SINGLE
+        # one ("live_data") is unbalanced → "can't parse entities" → the message
+        # fell back to plain text on every /whale (seen live 18.09). The state is
+        # data, not formatting: show it with spaces.
         lines.append("Сканирано до блок %s (състояние: %s)."
                      % (summary.get("scanned_until_block") or "—",
-                        summary.get("state") or "—"))
+                        str(summary.get("state") or "—").replace("_", " ")))
     lines.append("")
     lines.append(SOURCE_FOOTER)
     return "\n".join(lines)

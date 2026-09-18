@@ -657,3 +657,54 @@ def test_the_store_reads_survive_postgres_dict_rows(tmp_path, monkeypatch):
     assert record["started_date"] == "06.09.2026"
     assert record["paying_strangers"] == 1
 
+
+def test_the_whale_watermark_survives_a_deploy(tmp_path, monkeypatch):
+    """Auto-deploy is ON, so every push used to reset the whale watermark: the
+    scanner re-walked 24h of chain (~900 getLogs on the free RPC) and the PAID
+    feed lagged reality for ~35 minutes. Watermarks now live in the durable
+    store — the same numbers the owner expected when they said "resume from the
+    saved watermark". A fresh local file (a deploy) must find them."""
+    from integrations.dashboard_store import DashboardStore, HistoryStore
+
+    durable = {}                     # Postgres in production, a dict here
+    monkeypatch.setattr(
+        HistoryStore, "set_durable_meta",
+        lambda self, key, value: durable.__setitem__(key, str(value)))
+    monkeypatch.setattr(
+        HistoryStore, "get_durable_meta",
+        lambda self, key, default=None: durable.get(key, default))
+
+    first = DashboardStore(tmp_path / "local1.db")
+    first.set_meta("whaleflow_last_block", "51470299")
+    first.set_meta("whaleflow_safe_scanned_block", "51470299")
+    first.set_meta("whaleflow_state", "live_data")        # not whitelisted
+
+    second = DashboardStore(tmp_path / "local2.db")       # a deploy: new disk
+    assert second.get_meta("whaleflow_last_block") == "51470299"
+    assert second.get_meta("whaleflow_safe_scanned_block") == "51470299"
+    # Everything outside the whitelist keeps its old, local-only behaviour.
+    assert second.get_meta("whaleflow_state") is None
+    assert second.get_meta("whaleflow_effective_chunk", "50") == "50"
+
+
+def test_the_whale_reply_survives_telegram_markdown(client, monkeypatch):
+    """"live_data" carries a single `_`, an UNBALANCED italic marker in Telegram's
+    legacy Markdown: the send failed with "can't parse entities" and every /whale
+    silently fell back to plain text (seen live on 18.09). The state is data, not
+    formatting — and the fresh watermark must be in the text."""
+    import services.telegram_sales as telegram_sales
+
+    _test_client, main = client
+    monkeypatch.setattr(
+        main.dashboard_db, "whaleflow_summary",
+        lambda **kwargs: {
+            "whales": [], "count": 0, "all_time_count": 326,
+            "threshold_usdc": 5_000_000.0, "state": "live_data",
+            "scanned_until_block": 51470299,
+            "last_event_at": "2026-09-18T11:00:00+00:00",
+        })
+
+    text = telegram_sales._whale_reply()
+    assert "live data" in text
+    assert "live_data" not in text
+    assert "51470299" in text          # the watermark the buyer reads

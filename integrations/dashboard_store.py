@@ -402,8 +402,21 @@ class HistoryStore:
         )
         self._run("CREATE INDEX IF NOT EXISTS idx_guard_events_ts "
                   "ON guard_events (ts)")
+        # ── Durable operational meta (18.09) ──────────────────────────────────
+        # The whale scan watermarks used to live in the LOCAL file, which Render
+        # wipes on every deploy — and auto-deploy is on, so every push re-scanned
+        # 24 hours of chain: ~900 getLogs calls on the free RPC and ~35 minutes in
+        # which the PAID feed's freshness lagged reality. Watermarks belong with
+        # the data they describe.
+        self._run(
+            """CREATE TABLE IF NOT EXISTS dashboard_meta (
+                   key        TEXT PRIMARY KEY,
+                   value      TEXT,
+                   updated_at TEXT
+               )"""
+        )
         log.info("Durable store ready (%s): request_log + whaleflow_events + "
-                 "onchain_sales + payment_guards + guard_events.",
+                 "onchain_sales + payment_guards + guard_events + dashboard_meta.",
                  self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
@@ -734,6 +747,22 @@ class HistoryStore:
             )
             updated += max(0, rowcount)
         return updated
+    def set_durable_meta(self, key: str, value: str) -> None:
+        """Persist small operational state in the DURABLE store (see dashboard_meta)."""
+        self._run(
+            """INSERT INTO dashboard_meta (key, value, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT (key) DO UPDATE SET value = excluded.value,
+                                               updated_at = excluded.updated_at""",
+            (key, str(value), datetime.now(timezone.utc).isoformat()))
+
+    def get_durable_meta(self, key: str,
+                         default: Optional[str] = None) -> Optional[str]:
+        """Read back durable operational state, or `default` when unset."""
+        row = self._run("SELECT value FROM dashboard_meta WHERE key = ?",
+                        (key,), "one")[0]
+        return row["value"] if row else default
+
     def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
         """The recorded sale for one tx hash, or None — used by the Telegram VIP
         claim path (18.09): a buyer who already paid sends their tx hash, and the
@@ -1186,7 +1215,22 @@ HYBRID since 14.09:
         """Retention pass — see HistoryStore.purge_old_whale_events (30 days)."""
         return self.history.purge_old_whale_events(days)
 
+    #: Meta keys that MUST survive a deploy. Render wipes the local file, and
+    #: auto-deploy is on: every push used to reset the whale watermark, which
+    #: re-scanned 24h of chain (~900 getLogs) and left the PAID feed ~35 minutes
+    #: behind reality. These live in the durable store; the local file is kept in
+    #: sync as a fallback (and for the ephemeral-disk deployments).
+    DURABLE_META_KEYS = ("whaleflow_last_block", "whaleflow_safe_scanned_block",
+                         "whaleflow_effective_chunk")
+
     def get_meta(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        if key in self.DURABLE_META_KEYS:
+            try:
+                value = self.history.get_durable_meta(key)
+                if value not in (None, ""):
+                    return value
+            except Exception as exc:            # never break a read over this
+                log.debug("durable meta read failed for %s: %s", key, exc)
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT value FROM meta WHERE key = ?", (key,)
@@ -1194,6 +1238,11 @@ HYBRID since 14.09:
         return row["value"] if row else default
 
     def set_meta(self, key: str, value: str) -> None:
+        if key in self.DURABLE_META_KEYS:
+            try:
+                self.history.set_durable_meta(key, value)
+            except Exception as exc:            # the local write below still runs
+                log.debug("durable meta write failed for %s: %s", key, exc)
         with self._write_lock, self._connect() as conn:
             conn.execute(
                 """INSERT INTO meta (key, value) VALUES (?, ?)
