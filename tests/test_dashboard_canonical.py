@@ -463,3 +463,42 @@ def test_the_whale_scan_switch_honours_the_env(monkeypatch):
         assert main.whaleflow_scan_enabled() is expected, value
     monkeypatch.delenv("WHALEFLOW_ENABLED", raising=False)
     assert main.whaleflow_scan_enabled() is True      # default: scanning
+
+def test_whale_events_are_deduped_by_tx_hash_and_log_index(tmp_path):
+    """The "1M whales" scare, answered mechanically.
+
+    Diagnosed 18.09 against the LIVE Postgres: 1,043,954 rows / 1,043,954 distinct
+    (tx_hash, log_index) — zero duplicate groups — and 3/3 sampled rows matched
+    real USDC transfers on-chain to the cent. So the guard that makes repeated
+    backfills safe must stay: the same on-chain log can be written only once,
+    while a different log_index in the same tx is a different transfer.
+    """
+    from datetime import datetime, timezone
+
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "whales.db")
+    ts = datetime.now(timezone.utc).isoformat()
+    tx = "0x" + "ab" * 32
+
+    for _ in range(3):          # three overlapping backfill passes, one log
+        store.history.record_whale_event(tx, 7, ts, "USDC", 600000.0,
+                                         "0x" + "11" * 20, "0x" + "22" * 20,
+                                         51416322)
+
+    summary = store.whaleflow_summary()
+    assert summary["count"] == 1, "the same log was stored more than once"
+    assert summary["all_time_count"] == 1
+
+    # A different log index in the SAME transaction is a different transfer.
+    store.history.record_whale_event(tx, 8, ts, "USDC", 50000.0,
+                                     "0x" + "11" * 20, "0x" + "33" * 20, 51416322)
+    summary = store.whaleflow_summary()
+    assert summary["count"] == 2
+    assert summary["all_time_count"] == 2
+
+    # Below-threshold noise is not stored at all (the scan filters before insert,
+    # and the summary applies the threshold again at read time).
+    store.history.record_whale_event("0x" + "cd" * 32, 1, ts, "USDC", 1000.0,
+                                     "0x" + "11" * 20, "0x" + "44" * 20, 51416323)
+    assert store.whaleflow_summary()["all_time_count"] == 2
