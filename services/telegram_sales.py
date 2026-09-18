@@ -106,8 +106,11 @@ def _send_text(
     fallback_payload = {"chat_id": chat_id, "text": safe_text}
     if reply_markup:
         fallback_payload["reply_markup"] = reply_markup
-    if reply_to_message_id:
-        fallback_payload["reply_to_message_id"] = reply_to_message_id
+    # 18.09: the fallback used to KEEP reply_to_message_id. Telegram answers
+    # "Bad Request: message to be replied not found" when the quoted message is
+    # gone (deleted, or too old), so BOTH attempts failed and the reply was never
+    # delivered at all — a buyer tapping an old button got silence. The quote is
+    # cosmetic; the text is the product. Retry without it.
     return _api_call("sendMessage", token, fallback_payload)
 
 

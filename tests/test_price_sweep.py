@@ -465,6 +465,30 @@ def test_a_random_message_is_still_not_a_claim(client, monkeypatch):
 
 
 
+def test_a_gone_quoted_message_cannot_swallow_the_reply(monkeypatch):
+    """Telegram rejects `reply_to_message_id` when the quoted message is gone
+    (deleted or too old) — and the fallback used to KEEP the field, so both
+    attempts failed and the buyer got nothing at all. Found live (18.09) while
+    tapping the VIP button: "Bad Request: message to be replied not found" twice.
+    The retry must drop the quote and still deliver."""
+    import services.telegram_sales as telegram_sales
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    calls = []
+
+    def _api_call(method, token, payload, timeout=15):
+        calls.append(payload)
+        return None if "reply_to_message_id" in payload else {"message_id": 1}
+
+    monkeypatch.setattr(telegram_sales, "_api_call", _api_call)
+    result = telegram_sales._send_text("test-token", "123", "текст",
+                                       reply_to_message_id=4242)
+    assert result == {"message_id": 1}
+    assert len(calls) == 2
+    assert "reply_to_message_id" in calls[0]
+    assert "reply_to_message_id" not in calls[1], "the retry kept the dead quote"
+
+
 def test_the_vip_invite_code_is_never_posted_to_a_public_chat(monkeypatch):
     """OUR channel @Kristointeligent is public and TELEGRAM_VIP_CHAT_ID is unset,
     so the invite code — the product itself — was posted to the world along with
