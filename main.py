@@ -975,7 +975,7 @@ def _whaleflow_scan_loop():
     except Exception:
         pass
     interval = max(30, int(os.getenv("WHALEFLOW_SCAN_INTERVAL", "60")))
-    hours = max(1, int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "1")))
+    hours = max(1, int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "24")))
     log.info("Whale flow scan loop started (backfill=%dh, interval=%ss).",
              hours, interval)
     try:

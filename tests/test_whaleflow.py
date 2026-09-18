@@ -352,6 +352,49 @@ def test_whale_scan_halves_a_refused_window_instead_of_giving_up(
     assert store.get_meta("whaleflow_last_error") in ("", None)
 
 
+def test_whale_backfill_hours_really_means_hours(tmp_path, monkeypatch):
+    """`WHALEFLOW_BACKFILL_HOURS=24` must mean 24 HOURS (43,200 blocks at 2s), not
+    24 days. The formula used to multiply by 86400, so "1" scanned a full day —
+    measured live on 18.09: the boot backfill walked 39,051 blocks (~22h) back.
+    """
+    import sys
+    import types
+
+    from integrations.dashboard_store import (BLOCK_TIME_SECONDS,
+                                              DashboardStore)
+
+    fake = types.ModuleType("web3")
+
+    class FakeEth:
+        block_number = 100_000
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
+
+        def __init__(self, provider):
+            self.eth = FakeEth()
+
+        def is_connected(self):
+            return True
+
+    fake.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+
+    store = DashboardStore(tmp_path / "backfill.db")
+    seen = {}
+
+    def _capture(from_block, to_block, rpc_url=""):
+        seen["from"], seen["to"] = from_block, to_block
+        return 0
+
+    monkeypatch.setattr(store, "scan_whale_window", _capture)
+    store.whaleflow_backfill(hours=24)
+    assert seen["to"] == 100_000
+    assert seen["from"] == 100_000 - int(24 * 3600 / BLOCK_TIME_SECONDS)   # 43,200
+    # and the old (day) arithmetic would have been 1,036,800 blocks — an ~11,000
+    # request walk on the free RPC instead of ~864.
+
+
 def test_whale_chunk_env_is_not_clamped_upwards(tmp_path, monkeypatch):
     """The sales scan lost days to a hidden `max(50, …)` floor; the whale scan
     must respect WHALEFLOW_CHUNK_BLOCKS literally."""

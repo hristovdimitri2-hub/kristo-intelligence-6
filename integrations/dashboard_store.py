@@ -1594,7 +1594,14 @@ HYBRID since 14.09:
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         latest = w3.eth.block_number
-        from_block = max(1, latest - int(hours * 86400 / BLOCK_TIME_SECONDS))
+        # HOURS, honestly (18.09): this line used to read `hours * 86400 / …`, i.e.
+        # it treated the parameter as DAYS while the name, the env var and the
+        # docstring all said hours. Measured live: WHALEFLOW_BACKFILL_HOURS=1
+        # scanned 39,051 blocks (~22 h) instead of 1,800, and the default (24)
+        # would have walked ~24 DAYS of chain. Same behaviour as the day it was
+        # found (the boot backfill is meant to fill the 24h window the paid route
+        # serves), but now the knob does what it says.
+        from_block = max(1, latest - int(hours * 3600 / BLOCK_TIME_SECONDS))
         added = self.scan_whale_window(from_block, latest, rpc_url=rpc_url)
         # Watermark = last CONTIGUOUS safe block (failed chunks retry next cycle)
         safe = int(self.get_meta("whaleflow_safe_scanned_block", "0") or 0)
