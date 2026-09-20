@@ -14,6 +14,18 @@
 **Отворен въпрос за Chet:** автоматичен reindex или ръчен resync (**`computed_at` стои на
 06.09**).
 
+**🔍 Проверка 2026-09-20 (жива) — механизмът е установен:** PayAPI търси
+(`match_mode: all_tokens`, `verified_only: true`, `searched: 170`) по **индексираното
+ОПИСАНИЕ НА ЛИСТИНГА**, не по нашия `openapi.json`. Индексираното описание е:
+`"Live Base DeFi signals, whale USDC tracking, cross-DEX arb spreads & rug checks.
+x402-native micro-payments, no signup needed."` → затова: **defi #1, signals #2, whale #2,
+rug #2** (всичките думи са в него), а **eth / kaito / ondo / degen = ABSENT** (нито една от
+четирите думи не е в него). Четирите ни съществуващи класации идват точно от четирите думи,
+които PayAPI държи. **Следствие:** добавянето на тикерите в `openapi.json` (15.09, `01e8ff1`)
+НЕ може да промени тази класация — промяната трябва да е в **Текст 1 (листинг описанието)** в
+PayAPI и/или през reindex от Chet. `whale` е **#2** (беше #1 при total=1) — влезе нов
+верифициран конкурент, чието *име* съдържа думата.
+
 **Първи поглед 5 мин след deploy: информационно празен (очаквано).** `openapi.json` жив с
 тикерите — **потвърдено** (жива проверка: „…one-line reasoning for ETH/ONDO/KAITO/DEGEN —
 refreshed under 5 minutes…").
