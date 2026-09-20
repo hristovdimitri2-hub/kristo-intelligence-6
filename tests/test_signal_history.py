@@ -311,6 +311,25 @@ def test_checkpoints_are_recorded_once_in_the_durable_store(client):
     assert again[0]["hit_rate_pct"] == 100.0, "the checkpoint was rewritten"
 
 
+def test_a_final_checkpoint_below_50_is_recorded_as_a_failure(client):
+    """The schedule's last clause: if the FINAL checkpoint (n=200) comes in under
+    50%, that is recorded as a failure in the same durable row the number lives in
+    — shown, not explained away."""
+    _test_client, main = client
+    rows = ([{"id": str(i), "asset": "ETH", "outcome": "hit", "confidence": 0.9,
+              "move_pct": 1.0} for i in range(98)] +
+            [{"id": "m%d" % i, "asset": "ETH", "outcome": "miss",
+              "confidence": 0.9, "move_pct": -1.0} for i in range(102)])
+    saved = main._track_record_checkpoints(rows)
+    assert [c["n"] for c in saved] == [30, 100, 200]
+    final = saved[-1]
+    assert final["hit_rate_pct"] == 49.0
+    assert final["verdict"] == "below_50_at_final_checkpoint"
+    assert "recorded here as a failure" in final["note"]
+    # The earlier checkpoints are plain records — no verdict, no spin.
+    assert "verdict" not in saved[0] and "verdict" not in saved[1]
+
+
 def test_non_directional_issues_are_counted_but_never_scored(client):
     """A `monitor` cannot hit or miss, so it must not pad the sample — but the
     fact that it was issued stays visible."""

@@ -2957,16 +2957,27 @@ def _track_record_checkpoints(rows: list) -> list:
     added = False
     for point in SIGNAL_CHECKPOINTS:
         if n >= point and point not in reached:
-            saved.append({
+            rate = round(100.0 * hits / n, 1) if n else None
+            entry = {
                 "n": point,
-                "hit_rate_pct": round(100.0 * hits / n, 1) if n else None,
+                "hit_rate_pct": rate,
                 "scored_at_checkpoint": n,
                 "hits_at_checkpoint": hits,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            # The frozen schedule's last clause: a final checkpoint below 50% is
+            # recorded AS a failure, in the same durable row the number lives in —
+            # shown, not explained away or quietly dropped.
+            if point == SIGNAL_CHECKPOINTS[-1] and rate is not None and rate < 50.0:
+                entry["verdict"] = "below_50_at_final_checkpoint"
+                entry["note"] = ("The final checkpoint is below 50%. It is recorded "
+                                 "here as a failure — the feed's own rule is that the "
+                                 "number is shown, not explained away.")
+                log.warning("Track record FINAL checkpoint below 50%%: %.1f%%", rate)
+            saved.append(entry)
             added = True
-            log.info("Track record checkpoint reached: n=%d hit_rate=%.1f%%",
-                     point, (100.0 * hits / n) if n else 0.0)
+            log.info("Track record checkpoint reached: n=%d hit_rate=%s",
+                     point, rate)
     if added:
         try:
             dashboard_db.history.set_durable_meta("signal_track_checkpoints",
