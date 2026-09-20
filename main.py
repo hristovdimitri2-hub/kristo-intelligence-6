@@ -206,6 +206,7 @@ from integrations.dashboard_store import (  # noqa: E402
     DashboardStore,
     redact_rpc,
 )
+from services.signal_track_record import CHECKPOINTS as SIGNAL_CHECKPOINTS  # noqa: E402
 DASHBOARD_DB_FILE = os.path.join(os.path.dirname(__file__), "data", "dashboard_state.db")
 dashboard_db = DashboardStore(DASHBOARD_DB_FILE)
 
@@ -873,6 +874,109 @@ def _publish_agent_signals(decisions) -> None:
         _latest_signals["generated_at"] = datetime.now(
             timezone.utc).isoformat()
         _latest_signals["signals"] = published
+    _record_track_record(published)
+
+
+def _record_track_record(published: list) -> None:
+    """Freeze ONE record per asset per UTC day for the public track record.
+
+    Rules 1/2/4 (services.signal_track_record): the volatility is computed HERE,
+    once, and stored immutably; the feed later resolves it and never recomputes
+    a threshold. One record per asset per UTC DAY (the first publish of the day,
+    deterministically) — a 5-minute snapshot cadence would make n meaningless and
+    picking the "best" publish of a day would be selection bias.
+
+    Only DIRECTIONAL publishes are scored: a `monitor`/`hold` has no direction,
+    so it can neither hit nor miss — it is counted separately and stays visible.
+    """
+    from services import signal_track_record as track
+
+    try:
+        issued_at = datetime.now(timezone.utc)
+        day = issued_at.strftime("%Y-%m-%d")
+        for signal in published or []:
+            asset = (signal.get("token") or "").lower()
+            if asset not in track.ASSET_IDS:
+                continue
+            record_id = "%s:%s" % (asset, day)
+            action = signal.get("action") or ""
+            confidence = signal.get("confidence")
+            price = signal.get("price_usd")
+            try:
+                price = float(price) if price is not None else None
+            except (TypeError, ValueError):
+                price = None
+            if track.direction_of(action) == 0:
+                dashboard_db.record_signal_issue(
+                    record_id, asset, action, confidence,
+                    issued_at.isoformat(), price, None,
+                    outcome="not_scored", frozen_on=track.FROZEN_ON)
+                continue
+            if price is None or price <= 0:
+                # No price at issue means the move cannot be measured later —
+                # unresolved rather than silently dropped.
+                dashboard_db.record_signal_issue(
+                    record_id, asset, action, confidence,
+                    issued_at.isoformat(), None, None,
+                    outcome="unresolved", frozen_on=track.FROZEN_ON)
+                continue
+            closes = track.fetch_hourly_closes(asset)
+            volatility = track.realized_volatility_24h(closes)
+            created = dashboard_db.record_signal_issue(
+                record_id, asset, action, confidence, issued_at.isoformat(),
+                price, volatility, outcome="pending", frozen_on=track.FROZEN_ON)
+            if created:
+                log.info("Track record: issued %s %s conf=%s price=%s vol=%s",
+                         asset, action, confidence, price,
+                         round(volatility, 4) if volatility else None)
+    except Exception as exc:
+        log.warning("Track record issue failed (non-fatal): %s", exc)
+
+
+def _resolve_track_record(limit: int = 20) -> int:
+    """Resolve signals whose 24h window has passed (frozen rules 2/3).
+
+    Price window ±2h around the 24th hour; source order: the signal's own source
+    (CoinGecko), then DEXScreener — and the fallback only while we are INSIDE the
+    window, because a DEXScreener "24h ago" is only the 24th hour right now.
+    """
+    from services import signal_track_record as track
+
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(hours=track.RESOLVE_AFTER_HOURS)).isoformat()
+    resolved = 0
+    for record in dashboard_db.signal_history_due(cutoff, limit=limit):
+        try:
+            issued = datetime.fromisoformat(str(record["issued_at"]))
+            if issued.tzinfo is None:
+                issued = issued.replace(tzinfo=timezone.utc)
+            target = issued + timedelta(hours=track.RESOLVE_AFTER_HOURS)
+            price, source = track.fetch_price_at(record["asset"],
+                                                 target.timestamp())
+            if price is None:
+                now = datetime.now(timezone.utc)
+                inside_window = abs((now - target).total_seconds()) <= \
+                    track.PRICE_WINDOW_HOURS * 3600
+                if inside_window:
+                    price, source = track.fetch_dexscreener_implied(
+                        record["asset"], record["price_at_issue"])
+                if price is None:
+                    dashboard_db.resolve_signal(
+                        record["id"], "unresolved", None, None,
+                        source or "", datetime.now(timezone.utc).isoformat())
+                    resolved += 1
+                    continue
+            outcome, move_pct = track.classify(record["price_at_issue"], price,
+                                               record["vol_threshold"],
+                                               record["action"])
+            dashboard_db.resolve_signal(record["id"], outcome, price, move_pct,
+                                        source,
+                                        datetime.now(timezone.utc).isoformat())
+            resolved += 1
+        except Exception as exc:
+            log.warning("Track record resolve failed for %s: %s",
+                        record.get("id"), exc)
+    return resolved
 
 
 def _background_agent_loop():
@@ -893,6 +997,12 @@ def _background_agent_loop():
 
             # Publish the latest decisions for GET /api/v1/signal.
             _publish_agent_signals(decisions)
+
+            # Public track record: freeze today's records and resolve the ones
+            # whose 24h window has closed (frozen rules — see the service).
+            resolved = _resolve_track_record()
+            if resolved:
+                log.info("Track record: resolved %d record(s).", resolved)
 
             _record_request("agent_cycle", decisions is not None)
             log.info("Agent cycle complete: %d decisions.", len(decisions))
@@ -1219,6 +1329,7 @@ _RATE_LIMIT_DEFAULTS = {
     "stripe_webhook": (240, 300),  # signature-verified, but bounded
     "telegram_webhook": (240, 300),  # secret-verified, but bounded
     "public_activity": (120, 300),  # public proof-of-traction feed, bounded
+    "public_signals_history": (60, 300),  # free track-record feed, bounded
 }
 
 _rate_limit_lock = threading.Lock()
@@ -2822,6 +2933,77 @@ def api_admin_seed_sales():
                 dashboard_db.get_meta("last_scanned_block", "0") or 0),
         },
     })
+
+
+def _track_record_checkpoints(rows: list) -> list:
+    """Record each review checkpoint ONCE, in the DURABLE store (rule 6).
+
+    The value at n=30/100/200 is frozen the first time we see it, so the
+    goalposts cannot be moved later. Durable on purpose: a deploy must not wipe
+    the fact that a checkpoint was already read.
+    """
+    import json as _json
+
+    scored = [r for r in rows if (r.get("outcome") or "") in
+              ("hit", "miss", "flat")]
+    n = len(scored)
+    hits = sum(1 for r in scored if r.get("outcome") == "hit")
+    try:
+        raw = dashboard_db.history.get_durable_meta("signal_track_checkpoints", "")
+        saved = _json.loads(raw) if raw else []
+    except Exception:
+        saved = []
+    reached = {int(c.get("n", 0)) for c in saved}
+    added = False
+    for point in SIGNAL_CHECKPOINTS:
+        if n >= point and point not in reached:
+            saved.append({
+                "n": point,
+                "hit_rate_pct": round(100.0 * hits / n, 1) if n else None,
+                "scored_at_checkpoint": n,
+                "hits_at_checkpoint": hits,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+            })
+            added = True
+            log.info("Track record checkpoint reached: n=%d hit_rate=%.1f%%",
+                     point, (100.0 * hits / n) if n else 0.0)
+    if added:
+        try:
+            dashboard_db.history.set_durable_meta("signal_track_checkpoints",
+                                                  _json.dumps(saved))
+        except Exception as exc:
+            log.warning("Could not persist checkpoints: %s", exc)
+    return sorted(saved, key=lambda c: c.get("n", 0))
+
+
+@app.route("/public/signals/history", methods=["GET"])
+def public_signals_history():
+    """The PUBLIC track record — free, rate-limited, and only the proven past.
+
+    FROZEN RULES (services/signal_track_record.py, 18.09): paid-issued signals at
+    least 24h old; volatility computed at issue and immutable; ±2h price window;
+    CoinGecko first then DEXScreener; `unresolved` instead of a guess; n always
+    shown, percentages only at n≥50 per cell; the review schedule is a technical
+    guard. The fresh signal itself stays PAID — this feed is history.
+    """
+    limited = _rate_limited_response("public_signals_history")
+    if limited:
+        return limited
+    _record_request("public_signals_history", True)
+    from services import signal_track_record as track
+
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(hours=track.RESOLVE_AFTER_HOURS)).isoformat()
+    try:
+        rows = dashboard_db.signal_history_rows(cutoff)
+        not_scored = dashboard_db.signal_history_not_scored()
+    except Exception as exc:
+        log.warning("Public signals history failed: %s", exc)
+        return _safe_jsonify({"ok": False, "error": "store_unavailable",
+                              "detail": str(exc)[:200]}), 503
+    payload = track.build_feed(rows, checkpoints=_track_record_checkpoints(rows),
+                               not_scored=not_scored)
+    return _safe_jsonify(payload)
 
 
 @app.route("/api/dashboard-stats")

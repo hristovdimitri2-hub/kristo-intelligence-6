@@ -428,9 +428,28 @@ class HistoryStore:
         )
         self._run("CREATE INDEX IF NOT EXISTS idx_vip_invites_wallet "
                   "ON vip_invites (wallet)")
+        self._run(
+            """CREATE TABLE IF NOT EXISTS signal_history (
+                   id                TEXT PRIMARY KEY,
+                   asset             TEXT,
+                   action            TEXT,
+                   confidence        REAL,
+                   issued_at         TEXT,
+                   price_at_issue    REAL,
+                   vol_threshold     REAL,
+                   price_at_24h      REAL,
+                   move_pct          REAL,
+                   outcome           TEXT,
+                   resolved_at       TEXT,
+                   resolution_source TEXT,
+                   frozen_on         TEXT
+               )"""
+        )
+        self._run("CREATE INDEX IF NOT EXISTS idx_signal_history_issued "
+                  "ON signal_history (issued_at)")
         log.info("Durable store ready (%s): request_log + whaleflow_events + "
                  "onchain_sales + payment_guards + guard_events + dashboard_meta "
-                 "+ vip_invites.",
+                 "+ vip_invites + signal_history.",
                  self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
@@ -821,6 +840,68 @@ class HistoryStore:
         return {"total": total["n"] if total else 0,
                 "used": used["n"] if used else 0,
                 "wallets": wallets["n"] if wallets else 0}
+
+    # ── public track record: signal_history (frozen rules, 18.09) ────────────
+    _SIGNAL_COLS = ("id, asset, action, confidence, issued_at, price_at_issue, "
+                    "vol_threshold, price_at_24h, move_pct, outcome, resolved_at, "
+                    "resolution_source, frozen_on")
+
+    def record_signal_issue(self, record_id: str, asset: str, action: str,
+                            confidence: Any, issued_at: str,
+                            price_at_issue: Optional[float],
+                            vol_threshold: Optional[float],
+                            outcome: str = "pending",
+                            frozen_on: str = "") -> bool:
+        """Write ONE immutable issue record (rules 2/4): the volatility is stored
+        as computed at issue time and is never recomputed — a record whose
+        threshold could move after the fact is not a track record."""
+        _rows, rowcount = self._run(
+            """INSERT INTO signal_history
+                   (id, asset, action, confidence, issued_at, price_at_issue,
+                    vol_threshold, price_at_24h, move_pct, outcome, resolved_at,
+                    resolution_source, frozen_on)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, ?)
+               ON CONFLICT (id) DO NOTHING""",
+            (record_id, (asset or "").lower(), action, confidence, issued_at,
+             price_at_issue, vol_threshold, outcome, frozen_on))
+        return rowcount > 0
+
+    def signal_history_due(self, older_than_iso: str, limit: int = 50) -> List[dict]:
+        """Records still unresolved whose 24h window has passed (rules 1/3)."""
+        rows = self._run(
+            "SELECT %s FROM signal_history WHERE outcome = 'pending' "
+            "AND issued_at <= ? ORDER BY issued_at LIMIT ?" % self._SIGNAL_COLS,
+            (older_than_iso, limit), "all")[0]
+        return [dict(r) for r in (rows or [])]
+
+    def resolve_signal(self, record_id: str, outcome: str,
+                       price_at_24h: Optional[float], move_pct: Optional[float],
+                       resolution_source: str, resolved_at: str) -> bool:
+        """Fill in the verdict — only for a `pending` row, so a resolution is
+        written once and never rewritten."""
+        _rows, rowcount = self._run(
+            """UPDATE signal_history
+                  SET outcome = ?, price_at_24h = ?, move_pct = ?,
+                      resolution_source = ?, resolved_at = ?
+                WHERE id = ? AND outcome = 'pending'""",
+            (outcome, price_at_24h, move_pct, resolution_source, resolved_at,
+             record_id))
+        return rowcount > 0
+
+    def signal_history_rows(self, older_than_iso: str,
+                            limit: int = 500) -> List[dict]:
+        """The PUBLIC feed's rows: issued at least 24h ago, newest first."""
+        rows = self._run(
+            "SELECT %s FROM signal_history WHERE issued_at <= ? "
+            "AND outcome != 'not_scored' ORDER BY issued_at DESC LIMIT ?"
+            % self._SIGNAL_COLS, (older_than_iso, limit), "all")[0]
+        return [dict(r) for r in (rows or [])]
+
+    def signal_history_not_scored(self) -> int:
+        """Issued signals with no direction: counted, never scored (rule 2)."""
+        row = self._run("SELECT COUNT(*) AS n FROM signal_history "
+                        "WHERE outcome = 'not_scored'", (), "one")[0]
+        return row["n"] if row else 0
 
     def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
         """The recorded sale for one tx hash, or None — used by the Telegram VIP
@@ -1410,6 +1491,39 @@ HYBRID since 14.09:
     def vip_invites_summary(self) -> Dict[str, Any]:
         """Invite counts — see HistoryStore.vip_invites_summary."""
         return self.history.vip_invites_summary()
+
+    # ── public track record (frozen rules, 18.09) ─────────────────────────────
+    def record_signal_issue(self, record_id: str, asset: str, action: str,
+                            confidence: Any, issued_at: str,
+                            price_at_issue: Optional[float],
+                            vol_threshold: Optional[float],
+                            outcome: str = "pending",
+                            frozen_on: str = "") -> bool:
+        """See HistoryStore.record_signal_issue (immutable at issue)."""
+        return self.history.record_signal_issue(
+            record_id, asset, action, confidence, issued_at, price_at_issue,
+            vol_threshold, outcome, frozen_on)
+
+    def signal_history_due(self, older_than_iso: str, limit: int = 50) -> List[dict]:
+        """See HistoryStore.signal_history_due."""
+        return self.history.signal_history_due(older_than_iso, limit)
+
+    def resolve_signal(self, record_id: str, outcome: str,
+                       price_at_24h: Optional[float], move_pct: Optional[float],
+                       resolution_source: str, resolved_at: str) -> bool:
+        """See HistoryStore.resolve_signal (write-once)."""
+        return self.history.resolve_signal(record_id, outcome, price_at_24h,
+                                           move_pct, resolution_source,
+                                           resolved_at)
+
+    def signal_history_rows(self, older_than_iso: str,
+                            limit: int = 500) -> List[dict]:
+        """See HistoryStore.signal_history_rows (≥24h old only)."""
+        return self.history.signal_history_rows(older_than_iso, limit)
+
+    def signal_history_not_scored(self) -> int:
+        """See HistoryStore.signal_history_not_scored."""
+        return self.history.signal_history_not_scored()
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales — see HistoryStore.sales_summary.

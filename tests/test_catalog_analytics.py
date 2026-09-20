@@ -65,7 +65,11 @@ def test_catalog_store_seeds_eight_agents_and_calculates_24h_metrics(tmp_path):
         now=reference,
     )
     assert entitlement["status"] == "active"
-    assert store.get_active_entitlement("whaleflow-radar", "buyer@example.com")
+    # The SAME instant it was granted at: without `now` this compares against the
+    # wall clock, so the test silently turned red the day the entitlement expired
+    # (a time bomb — found 18.09 while adding the public track record).
+    assert store.get_active_entitlement("whaleflow-radar", "buyer@example.com",
+                                        now=reference)
     assert (
         store.get_active_entitlement(
             "whaleflow-radar",
