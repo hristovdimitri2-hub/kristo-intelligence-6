@@ -67,11 +67,20 @@ DEXSCREENER_SEARCH = "https://api.dexscreener.com/latest/dex/search"
 #: collision, not the same asset — `unresolved` is the honest answer.
 _MAX_FALLBACK_RATIO = 10.0
 
-#: Directional vocabulary of the trading agent (services/trading_agent.py:
-#: buy / hold / monitor / avoid / wait / recommend_*). A signal with no direction
-#: cannot hit or miss, so it is NOT scored (counted separately, visibly).
-_BULLISH = {"buy", "long", "bullish", "recommend_buy", "strong_buy"}
-_BEARISH = {"sell", "short", "bearish", "avoid", "recommend_sell", "strong_sell"}
+#: Directional vocabulary — matched against the strings the agent ACTUALLY
+#: publishes. First version guessed ("buy"/"long") and the live run on 18.09
+#: showed the real values (`recommend_accumulate_on_dips`,
+#: `recommend_small_allocation_only`, `recommend_hold_or_add`, `monitor`), so
+#: every one of them was scored as non-directional: the feed would have stayed
+#: empty forever while looking perfectly healthy. Ambiguous actions stay
+#: UNSCORED on purpose — "hold or add" is not a direction.
+_BULLISH = {"buy", "long", "bullish", "strong_buy", "recommend_buy",
+            "accumulate", "recommend_accumulate", "recommend_accumulate_on_dips",
+            "small_allocation", "recommend_small_allocation_only"}
+_BEARISH = {"sell", "short", "bearish", "strong_sell", "recommend_sell",
+            "avoid", "recommend_avoid"}
+#: Neutral OR ambiguous: counted, never scored (rule 2).
+_NEUTRAL = {"hold", "monitor", "wait", "recommend_hold_or_add", ""}
 
 #: The four assets we sell (services/coingecko.py SUPPORTED_TOKENS).
 ASSET_IDS = {"eth": "ethereum", "ondo": "ondo-finance", "kaito": "kaito",
@@ -79,12 +88,16 @@ ASSET_IDS = {"eth": "ethereum", "ondo": "ondo-finance", "kaito": "kaito",
 
 
 def direction_of(action: str) -> int:
-    """+1 bullish, -1 bearish, 0 non-directional (never scored)."""
+    """+1 bullish, -1 bearish, 0 non-directional or ambiguous (never scored)."""
     key = (action or "").strip().lower().replace("-", "_")
+    if key in _NEUTRAL:
+        return 0
     if key in _BULLISH:
         return 1
     if key in _BEARISH:
         return -1
+    # An unknown action is NOT guessed into a direction: scoring a string we do
+    # not recognise is how a track record starts lying.
     return 0
 
 

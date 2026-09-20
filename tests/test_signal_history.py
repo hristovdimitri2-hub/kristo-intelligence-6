@@ -261,6 +261,28 @@ def test_hit_rate_is_withheld_before_the_first_checkpoint():
     assert feed["schedule"]["next_checkpoint"] == 100
 
 
+def test_the_real_agent_vocabulary_is_mapped_exactly():
+    """The first version guessed "buy"/"long" and the LIVE run showed the agent's
+    real strings — every one of them landed in `not_scored`, so the feed would
+    have stayed empty forever while looking perfectly healthy. These are the
+    exact values observed in production on 18.09."""
+    from services import signal_track_record as track
+
+    assert track.direction_of("recommend_accumulate_on_dips") == 1
+    assert track.direction_of("recommend_small_allocation_only") == 1
+    assert track.direction_of("recommend_buy") == 1
+    assert track.direction_of("sell") == -1
+    assert track.direction_of("avoid") == -1
+    # Ambiguous or neutral: counted, never scored.
+    assert track.direction_of("recommend_hold_or_add") == 0
+    assert track.direction_of("monitor") == 0
+    assert track.direction_of("hold") == 0
+    assert track.direction_of("wait") == 0
+    # Unknown strings are never guessed into a direction.
+    assert track.direction_of("launch_moon") == 0
+    assert track.direction_of("") == 0
+
+
 def test_the_frozen_rules_are_pinned():
     """The six rules, as constants. Changing one is a product decision that must
     not happen silently — the feed's credibility rests on them."""
