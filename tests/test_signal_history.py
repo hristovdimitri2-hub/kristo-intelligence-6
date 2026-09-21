@@ -283,6 +283,54 @@ def test_the_real_agent_vocabulary_is_mapped_exactly():
     assert track.direction_of("") == 0
 
 
+def test_the_volatility_fetch_is_skipped_for_a_day_already_recorded(client, monkeypatch):
+    """18.09 live finding: the volatility was fetched BEFORE the idempotency check,
+    so every 5-minute agent cycle spent 4 heavy CoinGecko history calls on rows
+    that already existed → HTTP 429 → vol_threshold None → records that could
+    never be scored. An existing asset+day must cost ZERO network calls."""
+    _test_client, main = client
+    from services import signal_track_record as track
+
+    assert main.dashboard_db.record_signal_issue(
+        "eth:" + datetime.now(timezone.utc).strftime("%Y-%m-%d"), "eth",
+        "recommend_accumulate_on_dips", 0.8, _iso(1), 2600.0, 0.05)
+    calls = []
+    monkeypatch.setattr(track, "fetch_hourly_closes",
+                        lambda asset, **kw: calls.append(asset) or [100.0] * 30)
+
+    main._record_track_record([{"token": "eth", "action":
+                                "recommend_accumulate_on_dips",
+                                "confidence": 0.8, "price_usd": 2600.0}])
+    assert calls == [], "an existing day still triggered a CoinGecko fetch"
+
+
+def test_no_volatility_means_the_record_is_deferred_not_frozen(client, monkeypatch):
+    """A record without a threshold can never be scored (hit/miss/flat are all
+    defined against it), so it must NOT be frozen: skip and retry next cycle."""
+    _test_client, main = client
+    from services import signal_track_record as track
+
+    monkeypatch.setattr(track, "fetch_hourly_closes", lambda asset, **kw: [])
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    main._record_track_record([{"token": "eth", "action":
+                                "recommend_accumulate_on_dips",
+                                "confidence": 0.8, "price_usd": 2600.0}])
+    assert not main.dashboard_db.signal_history_exists("eth:" + day), \
+        "an unscorable record was frozen anyway"
+
+    # And once the series IS available, the record lands with its threshold.
+    closes = [100 + i for i in range(30)]
+    monkeypatch.setattr(track, "fetch_hourly_closes", lambda asset, **kw: closes)
+    main._record_track_record([{"token": "eth", "action":
+                                "recommend_accumulate_on_dips",
+                                "confidence": 0.8, "price_usd": 2600.0}])
+    assert main.dashboard_db.signal_history_exists("eth:" + day)
+    # A future cutoff selects everything (the public feed's ≥24h filter is what
+    # keeps this fresh row out of /public/signals/history — by design).
+    due = main.dashboard_db.signal_history_due(_iso(-1))
+    assert due and due[0]["vol_threshold"] and due[0]["outcome"] == "pending"
+
+
 def test_the_frozen_rules_are_pinned():
     """The six rules, as constants. Changing one is a product decision that must
     not happen silently — the feed's credibility rests on them."""

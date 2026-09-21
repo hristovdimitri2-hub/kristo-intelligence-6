@@ -866,6 +866,14 @@ class HistoryStore:
              price_at_issue, vol_threshold, outcome, frozen_on))
         return rowcount > 0
 
+    def signal_history_exists(self, record_id: str) -> bool:
+        """Is this asset+day already recorded? Cheap, and it lets the caller skip
+        the expensive volatility fetch entirely — 4 CoinGecko calls a day instead
+        of 4 every 5-minute cycle, which is what caused the 429 storm on 18.09."""
+        row = self._run("SELECT 1 AS n FROM signal_history WHERE id = ?",
+                        (record_id,), "one")[0]
+        return bool(row)
+
     def signal_history_due(self, older_than_iso: str, limit: int = 50) -> List[dict]:
         """Records still unresolved whose 24h window has passed (rules 1/3)."""
         rows = self._run(
@@ -1503,6 +1511,10 @@ HYBRID since 14.09:
         return self.history.record_signal_issue(
             record_id, asset, action, confidence, issued_at, price_at_issue,
             vol_threshold, outcome, frozen_on)
+
+    def signal_history_exists(self, record_id: str) -> bool:
+        """See HistoryStore.signal_history_exists (skips the volatility fetch)."""
+        return self.history.signal_history_exists(record_id)
 
     def signal_history_due(self, older_than_iso: str, limit: int = 50) -> List[dict]:
         """See HistoryStore.signal_history_due."""

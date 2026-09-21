@@ -899,6 +899,12 @@ def _record_track_record(published: list) -> None:
             if asset not in track.ASSET_IDS:
                 continue
             record_id = "%s:%s" % (asset, day)
+            # Idempotent FIRST (18.09): the row is written once per asset+day, so
+            # an existing one must not trigger the expensive volatility fetch.
+            # Running it every 5-minute cycle was 4 heavy CoinGecko calls a minute
+            # → HTTP 429 → vol_threshold None → records that could never be scored.
+            if dashboard_db.signal_history_exists(record_id):
+                continue
             action = signal.get("action") or ""
             confidence = signal.get("confidence")
             price = signal.get("price_usd")
@@ -922,6 +928,16 @@ def _record_track_record(published: list) -> None:
                 continue
             closes = track.fetch_hourly_closes(asset)
             volatility = track.realized_volatility_24h(closes)
+            if not volatility:
+                # No threshold ⇒ the record could never be scored: hit, miss and
+                # flat are ALL defined against it. Freezing an unscorable row is
+                # worse than waiting — so skip this cycle and try the next one.
+                # The volatility is still computed AT ISSUE time (the frozen rule);
+                # we simply refuse to issue a record we already know we cannot score.
+                log.warning("Track record: %s has no volatility yet (CoinGecko "
+                            "series unavailable) — record deferred, not frozen.",
+                            asset)
+                continue
             created = dashboard_db.record_signal_issue(
                 record_id, asset, action, confidence, issued_at.isoformat(),
                 price, volatility, outcome="pending", frozen_on=track.FROZEN_ON)

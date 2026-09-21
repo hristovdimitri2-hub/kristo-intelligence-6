@@ -149,10 +149,25 @@ def _pct(n: int, hits: int) -> Optional[float]:
     return round(100.0 * hits / n, 1)
 def fetch_hourly_closes(asset: str, days: int = VOL_LOOKBACK_DAYS,
                         timeout: int = 45) -> List[float]:
-    """CoinGecko hourly closes for the volatility (rule 2, computed at issue)."""
+    """CoinGecko hourly closes for the volatility (rule 2, computed at issue).
+
+    18.09 fix: this used to call the public endpoint RAW. The app already spends
+    the same free CoinGecko budget on prices every cycle, so the history calls
+    collided with it and answered HTTP 429 — which meant `vol_threshold = None`
+    and a record that could never be scored (a silently dead feed). It now goes
+    through the app's shared CoinGecko machinery (cache + cooldown + backoff).
+    """
     coin_id = ASSET_IDS.get((asset or "").lower())
     if not coin_id:
         return []
+    try:
+        from services.market_data import fetch_coingecko_market_chart
+
+        closes = fetch_coingecko_market_chart(coin_id, days=days)
+        if closes:
+            return closes
+    except Exception as exc:
+        log.warning("shared CoinGecko history path failed for %s: %s", asset, exc)
     try:
         response = requests.get(
             "%s/coins/%s/market_chart" % (COINGECKO_BASE, coin_id),

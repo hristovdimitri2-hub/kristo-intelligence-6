@@ -230,6 +230,29 @@ def _coingecko_request(cache_key: str, path: str, *, params: Optional[dict] = No
         return None
 
 
+def fetch_coingecko_market_chart(coin_id: str, days: int = 14) -> List[float]:
+    """Hourly closes for one coin, through the SHARED CoinGecko budget.
+
+    Added 18.09 for the public track record's volatility. Calling the public
+    endpoint directly from another module collided with THIS module's own price
+    traffic and answered HTTP 429, so the volatility came back None and the
+    record could never be scored (a silently dead feed). Same cache, same
+    cooldown, same backoff. Returns [] when the series is unavailable — the
+    caller must read that as "cannot score yet", never as a zero threshold.
+    """
+    if not coin_id:
+        return []
+    data = _coingecko_request(
+        "market_chart:%s:%d" % (coin_id, days),
+        "/coins/%s/market_chart" % coin_id,
+        params={"vs_currency": "usd", "days": days},
+    )
+    if not isinstance(data, dict):
+        return []
+    return [float(p[1]) for p in (data.get("prices") or [])
+            if p and len(p) > 1]
+
+
 def get_coingecko_cache_status(cache_keys: Optional[List[str]] = None) -> dict:
     """Return safe freshness metadata for API and dashboard consumers."""
     keys = cache_keys or [key for key in _COINGECKO_STATUS]
