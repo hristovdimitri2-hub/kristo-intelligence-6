@@ -866,6 +866,18 @@ class HistoryStore:
              price_at_issue, vol_threshold, outcome, frozen_on))
         return rowcount > 0
 
+    def signal_history_total(self) -> int:
+        """EVERY row in the table, regardless of age or outcome (21.09).
+
+        The public feed's `issued` counter used to be `rows + not_scored`, which
+        counted fresh non-directional rows but not fresh directional ones — two
+        meanings in one number. It is now the plain table count: how many signals
+        were issued, full stop. The ≥24h filter decides what is SERVED, never what
+        was ISSUED.
+        """
+        row = self._run("SELECT COUNT(*) AS n FROM signal_history", (), "one")[0]
+        return row["n"] if row else 0
+
     def signal_history_exists(self, record_id: str) -> bool:
         """Is this asset+day already recorded? Cheap, and it lets the caller skip
         the expensive volatility fetch entirely — 4 CoinGecko calls a day instead
@@ -1511,6 +1523,10 @@ HYBRID since 14.09:
         return self.history.record_signal_issue(
             record_id, asset, action, confidence, issued_at, price_at_issue,
             vol_threshold, outcome, frozen_on)
+
+    def signal_history_total(self) -> int:
+        """See HistoryStore.signal_history_total (every row, any age/outcome)."""
+        return self.history.signal_history_total()
 
     def signal_history_exists(self, record_id: str) -> bool:
         """See HistoryStore.signal_history_exists (skips the volatility fetch)."""

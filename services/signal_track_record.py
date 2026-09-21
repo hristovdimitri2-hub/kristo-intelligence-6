@@ -275,11 +275,19 @@ def next_checkpoint(n: int) -> Optional[int]:
 
 def build_feed(rows: List[Dict[str, Any]], now: Optional[datetime] = None,
                checkpoints: Optional[List[Dict[str, Any]]] = None,
-               not_scored: int = 0) -> Dict[str, Any]:
+               not_scored: int = 0,
+               issued_total: Optional[int] = None) -> Dict[str, Any]:
     """The public payload: records + aggregates, obeying rules 1/5/6.
 
     `rows` are the durable records (already issued, already ≥24h old). Nothing
     here decides what a hit is — that was decided at issue time and is immutable.
+
+    `issued_total` is the WHOLE table count (any age, any outcome) and the live
+    route always supplies it, so `issued` means exactly one thing: how many
+    signals were issued. It used to be `rows + not_scored`, which counted fresh
+    non-directional rows but not fresh directional ones — two meanings in one
+    number. The fallback (`len(rows)`) exists only for direct callers that pass
+    a hand-made list.
     """
     now = now or datetime.now(timezone.utc)
     scored = [r for r in rows if (r.get("outcome") or "") in
@@ -343,7 +351,7 @@ def build_feed(rows: List[Dict[str, Any]], now: Optional[datetime] = None,
                      "onward — a technical guard, not a promise."),
         },
         "totals": {
-            "issued": len(rows) + not_scored,
+            "issued": (issued_total if issued_total is not None else len(rows)),
             "scored_n": n,
             "unresolved": len(unresolved),
             "not_scored_non_directional": not_scored,

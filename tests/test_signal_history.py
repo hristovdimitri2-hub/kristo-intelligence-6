@@ -331,6 +331,38 @@ def test_no_volatility_means_the_record_is_deferred_not_frozen(client, monkeypat
     assert due and due[0]["vol_threshold"] and due[0]["outcome"] == "pending"
 
 
+def test_issued_counts_every_row_regardless_of_age_or_status(client):
+    """21.09: `issued` was `rows + not_scored` — it counted fresh non-directional
+    rows but not fresh directional ones, so one number carried two meanings. It is
+    now the plain table count: the ≥24h filter decides what is SERVED, never what
+    was ISSUED."""
+    _test_client, main = client
+    # One fresh scored row (invisible to the feed by design) + one old non-scored.
+    assert main.dashboard_db.record_signal_issue(
+        "eth:" + datetime.now(timezone.utc).strftime("%Y-%m-%d"), "eth",
+        "recommend_accumulate_on_dips", 0.8, _iso(1), 2600.0, 0.05)
+    assert main.dashboard_db.record_signal_issue("ondo:old", "ondo", "monitor",
+                                                 0.7, _iso(30), 0.43, None,
+                                                 outcome="not_scored")
+    body = _test_client.get("/public/signals/history").get_json()
+    assert body["totals"]["issued"] == 2          # BOTH rows, no filtering
+    assert body["records"] == []                  # nothing is ≥24h + scored yet
+    assert body["totals"]["scored_n"] == 0
+    assert body["totals"]["not_scored_non_directional"] == 1
+
+    # And the aggregate no longer mixes meanings when the table grows: a RESOLVED
+    # directional row is scored and served, while `issued` still counts everything.
+    assert main.dashboard_db.record_signal_issue("kaito:old", "kaito", "buy", 0.9,
+                                                 _iso(30), 1.38, 0.05)
+    assert main.dashboard_db.resolve_signal("kaito:old", "hit", 1.50, 8.7,
+                                            "coingecko", _iso(1))
+    body = _test_client.get("/public/signals/history").get_json()
+    assert body["totals"]["issued"] == 3
+    assert body["totals"]["scored_n"] == 1
+    assert len(body["records"]) == 1
+    assert body["records"][0]["id"] == "kaito:old"
+
+
 def test_the_frozen_rules_are_pinned():
     """The six rules, as constants. Changing one is a product decision that must
     not happen silently — the feed's credibility rests on them."""

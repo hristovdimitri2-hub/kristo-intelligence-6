@@ -3024,12 +3024,13 @@ def public_signals_history():
     try:
         rows = dashboard_db.signal_history_rows(cutoff)
         not_scored = dashboard_db.signal_history_not_scored()
+        issued_total = dashboard_db.signal_history_total()
     except Exception as exc:
         log.warning("Public signals history failed: %s", exc)
         return _safe_jsonify({"ok": False, "error": "store_unavailable",
                               "detail": str(exc)[:200]}), 503
     payload = track.build_feed(rows, checkpoints=_track_record_checkpoints(rows),
-                               not_scored=not_scored)
+                               not_scored=not_scored, issued_total=issued_total)
     return _safe_jsonify(payload)
 
 
