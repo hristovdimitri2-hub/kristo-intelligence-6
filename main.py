@@ -4438,6 +4438,11 @@ def _canonical_dashboard_payload() -> dict:
                 "lock_durable": guards.get("lock_durable"),
                 "blocked_total": guards["blocked_total"],
                 "blocked_today": guards["blocked_today"],
+                # "Blocked" means REFUSED; the payments the clock re-read or the
+                # wait rescued are shown separately, so no number carries two
+                # meanings (21.09 — same cleanup as totals.issued).
+                "lag_accepted_total": guards.get("lag_accepted_total", 0),
+                "lag_accepted_today": guards.get("lag_accepted_today", 0),
                 "by_kind": guards["by_kind"],
                 "recent_blocks": guards["recent_blocks"],
                 "consumed_total": guard_claims["consumed_total"],

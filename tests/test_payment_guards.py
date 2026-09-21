@@ -548,3 +548,41 @@ def test_c2_lag_wait_is_configurable_and_defaults_to_one_base_block(
     assert main._c2_lag_wait_seconds() == 0.25
     monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "not-a-number")
     assert main._c2_lag_wait_seconds() == main.C2_LAG_WAIT_SECONDS_DEFAULT
+
+
+# ── one ledger, two numbers (21.09) ─────────────────────────────────────────
+
+def test_blocked_means_refused_and_the_rescued_ones_are_separate(client):
+    """`blocked_total` was COUNT(*) of every guard event, so a payment the lag fix
+    RESCUED (`waited_and_accepted`) was reported as blocked — two meanings in one
+    number, the same disease `totals.issued` had. Blocked = REFUSED; the rescued
+    payments are their own number, and an unknown kind lands in neither (visible
+    only in by_kind, which is exactly where it should be looked at)."""
+    _test_client, main, dash = client
+
+    dash.record_guard_event("c2_insufficient_confirmations",
+                            endpoint="/api/v1/signal", tx_hash="0x" + "aa" * 32,
+                            detail="depth shortfall: block 1 vs head 1; need 1")
+    dash.record_guard_event("waited_and_accepted", endpoint="/api/v1/whaleflow",
+                            tx_hash="0x" + "bb" * 32,
+                            detail="standard rail: after a 2.5s wait head moved")
+
+    stats = dash.guard_stats()
+    assert stats["blocked_total"] == 1, "the rescued payment was counted as blocked"
+    assert stats["lag_accepted_total"] == 1
+    assert stats["by_kind"] == {"c2_insufficient_confirmations": 1,
+                                "waited_and_accepted": 1}
+
+    # A brand-new kind is neither blocked nor accepted — but it IS visible.
+    dash.record_guard_event("something_new", endpoint="/api/v1/signal",
+                            tx_hash="0x" + "cc" * 32, detail="unknown kind")
+    stats = dash.guard_stats()
+    assert stats["blocked_total"] == 1 and stats["lag_accepted_total"] == 1
+    assert stats["by_kind"]["something_new"] == 1
+
+    # And the split reaches the dashboard payload the owner actually reads.
+    section = _test_client.get("/api/dashboard/data").get_json()["sections"]["guards"]
+    assert section["blocked_total"] == 1
+    assert section["lag_accepted_total"] == 1
+    assert section["blocked_today"] == 1        # all three events are "today"
+    assert section["lag_accepted_today"] == 1

@@ -1269,17 +1269,42 @@ class HistoryStore:
             by_kind = self._run(
                 """SELECT kind, COUNT(*) AS n FROM guard_events
                    GROUP BY kind ORDER BY n DESC""", (), "all")[0]
-            total_blocked = self._run(
-                "SELECT COUNT(*) AS n FROM guard_events", (), "one")[0]
-            blocked_today = self._run(
-                """SELECT COUNT(*) AS n FROM guard_events
-                   WHERE substr(ts, 1, 10) = ?""", (today,), "one")[0]
+            # "Blocked" must mean REFUSED (21.09). It used to be COUNT(*) of every
+            # guard event, which counted `waited_and_accepted` — an ACCEPTANCE that
+            # the lag fix rescued — as a block. Two meanings in one number, the same
+            # disease `totals.issued` had. The two families are counted separately:
+            #   * blocked  = a refusal (C2 depth, node lag that survived the wait,
+            #                C1 replay, H2 binding)
+            #   * accepted = the clock was re-read/waited and the payment let in
+            # Any NEW kind lands in neither, and stays visible in `by_kind`.
+            _refusal = ("kind LIKE 'c2_insufficient%' OR kind LIKE 'node_lagging%' "
+                        "OR kind = 'c1_replay' OR kind LIKE 'h2_%'")
+            _accepted = "kind LIKE '%_and_accepted'"
+            totals = dict(self._run(
+                "SELECT SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS blocked, "
+                "SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS accepted, "
+                "COUNT(*) AS total FROM guard_events" % (_refusal, _accepted),
+                (), "one")[0] or {})
+            today_row = dict(self._run(
+                "SELECT SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS blocked, "
+                "SUM(CASE WHEN %s THEN 1 ELSE 0 END) AS accepted, "
+                "COUNT(*) AS total FROM guard_events WHERE substr(ts, 1, 10) = ?"
+                % (_refusal, _accepted), (today,), "one")[0] or {})
+            # dict(row) is not cosmetic: SQLite hands back sqlite3.Row, Postgres a
+            # dict, and Row has NO .get() — reading these positionally (or via
+            # .get) silently took the whole section down to zeros. Same lesson as
+            # sale_by_tx earlier the same day.
+            total_blocked = {"n": totals.get("blocked") or 0}
+            blocked_today = {"n": today_row.get("blocked") or 0}
+            lag_accepted_total = totals.get("accepted") or 0
+            lag_accepted_today = today_row.get("accepted") or 0
             recent = self._run(
                 """SELECT ts, kind, endpoint, tx_hash, detail FROM guard_events
                    ORDER BY id DESC LIMIT ?""", (recent_limit,), "all")[0]
         except Exception as exc:  # pragma: no cover - display only
             log.debug("guard event stats unavailable: %s", exc)
             by_kind, total_blocked, blocked_today, recent = [], None, None, []
+            lag_accepted_total = lag_accepted_today = 0
         return {
             "lock_alive": alive,
             "lock_probe_error": probe_error or None,
@@ -1287,6 +1312,10 @@ class HistoryStore:
             "lock_durable": self.backend == "postgresql",
             "blocked_total": total_blocked["n"] if total_blocked else 0,
             "blocked_today": blocked_today["n"] if blocked_today else 0,
+            # The OTHER half of the same ledger: payments the clock re-read or the
+            # wait rescued — served, not blocked (21.09).
+            "lag_accepted_total": lag_accepted_total,
+            "lag_accepted_today": lag_accepted_today,
             "by_kind": {r["kind"]: r["n"] for r in by_kind},
             "recent_blocks": [dict(r) for r in recent],
         }

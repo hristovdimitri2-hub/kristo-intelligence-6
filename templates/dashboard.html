@@ -304,7 +304,11 @@ function renderGuards(g) {
     card(`<span class="lamp ${lamp}"></span>${!known ? 'НЯМА ДАННИ' : (g.lock_alive ? 'ЖИВ' : 'СПРЯЛ')}`,
          lockLabel, true) +
     card(num(g.consumed_total), 'Изразходвани плащания (еднократни)') +
-    card(num(g.blocked_total), `Блокирани опити (днес: ${num(g.blocked_today)})`) +
+    // Two halves of one ledger, never one number: "blocked" = REFUSED,
+    // "waited and accepted" = the clock was re-read and the payment was SERVED.
+    card(num(g.blocked_total), `Блокирани — отказани (днес: ${num(g.blocked_today)})`) +
+    card(num(g.lag_accepted_total),
+         `Изчакани и приети (днес: ${num(g.lag_accepted_today)})`) +
     card(num(cfg.c2_proof_confirmations), 'C2 потвърждения (proof рейл)') +
     card(num(cfg.c2_standard_confirmations), 'C2 потвърждения (стандартен рейл)') +
     card(!known ? '—' : (cfg.h2_endpoint_binding ? 'да' : 'НЕ'), 'H2 endpoint binding');
