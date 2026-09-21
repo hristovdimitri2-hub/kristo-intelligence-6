@@ -1020,6 +1020,15 @@ def _background_agent_loop():
             if resolved:
                 log.info("Track record: resolved %d record(s).", resolved)
 
+            # Finality watch (21.09): re-read the block every settlement was
+            # anchored to. A reorg that keeps the height passes the depth gate
+            # silently, so the hash is compared here and a mismatch becomes a
+            # visible `c2_reorg_detected` guard event.
+            try:
+                _detect_reorgs()
+            except Exception as exc:
+                log.info("reorg watch skipped: %s", exc)
+
             _record_request("agent_cycle", decisions is not None)
             log.info("Agent cycle complete: %d decisions.", len(decisions))
         except Exception as exc:
@@ -2183,6 +2192,69 @@ def _confirmations_ok_with_lag_refresh(*, receipt_block, read_head, required,
     return False
 
 
+def _read_block_hash(height: int) -> str:
+    """The hash of the block currently at `height` ('' when unreadable)."""
+    from web3 import Web3 as _W3
+    w3 = _W3(_W3.HTTPProvider(
+        os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
+        request_kwargs={"timeout": 20}))
+    raw = w3.eth.get_block(int(height)).get("hash") or b""
+    return (raw.hex() if hasattr(raw, "hex") else str(raw)).lower()
+
+
+def _detect_reorgs(limit: int = 25, read_block=None) -> int:
+    """C2+ — is the block a settlement was anchored to STILL the same block?
+
+    Why (21.09, from Miguel's audit): the depth gate counts BLOCKS, so a reorg
+    that replaces a block at the SAME height passes it silently — the height is
+    identical and only the hash changed. Every standard-rail settlement now
+    stores the confirming block's number AND hash, so this re-reads those
+    heights and compares them.
+
+    A mismatch is recorded as `c2_reorg_detected` in `guard_events`, i.e. it is
+    VISIBLE on the dashboard instead of being a log line nobody reads. The
+    confirmation THRESHOLD is untouched (still 1 on the standard rail): this is
+    an extra check on top, not a replacement for depth.
+
+    Best-effort and read-only: an unreadable block is skipped, never reported,
+    because a failed CHECK must never look like a detection. Returns how many
+    mismatches were found (0 on any problem).
+    """
+    try:
+        claims = dashboard_db.guard_claims_with_blocks(limit)
+    except Exception as exc:
+        log.info("reorg watch: could not read anchored claims: %s", exc)
+        return 0
+    if not claims:
+        return 0
+    reader = read_block or _read_block_hash
+    detected = 0
+    for claim in claims:
+        try:
+            height = int(claim.get("block_number") or 0)
+            stored = str(claim.get("block_hash") or "").lower()
+            if height <= 0 or not stored:
+                continue
+            current = (reader(height) or "").lower()
+            if not current or current == stored:
+                continue
+            detected += 1
+            log.error(
+                "C2 REORG DETECTED: settlement %s was anchored to block %s (%s) "
+                "but that height now holds %s", claim.get("tx_hash"), height,
+                stored, current)
+            dashboard_db.record_guard_event(
+                "c2_reorg_detected",
+                endpoint=claim.get("endpoint") or "",
+                tx_hash=claim.get("tx_hash") or "",
+                detail=f"block {height}: anchored {stored} -> now {current}",
+            )
+        except Exception as exc:
+            log.info("reorg watch: block %s unreadable: %s",
+                     claim.get("block_number"), exc)
+    return detected
+
+
 def _proof_endpoint_matches(proof_endpoint: str, request_path: str) -> bool:
     """H2 — endpoint binding.
 
@@ -2469,6 +2541,7 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # review flagged history entries reporting block_number 0 (field never
     # populated on the settle path).
     block_number = 0
+    block_hash = ""
     try:
         from web3 import Web3 as _W3
         _w3 = _W3(_W3.HTTPProvider(
@@ -2476,6 +2549,13 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
             request_kwargs={"timeout": 20}))
         receipt = _w3.eth.get_transaction_receipt(tx_hash)
         block_number = int(receipt.get("blockNumber", 0) or 0)
+        # Finality anchor (21.09): remember the CONFIRMING block's hash so a
+        # later re-read can prove this settlement was not reorganised away.
+        # Depth alone cannot see a reorg that keeps the height.
+        raw_hash = receipt.get("blockHash") or b""
+        block_hash = (
+            raw_hash.hex() if hasattr(raw_hash, "hex") else str(raw_hash)
+        ).lower()
         # C2 (standard rail): the facilitator only returns after the tx is
         # mined, so the default depth here is 1 — raise
         # MIN_STANDARD_PAYMENT_CONFIRMATIONS to demand more. The head is
@@ -2500,7 +2580,8 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # C1 — durable replay lock on the standard rail too: the same settlement
     # tx can never buy a second call, even across restarts.
     if not dashboard_db.claim_payment_tx(
-        tx_hash, endpoint=path, payer=payer or "", amount_usdc=price
+        tx_hash, endpoint=path, payer=payer or "", amount_usdc=price,
+        block_number=block_number, block_hash=block_hash,
     ):
         g.x402_reject_reason = (
             f"replay_detected: settlement {tx_hash} was already consumed"
@@ -2520,6 +2601,11 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
         sender=payer or "unknown", block_number=block_number,
     )
+    # Finality watch, OFF the request path: the payer must not wait on 25 block
+    # reads. Fire-and-forget — the same check also runs in the agent loop, and a
+    # detection only ever adds a visible guard event, never a refusal here.
+    threading.Thread(target=_detect_reorgs, daemon=True,
+                     name="reorg-watch").start()
     connectors.touch("x402-eip3009")
     connectors.touch("base-usdc-receiver")
     # Spec-compliant v2 settlement receipt (emitted by _emit_payment_response).

@@ -380,13 +380,22 @@ class HistoryStore:
         # local SQLite file was wiped by every deploy).
         self._run(
             f"""CREATE TABLE IF NOT EXISTS payment_guards (
-                    tx_hash     TEXT PRIMARY KEY,
-                    endpoint    TEXT,
-                    payer       TEXT,
-                    amount_usdc {real},
-                    consumed_at TEXT
+                    tx_hash      TEXT PRIMARY KEY,
+                    endpoint     TEXT,
+                    payer        TEXT,
+                    amount_usdc  {real},
+                    consumed_at  TEXT,
+                    block_number BIGINT,
+                    block_hash   TEXT
                 )"""
         )
+        # ── Finality anchor (21.09, from Miguel's feedback) ──────────────────
+        # Depth alone cannot see a reorg that KEEPS the height and changes the
+        # hash. We store the confirming block's number and hash so the chain can
+        # be re-read later and compared. The confirmation THRESHOLD is untouched:
+        # this is an extra check on top, not a replacement for depth.
+        self._ensure_column("payment_guards", "block_number", "BIGINT")
+        self._ensure_column("payment_guards", "block_hash", "TEXT")
         # ── Guard rejections (C1 replay / C2 depth / H2 binding) — so the
         # dashboard section proves the guards are ALIVE from a table instead of
         # guessing it from log lines.
@@ -453,6 +462,30 @@ class HistoryStore:
                  self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
+    def _ensure_column(self, table: str, column: str, decl: str) -> None:
+        """Add a column if it is missing — idempotent, on BOTH backends.
+
+        SQLite has no `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so the existing
+        columns are inspected first; Postgres could do it in one statement but
+        sharing one path keeps the dialects honest.
+        """
+        try:
+            if self.backend == "sqlite":
+                rows = self._sqlite_connect().execute(
+                    "PRAGMA table_info(%s)" % table).fetchall()
+                existing = {row[1] for row in rows}
+            else:
+                rows = self._run(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = ?", (table,), "all")[0]
+                existing = {row["column_name"] for row in (rows or [])}
+            if column not in existing:
+                self._run("ALTER TABLE %s ADD COLUMN %s %s"
+                          % (table, column, decl))
+                log.info("Durable store: added %s.%s", table, column)
+        except Exception as exc:      # never break a boot over a migration
+            log.warning("Could not ensure %s.%s: %s", table, column, exc)
+
     def record_request(self, method: str, path: str, source: str,
                        status_code: int, user_agent: str = "",
                        referer: str = "", funnel: Optional[str] = None) -> None:
@@ -1114,8 +1147,22 @@ class HistoryStore:
             self._claimed_cache.clear()
         self._claimed_cache.add(tx)
 
+    def guard_claims_with_blocks(self, limit: int = 25) -> List[dict]:
+        """Consumed claims that carry a finality anchor (block number + hash).
+
+        Added 21.09 (Miguel's feedback): depth cannot see a reorg that keeps the
+        height and changes the hash, so the confirming block is remembered and
+        re-read later. Only rows with both fields are returned.
+        """
+        rows = self._run(
+            "SELECT tx_hash, endpoint, block_number, block_hash, consumed_at "
+            "FROM payment_guards WHERE block_number > 0 AND block_hash != '' "
+            "ORDER BY consumed_at DESC LIMIT ?", (int(limit),), "all")[0]
+        return [dict(r) for r in (rows or [])]
+
     def claim_payment_tx(self, tx_hash: str, endpoint: str = "",
-                         payer: str = "", amount_usdc: float = 0.0) -> bool:
+                         payer: str = "", amount_usdc: float = 0.0,
+                         block_number: int = 0, block_hash: str = "") -> bool:
         """Atomically CLAIM a settlement tx hash for exactly one paid call.
 
         Returns True only for the FIRST consumer of the hash. A replay — the same
@@ -1147,12 +1194,15 @@ class HistoryStore:
             (payer or "").lower(),
             round(float(amount_usdc or 0.0), 6),
             datetime.now(timezone.utc).isoformat(),
+            int(block_number or 0),
+            (block_hash or "").lower(),
         )
         try:
             _, rowcount = self._run(
                 """INSERT INTO payment_guards
-                       (tx_hash, endpoint, payer, amount_usdc, consumed_at)
-                   VALUES (?, ?, ?, ?, ?)
+                       (tx_hash, endpoint, payer, amount_usdc, consumed_at,
+                        block_number, block_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT (tx_hash) DO NOTHING""",
                 row,
             )
@@ -1478,6 +1528,8 @@ HYBRID since 14.09:
         endpoint: str = "",
         payer: str = "",
         amount_usdc: float = 0.0,
+        block_number: int = 0,
+        block_hash: str = "",
     ) -> bool:
         """Claim a settlement tx hash for exactly one paid call.
 
@@ -1485,10 +1537,19 @@ HYBRID since 14.09:
         lives in the durable store and is FAIL-CLOSED: if the lock cannot be
         reached, this returns False and the payment is REFUSED rather than served
         on an unverifiable replay proof.
+
+        `block_number`/`block_hash` (21.09) are the finality anchor: the
+        confirming block, remembered so a later re-read can prove it was not
+        reorganised away. Optional — an older caller simply stores no anchor.
         """
         return self.history.claim_payment_tx(
             tx_hash, endpoint=endpoint, payer=payer, amount_usdc=amount_usdc,
+            block_number=block_number, block_hash=block_hash,
         )
+
+    def guard_claims_with_blocks(self, limit: int = 25) -> List[dict]:
+        """Claims carrying a finality anchor — see HistoryStore."""
+        return self.history.guard_claims_with_blocks(limit)
 
     def payment_guard_stats(self) -> Dict[str, Any]:
         """Guard telemetry — see HistoryStore.payment_guard_stats."""
