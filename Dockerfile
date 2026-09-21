@@ -1,5 +1,8 @@
 # ── Dockerfile for Kristo Intelligence 6 ─────────────────────────────────────
-# Multi-stage build: Python 3.12 slim + Node.js 20 (for market_evaluator.js)
+# Single-stage Python image (python:3.12-slim) — there is NO Node.js layer.
+# The optional lib/agents/market_evaluator.js module is a manual Node script
+# (`node lib/agents/market_evaluator.js --once`): it is not started by main.py,
+# the Procfile or Render, so the runtime image does not need Node at all.
 # Optimized for production: non-root user, health check, minimal image size.
 
 FROM python:3.12-slim AS base

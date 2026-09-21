@@ -24,14 +24,48 @@
 **Живо:** котва на реален Base блок → 0 фалшиви детекции.
 
 
-## 🚧 GLAMA servers листинг — БЛОКИРАН (21.09): трябва собственик с акаунт
+## 🌐 GLAMA: листингът е ЖИВ, badge-ът още не (22.09) + REMOTE опцията е намерена
 
-Подаването **не може да се автоматизира**: публичният API на Glama връща **401 без ключ**
-(`GET/POST /api/mcp/v1/servers`), ключ няма нито в `secrets/`, нито в Render env-овете, а
-формата `/mcp/servers/add` е клиентско JS приложение (иска GitHub вход). **Нищо не е
-заобикаляно.** `…/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` → **404**.
-**Badge-ът за PR #13219 НЕ е готов** — точният ред е подготвен и се слага САМО след като
-листингът е жив (иначе README показва „not listed"). Работещият connectors badge остава.
+**Корекция на вчерашния запис (404-то беше грешно):** страницата
+`glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` връща **200** и машинният
+`…/json` казва: **`claimed: true`**, `maintenance: A`, `license: F`, `quality: null`,
+repo = `hristovdimitri2-hub/kristo-intelligence-6`. Публикувани са и нашите **remotes**
+(SSE `/mcp/sse` + Streamable HTTP `POST /mcp`) — Glama ги е разчела от репото, нищо не е
+попълвано на ръка.
+
+**Но `badges/score.svg` още пише „This MCP server is not listed on Glama"** → листингът не е
+„release"-нат (техният releases flow), затова **badge-ът НЕ се слага в README** (ще показва
+лъжа). Connectors badge-ът е жив и оценен: *„kristo-intelligence – MCP connector rated A"*.
+
+**Корекция №2:** `/mcp/servers/add` **НЕ е форма** — това е namespace страницата за „add"
+(затова заглавието ѝ е „MCP Servers by add"). Истинският submit endpoint е
+`POST /api/mcp/servers/submit` (401 без ключ, ключ няма — нищо не е заобикаляно).
+
+**REMOTE/HOSTED URL — има опция, и тя вече работи:** Glama листва remote сървъри като
+**MCP Connectors**, а ръчното добавяне е на **`/settings/mcp/connectors`** през модала
+**„Add Custom MCP Connector"** с точно две полета: **Name** („Used to identify this MCP
+connector in the UI.", макс. 50) и **„Remote MCP Server URL"** (валидира `type=url`).
+Нашият connector: `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence`
+(Transport: **Streamable HTTP · MCP 2025-11-25**). **Затова Dockerfile екранът е ненужен.**
+
+**Отворено (честно):** `license: F`, при все че в репото има `LICENSE`. Причината е, че
+MIT текстът е последван от добавено „COMMERCIAL USE NOTICE" след `---` → автоматичното
+разпознаване на лиценз се чупи. Ако искаме A и там, текстът трябва да е каноничният MIT
+(решение на собственика, не е пипано).
+
+
+## 😴 СПЯЩ МОСТ ЗА STDIO (22.09) — записан, НЕ е в CMD
+
+Glama Docker hosting-ът е **само stdio** (`docker run -it`, нула `EXPOSE`/`-p` в целия им
+генератор), а нашият `/mcp` е HTTP. Затова: `scripts/mcp_stdio_bridge.py` + 11 теста
+(`tests/test_mcp_stdio_bridge.py`) — **нищо не го стартира** (нито `Dockerfile`, нито
+`Procfile`, нито Render) и един от тестовете пази точно това. Активира се само ако Glama
+откаже remote URL или поискаме листинг, независим от Render; тогава CMD става
+`["python","scripts/mcp_stdio_bridge.py"]`. Мостът е чист транспорт: всеки отговор идва от
+истинския `/mcp` handler (in-process, без порт и без външен endpoint) — проверено в
+контейнер с `docker run -i`: initialize + **3 tools** + ping + x402 tools/call, stdout чист.
+
+**Dockerfile:** коментарът лъжеше за „Node.js 20 етаж" (такъв няма) → поправен.
 
 
 ## ⏱ TRACK RECORD ЧАСОВНИКЪТ (18.09)
