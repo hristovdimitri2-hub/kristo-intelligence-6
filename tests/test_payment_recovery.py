@@ -20,6 +20,7 @@ the audits are actually about — the recovery logic — runs for real.
 
 import base64
 import json
+import re
 import sys
 import types
 
@@ -35,8 +36,12 @@ TRANSFER_TOPIC = ("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df52
 AUTH_USED_TOPIC = ("0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5")
 
 
-def _standard_header(main, payer=PAYER, nonce=NONCE_A) -> str:
-    """A decodable PAYMENT-SIGNATURE payload (verify/settle are stubbed)."""
+def _standard_header(main, payer=PAYER, nonce=NONCE_A, standard=False) -> str:
+    """A decodable PAYMENT-SIGNATURE payload (verify/settle are stubbed).
+
+    standard=False → our legacy base64url (unpadded); standard=True → the
+    x402 v2 SDK's safeBase64Encode form (STANDARD base64, padding kept).
+    """
     payload = {
         "payload": {
             "authorization": {
@@ -50,8 +55,10 @@ def _standard_header(main, payer=PAYER, nonce=NONCE_A) -> str:
         },
         "signature": "0x" + "ab" * 65,
     }
-    return base64.urlsafe_b64encode(
-        json.dumps(payload).encode()).decode().rstrip("=")
+    data = json.dumps(payload).encode()
+    if standard:
+        return base64.b64encode(data).decode()
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
 def _proof_header(tx, payer=PAYER, amount=0.05) -> str:
@@ -236,7 +243,8 @@ def test_settle_c2_refusal_then_retry_delivers(env, monkeypatch):
     assert r2.status_code == 200, r2.get_json()
     assert len(settle_calls) == 1, "idempotent settle: adopted, never re-settled"
     assert dash.payment_guard_stats()["consumed_total"] == 1
-    assert TX_SELF in (r2.headers.get("PAYMENT-RESPONSE") or "")
+    receipt = json.loads(base64.b64decode(r2.headers["PAYMENT-RESPONSE"]))
+    assert receipt["transaction"] == TX_SELF
     assert r2.headers.get("X-Request-Id")
     row = dash.payment_guard_row(TX_SELF)
     assert row and row["delivered_at"], "a produced response stamps the claim"
@@ -291,7 +299,8 @@ def test_facilitator_settled_tx_is_found_and_settle_never_runs(env, monkeypatch)
     assert dash.payment_guard_stats()["consumed_total"] == 1
     row = dash.payment_guard_row(TX_CDP)
     assert row and row["delivered_at"]
-    assert TX_CDP in (r.headers.get("PAYMENT-RESPONSE") or "")
+    receipt = json.loads(base64.b64decode(r.headers["PAYMENT-RESPONSE"]))
+    assert receipt["transaction"] == TX_CDP
 
 
 # ── F3: a consumed payment survives a handler failure and RECOVERS ────────
@@ -414,3 +423,224 @@ def test_reverted_settlement_reason_states_both_outcomes(env, monkeypatch):
     assert "search window" in reason and "fund it and retry" in reason
     # …and this unproven case must NOT pretend to be the in-window 425.
     assert r.get_json()["error"] == "invalid_standard_payment"
+
+
+# ── Audit #5: THEIR decoder, VERBATIM, run against OUR emitted headers ──────
+#
+# Verbatim from coinbase/x402 @ main:
+#   typescript/packages/core/src/utils/index.ts:
+#     export const Base64EncodedRegex = /^[A-Za-z0-9+/]*={0,2}$/;
+#   typescript/packages/core/src/http/index.ts:
+#     export function decodePaymentRequiredHeader(paymentRequiredHeader) {
+#       if (!Base64EncodedRegex.test(paymentRequiredHeader)) {
+#         throw new Error("Invalid payment required header");
+#       }
+#       return JSON.parse(safeBase64Decode(paymentRequiredHeader));
+#     }
+#     export function decodePaymentResponseHeader(paymentResponseHeader) {
+#       if (!Base64EncodedRegex.test(paymentResponseHeader)) {
+#         throw new Error("Invalid payment response header");
+#       }
+#       return JSON.parse(safeBase64Decode(paymentResponseHeader));
+#     }
+# safeBase64Decode's browser branch is atob(): STANDARD alphabet only —
+# base64url's -/_ make it throw, exactly like validate=True does below.
+
+_THEIR_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
+
+
+def _their_safe_b64_decode(data: str) -> str:
+    """atob-equivalent: standard alphabet, forgiving padding."""
+    return base64.b64decode(
+        data + "=" * (-len(data) % 4), validate=True).decode()
+
+
+def _their_decode_payment_required(header: str) -> dict:
+    if not _THEIR_BASE64_RE.match(header):
+        raise ValueError("Invalid payment required header")
+    return json.loads(_their_safe_b64_decode(header))
+
+
+def _their_decode_payment_response(header: str) -> dict:
+    if not _THEIR_BASE64_RE.match(header):
+        raise ValueError("Invalid payment response header")
+    return json.loads(_their_safe_b64_decode(header))
+
+
+def test_payment_response_passes_their_verbatim_decoder(env, monkeypatch):
+    """Audit #5 FIX 1: the receipt must survive THEIR decodePaymentResponseHeader."""
+    main, client = env.main, env.client
+    monkeypatch.setattr(env.connectors, "verify_standard_payment",
+                        lambda h, r: (True, PAYER, "verified_locally"))
+    receipt = _receipt(TX_CDP, 300, PAYER, 5000, main.X402_RECEIVER_ADDRESS)
+    eth = _FakeEth(block_number=305, receipts={TX_CDP: receipt},
+                   auth_logs=[_auth_log(TX_CDP, 300, PAYER, NONCE_A)])
+    _install_fake_web3(monkeypatch, eth)
+
+    r = client.get("/api/stats",
+                   headers={"PAYMENT-SIGNATURE": _standard_header(main)})
+    assert r.status_code == 200, r.get_json()
+    header = r.headers["PAYMENT-RESPONSE"]
+    assert _THEIR_BASE64_RE.match(header), "their regex gate must pass"
+    settlement = _their_decode_payment_response(header)
+    assert settlement["success"] is True
+    assert settlement["transaction"] == TX_CDP
+    assert settlement["network"] == "eip155:8453"
+    # control: RAW JSON — the audit-#5 bug — is what their decoder rejected
+    with pytest.raises(ValueError, match="Invalid payment response header"):
+        _their_decode_payment_response(json.dumps(settlement))
+
+
+def test_payment_required_with_query_url_passes_their_decoder(env):
+    """Audit #5 FIX 2: a '?' in resource.url must not flip the alphabet.
+
+    base64 sextet 63 sits at raw-JSON offset ≡ 2 (mod 3): urlsafe encodes it
+    as '_' (their regex REJECTS), standard as '/' (their regex ACCEPTS). We
+    sweep the path length until the old form would have contained '_'.
+    """
+    main = env.main
+    old_breaker = None
+    for pad in range(3):
+        endpoint = "/api/stats" + "z" * pad + "?x=1"
+        with main.app.test_request_context(endpoint):
+            resp = main._x402_payment_required_response(endpoint, 0.005)
+        header = resp.headers["PAYMENT-REQUIRED"]
+        # the NEW form must pass their gate on every sweep position …
+        decoded = _their_decode_payment_required(header)
+        assert decoded["x402Version"] == 2
+        assert decoded["resource"]["url"].endswith(endpoint)
+        # … while the OLD base64url form fails on exactly one position
+        raw = json.dumps(decoded)          # byte-identical to the payload
+        old = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+        if "_" in old or "-" in old:
+            old_breaker = old
+            break
+    assert old_breaker, "could not force a urlsafe char with '?' in the URL"
+    with pytest.raises(ValueError, match="Invalid payment required header"):
+        _their_decode_payment_required(old_breaker)
+
+
+def test_verify_accepts_standard_and_urlsafe_signatures(env):
+    """Audit #5 double compatibility: the SDK's STANDARD base64 and our
+    legacy base64url both decode, precheck clean and recover the signer —
+    no existing client breaks when the standard form becomes common."""
+    import time as _time
+
+    from eth_account import Account
+    from eth_account.messages import encode_typed_data
+
+    main, connectors = env.main, env.connectors
+    acct = Account.create()
+    now = int(_time.time())
+    accepted = {
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "amount": "5000",
+        "asset": USDC,
+        "payTo": main.X402_RECEIVER_ADDRESS,
+        "maxTimeoutSeconds": 60,
+        "extra": {"name": "USD Coin", "version": "2"},
+    }
+    authorization = {
+        "from": acct.address,
+        "to": main.X402_RECEIVER_ADDRESS,
+        "value": "5000",
+        "validAfter": str(now - 600),
+        "validBefore": str(now + 60),
+        "nonce": NONCE_A,
+    }
+    eip712_types = {"TransferWithAuthorization": [
+        {"name": "from", "type": "address"},
+        {"name": "to", "type": "address"},
+        {"name": "value", "type": "uint256"},
+        {"name": "validAfter", "type": "uint256"},
+        {"name": "validBefore", "type": "uint256"},
+        {"name": "nonce", "type": "bytes32"},
+    ]}
+    sm = encode_typed_data(
+        domain_data={"name": "USD Coin", "version": "2", "chainId": 8453,
+                     "verifyingContract": USDC},
+        message_types=eip712_types, message_data=authorization)
+    payload = {
+        "x402Version": 2,
+        "accepted": accepted,
+        "payload": {"authorization": authorization,
+                    "signature": "0x" + acct.sign_message(sm).signature.hex()},
+        "extensions": {},
+    }
+    requirements = {"amount": "5000", "asset": USDC,
+                    "payTo": main.X402_RECEIVER_ADDRESS}
+    raw = json.dumps(payload).encode()
+    forms = {
+        "standard (SDK safeBase64Encode)": base64.b64encode(raw).decode(),
+        "urlsafe (our legacy)": base64.urlsafe_b64encode(raw).decode().rstrip("="),
+    }
+    for name, header in forms.items():
+        decoded = connectors.decode_payment_payload(header)
+        assert decoded == payload, name
+        assert connectors.precheck_payment_payload(decoded, requirements) == [], name
+        recovered, err = connectors._local_recover_signer(decoded)
+        assert recovered and recovered.lower() == acct.address.lower(), (name, err)
+
+
+def test_standard_b64_signature_drives_the_425_path(env, monkeypatch):
+    """Audit #5 × #4: the C2-refusal 425 fires identically for the SDK's
+    standard-base64 PAYMENT-SIGNATURE."""
+    main, client = env.main, env.client
+    settle_calls = []
+
+    def fake_settle(header, requirements):
+        settle_calls.append(header)
+        return TX_SELF, "settled_self_broadcast"
+
+    monkeypatch.setattr(env.connectors, "verify_standard_payment",
+                        lambda h, r: (True, PAYER, "verified_locally"))
+    monkeypatch.setattr(env.connectors, "settle_standard_payment", fake_settle)
+    receipt = _receipt(TX_SELF, 100, PAYER, 5000, main.X402_RECEIVER_ADDRESS)
+    eth = _FakeEth(block_number=99, receipts={TX_SELF: receipt}, auth_logs=[])
+    _install_fake_web3(monkeypatch, eth)
+
+    header = _standard_header(main, standard=True)
+    assert "-" not in header and "_" not in header, \
+        "SDK form must be STANDARD base64 (btoa alphabet)"
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": header})
+    assert r.status_code == 425, r.get_json()
+    assert r.get_json()["error"] == "settlement_in_flight"
+    assert r.get_json()["transaction"] == TX_SELF
+    assert len(settle_calls) == 1
+
+
+def test_standard_b64_signature_drives_json500_recovery(env, monkeypatch):
+    """Audit #5 × #4/F3: JSON 500 after a standard-base64 signed grant, C1
+    row survives, the SAME header recovers, receipt passes THEIR decoder."""
+    main, dash, client = env.main, env.dash, env.client
+    real_safe_jsonify = main._safe_jsonify
+
+    def boom(*a, **k):
+        raise RuntimeError("simulated handler failure (audit #5)")
+    monkeypatch.setattr(main, "_safe_jsonify", boom)
+    monkeypatch.setattr(env.connectors, "verify_standard_payment",
+                        lambda h, r: (True, PAYER, "verified_locally"))
+    monkeypatch.setattr(env.connectors, "settle_standard_payment",
+                        lambda h, r: (TX_SELF, "settled"))
+    receipt = _receipt(TX_SELF, 300, PAYER, 5000, main.X402_RECEIVER_ADDRESS)
+    eth = _FakeEth(block_number=305, receipts={TX_SELF: receipt}, auth_logs=[])
+    _install_fake_web3(monkeypatch, eth)
+    header = _standard_header(main, standard=True)
+
+    r1 = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": header})
+    assert r1.status_code == 500, r1.data[:300]
+    assert r1.is_json, f"HTML error page after a paid grant: {r1.data[:160]!r}"
+    assert r1.get_json()["error"] == "internal_error"
+    assert r1.headers.get("X-Request-Id")
+    row = dash.payment_guard_row(TX_SELF)
+    assert row and not row["delivered_at"], "a 500 must not stamp delivery"
+
+    monkeypatch.setattr(main, "_safe_jsonify", real_safe_jsonify)
+    r2 = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": header})
+    assert r2.status_code == 200, r2.get_json()
+    settlement = _their_decode_payment_response(r2.headers["PAYMENT-RESPONSE"])
+    assert settlement["success"] is True
+    assert settlement["transaction"] == TX_SELF
+    row = dash.payment_guard_row(TX_SELF)
+    assert row and row["delivered_at"], "recovery delivery stamps the claim"

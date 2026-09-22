@@ -1651,9 +1651,13 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         f'receiver="{X402_RECEIVER_ADDRESS}", amount="{amount}", '
         f'accepts="tx_hash"'
     )
-    # x402 v2 spec: the canonical PaymentRequired payload rides in the
-    # PAYMENT-REQUIRED response header (base64url JSON). Spec clients read
-    # this header (not the body) to build their PAYMENT-SIGNATURE retry.
+    # x402 v2 spec (specs/transports-v2/http.md): the canonical PaymentRequired
+    # payload rides in the PAYMENT-REQUIRED response header as STANDARD base64
+    # — their Base64EncodedRegex = /^[A-Za-z0-9+/]*={0,2}$/ and browser atob
+    # reject base64url's -/_ (audit #5: one '?' in resource.url used to flip
+    # that into a hard SDK break BEFORE payment). b64encode == their
+    # safeBase64Encode (btoa / Buffer.toString("base64"), padding kept).
+    # Spec clients read this header (the body is a v1-only fallback).
     payment_required_payload = json.dumps({
         "x402Version": 2,
         "error": "payment_required",
@@ -1661,9 +1665,9 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         "resource": resource,
         "extensions": extensions,
     })
-    resp.headers["PAYMENT-REQUIRED"] = base64.urlsafe_b64encode(
+    resp.headers["PAYMENT-REQUIRED"] = base64.b64encode(
         payment_required_payload.encode()
-    ).decode().rstrip("=")
+    ).decode()
     return resp
 
 
@@ -2955,7 +2959,12 @@ def _emit_payment_response(response):
     """
     settlement = getattr(g, "x402_settlement", None)
     if settlement:
-        response.headers["PAYMENT-RESPONSE"] = settlement
+        # Audit #5 FIX 1: specs/transports-v2/http.md mandates a Base64-
+        # encoded SettlementResponse — their decodePaymentResponseHeader
+        # (regex gate + atob) THROWS on raw JSON. b64encode is byte-identical
+        # to their safeBase64Encode output (btoa / Buffer, padding kept).
+        response.headers["PAYMENT-RESPONSE"] = base64.b64encode(
+            settlement.encode()).decode()
     rid = getattr(g, "request_id", None)
     if rid:
         response.headers["X-Request-Id"] = rid

@@ -157,9 +157,13 @@ def test_payment_signature_header_v2_unlocks_paid_call(client, monkeypatch):
     assert r.status_code == 200, \
         f"PAYMENT-SIGNATURE must unlock the call: {r.status_code}"
     assert len(recorded) == 1 and recorded[0]["tx_hash"] == tx
-    # Spec-compliant settlement receipt header.
+    # Spec-compliant settlement receipt: STANDARD base64 SettleResponse
+    # (audit #5 — their decoder rejects raw JSON and base64url).
     assert "PAYMENT-RESPONSE" in r.headers
-    settlement = json.loads(r.headers["PAYMENT-RESPONSE"])
+    raw_receipt = r.headers["PAYMENT-RESPONSE"]
+    assert "-" not in raw_receipt and "_" not in raw_receipt, \
+        "receipt must be STANDARD base64 (no base64url alphabet)"
+    settlement = json.loads(base64.b64decode(raw_receipt))
     assert settlement["success"] is True
     assert settlement["transaction"] == tx
 

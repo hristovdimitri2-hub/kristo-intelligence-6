@@ -109,20 +109,30 @@ def _facilitator_post(base_url: str, endpoint: str, body: dict,
 
 def decode_payment_payload(header_value):
     """
-    Decode the PAYMENT-SIGNATURE payload. Accepts a base64url JSON string
-    (the header as sent by clients) or an already-decoded dict. Returns a
-    dict or None (with the problem logged).
+    Decode the PAYMENT-SIGNATURE payload — DOUBLE COMPATIBILITY (audit #5).
+
+    Accepts BOTH alphabets so no existing client breaks on the encoding fix:
+      * STANDARD base64 with padding — what the x402 v2 SDK emits via its
+        safeBase64Encode (btoa / Buffer.toString("base64")),
+      * base64url, padding optional — our legacy form clients may still send.
+    Already-decoded dicts pass through. Returns a dict or None (logged).
     """
     if isinstance(header_value, dict):
         return header_value
     if not header_value or not isinstance(header_value, str):
         return None
-    try:
-        padded = header_value + "=" * (-len(header_value) % 4)
-        return json.loads(base64.urlsafe_b64decode(padded))
-    except Exception as e:
-        log.warning("PAYMENT-SIGNATURE payload undecodable: %s", e)
-        return None
+    data = header_value.strip()
+    padded = data + "=" * (-len(data) % 4)
+    # urlsafe first: Python translates -_ then decodes, and leaves +/ intact —
+    # one pass that correctly handles BOTH alphabets. b64decode is the belt.
+    for decoder in (base64.urlsafe_b64decode, base64.b64decode):
+        try:
+            return json.loads(decoder(padded))
+        except Exception:
+            continue
+    log.warning("PAYMENT-SIGNATURE payload undecodable in both alphabets: %.80s",
+                data)
+    return None
 
 
 def precheck_payment_payload(payload: dict, requirements: dict):

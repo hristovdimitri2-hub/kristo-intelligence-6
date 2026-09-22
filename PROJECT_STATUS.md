@@ -70,6 +70,44 @@ hash), TODO тест (retry >2.8h). Цикълът на одита е пълен
 тестове → граници → запис.** 【допълнение: +1 тест от проверка в → **7**
 възстановителни в този файл, **400** общо】
 
+## Одит №5 — фикс „разписката на SDK клиентите" (23.09)
+
+* **FIX 1 — `PAYMENT-RESPONSE` → стандартен base64 (с padding):** суровият
+  JSON хвърляше в техния `decodePaymentResponseHeader` (regex-гейт + atob).
+  Сега `main.py::_emit_payment_response` кодира с `base64.b64encode` —
+  byte-identical с техния `safeBase64Encode` (`btoa`/`Buffer`, padding
+  запазен). Полетата на SettleResponse (`success/transaction/network/payer`)
+  останаха непроменени.
+* **FIX 2 — `PAYMENT-REQUIRED` → стандартен base64 (с padding):** старата
+  форма беше base64url-БЕЗ-padding; техният
+  `Base64EncodedRegex = /^[A-Za-z0-9+/]*={0,2}$/` и браузърният atob не
+  приемат `-`/`_` — един `?` в `resource.url` (легитимен query string по
+  спецификацията) обръщаше хедъра в hard break ПРЕДИ плащане. Фиксът е в
+  `_x402_payment_required_response` — **единственият emitter**, през който
+  минават всички 6 маршрута.
+* **ДВОЙНА СЪВМЕСТИМОСТ:** `connectors.decode_payment_payload` декодира И
+  двете азбуки (urlsafe-първо — покрива и двете, standard — резерва), така
+  че **никой съществуващ клиент не се чупи**: старите urlsafe-клиентите и
+  SDK-тата със standard base64 минават през едно и също verify.
+* **Тестове (+5 → 405 общо)** в `tests/test_payment_recovery.py`, с ДОСЛОВНИ
+  извадки от техния код (`Base64EncodedRegex` + двата decode-ера, цитирани
+  с файлови пътища над тях):
+  * `test_payment_response_passes_their_verbatim_decoder` — нашата разписка
+    минава през техния декодер (+ контрола: суровият JSON хвърля),
+  * `test_payment_required_with_query_url_passes_their_decoder` — `?` в URL,
+    принудително на позиция ≡2 mod 3: старата форма съдържа `_` и техният
+    regex я отхвърля, новата минава при всички 3 позиции,
+  * `test_verify_accepts_standard_and_urlsafe_signatures` — двупосочна
+    съвместимост: decode + precheck + EIP-712 recover и в двете азбуки,
+  * `test_standard_b64_signature_drives_the_425_path` — Одит №4 пътят,
+  * `test_standard_b64_signature_drives_json500_recovery` — Одит №4 F3
+    пъят (JSON 500 → retry → доставка, разписката минава техния декодер).
+  Обновени четения: `test_connectors` receipt + двете recovery проверки.
+
+**Одит №5 ЗАТВОРЕН: разписката вече говори езика на SDK клиентите (base64);
+двупосочна съвместимост запазена. Отворени записани: каталожен 402 без хедър
+(Stripe-preview); CORS (при първия браузърен клиент).**
+
 
 ## 🔌 GLAMA API КЛЮЧ: живи проверки + седмичен пулс в монитора (22.09)
 
