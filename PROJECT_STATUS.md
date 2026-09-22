@@ -2,6 +2,48 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🔁 ОДИТ №4 (МиMo): F1/F3/f5 фикснати — nonce-идемпотентност + възстановяване (22.09)
+
+**Одит №4 (МиMo): F1/F3 критични → фикснати с nonce-идемпотентност (прецизирана от
+статистика: nonce, не сума; event, не state; channel-агностично). Урок: 393 теста
+доказваха отказите — нито един възстановяването.**
+
+**Какво се промени (само плащане + грешки, нито един цент не е пипан):**
+
+* **F1/F6 — идемпотентен settle по NONCE:** преди нов settle `connectors.
+  extract_authorization_nonce()` вади nonce-а от подписаната EIP-3009
+  оторизация → `_find_settlement_by_nonce()` търси **`AuthorizationUsed`
+  (payer, nonce)** в USDC логовете (не `authorizationState()` — той не различава
+  used от cancelled) → намерен tx = **приема се**, settle не се пуска втори път.
+  Търсенето филтрира само по `USDC + payer + nonce` → **не пита кой е
+  разпратил**: нашият self-broadcast, CDP и PayAI са еднакви. Проверка и за
+  точния Transfer (payer → payTo, точната сума) → **никога не се приема грешен
+  tx за фиксирана цена**.
+* **F1/F6 — C2 отказ СЛЕД settle вече НИКОГА не е 401:** парите са тръгнали →
+  отговаряме **425 `settlement_in_flight`** („no new payment is needed; retry in
+  a few seconds"), а не „retry the same PAYMENT-SIGNATURE" (мъртъвият съвет,
+  който уби продажбата — re-settle не може да мине, nonce-ът е изгорен).
+* **F3 — никога HTML след плащане:** `@app.errorhandler(500)` + `@app.errorhandler
+  (Exception)` → JSON 500 с **`request_id`** (и header `X-Request-Id` на всеки
+  отговор); whaleflow DB пътят е в рамка → **JSON 503**; proof head-read-ът е
+  в рамката (fail-closed към честен 401, не към 500).
+* **F3 — възстановяване, не нова дупка:** две нови колони (идемпотентна
+  миграция): `delivered_at` (става само при 2xx/3xx отговор) и
+  `retry_claimed_at` (single-flight слот). C1 отказ с `delivered_at IS NULL` →
+  `_admit_undelivered_payment()` пуска **ТОЧНО ЕДИН** retry (CAS); доставка =
+  статус → **нататък 401**. Едно плащане = една записана продажба и едно
+  броене (recovery не брои наново).
+* **F5 — hint-ът вече не лъже:** „~2s on Base" → **„~24s — 12 blocks"**
+  (proof rail-ът наистина иска `MIN_PAYMENT_CONFIRMATIONS=12`).
+
+**Тестове:** `tests/test_payment_recovery.py` (**6**) — settle → C2 отказ →
+retry → **данните идват** (и settle се вика 1 път); два сигнала с еднаква
+цена → **никога грешен tx**; facilitator-разпратен tx се намира без повторен
+settle; хендлър хвърля → **JSON 500**, C1 редът оцелява, retry със същия proof
+възстановява, 3-то опит след доставка = 401; whaleflow DB срив → JSON 503 +
+възстановяване; hint ~24s. **Общо: 399 passed** (393 + 6).
+
+
 ## 🔌 GLAMA API КЛЮЧ: живи проверки + седмичен пулс в монитора (22.09)
 
 **Ключът** е преместен от Desktop → `secrets/glama_api_key.txt` (**gitignored**, същият

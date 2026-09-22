@@ -396,6 +396,14 @@ class HistoryStore:
         # this is an extra check on top, not a replacement for depth.
         self._ensure_column("payment_guards", "block_number", "BIGINT")
         self._ensure_column("payment_guards", "block_hash", "TEXT")
+        # Delivery state (audit #4, 22.09): C1 locks the PAYMENT, not the
+        # product. `delivered_at` is stamped only when a 2xx/3xx response was
+        # actually produced, so a claim whose response errored stays
+        # recoverable, while a delivered one stays a permanent replay-refusal.
+        # `retry_claimed_at` is the single-flight slot that keeps ONE recovery
+        # attempt in at a time instead of a stampede of duplicates.
+        self._ensure_column("payment_guards", "delivered_at", "TEXT")
+        self._ensure_column("payment_guards", "retry_claimed_at", "TEXT")
         # ── Guard rejections (C1 replay / C2 depth / H2 binding) — so the
         # dashboard section proves the guards are ALIVE from a table instead of
         # guessing it from log lines.
@@ -1219,6 +1227,98 @@ class HistoryStore:
         self._remember_claim(tx)
         return False
 
+    # ── C1 delivery state: a paid call stays recoverable until DELIVERED ────
+    # Audit #4 / F3. C1 locks the PAYMENT (one tx, one call); the delivery
+    # stamp decides whether a refused attempt is a TRUE replay (the product
+    # went out → 401) or an owed retry (the response errored → admit one).
+    def payment_guard_row(self, tx_hash: str) -> Optional[dict]:
+        """The claim row for this tx, or None when it was never consumed."""
+        tx = _norm_tx(tx_hash)
+        if not tx:
+            return None
+        try:
+            rows = self._run(
+                "SELECT tx_hash, endpoint, payer, consumed_at, "
+                "delivered_at, retry_claimed_at "
+                "FROM payment_guards WHERE tx_hash = ?", (tx,), "all")[0]
+        except Exception as exc:
+            log.warning("payment_guard_row unavailable (%s): %s",
+                        self.backend, exc)
+            return None
+        if not rows:
+            return None
+        row = dict(rows[0])                       # Row → dict: sweep-safe
+        return {
+            "tx_hash": row["tx_hash"],
+            "endpoint": row["endpoint"],
+            "payer": row["payer"],
+            "consumed_at": row["consumed_at"],
+            "delivered_at": row["delivered_at"],
+            "retry_claimed_at": row["retry_claimed_at"],
+        }
+
+    def mark_payment_delivered(self, tx_hash: str) -> bool:
+        """Stamp `delivered_at` — ONLY when a 2xx/3xx response was produced.
+
+        First stamp wins (idempotent). A failed stamp is logged, never raised:
+        the product is read-only data, so a missed stamp can at worst cost one
+        duplicate delivery attempt — never money.
+        """
+        tx = _norm_tx(tx_hash)
+        if not tx:
+            return False
+        try:
+            _, rowcount = self._run(
+                "UPDATE payment_guards SET delivered_at = ? "
+                "WHERE tx_hash = ? AND delivered_at IS NULL",
+                (datetime.now(timezone.utc).isoformat(), tx))
+        except Exception as exc:
+            log.warning("mark_payment_delivered failed (%s): %s",
+                        self.backend, exc)
+            return False
+        return int(rowcount or 0) > 0
+
+    def claim_payment_retry_slot(self, tx_hash: str, token: str) -> bool:
+        """Atomically take THE recovery slot for an undelivered claim.
+
+        The whole guard is one UPDATE: `delivered_at IS NULL AND
+        retry_claimed_at IS NULL`. Two concurrent duplicates both observe a
+        NULL slot, but only one UPDATE can match → at most ONE recovery
+        attempt per payment in flight, and a delivered claim can never be
+        taken back (fail-closed replay protection stays intact).
+        """
+        tx = _norm_tx(tx_hash)
+        if not tx or not token:
+            return False
+        try:
+            _, rowcount = self._run(
+                "UPDATE payment_guards SET retry_claimed_at = ? "
+                "WHERE tx_hash = ? AND delivered_at IS NULL "
+                "AND retry_claimed_at IS NULL",
+                (token, tx))
+        except Exception as exc:
+            log.warning("claim_payment_retry_slot unavailable (%s): %s",
+                        self.backend, exc)
+            return False                          # fail-closed on recovery too
+        return int(rowcount or 0) > 0
+
+    def release_payment_retry_slot(self, tx_hash: str, token: str) -> bool:
+        """Free the slot when an attempt produced NO delivery (4xx/5xx)."""
+        tx = _norm_tx(tx_hash)
+        if not tx or not token:
+            return False
+        try:
+            _, rowcount = self._run(
+                "UPDATE payment_guards SET retry_claimed_at = NULL "
+                "WHERE tx_hash = ? AND retry_claimed_at = ? "
+                "AND delivered_at IS NULL",
+                (tx, token))
+        except Exception as exc:
+            log.warning("release_payment_retry_slot failed (%s): %s",
+                        self.backend, exc)
+            return False
+        return int(rowcount or 0) > 0
+
     def payment_guard_stats(self) -> Dict[str, Any]:
         """Guard telemetry for the dashboard / ops (no PII).
 
@@ -1546,6 +1646,22 @@ HYBRID since 14.09:
             tx_hash, endpoint=endpoint, payer=payer, amount_usdc=amount_usdc,
             block_number=block_number, block_hash=block_hash,
         )
+
+    def payment_guard_row(self, tx_hash: str) -> Optional[dict]:
+        """Claim row incl. delivery state — see HistoryStore.payment_guard_row."""
+        return self.history.payment_guard_row(tx_hash)
+
+    def mark_payment_delivered(self, tx_hash: str) -> bool:
+        """Delivery stamp — see HistoryStore.mark_payment_delivered."""
+        return self.history.mark_payment_delivered(tx_hash)
+
+    def claim_payment_retry_slot(self, tx_hash: str, token: str) -> bool:
+        """Single-flight recovery slot — see HistoryStore.claim_payment_retry_slot."""
+        return self.history.claim_payment_retry_slot(tx_hash, token)
+
+    def release_payment_retry_slot(self, tx_hash: str, token: str) -> bool:
+        """Free the slot on a non-delivery — see HistoryStore."""
+        return self.history.release_payment_retry_slot(tx_hash, token)
 
     def guard_claims_with_blocks(self, limit: int = 25) -> List[dict]:
         """Claims carrying a finality anchor — see HistoryStore."""

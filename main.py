@@ -32,6 +32,7 @@ import hmac
 import hashlib
 import base64
 import binascii
+import uuid
 from datetime import datetime, timedelta, timezone
 from collections import deque
 from typing import Dict, List, Optional
@@ -176,6 +177,51 @@ app.config.update(
 app.config["MAX_CONTENT_LENGTH"] = int(
     os.getenv("KRISTO_MAX_CONTENT_LENGTH_BYTES", str(512 * 1024))  # 512 KB
 )
+
+
+# ── JSON errors, never HTML (audit #4 / F3) ───────────────────────────────
+# A paying agent must never receive an HTML error page: after a payment is
+# consumed, the ONLY useful answer is JSON with a request_id it can quote and
+# the knowledge that retrying recovers the call it already paid for.
+def _json_internal_error(message: str, status: int = 500):
+    rid = getattr(g, "request_id", None) or uuid.uuid4().hex[:16]
+    g.request_id = rid
+    return jsonify({
+        "ok": False,
+        "error": "internal_error",
+        "message": message,
+        "request_id": rid,
+    }), status
+
+
+@app.errorhandler(500)
+def _http_500(_error):
+    """JSON 500 even when Flask builds the response itself (abort(500))."""
+    return _json_internal_error(
+        "Internal server error. Quote request_id when reporting this — if you "
+        "already paid, retry the same request/proof shortly: the payment is "
+        "recorded and is not lost.")
+
+
+@app.errorhandler(Exception)
+def _unhandled_exception(error):
+    """Every unhandled exception → JSON 500 + request_id (F3).
+
+    HTTPExceptions (401/402/404/413…) are routed to their own handlers by
+    Flask BEFORE this runs, so every existing JSON contract is untouched.
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(error, HTTPException):
+        return error
+    rid = getattr(g, "request_id", None) or uuid.uuid4().hex[:16]
+    g.request_id = rid
+    log.error("unhandled error [%s] %s %s", rid,
+              getattr(request, "method", "?"), getattr(request, "path", "?"),
+              exc_info=error)
+    return _json_internal_error(
+        "Internal server error. Quote request_id when reporting this — if you "
+        "already paid, retry the same request/proof shortly: the payment is "
+        "recorded and is not lost.")
 
 
 @app.errorhandler(413)
@@ -2043,6 +2089,188 @@ _TRANSFER_EVENT_TOPIC = (
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 )
 
+#: keccak256("AuthorizationUsed(address,bytes32)") — the NONCE-keyed event that
+#: proves a signed EIP-3009 authorization was already consumed. Deliberately
+#: this event and NOT `authorizationState()`, which cannot tell `used` from
+#: `cancelled` (the trap Miguel's audit called out). Every settler emits it —
+#: our self-broadcast, the CDP facilitator and PayAI alike — which is exactly
+#: what makes the recovery channel-agnostic (audit #4 / F1).
+_AUTHORIZATION_USED_TOPIC = (
+    "0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5"
+)
+
+#: How far back the nonce search looks. 5000 Base blocks ≈ 2.8h at 2s/block —
+#: a retry of a failed attempt arrives seconds later, so this is generous.
+NONCE_SEARCH_BLOCKS_DEFAULT = 5000
+
+
+def _nonce_search_blocks() -> int:
+    try:
+        return max(64, int(os.getenv(
+            "KRISTO_NONCE_SEARCH_BLOCKS",
+            str(NONCE_SEARCH_BLOCKS_DEFAULT))))
+    except ValueError:
+        return NONCE_SEARCH_BLOCKS_DEFAULT
+
+
+def _to_hex0x(value) -> str:
+    """Canonical `0x…` hex for hashes/topics coming from web3 or strings."""
+    if value is None:
+        return ""
+    if isinstance(value, (bytes, bytearray)):
+        return "0x" + bytes(value).hex()
+    text = str(value).strip().lower()
+    if not text:
+        return ""
+    return text if text.startswith("0x") else "0x" + text
+
+
+def _topic_address(addr: str) -> str:
+    """Left-pad an address to a 32-byte log topic (as the EVM encodes it)."""
+    return "0x" + "00" * 12 + (addr or "")[2:]
+
+
+def _topic_bytes32(value: str) -> str:
+    """Normalise a hex word to exactly 0x + 64 chars (left-padded)."""
+    raw = (value or "").lower()
+    if raw.startswith("0x"):
+        raw = raw[2:]
+    return "0x" + raw.rjust(64, "0")
+
+
+def _find_settlement_by_nonce(payer: str, nonce: str,
+                              price_usdc: float) -> Optional[dict]:
+    """F1/F6 — recover the transaction that already consumed this authorization.
+
+    Channel-agnostic BY CONSTRUCTION: the query filters on the USDC contract
+    plus the (payer, nonce) topics and never asks WHO broadcast it, so a
+    settlement minted by our wallet, by the Coinbase CDP facilitator or by
+    PayAI is equally recoverable.
+
+    An adopted tx is returned only when that same receipt also carries the
+    exact ERC-20 Transfer payer → payTo for `price_usdc`: the nonce is unique
+    to the authorization, and the amount proves it bought THIS call — we never
+    adopt a wrong transaction for a fixed price.
+
+    Returns {tx_hash, block_number, block_hash} or None. Best-effort: any RPC
+    failure returns None and the caller settles normally (the pre-fix path),
+    so a failed search can never reject a payment.
+    """
+    payer = (payer or "").strip().lower()
+    nonce = (nonce or "").strip().lower()
+    if not (payer.startswith("0x") and len(payer) == 42):
+        return None
+    if not nonce:
+        return None
+    try:
+        int(nonce, 16)
+    except ValueError:
+        return None
+    usdc = os.getenv("BASE_USDC_CONTRACT",
+                     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913").lower()
+    try:
+        w3 = _get_verify_web3()
+        latest = int(w3.eth.block_number)
+        if latest <= 0:
+            return None
+        from_block = max(1, latest - _nonce_search_blocks())
+        logs = w3.eth.get_logs({
+            "fromBlock": from_block,
+            "toBlock": latest,
+            "address": usdc,
+            "topics": [
+                _AUTHORIZATION_USED_TOPIC,
+                _topic_address(payer),
+                _topic_bytes32(nonce),
+            ],
+        })
+    except Exception as exc:
+        log.warning("nonce search failed (payer=%s… nonce=%s…): %s",
+                    payer[:10], nonce[:12], exc)
+        return None
+    if not logs:
+        return None
+    price_atomic = int(round(float(price_usdc or 0.0) * 1_000_000))
+    receiver = X402_RECEIVER_ADDRESS.lower()
+    for entry in (logs or []):
+        tx_hash = ""
+        try:
+            tx_hash = _to_hex0x(entry.get("transactionHash"))
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+            if not receipt or int(receipt.get("status", 1) or 0) != 1:
+                continue
+            matched = False
+            for log_entry in (receipt.get("logs") or []):
+                address = str(log_entry.get("address") or "").lower()
+                topics = log_entry.get("topics") or []
+                if address != usdc or len(topics) < 3:
+                    continue
+                if _to_hex0x(topics[0]) != _TRANSFER_EVENT_TOPIC:
+                    continue
+                from_addr = "0x" + _to_hex0x(topics[1])[-40:]
+                to_addr = "0x" + _to_hex0x(topics[2])[-40:]
+                if from_addr != payer or to_addr != receiver:
+                    continue
+                raw_value = log_entry.get("data")
+                if isinstance(raw_value, (bytes, bytearray)):
+                    value = int.from_bytes(bytes(raw_value), "big")
+                else:
+                    text = str(raw_value or "0x0")
+                    value = (int(text, 16) if text.startswith("0x")
+                             else int(text or "0"))
+                if value == price_atomic:
+                    matched = True
+                    break
+            if not matched:
+                log.warning("nonce %s… consumed in %s but no matching Transfer "
+                            "for %s USDC — NOT adopting",
+                            nonce[:12], tx_hash[:18], price_usdc)
+                continue
+            return {
+                "tx_hash": tx_hash,
+                "block_number": int(receipt.get("blockNumber") or 0),
+                "block_hash": _to_hex0x(receipt.get("blockHash")),
+            }
+        except Exception as exc:
+            log.warning("nonce search: receipt %s unreadable: %s",
+                        (tx_hash or "?")[:18], exc)
+    return None
+
+
+def _admit_undelivered_payment(tx_hash: str, endpoint: str) -> bool:
+    """C1 said 'already spent' — but did that spend ever DELIVER the product?
+
+    Audit #4 / F3: a payment whose response errored is still owed exactly one
+    delivery; a response that never left must not become a permanent 401. The
+    durable row is the referee:
+
+      * `delivered_at` set  → true replay, refuse (the product is gone);
+      * `delivered_at` NULL → the claim exists but nothing was produced, so
+        ONE recovery attempt is admitted through `claim_payment_retry_slot`
+        (single-flight: duplicates are told to try again shortly);
+      * the claim's endpoint must match — a recovery never changes route (H2).
+
+    Returns True when this request may proceed to deliver the already-paid call.
+    """
+    row = dashboard_db.payment_guard_row(tx_hash)
+    if not row:
+        return False                            # lock unreachable / never spent
+    if row.get("delivered_at"):
+        return False                            # delivered → replay stays refused
+    if (row.get("endpoint") or "").strip() != (endpoint or "").strip():
+        return False                            # H2: recovery keeps the route
+    token = uuid.uuid4().hex[:16]
+    if not dashboard_db.claim_payment_retry_slot(tx_hash, token):
+        return False                            # another recovery is in flight
+    g.x402_retry_token = token
+    log.warning("C1 RECOVERY: payment %s consumed but never delivered — "
+                "admitting ONE retry on %s", tx_hash[:18], endpoint)
+    dashboard_db.record_guard_event(
+        "c1_recovery_admitted", endpoint=endpoint, tx_hash=tx_hash,
+        detail="claim exists, delivered_at NULL — previous attempt produced no "
+               "response; this retry may deliver")
+    return True
+
 # ── Payment guards C1 / C2 / H2 (security hardening, 13.09) ────────────────
 # C1 — durable replay lock: `payment_guards` in SQLite, not a RAM set.
 # C2 — confirmation depth: a settlement must be buried N blocks deep before
@@ -2341,12 +2569,22 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
         # (a facilitator can settle in a block our own view has not caught up
         # with; that cost us a paying agent on 14.09 — see the helper).
         block_no = int(receipt.get("blockNumber") or 0)
-        if not _confirmations_ok_with_lag_refresh(
-            receipt_block=block_no,
-            read_head=lambda: int(w3.eth.block_number),
-            required=_required_confirmations(),
-            endpoint=_current_path(), tx_hash=tx_hash, rail="proof",
-        ):
+        # Audit #4 / F3: the head read is an RPC call like any other — a blip
+        # used to escape this frame and turn a paid retry into an HTML 500.
+        # Treated as "not deep enough" (fail-closed), so the payer gets the
+        # honest 401 with a retryable reason instead of an error page.
+        try:
+            deep_enough = _confirmations_ok_with_lag_refresh(
+                receipt_block=block_no,
+                read_head=lambda: int(w3.eth.block_number),
+                required=_required_confirmations(),
+                endpoint=_current_path(), tx_hash=tx_hash, rail="proof",
+            )
+        except Exception as exc:
+            log.warning("x402 proof depth check failed (treated as "
+                        "unconfirmed) tx=%s: %s", tx_hash, exc)
+            deep_enough = False
+        if not deep_enough:
             log.info("x402 proof not deep enough: tx=%s block=%s "
                      "(need %d confirmations)",
                      tx_hash, receipt.get("blockNumber"),
@@ -2409,8 +2647,16 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
         )
         return False
 
+    # F3 / audit #4: the RAM set says THIS PROCESS consumed the tx — it says
+    # nothing about whether the product was ever produced. Consult the durable
+    # row: an undelivered claim falls through to the single admission point
+    # below (the claim itself), a delivered one stays an instant replay.
     with _lock:
-        if tx in _verified_payments:
+        ram_spent = tx in _verified_payments
+    recovered = False
+    if ram_spent:
+        row = dashboard_db.payment_guard_row(tx)
+        if not row or row.get("delivered_at"):
             dashboard_db.record_guard_event(
                 "c1_replay", endpoint=endpoint, tx_hash=tx,
                 detail="already consumed in this process lifetime (RAM set)",
@@ -2463,18 +2709,28 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
     if not dashboard_db.claim_payment_tx(
         tx, endpoint=endpoint, payer=proof["payer"], amount_usdc=amount
     ):
-        log.warning("x402 payment proof REPLAY blocked: tx=%s path=%s", tx,
-                    endpoint)
-        _record_request("x402_replay_blocked", False)
-        dashboard_db.record_guard_event(
-            "c1_replay", endpoint=endpoint, tx_hash=tx,
-            detail="durable payment_guards claim refused (tx already spent)",
-        )
-        with _lock:
-            _verified_payments.add(tx)
-        return False
+        # C1 refused. Correct for a DOUBLE SPEND, wrong for a paid call whose
+        # response errored (audit #4 / F3): the durable row decides, and at
+        # most ONE recovery gets in (the rest are told to retry shortly).
+        if _admit_undelivered_payment(tx, endpoint=endpoint):
+            log.warning("x402 proof RECOVERY: %s consumed but never delivered "
+                        "— retry admitted on %s", tx[:18], endpoint)
+            recovered = True
+        else:
+            log.warning("x402 payment proof REPLAY blocked: tx=%s path=%s", tx,
+                        endpoint)
+            _record_request("x402_replay_blocked", False)
+            dashboard_db.record_guard_event(
+                "c1_replay", endpoint=endpoint, tx_hash=tx,
+                detail="durable payment_guards claim refused (tx already spent)",
+            )
+            with _lock:
+                _verified_payments.add(tx)
+            return False
 
-    if verified_onchain:
+    if verified_onchain and not recovered:
+        # On a RECOVERY the sale was already recorded by the attempt that
+        # failed to respond — one payment, one recorded sale.
         _record_real_sale(
             token="USDC", amount_usd=round(amount, 6), tx_hash=tx,
             sender=proof["payer"],
@@ -2483,8 +2739,14 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
 
     with _lock:
         _verified_payments.add(tx)
-        _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
-    log.info("x402 payment proof accepted: tx=%s payer=%s amount=$%.2f path=%s",
+        if not recovered:
+            # Same rule for the counter: a recovery must not buy a discount.
+            _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
+    # after_request stamps `delivered_at` when this response is actually
+    # produced (F3) — that stamp is what turns the NEXT attempt into a 401.
+    g.x402_delivered_tx = tx
+    log.info("x402 payment proof %s: tx=%s payer=%s amount=$%.2f path=%s",
+             "RECOVERED" if recovered else "accepted",
              tx, proof["payer"], amount, endpoint)
     return True
 
@@ -2531,11 +2793,32 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         log.info("standard x402 payment rejected: path=%s detail=%s", path, detail)
         return False
 
-    tx_hash, settle_detail = connectors.settle_standard_payment(payment_header, requirements)
+    # ── F1/F6: IDEMPOTENT SETTLE BY NONCE (never by payer+amount) ──────────
+    # If this exact authorization was already consumed — by our own
+    # self-broadcast on an earlier attempt, by the CDP facilitator or by PayAI
+    # — adopt THAT transaction instead of settling again. A re-settle cannot
+    # succeed (the authorization nonce is spent), which is why the old
+    # "retry the signature" advice was a dead end that cost the sale.
+    tx_hash, settle_detail = "", ""
+    nonce = connectors.extract_authorization_nonce(payment_header)
+    if nonce and payer:
+        adopted = _find_settlement_by_nonce(payer, nonce, price)
+        if adopted:
+            tx_hash = adopted["tx_hash"]
+            settle_detail = "adopted_existing_settlement"
+            log.warning("standard x402 ADOPTED already-settled authorization "
+                        "(nonce=%s, tx=%s) — idempotent settle, no second "
+                        "transfer", nonce[:14], tx_hash)
+            dashboard_db.record_guard_event(
+                "c1_nonce_adopted", endpoint=path, tx_hash=tx_hash,
+                detail=f"authorization nonce {nonce[:18]} already consumed; "
+                       f"channel-agnostic recovery, settle skipped")
     if not tx_hash:
-        g.x402_reject_reason = f"settlement_failed: {settle_detail}"
-        log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
-        return False
+        tx_hash, settle_detail = connectors.settle_standard_payment(payment_header, requirements)
+        if not tx_hash:
+            g.x402_reject_reason = f"settlement_failed: {settle_detail}"
+            log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
+            return False
 
     # Populate the real block number from the settlement receipt — PayAPI's
     # review flagged history entries reporting block_number 0 (field never
@@ -2568,39 +2851,64 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
             required=_required_standard_confirmations(),
             endpoint=path, tx_hash=tx_hash, rail="standard",
         ):
+            # F1/F6 (audit #4): the money is ALREADY on-chain. Telling this
+            # payer to "retry the signature" was the dead end that cost the
+            # sale — a re-settle cannot succeed, because the authorization
+            # nonce is spent. Answer 425 Too Early instead: nothing to pay,
+            # just wait for our node to catch up (the next attempt adopts the
+            # same tx by nonce and never settles again).
+            g.x402_in_flight = True
+            g.x402_in_flight_tx = tx_hash
             g.x402_reject_reason = (
-                f"insufficient_confirmations: settlement {tx_hash} is not "
-                f"buried deep enough yet — retry the same PAYMENT-SIGNATURE"
+                f"settlement_in_flight: {tx_hash} is on-chain but our node "
+                f"has not reached the confirming block yet — no new payment "
+                f"is needed"
             )
-            log.warning("standard x402 settlement not deep enough: tx=%s", tx_hash)
+            log.warning("standard x402 settlement IN FLIGHT (not a refusal): "
+                        "tx=%s block=%s — answering 425", tx_hash, block_number)
+            dashboard_db.record_guard_event(
+                "c2_settlement_in_flight", endpoint=path, tx_hash=tx_hash,
+                detail=(f"standard rail: block {block_number} not yet deep "
+                        f"enough on our node — 425, money already moved"))
             return False
     except Exception as exc:
         log.info("settlement receipt block fetch failed (non-fatal): %s", exc)
 
     # C1 — durable replay lock on the standard rail too: the same settlement
     # tx can never buy a second call, even across restarts.
+    recovered = False
     if not dashboard_db.claim_payment_tx(
         tx_hash, endpoint=path, payer=payer or "", amount_usdc=price,
         block_number=block_number, block_hash=block_hash,
     ):
-        g.x402_reject_reason = (
-            f"replay_detected: settlement {tx_hash} was already consumed"
-        )
-        log.warning("standard x402 REPLAY blocked: tx=%s path=%s", tx_hash, path)
-        _record_request("x402_replay_blocked", False)
-        dashboard_db.record_guard_event(
-            "c1_replay", endpoint=path, tx_hash=tx_hash,
-            detail="durable payment_guards claim refused (settlement already spent)",
-        )
-        return False
+        # C1 refused — a replay, OR a paid call whose response never went out
+        # (audit #4 / F3). The durable row decides; at most ONE recovery gets in.
+        if _admit_undelivered_payment(tx_hash, endpoint=path):
+            log.warning("standard x402 RECOVERY: tx=%s consumed but never "
+                        "delivered — retry admitted on %s", tx_hash, path)
+            recovered = True
+        else:
+            g.x402_reject_reason = (
+                f"replay_detected: settlement {tx_hash} was already consumed"
+            )
+            log.warning("standard x402 REPLAY blocked: tx=%s path=%s", tx_hash, path)
+            _record_request("x402_replay_blocked", False)
+            dashboard_db.record_guard_event(
+                "c1_replay", endpoint=path, tx_hash=tx_hash,
+                detail="durable payment_guards claim refused (settlement already spent)",
+            )
+            return False
 
     with _lock:
         _verified_payments.add(tx_hash)
-        _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
-    _record_real_sale(
-        token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
-        sender=payer or "unknown", block_number=block_number,
-    )
+        if not recovered:
+            _paid_calls_usage[ip] = _paid_calls_usage.get(ip, 0) + 1
+    if not recovered:
+        # One payment → one recorded sale; a RECOVERY must not double-count.
+        _record_real_sale(
+            token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
+            sender=payer or "unknown", block_number=block_number,
+        )
     # Finality watch, OFF the request path: the payer must not wait on 25 block
     # reads. Fire-and-forget — the same check also runs in the agent loop, and a
     # detection only ever adds a visible guard event, never a refusal here.
@@ -2615,17 +2923,50 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         "network": "eip155:8453",
         "payer": payer or "unknown",
     })
-    log.info("standard x402 payment settled: tx=%s payer=%s amount=$%.4f",
-             tx_hash, payer, price)
+    # after_request stamps `delivered_at` on a produced response (F3) — that
+    # is what turns a later attempt of this settlement into a REFUSED replay.
+    g.x402_delivered_tx = tx_hash
+    log.info("standard x402 payment settled%s: tx=%s payer=%s amount=$%.4f",
+             " (recovered)" if recovered else "", tx_hash, payer, price)
     return True
 
 
 @app.after_request
 def _emit_payment_response(response):
-    """Emit the x402 v2 PAYMENT-RESPONSE header after a standard-rail settle."""
+    """x402 settlement receipt + DELIVERY bookkeeping (audit #4 / F1+F3).
+
+    Runs for every response — including generated 4xx/5xx — which is exactly
+    what makes it the right place for `delivered_at`: a produced 2xx/3xx
+    response means the product left the building, so the payment is settled-
+    consumed and every later attempt becomes a REFUSED replay. Anything else
+    frees the single-flight recovery slot, so the same payer can try again —
+    the money is never lost with the response.
+    """
     settlement = getattr(g, "x402_settlement", None)
     if settlement:
         response.headers["PAYMENT-RESPONSE"] = settlement
+    rid = getattr(g, "request_id", None)
+    if rid:
+        response.headers["X-Request-Id"] = rid
+    tx = getattr(g, "x402_delivered_tx", None)
+    if tx:
+        if 200 <= response.status_code < 400:
+            try:
+                dashboard_db.mark_payment_delivered(tx)
+            except Exception as exc:
+                log.warning("payment %s delivered but stamp failed: %s",
+                            tx[:18], exc)
+        else:
+            token = getattr(g, "x402_retry_token", None)
+            if token:
+                try:
+                    if dashboard_db.release_payment_retry_slot(tx, token):
+                        log.warning("payment %s produced HTTP %s — recovery "
+                                    "slot freed for another attempt",
+                                    tx[:18], response.status_code)
+                except Exception as exc:
+                    log.warning("recovery slot release failed for %s: %s",
+                                tx[:18], exc)
     return response
 
 
@@ -2683,6 +3024,7 @@ def _x402_paywall():
     IMPORTANT: Requests originating from the /dashboard page are exempt
     from the paywall so the dashboard always loads correctly.
     """
+    g.request_id = uuid.uuid4().hex[:16]   # F3: every reply can be grepped
     path = request.path
 
     # Demo / unproven surfaces: parked with a 404 when KRISTO_DEMO_SURFACES is
@@ -2725,6 +3067,24 @@ def _x402_paywall():
                 price = _get_dynamic_price(ip, path)
                 if _try_consume_standard_payment(path, price, ip):
                     return None  # paid via the standard rail — allow through
+                if getattr(g, "x402_in_flight", False):
+                    # F1/F6: the settlement EXISTS but our node has not caught
+                    # up. Never 401 (that blames the payer) and never 402
+                    # ("pay again") — the money already moved on-chain.
+                    return jsonify({
+                        "ok": False,
+                        "error": "settlement_in_flight",
+                        "message": (
+                            "Your payment already settled on-chain. Our node "
+                            "has not reached the confirming block yet — no new "
+                            "payment is needed; retry this exact request in a "
+                            "few seconds."
+                        ),
+                        "transaction": getattr(g, "x402_in_flight_tx", ""),
+                        "retry_after_seconds": 4,
+                        "reason": getattr(g, "x402_reject_reason", ""),
+                        "request_id": getattr(g, "request_id", ""),
+                    }), 425
                 return jsonify({
                     "ok": False,
                     "error": "invalid_standard_payment",
@@ -2765,8 +3125,10 @@ def _x402_paywall():
                         "required_amount_usdc": _get_dynamic_price(ip, path),
                         "receiver_address": X402_RECEIVER_ADDRESS,
                         "hint": (
-                            "Wait for confirmation (~2s on Base) and retry, "
-                            "or make a fresh payment and retry with its proof."
+                            "Wait for confirmation (~24s — 12 blocks — on "
+                            "Base; this rail requires 12 confirmations) and "
+                            "retry with the SAME proof. The payment is not "
+                            "lost and a fresh payment is not needed."
                         ),
                     }), 401
 
@@ -4621,7 +4983,26 @@ def api_whaleflow():
         limit = max(1, min(200, int(os.getenv("WHALEFLOW_LIMIT", "50"))))
     except ValueError:
         limit = 50
-    data = dashboard_db.whaleflow_summary(window_hours=window_hours, limit=limit)
+    # Audit #4 / F3: this is the one paid route whose data path is a raw DB
+    # read — an exception here must become a JSON answer (never HTML) so the
+    # payer can retry the SAME proof; after_request frees the recovery slot on
+    # any non-2xx, so a database blip can never burn a payment.
+    try:
+        data = dashboard_db.whaleflow_summary(window_hours=window_hours,
+                                              limit=limit)
+    except Exception as exc:
+        rid = getattr(g, "request_id", "")
+        log.warning("whaleflow store unavailable [%s]: %s", rid, exc)
+        return jsonify({
+            "ok": False,
+            "error": "whaleflow_store_unavailable",
+            "message": (
+                "Whale feed storage is temporarily unavailable. Your payment "
+                "is recorded and NOT lost — retry this request with the same "
+                "X-Payment-Proof shortly."
+            ),
+            "request_id": rid,
+        }), 503
     return _safe_jsonify({
         "ok": True,
         "whales": data["whales"],

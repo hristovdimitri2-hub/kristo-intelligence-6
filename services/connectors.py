@@ -656,6 +656,38 @@ def verify_standard_payment(payment_header, requirements: dict):
     return True, recovered, "verified_locally"
 
 
+def extract_authorization_nonce(payment_header) -> str:
+    """The EIP-3009 authorization nonce — the idempotency key (F1/F6).
+
+    The statistician's correction after audit #4: key idempotency on the
+    NONCE, never on payer+amount. Our prices are fixed, so two different
+    signals at the same price would collide under a payer+amount key and we
+    could adopt the WRONG transaction; one signed authorization carries one
+    nonce, and every settler of it (our self-broadcast, the Coinbase CDP
+    facilitator, PayAI) burns that same nonce and emits `AuthorizationUsed`
+    for it — which is what makes recovery channel-agnostic.
+
+    Returns '' for transaction-shape payloads (no EIP-3009 authorization) and
+    for anything undecodable: the caller then settles normally, i.e. this is
+    strictly an optimisation that can never reject a payment.
+    """
+    try:
+        payload = decode_payment_payload(payment_header)
+        if not isinstance(payload, dict):
+            return ""
+        inner = payload.get("payload") or {}
+        auth = inner.get("authorization") or {}
+        nonce = str(auth.get("nonce") or "").strip().lower()
+        if not nonce:
+            return ""
+        if not nonce.startswith("0x"):
+            nonce = "0x" + nonce
+        int(nonce, 16)                 # must be a hex word, not a typo
+        return nonce
+    except Exception:
+        return ""
+
+
 def settle_standard_payment(payment_header, requirements: dict):
     """
     Settle a locally-verified standard x402 payment ON-CHAIN.
