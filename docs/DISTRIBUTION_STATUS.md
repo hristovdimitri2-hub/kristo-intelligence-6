@@ -1,6 +1,6 @@
 # DISTRIBUTION STATUS — пускане на Kristo Intelligence в x402 екосистемата
 
-*Актуализирано: 2026-08-30 · Сървър: https://kristo-intelligence-api.onrender.com (Render, live)*
+*Актуализирано: 2026-09-22 (листинг каналите: Glama + PR #13219) · Сървър: https://kristo-intelligence-api.onrender.com (Render, live)*
 
 ---
 
@@ -12,8 +12,9 @@
 | **PayAPI Market** | ✅ LIVE + 2 VERIFIED ROUTES | 4 independent paid canaries settled on-chain (2× $0.005 /api/stats + 2× $0.003 /api/v1/signal; last: tx 0x0cc98ef9…). Signal verification row now notes price_usd + reasoning in paid body. Listed price correct. **Chet отговори (03.09):** няма платено featured slot/newsletter — дистрибуция = live каталог + agent search + listing страницата + окупационни X постове от @ParkerChet при ново verified нещо („because the route is useful, not because a slot was bought"). Покани blurb on file → **ИЗПРАТЕН И ПРИЕТ (03.09, 19:29 UTC)**: „Blurb is on file. Listing stays. No extra fee and no promised post. If I mention the route on X it will use this copy." Нишката е затворена — без следващи имейли към Chet (само кратко thanks). Blurb текстът: OUTREACH_KIT.md §6. |
 | **nohumans.directory** | ✅ 3× VERIFIED | Листинги активни. |
 | **BlockRun (data source)** | 🟡 ПРЕГОВОРИ (03.09) | Основателят @1bcmax зададе 2 due-diligence въпроса (consistency/quality + стойност спрямо x402) — отговорени 22:06 с аргументите settlement-proofs + curated discovery reach. Очаква решение за листинг; follow-up на Ден 5 ако мълчи. |
-| **MCP Registry / PulseMCP / mcp.so / Smithery / Glama** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
-| **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #13219)** | ⏳ Отворени PR-и | Чакат review. Поправка (07.09): #12799 е ЗАТВОРЕН 29.08 (multiple servers) — заменен от **#13219** (чист, 1 файл/1 ред, ⏰ гледай преди ~01.10 по 32-дневното правило); #11557 (travel-api запис) ЗАТВОРЕН 07.09 (неактивност). Детайли: LISTING_CHANNELS_AUDIT.md |
+| **Glama** | ✅ LIVE + CLAIMED (connectors **rated A**, servers **rated A**) | Два живи листинга: (1) `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` — Hosted, health-checked, оценен **A**; (2) `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` — claimed (glama.json), **released**, значка **„MCP server rated A"**, 3 tools с цени + remotes (`/mcp`, `/mcp/sse`). 🎫 **Билет #130688574** (първоначален) + 🎫 **Билет #135407945** (22.09, Frank се включи сам след build грешките): сървърът е регистриран под „Runs from source" по грешка; правилният тип е **„Hosted endpoint"** (нашият `/mcp` на Render) → поискан type change/reset, **чакаме отговор**. Значката/tools/release не се губят — type change само спира счупения build път. |
+| **MCP Registry / PulseMCP / mcp.so / Smithery** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
+| **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #13219)** | ⏳ Отворени PR-и | **#13219 (21.09):** значката е добавена в искания от Frank формат (servers `OWNER/REPO`, веднага след линка) → бот етикетът `missing-glama` падна сам, остава `has-glama`; чака се merge от Frank. #1308 (awesome-x402) — без ревю. Детайли: LISTING_CHANNELS_AUDIT.md |
 
 ## 2. Платени endpoints (всички верифицирани live на 2026-08-30)
 
