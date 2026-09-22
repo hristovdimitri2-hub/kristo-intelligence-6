@@ -37,6 +37,22 @@ diff срещу `docs/monitor_state.json`, аларма само при пром
 `HuggingAGI/mcp-baostock-server`, преди `hypeprinter007-stack/anchor-x402-mcp`) →
 **`mergeable: True`, `clean`, 1 файл / 1 ред**, етикет `has-glama`.
 
+### 🗣️ Коментарът в PR #13219 — ПУБЛИКУВАН (22.09, 10:15:56 UTC)
+
+`gh` CLI беше **логнат** (`hristovdimitri2-hub`, token scopes `repo`/`workflow`) → публикуван
+без нов token:
+`gh pr comment 13219 --repo punkpeye/awesome-mcp-servers --body-file docs/PR_COMMENT.md`
+→ https://github.com/punkpeye/awesome-mcp-servers/pull/13219#issuecomment-5774762820
+Текстът е в репото: **`docs/PR_COMMENT.md`**.
+
+⚠️ **28 секунди по-късно (10:16:24 UTC) се появи ВТОРИ коментар** от същия акаунт
+(`#issuecomment-5774769159`) — собственикът го е поставил **ръчно, паралелно**, с по-старата
+редакция. Двата се дублират. Разликата е важна: вторият твърди *„It passes the introspection
+check"*, което API-ът **не** потвърждава (servers entry: `tools: []`; точно това е билет
+#135407945). Публикуваното през `gh` съдържа вместо това честната бележка за билета.
+**Решение на собственика:** да се изтрие единият (и кой) — командата е
+`gh api -X DELETE repos/punkpeye/awesome-mcp-servers/issues/comments/<id>`.
+
 
 ## 🎫 GLAMA support билет #135407945 (22.09) — Frank се включи сам; чакаме type change
 
