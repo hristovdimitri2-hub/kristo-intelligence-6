@@ -6,40 +6,76 @@
     "name": "Kristo Intelligence — DeFi Signals API",
     "payment_verified": true,
     "price_min": 0.005,
-    "description": "Live Base DeFi signals, whale USDC tracking, cross-DEX arb spreads & rug checks. x402-native micro-payments, no signup needed."
+    "description": "Live Base DeFi signals for ETH, ONDO, KAITO, DEGEN — action, confidence, one-line reasoning. Whale USDC tracking (≥ $5M transfers) on GET /api/v1/whaleflow. Cross-DEX arb spreads and rug checks. Pay-p"
   },
   "ranks": {
     "eth": {
-      "position": null,
-      "total": 11
+      "position": 2,
+      "total": 12
     },
     "defi": {
       "position": 1,
-      "total": 3
+      "total": 4
     },
     "signals": {
       "position": 2,
-      "total": 11
+      "total": 12
     },
     "whale": {
-      "position": 1,
-      "total": 1
+      "position": 2,
+      "total": 2
     },
     "rug": {
       "position": 2,
       "total": 2
     },
     "ondo": {
-      "position": null,
-      "total": 1
+      "position": 2,
+      "total": 3
     },
     "kaito": {
-      "position": null,
-      "total": 0
+      "position": 1,
+      "total": 1
     },
     "degen": {
-      "position": null,
-      "total": 0
+      "position": 1,
+      "total": 1
+    }
+  },
+  "glama": {
+    "servers": {
+      "quality_score": null,
+      "spdx_license": null,
+      "tools": 0,
+      "attributes": [
+        "hosting:remote-capable"
+      ],
+      "boosted": false
+    },
+    "connector": {
+      "quality_score": 4.7,
+      "healthy": true,
+      "tool_count": 3,
+      "last_tested_at": "2026-09-22T09:59:12.101550Z",
+      "transport": "streamable_http",
+      "attributes": [
+        "auth:none",
+        "capability:tools",
+        "category:customer-data-platforms",
+        "category:ecommerce-and-retail",
+        "category:finance",
+        "status:healthy"
+      ]
+    },
+    "positions": {
+      "defi": {
+        "position": 1,
+        "shown": 25
+      },
+      "signals": {
+        "position": null,
+        "shown": 25
+      }
     }
   }
 }
