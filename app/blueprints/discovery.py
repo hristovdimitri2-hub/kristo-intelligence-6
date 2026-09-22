@@ -18,6 +18,12 @@ imports them at request time to avoid circular imports at module load.
 """
 from __future__ import annotations
 
+import json
+import queue
+import secrets
+import threading
+import time
+
 from flask import Blueprint, Response, jsonify, request
 
 discovery_bp = Blueprint("discovery", __name__)
@@ -135,88 +141,31 @@ def _mcp_tools(base_url):
     ]
 
 
-@discovery_bp.route("/mcp/sse")
-def mcp_sse():
-    """MCP Server-Sent Events endpoint — Streamable HTTP transport.
+_MCP_FALLBACK_PROTOCOL = "2025-11-25"
 
-    Lets MCP-native clients (Claude Desktop, Cursor, Continue) discover and
-    call the paid Kristo endpoints as tools. GET returns an SSE stream with
-    tool definitions; tool CALLS happen through the regular paid endpoints
-    (the 402 paywall is the payment layer).
 
-    Protocol notes:
-    - We implement the minimal, spec-compliant handshake: endpoint event +
-      initialize/tools/list JSON-RPC support over the SSE stream.
-    - Tool schemas advertise the x402 price so the AGENT (or its operator)
-    can decide to pay before calling.
+def _mcp_dispatch(body):
+    """Shared JSON-RPC dispatcher for BOTH transports (POST /mcp and the SSE
+    message POST). Returns (kind, payload):
+
+        "invalid"      -> payload is the JSON-RPC -32600 error object
+        "notification" -> payload is None (there is nothing to answer)
+        "response"     -> payload is the result OR a JSON-RPC error envelope
+
+    Audit #6 BREAK 1: the two transports used to drift — SSE pushed canned
+    initialize/tools answers with protocolVersion 2024-11-05 while streamable
+    echoed the client. ONE dispatcher guarantees protocolVersion, tools and
+    the x402 payload stay identical.
     """
-    from main import (
-        X402_CHAIN_ID,
-        X402_FEE_USDC,
-        X402_RECEIVER_ADDRESS,
-        X402_USDC_CONTRACT,
-        VIP_MONTHLY_USDC,
-    )
-
-    base_url = request.host_url.rstrip("/")
-    server_info = {
-        "protocolVersion": "2024-11-05",
-        "capabilities": {"tools": {}},
-        "serverInfo": {
-            "name": "kristo-intelligence",
-            "version": "1.0.0",
-            "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
-        },
-    }
-    tools = _mcp_tools(base_url)
-    messages = [
-        {"jsonrpc": "2.0", "method": "notifications/initialized"},
-    ]
-
-    def generate():
-        # SSE stream: endpoint announcement + initialize + tools/list.
-        yield "event: endpoint\n"
-        yield f"data: {base_url}/mcp/sse\n\n"
-        import json as _json
-        yield "event: message\n"
-        yield "data: " + _json.dumps({"jsonrpc": "2.0", "id": 0,
-                                      "result": server_info}) + "\n\n"
-        yield "event: message\n"
-        yield "data: " + _json.dumps({"jsonrpc": "2.0", "id": 1,
-                                      "result": {"tools": tools}}) + "\n\n"
-
-    resp = Response(generate(), mimetype="text/event-stream")
-    resp.headers["Cache-Control"] = "no-cache"
-    resp.headers["X-Accel-Buffering"] = "no"
-    return resp
-
-
-@discovery_bp.route("/mcp", methods=["POST", "DELETE"])
-def mcp_streamable_http():
-    """MCP Streamable HTTP transport (JSON-RPC over POST) — ADDITIVE.
-
-    Catalog scanners (Smithery etc.) require POST-based Streamable HTTP.
-    The SSE endpoint (/mcp/sse) remains untouched and continues to work;
-    the payment layer and the payTo invariant are not affected — tools
-    advertise their x402 price, and paid calls still flow through the
-    regular 402 paywall. Stateless: no session id is issued.
-    """
-    if request.method == "DELETE":
-        # Session termination; we are stateless, so nothing to clean up.
-        return "", 204
-
-    body = request.get_json(silent=True)
     if not isinstance(body, dict) or "method" not in body:
-        return jsonify({"jsonrpc": "2.0", "id": None,
-                        "error": {"code": -32600,
-                                  "message": "Invalid Request"}}), 400
-
+        return "invalid", {"jsonrpc": "2.0", "id": None,
+                           "error": {"code": -32600,
+                                     "message": "Invalid Request"}}
     method = body.get("method", "")
     msg_id = body.get("id")
-
-    # Notifications carry no id and expect no response body (202 Accepted).
+    # Notifications carry no id and expect no response body.
     if method.startswith("notifications/"):
-        return "", 202
+        return "notification", None
 
     base_url = request.host_url.rstrip("/")
     tools = _mcp_tools(base_url)
@@ -224,7 +173,8 @@ def mcp_streamable_http():
     if method == "initialize":
         params = body.get("params") or {}
         result = {
-            "protocolVersion": params.get("protocolVersion", "2024-11-05"),
+            "protocolVersion": (params.get("protocolVersion")
+                                or _MCP_FALLBACK_PROTOCOL),
             "capabilities": {"tools": {}},
             "serverInfo": {
                 "name": "kristo-intelligence",
@@ -247,10 +197,10 @@ def mcp_streamable_http():
         name = params.get("name", "")
         tool = next((t for t in tools if t.get("name") == name), None)
         if tool is None:
-            return jsonify({"jsonrpc": "2.0", "id": msg_id,
-                            "error": {"code": -32602,
-                                      "message": f"Unknown tool: {name}"}}), 200
-            # noqa: tool errors stay inside a 200 JSON-RPC envelope
+            # tool errors stay inside a JSON-RPC error envelope
+            return "response", {"jsonrpc": "2.0", "id": msg_id,
+                                "error": {"code": -32602,
+                                          "message": f"Unknown tool: {name}"}}
         x = tool.get("x402", {})
         result = {
             "content": [{
@@ -266,11 +216,111 @@ def mcp_streamable_http():
             "structuredContent": {"x402": x},
         }
     else:
-        return jsonify({"jsonrpc": "2.0", "id": msg_id,
-                        "error": {"code": -32601,
-                                  "message": f"Method not found: {method}"}}), 200
+        return "response", {"jsonrpc": "2.0", "id": msg_id,
+                            "error": {"code": -32601,
+                                      "message": f"Method not found: {method}"}}
+    return "response", {"jsonrpc": "2.0", "id": msg_id, "result": result}
 
-    return jsonify({"jsonrpc": "2.0", "id": msg_id, "result": result})
+
+_SSE_SESSIONS: "dict[str, queue.Queue]" = {}
+_SSE_SESSIONS_LOCK = threading.Lock()
+_SSE_IDLE_CLOSE_SECONDS = 15   # stray/probe GETs never pin a worker thread
+
+
+@discovery_bp.route("/mcp/sse")
+def mcp_sse():
+    """MCP HTTP+SSE transport (the legacy transport the official python
+    ``sse_client`` still speaks).
+
+    Audit #6 BREAK 1 — what was wrong and what this now does:
+      * the endpoint event advertised THIS GET-only route, so the client's
+        POSTs got 405 -> now it advertises ``POST /mcp/message?sessionId=..``;
+      * answers were canned initialize/tools pushes that never matched a
+        client request -> every client message now goes through the SAME
+        ``_mcp_dispatch`` the streamable route uses and its response is
+        queued back onto this stream as ``event: message``;
+      * protocolVersion drifted (canned 2024-11-05 vs streamable's echo)
+        -> both transports share one dispatcher: identical by construction.
+    """
+    session_id = secrets.token_urlsafe(18)
+    inbox: queue.Queue = queue.Queue()
+    with _SSE_SESSIONS_LOCK:
+        _SSE_SESSIONS[session_id] = inbox
+    base_url = request.host_url.rstrip("/")
+    post_url = f"{base_url}/mcp/message?sessionId={session_id}"
+
+    def generate():
+        last_activity = time.monotonic()
+        try:
+            yield "event: endpoint\n"
+            yield f"data: {post_url}\n\n"
+            while True:
+                try:
+                    payload = inbox.get(timeout=5)
+                except queue.Empty:
+                    # keep-alive comment; close after a full idle window so
+                    # buffered/probe readers never hang a worker.
+                    if time.monotonic() - last_activity >= _SSE_IDLE_CLOSE_SECONDS:
+                        return
+                    yield ": keepalive\n\n"
+                    continue
+                last_activity = time.monotonic()
+                yield "event: message\n"
+                yield "data: " + json.dumps(payload) + "\n\n"
+        finally:
+            with _SSE_SESSIONS_LOCK:
+                _SSE_SESSIONS.pop(session_id, None)
+
+    resp = Response(generate(), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["X-Accel-Buffering"] = "no"
+    return resp
+
+
+@discovery_bp.route("/mcp/message", methods=["POST"])
+def mcp_sse_message():
+    """POST half of the HTTP+SSE transport: receives ONE JSON-RPC message
+    and answers it on the session's SSE stream.
+
+    Returns 202 for everything — the official client calls raise_for_status()
+    on the POST and reads answers from the stream; a JSON-RPC error still
+    reaches it as ``event: message``.
+    """
+    session_id = (request.args.get("sessionId") or "").strip()
+    with _SSE_SESSIONS_LOCK:
+        inbox = _SSE_SESSIONS.get(session_id)
+    if inbox is None:
+        return jsonify({"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32001,
+                                  "message": "unknown sessionId"}}), 404
+    _kind, payload = _mcp_dispatch(request.get_json(silent=True))
+    if payload is not None:
+        inbox.put(payload)
+    return "", 202
+
+
+@discovery_bp.route("/mcp", methods=["POST", "DELETE"])
+def mcp_streamable_http():
+    """MCP Streamable HTTP transport (JSON-RPC over POST) — ADDITIVE.
+
+    Catalog scanners (Smithery etc.) require POST-based Streamable HTTP.
+    The SSE endpoint (/mcp/sse) remains untouched and continues to work;
+    the payment layer and the payTo invariant are not affected — tools
+    advertise their x402 price, and paid calls still flow through the
+    regular 402 paywall. Stateless: no session id is issued.
+    """
+    if request.method == "DELETE":
+        # Session termination; we are stateless, so nothing to clean up.
+        return "", 204
+
+    # ONE dispatcher for both transports (see _mcp_dispatch): identical
+    # protocolVersion / tools / x402 answers by construction.
+    kind, payload = _mcp_dispatch(request.get_json(silent=True))
+    if kind == "invalid":
+        return jsonify(payload), 400
+    if kind == "notification":
+        return "", 202
+    return jsonify(payload), 200
 
 
 @discovery_bp.route("/mcp")
@@ -885,6 +935,11 @@ def agents_json():
         X402_USDC_CONTRACT,
         FREE_TIER_LIMIT,
         VIP_MONTHLY_USDC,
+        # Audit #6 BREAK 2: these two were used below but missing from the
+        # import list -> NameError -> LIVE 500 on /agents.json (the suite
+        # never called this route, so 405 tests stayed green).
+        KRISTO_ARB_PRICE,
+        KRISTO_SIGNAL_PRICE,
     )
 
     base_url = request.host_url.rstrip("/")

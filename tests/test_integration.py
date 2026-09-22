@@ -266,26 +266,11 @@ def test_x402_payment_proof_rejects_forged_tx(client, monkeypatch):
     assert "X-Payment-Proof" in resp.get_json()["hint"] or "retry" in resp.get_json()["hint"]
 
 
-def test_mcp_sse_endpoint_streams_tool_definitions(client):
-    """The MCP SSE endpoint lets Claude Desktop / Cursor discover our paid
-    tools over the streamable-HTTP transport."""
-    resp = client.get("/mcp/sse")
-    assert resp.status_code == 200
-    assert resp.mimetype == "text/event-stream"
-
-    import json as jsonlib
-    stream = resp.get_data(as_text=True)
-    # SSE framing present
-    assert "event: endpoint" in stream
-    assert "event: message" in stream
-    # JSON-RPC server info
-    assert "kristo-intelligence" in stream
-    assert "2024-11-05" in stream
-    # Tools advertised with x402 pricing
-    assert "get_market_stats" in stream
-    assert "get_onchain_sales" in stream
-    assert "get_bot_status" in stream
-    assert '"price_usdc"' in stream
+# Audit #6 BREAK 1: the old canned-stream test (GET-only endpoint, pushed
+# id:0/id:1 answers, protocolVersion 2024-11-05) was replaced by the REAL
+# HTTP+SSE round trip in tests/test_mcp_sse_transport.py — it drives
+# initialize -> tools/list -> tools/call through POST /mcp/message exactly
+# the way the official python sse_client does.
 
 
 def test_mcp_info_endpoint(client):
@@ -296,6 +281,22 @@ def test_mcp_info_endpoint(client):
     assert b["mcp"]["transport"] == "sse"
     assert b["mcp"]["sse_endpoint"].endswith("/mcp/sse")
     assert "Claude Desktop" in b["clients"]
+
+
+def test_agents_json_serves_valid_json(client):
+    """Audit #6 BREAK 2: /agents.json was LIVE 500 — KRISTO_ARB_PRICE and
+    KRISTO_SIGNAL_PRICE were used below their import list (NameError). No
+    test called the route, so the 405-test suite stayed green."""
+    import main
+    resp = client.get("/agents.json")
+    assert resp.status_code == 200, resp.data[:300]
+    body = resp.get_json()
+    assert body["spec_version"] == "1.0"
+    prices = {e["path"]: e["cost_usdc"] for e in body["endpoints"]}
+    assert prices["/api/v1/signal"] == main.KRISTO_SIGNAL_PRICE
+    assert prices["/api/arb/opportunities"] == main.KRISTO_ARB_PRICE
+    assert body["payment"]["receiver_address"] == main.X402_RECEIVER_ADDRESS
+    assert body["docs"]["x402_discovery"].endswith("/.well-known/x402.json")
 
 
 def test_x402_response_documents_proof_header(client, monkeypatch):
