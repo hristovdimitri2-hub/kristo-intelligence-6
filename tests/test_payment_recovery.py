@@ -384,3 +384,33 @@ def test_proof_hint_quotes_the_real_12_block_wait(env, monkeypatch):
     assert "~24s" in hint and "12" in hint
     assert "~2s" not in hint
     assert "SAME proof" in hint
+
+
+def test_reverted_settlement_reason_states_both_outcomes(env, monkeypatch):
+    """Audit #4 check в: the OUT-of-window nonce-revert must not lie.
+
+    In-window retries are adopted by nonce (covered above). When the search
+    does NOT confirm the spend (outside the 5000-block window, or a balance
+    revert), the old reason blamed the payer wholesale. It must now say both
+    outcomes, because only one is true and a revert cannot say which.
+    """
+    main, client = env.main, env.client
+    monkeypatch.setattr(env.connectors, "verify_standard_payment",
+                        lambda h, r: (True, PAYER, "verified_locally"))
+    monkeypatch.setattr(
+        env.connectors, "settle_standard_payment",
+        lambda h, r: (None, "self_broadcast_reverted: tx 0x" + "ee" * 32 +
+                      " — the on-chain transferWithAuthorization failed "
+                      "(insufficient buyer USDC balance or authorization "
+                      "already used)"))
+    _install_fake_web3(monkeypatch, _FakeEth(block_number=99))
+
+    r = client.get("/api/stats",
+                   headers={"PAYMENT-SIGNATURE": _standard_header(main)})
+    assert r.status_code == 401
+    reason = r.get_json()["reason"]
+    assert reason.startswith("settlement_failed:")
+    assert "NO new payment is needed" in reason
+    assert "search window" in reason and "fund it and retry" in reason
+    # …and this unproven case must NOT pretend to be the in-window 425.
+    assert r.get_json()["error"] == "invalid_standard_payment"

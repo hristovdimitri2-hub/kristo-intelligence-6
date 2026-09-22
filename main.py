@@ -2817,6 +2817,17 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         tx_hash, settle_detail = connectors.settle_standard_payment(payment_header, requirements)
         if not tx_hash:
             g.x402_reject_reason = f"settlement_failed: {settle_detail}"
+            # Audit #4, check в (22.09): the nonce-revert path that our
+            # 5000-block search could NOT confirm used to read like "your
+            # payment is broken". Only ONE of the two outcomes is true and a
+            # revert alone cannot say which — so the reason says BOTH, clearly.
+            if "revert" in settle_detail or "already used" in settle_detail:
+                g.x402_reject_reason += (
+                    " — NO new payment is needed if this authorization was "
+                    "already consumed (retry shortly; if it is older than our "
+                    f"{_nonce_search_blocks()}-block search window, send us "
+                    "the tx hash instead); otherwise the buyer's USDC balance "
+                    "was insufficient — fund it and retry")
             log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
             return False
 
