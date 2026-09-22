@@ -28,8 +28,18 @@ import requests
 BASE = "https://payapi.market"
 OUR_SLUG = "kristo-intelligence-defi-signals-api"
 TERMS = ["eth", "defi", "signals", "whale", "rug", "ondo", "kaito", "degen"]
-STATE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "docs", "monitor_state.json")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_PATH = os.path.join(REPO_ROOT, "docs", "monitor_state.json")
+
+# ── Glama (official MCP API — read-only, Bearer key) ───────────────────────
+# The API exposes GETs only (see /api/mcp/openapi.json): it can READ both of
+# our listings and our directory position, and cannot change anything. So this
+# block is pulse, exactly like the PayAPI one — never an action.
+GLAMA_BASE = "https://glama.ai/api/mcp"
+GLAMA_SERVERS = "hristovdimitri2-hub/kristo-intelligence-6"
+GLAMA_CONNECTOR = "com.onrender.kristo-intelligence-api/kristo-intelligence"
+GLAMA_TERMS = ["defi", "signals"]
+GLAMA_KEY_FILE = os.path.join(REPO_ROOT, "secrets", "glama_api_key.txt")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.competitor_recon import (  # noqa: E402
@@ -144,6 +154,92 @@ def _print_funnel() -> None:
             print(ln)
 
 
+def glama_key() -> Optional[str]:
+    """The Glama API key: GLAMA_API_KEY env wins, then secrets/glama_api_key.txt.
+
+    Same model as secrets/render_api_key.txt — the file is gitignored, so the
+    key never lands in the repo. No key simply means the block is skipped.
+    """
+    env = (os.getenv("GLAMA_API_KEY") or "").strip()
+    if env:
+        return env
+    try:
+        with open(GLAMA_KEY_FILE, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except Exception:
+        return None
+
+
+def _glama_get(path: str, key: str, params: Optional[dict] = None) -> Optional[dict]:
+    """One authenticated GET against the Glama API; None on any failure."""
+    try:
+        r = requests.get(f"{GLAMA_BASE}{path}", params=params, timeout=25, headers={
+            "Authorization": f"Bearer {key}", "Accept": "application/json"})
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def fetch_glama_state(key: str) -> dict:
+    """Both listings + directory position, straight from the official API.
+
+    `servers` is the directory entry (scores, attributes, tools Glama managed to
+    introspect); `connector` is the hosted remote one (health + the tools from
+    its most recent check). Positions come from /v1/servers?query=… — the same
+    words agents type, so a move here is a real discovery move.
+    """
+    state: dict = {"servers": {}, "connector": {}, "positions": {}}
+
+    srv = _glama_get(f"/v1/servers/{GLAMA_SERVERS}", key) or {}
+    state["servers"] = {
+        "quality_score": srv.get("qualityScore"),
+        "spdx_license": srv.get("spdxLicense"),
+        "tools": len(srv.get("tools") or []),
+        "attributes": sorted(srv.get("attributes") or []),
+        "boosted": srv.get("isBoosted"),
+    }
+
+    con = _glama_get(f"/v1/connectors/{GLAMA_CONNECTOR}", key) or {}
+    state["connector"] = {
+        "quality_score": con.get("qualityScore"),
+        "healthy": con.get("healthy"),
+        "tool_count": con.get("toolCount"),
+        "last_tested_at": con.get("lastTestedAt"),
+        "transport": (con.get("connection") or {}).get("transport"),
+        "attributes": sorted(con.get("attributes") or []),
+    }
+
+    for term in GLAMA_TERMS:
+        data = _glama_get("/v1/servers", key, {"query": term, "first": 25}) or {}
+        items = (data.get("servers") or data.get("items")
+                 or data.get("results") or [])
+        pos = next((i + 1 for i, it in enumerate(items)
+                    if f"{it.get('namespace')}/{it.get('slug')}" == GLAMA_SERVERS),
+                   None)
+        state["positions"][term] = {"position": pos, "shown": len(items)}
+
+    return state
+
+
+def diff_glama(prev: dict, cur: dict) -> List[str]:
+    """What moved on Glama since the previous run (silence = nothing moved)."""
+    changes: List[str] = []
+    for side, label in (("servers", "GLAMA servers"),
+                        ("connector", "GLAMA connector")):
+        p, c = prev.get(side) or {}, cur.get(side) or {}
+        for field in ("quality_score", "healthy", "tool_count", "tools",
+                      "spdx_license", "boosted", "transport"):
+            if field in p and field in c and p[field] != c[field]:
+                changes.append(f"{label} {field}: {p[field]} -> {c[field]}")
+    p_pos, c_pos = prev.get("positions") or {}, cur.get("positions") or {}
+    for term, c in c_pos.items():
+        p = (p_pos.get(term) or {}).get("position")
+        if p != c.get("position"):
+            changes.append(f"GLAMA rank q={term}: {p or 'absent'} -> "
+                           f"{c.get('position') or 'absent'} ({c.get('shown')} shown)")
+    return changes
+
+
 def fetch_state() -> dict:
     state: dict = {"reliability": None, "ranks": {}}
     g = requests.get(f"{BASE}/agent/get?id={OUR_SLUG}", timeout=20).json()
@@ -215,7 +311,28 @@ def main() -> int:
             print(f"q={term}: position={r['position'] or 'ABSENT'} "
                   f"of {r['total']}")
 
+    # ── Glama (read-only API; skipped entirely when there is no key) ────────
+    g_key = glama_key()
+    if g_key:
+        cur["glama"] = fetch_glama_state(g_key)
+        g_s, g_c = cur["glama"]["servers"], cur["glama"]["connector"]
+        print(f"\nglama servers: quality={g_s.get('quality_score')} "
+              f"license={g_s.get('spdx_license')} tools={g_s.get('tools')} "
+              f"boosted={g_s.get('boosted')}")
+        print(f"glama connector: healthy={g_c.get('healthy')} "
+              f"score={g_c.get('quality_score')} tools={g_c.get('tool_count')} "
+              f"transport={g_c.get('transport')} "
+              f"last_tested={g_c.get('last_tested_at')}")
+        for term, r in cur["glama"]["positions"].items():
+            print(f"glama q={term}: position={r['position'] or 'ABSENT'} "
+                  f"of {r['shown']}")
+    else:
+        print("\nglama: SKIPPED — no key (set GLAMA_API_KEY or write "
+              "secrets/glama_api_key.txt)")
+
     changes = diff(prev, cur) if prev else []
+    if prev:
+        changes += diff_glama(prev.get("glama") or {}, cur.get("glama") or {})
     if changes:
         print("\n=== CHANGES vs previous run ===")
         for c in changes:

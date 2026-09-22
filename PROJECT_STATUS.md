@@ -2,6 +2,42 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🔌 GLAMA API КЛЮЧ: живи проверки + седмичен пулс в монитора (22.09)
+
+**Ключът** е преместен от Desktop → `secrets/glama_api_key.txt` (**gitignored**, същият
+модел като `render_api_key.txt`), а `KEY.txt` от десктопа е **изтрит** (проверено:
+`git check-ignore` → `.gitignore:53:secrets/`).
+
+**Живи проверки през официалния API** (`Authorization: Bearer …`). API-ът е **read-only**
+(7 GET endpoint-а, виж `/api/mcp/openapi.json`) — с ключ **не могат** да се правят операции:
+
+| Endpoint | Какво върна |
+|---|---|
+| `/v1/servers/hristovdimitri2-hub/kristo-intelligence-6` | `qualityScore: null`, `spdxLicense: null`, **`tools: []`**, attributes `[hosting:remote-capable]`, `isBoosted: false` |
+| `/v1/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` | **`qualityScore: 4.7`**, **`healthy: true`**, `toolCount: 3`, transport `streamable_http`, `lastTestedAt: 2026-09-22T09:42:30Z` |
+| `/v1/instances` | `{"instances": []}` — няма hosted instance (ние сме remote, не Glama-hosted) |
+| `/v1/servers?query=defi` | **позиция 1** от 25 |
+| `/v1/servers?query=signals` | **не в първите 25** |
+
+**Какво значи това:** connector листингът е истинският жив (health + 4.7 + 3 tools, тестван
+днес), а servers листингът има **празни `tools` и `null` quality** → API-ът потвърждава
+диагнозата от билет **#135407945**: introspection-ът на контейнера не е минал (нашият HTTP
+`/mcp` не отговаря на stdio теста им). Значката „rated A" идва от **maintenance**, не от
+quality.
+
+**Монитор:** `scripts/listing_monitor.py` получи **Glama блок** (седмичен пулс): оценки на
+двата листинга, позиция при търсене `defi`/`signals`, брой tools, health + `lastTestedAt` →
+diff срещу `docs/monitor_state.json`, аларма само при промяна. Без ключ блокът се
+**прескача** (не гърми в CI). Тестове: `tests/test_listing_monitor_glama.py` (**13**),
+включително guard, че ключът се чете само от `secrets/` или env.
+
+**PR #13219 (конфликтът):** клонът беше от 30.08, а upstream добави
+`human-beyond/mainbook-mcp` точно на нашия ред → `mergeable: dirty`. Решено с **нов клон от
+`upstream/main`** + повторно вмъкване на единствения ред на същото място (след
+`HuggingAGI/mcp-baostock-server`, преди `hypeprinter007-stack/anchor-x402-mcp`) →
+**`mergeable: True`, `clean`, 1 файл / 1 ред**, етикет `has-glama`.
+
+
 ## 🎫 GLAMA support билет #135407945 (22.09) — Frank се включи сам; чакаме type change
 
 **Факти:** след build грешките **Frank от Glama САМ се включи** — нов билет
