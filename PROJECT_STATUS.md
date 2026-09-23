@@ -213,6 +213,30 @@ endpoint в servers directory (писмо до Frank 23.09); **license F**; **qu
 
 
 
+**Glama форма потвърждава: hosted endpoint = connector модел; подаването в servers е
+излишно/невъзможно за нашия случай; управление през съществуващия connector листинг.**
+
+Живи факти (23.09 вечер, през истинския API `/api/mcp/v1`):
+* `/servers?query=defi` → 200, **двата page-а без kristo-intelligence/hristovdimitri2**
+  — позицията **НЕ се връща сама**; `/servers?query=kristo` → 4 записа, **нас няма**;
+  старият `/servers/hristovdimitri2-hub/kristo-intelligence-6` → **404 „Server not found"**
+  (изтриването потвърдено и през правилния рут).
+* **Connector ↔ servers linkage:** detail `/connectors/com.onrender.kristo-intelligence-api/
+  kristo-intelligence` **има поле `server`** — опционална връзка към servers записа — и при
+  нас е **`null`** (след изтриването). Директориите са **отделни записи** с explicit link,
+  не едно и също хранилище; connector-ът **не храни автоматично** servers търсенето.
+* Connector-ът е жив и здрав: `qualityScore 4.7`, `toolCount 3`, `healthy true`,
+  `connection.url = https://kristo-intelligence-api.onrender.com/mcp`,
+  `namespace com.onrender.kristo-intelligence-api`, `repository null`.
+
+
+**GLAMA CLAIM ФИНАЛ (23.09 ~20:45):** connector листингът е **CLAIM-НАТ** чрез HTTP
+challenge (токенът от 18.09, същият файл, същият URL). Отключени: **Listing details,
+Health checks, Analytics**. Glama епопеята (18.09–23.09): от счупен build през изтрит
+servers запис до **собственост върху connector (TDQS 4.7, Healthy, 3 tools)**.
+**Нишката е ЗАТВОРЕНА — управление през connector admin.**
+
+
 ## 🔒 HASH-ANCHOR НА STANDARD RAIL (21.09) — reorg, който дълбочината не вижда
 
 **Проблемът (Miguel одит, Problem 2):** C2 брои **блокове**, а reorg, който замени блока на
