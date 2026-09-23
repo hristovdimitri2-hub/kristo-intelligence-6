@@ -108,6 +108,19 @@ hash), TODO тест (retry >2.8h). Цикълът на одита е пълен
 двупосочна съвместимост запазена. Отворени записани: каталожен 402 без хедър
 (Stripe-preview); CORS (при първия браузърен клиент).**
 
+**Reorg ratchet — RATCHET UPGRADE КАНДИДАТ (proposal на Miguel, 23.09 — запис,
+не е имплементиран):** SCAN watermark-ите са **само height (int), без block hash** —
+и при sales (`last_scanned_block` + `sales_safe_scanned_block`) и при whaleflow
+(`whaleflow_last_block` + `whaleflow_safe_scanned_block`, DURABLE_META_KEYS).
+Дълбок reorg ПОД watermark-а би скрил вече-сканирани трансфери (resume-point risk).
+**Безопасните части са отделни:** settlement-анкорите в `payment_guards` са
+`block_number` + `block_hash` (21.09) и `_detect_reorgs` ги пре-проверява — т.е.
+плащанията са hash-заякорени, но **resume точките на скеновете — не**.
+Предложение (ratchet): всеки watermark се записва като `(height, block_hash)`;
+при resume hash-ът се пре-проверява — при несъответствие rewind до fork point
+(rescan N блока назад) вместо доверие в самия height. Кандидат — приоритет нисък/среден.
+
+
 
 ## 🔌 GLAMA API КЛЮЧ: живи проверки + седмичен пулс в монитора (22.09)
 
@@ -189,6 +202,15 @@ Render). **Поискано:** type change или reset на типа. **Чак�
 живи още от **21.09**. Смяната на типа не ги пипа; тя само **спира счупения build
 път** („Runs from source" не може да мине introspection теста на техния контейнер,
 защото нашият сървър е HTTP на Render, не stdio).
+
+**GLAMA „FIXED" (Frank, 23.09):** изпълнена е опция **„изтрий"** от нашия билет —
+`servers` записът **изтрит от API/индекса** (загубена **#1 по defi**), публичната
+страница **оцелява**, badge честен (**rated A / maintenance**). Connector **непокътнат**
+(**4.7, 3 tools, healthy** — тестван **23.09**). **Отворено:** правилен път за hosted
+endpoint в servers directory (писмо до Frank 23.09); **license F**; **quality null**.
+Мониторът ще отбележи **Glory-пад в GLAMA пулса** — **очаквано, тяхна промяна**.
+
+
 
 
 ## 🔒 HASH-ANCHOR НА STANDARD RAIL (21.09) — reorg, който дълбочината не вижда
