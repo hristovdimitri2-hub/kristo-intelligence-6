@@ -132,6 +132,72 @@ def test_unreadable_block_is_not_reported_as_a_reorg(tmp_path, monkeypatch):
     assert "c2_reorg_detected" not in _events(store)
 
 
+def test_placeholder_zero_anchor_is_skipped_before_any_read(tmp_path, monkeypatch):
+    """25.09 — the live `c2_reorg_detected` loop, pinned.
+
+    Production row (tx 0x22c4…52ab): block_number=51670537 REAL, block_hash=
+    '000…0' (64 zeros, written while the node lagged — NOT NULL, so the
+    `not stored` guard never fired). Every watch cycle then compared the
+    placeholder to the real hash and recorded another event: 1 269 events on
+    ONE transaction. An all-zero hash means "no anchor data" and must be
+    skipped exactly like height<=0 — before the chain is even read.
+    """
+    store = _store(tmp_path, monkeypatch)
+    store.claim_payment_tx(
+        "0xzero", endpoint="/api/v1/signal", payer="0xPayer", amount_usdc=0.003,
+        block_number=51670537, block_hash="0" * 64)
+    main = _main_with_store(monkeypatch, store)
+    reads = []
+
+    def reader(height):
+        reads.append(height)
+        return "0x" + "ff" * 32
+
+    assert main._detect_reorgs(read_block=reader) == 0
+    assert reads == [], "a placeholder anchor must not even be re-read"
+    assert "c2_reorg_detected" not in _events(store)
+    # …and the 0x-prefixed spelling of the same placeholder is the same case.
+    store2 = _store(tmp_path, monkeypatch, name="zero0x.db")
+    store2.claim_payment_tx("0xzero2", block_number=777,
+                            block_hash="0x" + "0" * 64)
+    main2 = _main_with_store(monkeypatch, store2)
+    assert main2._detect_reorgs(read_block=lambda h: "0x" + "ee" * 32) == 0
+    assert "c2_reorg_detected" not in _events(store2)
+
+
+def test_real_hash_change_is_still_detected_next_to_a_placeholder(
+        tmp_path, monkeypatch):
+    """The critical non-regression: fix the NOISE, never the SIGNAL.
+
+    A placeholder row and a genuinely reorganised row in the SAME store —
+    only the real one may fire, with its own tx hash, while the placeholder
+    row is never even re-read.
+    """
+    store = _store(tmp_path, monkeypatch)
+    store.claim_payment_tx("0xplaceholder", endpoint="/api/v1/signal",
+                           block_number=51670537, block_hash="0" * 64)
+    store.claim_payment_tx("0xreorged", endpoint="/api/v1/signal",
+                           payer="0xPayer", amount_usdc=0.003,
+                           block_number=51313253, block_hash="0x" + "aa" * 32)
+    main = _main_with_store(monkeypatch, store)
+    reads = []
+
+    def reader(height):
+        reads.append(height)
+        # the placeholder's height holds its REAL hash now — still no event
+        # for it; the reorganised height holds a DIFFERENT hash — event.
+        return ("0x" + "f8" * 32) if height == 51670537 else ("0x" + "bb" * 32)
+
+    detected = main._detect_reorgs(read_block=reader)
+
+    assert detected == 1, "only the real reorg fires"
+    assert reads == [51313253], "the placeholder row must not be re-read"
+    kinds = _events(store)
+    assert kinds.get("c2_reorg_detected") == 1
+    event = store.guard_stats()["recent_blocks"][0]
+    assert event["tx_hash"] == "0xreorged"
+
+
 def test_the_confirmation_threshold_is_untouched(monkeypatch):
     """The fix ADDS a check; it must not have replaced depth."""
     monkeypatch.delenv("MIN_STANDARD_PAYMENT_CONFIRMATIONS", raising=False)

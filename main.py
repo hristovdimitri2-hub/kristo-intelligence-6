@@ -2467,6 +2467,15 @@ def _detect_reorgs(limit: int = 25, read_block=None) -> int:
             stored = str(claim.get("block_hash") or "").lower()
             if height <= 0 or not stored:
                 continue
+            # Placeholder anchor = "no anchor data" (25.09): a row written while
+            # the node lagged can carry an ALL-ZERO hash ('000…0', with or
+            # without 0x). Comparing it against the real hash fired
+            # `c2_reorg_detected` on every watch cycle — 1 269 events on ONE
+            # tx. Skip it exactly like height<=0: a missing anchor is not a
+            # mismatch, and the SIGNAL (a real hash change) must stay.
+            hexpart = stored[2:] if stored.startswith("0x") else stored
+            if not hexpart.strip("0"):
+                continue
             current = (reader(height) or "").lower()
             if not current or current == stored:
                 continue
