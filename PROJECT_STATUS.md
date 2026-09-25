@@ -2,6 +2,92 @@
 ## 🏁 PHASE COMPLETE: product verified → GO-TO-MARKET (2026-09-03)
 
 
+## 🔁 c2_reorg_detected LOOP — ДИАГНОЗА ПОТВЪРДЕНА + ФИКСНУТ И ПРОВЕРЕН НА ЖИВО (25.09)
+
+**Симптом:** от 23.09 02:27 UTC всеки watch цикъл записваше `c2_reorg_detected`
+за един и същ tx — 1273 записа (by_kind и dashboard-броячите изкривени).
+
+**Стъпка 1 — редът (жив SELECT в production през Render job):**
+`payment_guards` WHERE tx=`0x22c4…52ab` → `block_number=51670537` (реална
+височина), **`block_hash='000…0'` (64 нули — placeholder, НЕ NULL)**,
+`consumed_at=2026-09-23T02:27:03Z`. Първото reorg-събитие е на
+02:27:03.201 — **150 ms след самия claim**. Другите 2 реда в таблицата са
+`NULL/NULL` и се пропускат правилно.
+
+**Диагноза:** хипотезата **ПОТВЪРДЕНА** — детекторът сравняваше placeholder
+срещу реалния hash всеки цикъл → mismatch винаги → фалшив сигнал, който се
+върти. Уточнение спрямо първоначалната хипотеза: **не е остатък от
+миграцията** (миграцията оставя NULL, а NULL редовете вече се пропускат —
+доказано от другите два реда); нулите са записани в claim-а на 23.09 по
+време на node-lag прозореца (`waited_and_accepted` 2 ms по-рано).
+
+**Фикс (условие в `main.py::_detect_reorgs`):** всички-нули hash (с или без
+`0x`) = „няма anchor данни" → пропуска се **ПРЕДИ** chain read, точно като
+`height<=0`. Реалната смяна на hash при запазен номер **все още се
+детектира** — заключено с тестове.
+
+**Изчистване:** **1273 записа** изтрити (само `guard_events`, само този tx)
++ **0 страглера** след deploy; `payment_guards` — 3 реда, непокътнати.
+
+**Тестове:** +2 — placeholder се пропуска преди какъвто и да е read; реален
+reorg до placeholder реда все още детектира (точно 1, със своя tx hash).
+**412/412 PASS** (410 + 2).
+
+**Deploy:** commit **`3266a9f`** push-нат; `dep-dar24aqvcj2c739uimu0` **LIVE
+25.09 07:27:56 UTC**. **Спрян на 25.09 07:45 UTC (t+15 мин):**
+`c2_reorg_detected` = **0 нови** (`by_kind`: `waited_and_accepted` 3,
+`c2_insufficient_confirmations` 1) — **loop-ът е мъртъв.**
+
+**Инструменти (в репото):** `scripts/_guard_row_select.py` (read-only SELECT
+през Render job — вътрешният DB хост не се разрешава отвън),
+`scripts/_guard_cleanup.py select|delete`.
+
+## 🧭 F1 ГЕЙТ (25.09) — A1 живо: пътят НИКОГА не е минаван · A2 частично доказан (no-pay E2E) · ПЪЛНО доказателство ЧАКА WALLET
+
+**A1 — жив guard_events (production, PostgreSQL `lock_backend=postgresql, durable=true`):**
+проверка 25.09 06:18 UTC + повторно СЛЕД no-pay probe-а:
+
+* `by_kind` (всичко, откакто съществува записа): `c2_insufficient_confirmations` 1 ·
+  `c2_reorg_detected` 1261 · `waited_and_accepted` 3.
+* **`c2_settlement_in_flight` = 0 (никога)** · **`c1_nonce_adopted` = 0 (никога)** —
+  пътят от одит №4 (22.09) съществува в кода и в 7-те теста възстановяване, но
+  **живата история казва, че никой още не е минал през него**. Тестовете доказват
+  пътя; guard_events казва, че реален L2 трафик го още не го е задействал.
+* `consumed_total=3`, последен claim **23.09 02:27 UTC** (`/api/v1/signal`) —
+  **непроменен** след probe-а (нищо не е консумирано от тестовете ни).
+* Наблюдение ИЗВЪН гейта: `c2_reorg_detected` расте непрекъснато (1245 → 1261 за
+  15 мин), един и същ tx `0x22c4…52ab`, detail „anchored 0000…0 → now f8becb…“ на
+  всеки ~5 мин — anchor-ът изглежда се занулява/пре-записва. Telemetry-only, не
+  плащания, но заслужава отделен поглед. **→ РЕШЕНО СЪЩИЯ ДЕН: виж секцията
+  „c2_reorg_detected LOOP“ по-горе (placeholder anchor, фикснат в `3266a9f`).**
+
+**A2 — ВСИЧКО без реално плащане, живо от външната машина**
+(`scripts/e2e_nopay_probe.py`, 25.09 — ALL CHECKS PASSED ✅):
+
+1. discovery → **200** (1676 ms, 6 ресурса);
+2. challenge → **402**, каноничен (`exact` / `eip155:8453` / 3000 atomic / payTo
+   `0xd4cd…f08f`), 710 ms;
+3. retry цикъл **6× без proof → всеки отново 402, тялото байт-в-байт идентично**
+   (идемпотентен challenge); latency min **651** / median **688** / max **1107** ms;
+4. retry с **синтетичен `X-Payment-Proof`** → **401 `invalid_payment_proof`**
+   (fail-closed, без плащане — същият probe, одобрен в MYSTERY_AGENT_REPORT);
+5. финален retry без proof → отново 402 = **нищо не е консумирано/claim-нато**
+   (`consumed_total`/`last_claim_at` непроменени, `blocked_total` непроменен);
+6. **ПОСЛЕДНА СТЪПКА — ЧАКА WALLET:** плати 3000 atomic (**$0.003 USDC**) →
+   незабавен retry цикъл (~6× на 3-5s) за естествения 425 прозорец на вътрешния
+   node → 200 данни. Нужно: funded `DEMO_PRIVATE_KEY` (hot wallet-ът е $0/$0 —
+   зареждането е **човешко действие, не решение**).
+
+**ЗАПИС ЗА ГЕЙТА: F1 гейт: A1 = живите guard_events НЯМАТ `c2_settlement_in_flight`
+/ `c1_nonce_adopted` НИКОГА (пътят не е минаван на живо); A2 = частично доказан
+(402 + retry механика живи отвън, `scripts/e2e_nopay_probe.py`); ПЪЛНО доказателство
+(плащане → 425 → 200) ЧАКА WALLET.** Outreach-ът (`docs/OUTREACH_WAVE1.md` — чернови,
+**нищо не е пратено**) остава спрян и при двете условия: (а) merge на #13219 (още
+OPEN) + (б) затворен F1 гейт.
+
+**Протекции:** 410/410 PASS; payTo/цени/стражи недокоснати (само GET заявки +
+синтетичен proof, който сървърът сам отказва); нито един цент не е похарчен.
+
 ## 📨 CHET RE-WAREHOUSE ПИСМО (24.09) — авто-кампания или re-check; чакаме реакция по snapshot-а
 
 **Chet re-warehouse писмо (24.09) — авто-кампания или re-check; нашият отговор:**
