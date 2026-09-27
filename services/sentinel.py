@@ -38,6 +38,8 @@ log = logging.getLogger("kristo.v6.sentinel")
 
 # Persisted across workers/cold starts so a shared Render instance does not
 # double-alert and a cold start does not re-baseline over real revenue.
+# (Used by _check_revenue — the 2026-09-03 cold-start fix. The startup
+# announcement and its daily gate are gone as of 27.09, Variant B.)
 STATE_FILE = os.getenv("SENTINEL_STATE_FILE") or os.path.join(
     tempfile.gettempdir(), "kristo_sentinel_state.json")
 
@@ -266,15 +268,9 @@ def sentinel_loop() -> None:
     except Exception as exc:
         log.warning("Sentinel baseline cycle failed: %s", exc)
 
-    # Startup announcement: once per UTC day across the whole instance —
-    # Render cold starts used to repeat it on every wake-up.
-    persisted = _load_persisted()
-    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if persisted.get("startup_announced_date") != today_utc:
-        _tg_send("🛡️ <b>Kristo Sentinel активен</b> — вграден в приложението, "
-                 "мониторинг на живо 24/7.")
-        persisted["startup_announced_date"] = today_utc
-        _persist(persisted)
+    # No startup announcement (Variant B, 27.09): the channel speaks only on
+    # CHANGE, as the docstring promises — boot must be silent, see
+    # tests/test_sentinel_boot.py.
 
     while True:
         try:
