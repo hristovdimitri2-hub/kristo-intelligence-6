@@ -70,6 +70,7 @@ REPO = "hristovdimitri2-hub/kristo-intelligence-6"
 WATCHED_PRS = [
     ("xpaysh/awesome-x402", 1308),
     ("punkpeye/awesome-mcp-servers", 12799),
+    ("punkpeye/awesome-mcp-servers", 13219),
 ]
 
 
