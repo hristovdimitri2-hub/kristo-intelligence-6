@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Kristo Intelligence
+Copyright (c) 2026 hristovdimitri2-hub
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-COMMERCIAL USE NOTICE
-
-This software executes real financial transactions on the Base blockchain
-network when AGENT_AUTO_EXECUTE=true. The authors and copyright holders
-assume no responsibility for financial losses resulting from the use of this
-software. Always test on Base Sepolia testnet before mainnet deployment.

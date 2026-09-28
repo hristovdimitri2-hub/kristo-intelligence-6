@@ -1,6 +1,6 @@
 # Kristo Intelligence — DeFi Signals API on Base
 
-[![Kristo Intelligence MCP connector — Glama score](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence/badges/score.svg)](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence) [![Kristo Intelligence MCP server — Glama score](https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg)](https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6)
+[![Kristo Intelligence MCP connector — Glama score](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence/badges/score.svg)](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence) [![Kristo Intelligence MCP server — Glama score](https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg)](https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Paid DeFi market intelligence for AI agents. x402-native: agents pay per
 call in USDC, from $0.003 — no signup, no API keys, no subscriptions.**
@@ -120,5 +120,14 @@ tests/                   # Test suite (152 tests)
 
 ## License
 
-See the repository license file. The payment receiver and endpoint structure
-are stable invariants — discovery surfaces and integrations depend on them.
+**MIT** — the full standard text is in [LICENSE](LICENSE).
+
+The payment receiver and endpoint structure are stable invariants — discovery
+surfaces and integrations depend on them.
+
+### Commercial use notice
+
+This software executes real financial transactions on the Base blockchain
+network when AGENT_AUTO_EXECUTE=true. The authors and copyright holders
+assume no responsibility for financial losses resulting from the use of this
+software. Always test on Base Sepolia testnet before mainnet deployment.
