@@ -13,11 +13,15 @@ Checks:
 
 Configuration (env):
   TELEGRAM_BOT_TOKEN   — bot token (already used by the sales bot)
-  TELEGRAM_CHAT_ID     — recipient chat id for alerts
+  TELEGRAM_CHAT_ID     — recipient chat id for alerts (the public channel)
+  TELEGRAM_VIP_CHAT_ID — (optional) private chat; "New payment received!"
+                         alerts go there when set, else to TELEGRAM_CHAT_ID
   KRISTO_API_BASE      — public URL of this service (default: Render URL)
   SENTINEL_ENABLED     — set to 'false' to disable the thread entirely
 
-State is kept in memory: after a restart the first cycle creates a baseline
+PR status baselines are DURABLE (pr_watch_state, since 27.09): a deploy never
+re-baselines blind and open → merged/closed still alerts after a restart. All
+other state is in memory: after a restart the first cycle creates a baseline
 without alerts, so deploys never produce alert spam.
 """
 from __future__ import annotations
@@ -85,10 +89,22 @@ def sentinel_enabled() -> bool:
     )
 
 
+def _vip_chat_id() -> str:
+    """Owner's private chat for payment alerts — unset = the public channel."""
+    return (os.getenv("TELEGRAM_VIP_CHAT_ID", "") or "").strip()
+
+
 # ── Telegram ─────────────────────────────────────────────────────────────────
-def _tg_send(text: str) -> bool:
+def _tg_send(text: str, chat_id: str = "") -> bool:
+    """Send to `chat_id`, falling back to the public channel (TELEGRAM_CHAT_ID).
+
+    `chat_id` lets one class of alerts (payments) target the owner's private
+    chat while everything else — PR statuses, bulletins, health — stays in the
+    channel. Empty `chat_id` = today's behaviour, the channel.
+    """
     token = (os.getenv("TELEGRAM_BOT_TOKEN", "") or "").strip()
-    chat_id = (os.getenv("TELEGRAM_CHAT_ID", "") or "").strip()
+    chat_id = (chat_id or "").strip() or (
+        os.getenv("TELEGRAM_CHAT_ID", "") or "").strip()
     if not token or not chat_id:
         return False
     try:
@@ -172,11 +188,14 @@ def _check_revenue(state: dict) -> None:
     if balance > prev:
         # Micro-payments are the norm here (0.003–0.01 USDC), so 2 decimals
         # would render them as "+0.00" — keep 4.
+        # 27.09: payment alerts route to the owner's private chat when
+        # TELEGRAM_VIP_CHAT_ID is set; unset = the public channel (as before).
         _tg_send(
             f"💰 <b>New payment received!</b>\n"
             f"+{balance - prev:.4f} USDC\n"
             f"Receiver balance: <b>{balance:.4f} USDC</b>\n"
-            f"Chain: Base mainnet"
+            f"Chain: Base mainnet",
+            chat_id=_vip_chat_id(),
         )
     state["usdc_balance"] = balance
     persisted = _load_persisted()
@@ -185,6 +204,30 @@ def _check_revenue(state: dict) -> None:
     _persist(persisted)
     log.info("Sentinel revenue check: %.6f USDC", balance)
 
+
+
+def _dashboard_store():
+    """The durable store (the same DB as payment_guards), or None.
+
+    None ⇒ the caller treats the baseline as MISSING (record without a
+    message) — an unreachable store must never look like a PR transition.
+    """
+    try:
+        import main
+        store = getattr(main, "dashboard_db", None)
+        if store is not None:
+            return store
+    except Exception as exc:
+        log.debug("Sentinel durable store via main unavailable: %s", exc)
+    try:
+        from integrations.dashboard_store import DashboardStore
+        db_file = os.getenv("KRISTO_DASHBOARD_DB") or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "dashboard_state.db")
+        return DashboardStore(db_file)
+    except Exception as exc:
+        log.warning("Sentinel durable store unavailable: %s", exc)
+        return None
 
 
 def _check_github(state: dict) -> None:
@@ -205,7 +248,11 @@ def _check_github(state: dict) -> None:
     except Exception as exc:
         log.warning("Sentinel GitHub repo check failed: %s", exc)
 
+    # PR baselines are DURABLE (pr_watch_state, 27.09) — decisions read the
+    # database, not this dict; `prs_state` below stays a mirror for the weekly
+    # report only.
     prs_state = state.setdefault("prs", {})
+    store = _dashboard_store()
     for full_repo, number in WATCHED_PRS:
         key = f"{full_repo}#{number}"
         try:
@@ -213,14 +260,47 @@ def _check_github(state: dict) -> None:
                 f"https://api.github.com/repos/{full_repo}/pulls/{number}",
                 headers=headers, timeout=30).json()
             status = "merged" if pr.get("merged", False) else pr.get("state", "?")
-            prev = prs_state.get(key)
-            if prev and prev != status:
-                icon = "🎉" if status == "merged" else "ℹ️"
-                _tg_send(
-                    f"{icon} <b>Directory PR updated</b>\n"
-                    f"{key}: {prev} → <b>{status}</b>\n"
-                    f"https://github.com/{full_repo}/pull/{number}"
-                )
+            mergeable_state = (pr.get("mergeable_state") or "").strip().lower()
+            try:
+                baseline = store.get_pr_watch_state(key) if store else None
+            except Exception as exc:
+                log.warning("Sentinel PR baseline read failed for %s: %s",
+                            key, exc)
+                baseline = None
+            if baseline is None:
+                # Missing baseline — first sight, a brand-new PR in the list,
+                # or an unreachable store: record WITHOUT a message.
+                if store:
+                    try:
+                        store.set_pr_watch_state(key, status, mergeable_state)
+                    except Exception as exc:
+                        log.warning("Sentinel PR baseline write failed for %s: %s",
+                                    key, exc)
+            else:
+                prev = baseline.get("status") or ""
+                prev_ms = (baseline.get("mergeable_state") or "").strip().lower()
+                if prev and prev != status:
+                    icon = "🎉" if status == "merged" else "ℹ️"
+                    _tg_send(
+                        f"{icon} <b>Directory PR updated</b>\n"
+                        f"{key}: {prev} → <b>{status}</b>\n"
+                        f"https://github.com/{full_repo}/pull/{number}"
+                    )
+                # CONFLICTING/DIRTY: one message per TRANSITION into conflict,
+                # not one per cycle (the baseline keeps "dirty" until it clears).
+                if prev_ms and prev_ms != "dirty" and mergeable_state == "dirty":
+                    _tg_send(
+                        f"⚠️ <b>PR има конфликт</b>\n"
+                        f"{key}\n"
+                        f"https://github.com/{full_repo}/pull/{number}"
+                    )
+                if store:
+                    try:
+                        store.set_pr_watch_state(
+                            key, status, mergeable_state or prev_ms)
+                    except Exception as exc:
+                        log.warning("Sentinel PR baseline write failed for %s: %s",
+                                    key, exc)
             prs_state[key] = status
         except Exception as exc:
             log.warning("Sentinel PR check failed for %s: %s", key, exc)

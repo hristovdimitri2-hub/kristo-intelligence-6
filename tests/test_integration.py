@@ -137,7 +137,8 @@ def test_sentinel_revenue_alert_on_payment(monkeypatch, tmp_path):
 
     monkeypatch.setattr(sentinel, "STATE_FILE", str(tmp_path / "sentinel.json"))
     sent: list[str] = []
-    monkeypatch.setattr(sentinel, "_tg_send", lambda text: sent.append(text) or True)
+    monkeypatch.setattr(sentinel, "_tg_send",
+                        lambda text, **kw: sent.append(text) or True)
 
     balances = iter(["0", "50000"])  # 0.00 → 0.05 USDC (6 decimals)
     monkeypatch.setattr(
@@ -166,7 +167,8 @@ def test_sentinel_cold_start_baselines_silently_and_dedupes_workers(monkeypatch,
 
     monkeypatch.setattr(sentinel, "STATE_FILE", str(tmp_path / "sentinel.json"))
     sent: list[str] = []
-    monkeypatch.setattr(sentinel, "_tg_send", lambda text: sent.append(text) or True)
+    monkeypatch.setattr(sentinel, "_tg_send",
+                        lambda text, **kw: sent.append(text) or True)
 
     balances = iter([14000, 17000, 17000])  # 0.0140 → 0.0170 (worker B sees same)
     monkeypatch.setattr(

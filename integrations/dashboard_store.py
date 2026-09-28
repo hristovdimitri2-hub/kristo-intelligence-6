@@ -464,9 +464,22 @@ class HistoryStore:
         )
         self._run("CREATE INDEX IF NOT EXISTS idx_signal_history_issued "
                   "ON signal_history (issued_at)")
+        # ── Sentinel PR watcher baseline (27.09) ──────────────────────────────
+        # The watcher kept the last seen PR status only in memory, so every
+        # deploy restarted it blind (a merge during a deploy produced no alert)
+        # and a brand-new PR was indistinguishable from a transition. Baseline
+        # belongs where payment_guards is: in the durable store.
+        self._run(
+            """CREATE TABLE IF NOT EXISTS pr_watch_state (
+                   pr_key          TEXT PRIMARY KEY,
+                   status          TEXT,
+                   mergeable_state TEXT,
+                   updated_at      TEXT
+               )"""
+        )
         log.info("Durable store ready (%s): request_log + whaleflow_events + "
                  "onchain_sales + payment_guards + guard_events + dashboard_meta "
-                 "+ vip_invites + signal_history.",
+                 "+ vip_invites + signal_history + pr_watch_state.",
                  self.backend)
 
     # ── request log ─────────────────────────────────────────────────────────
@@ -836,6 +849,35 @@ class HistoryStore:
         row = self._run("SELECT value FROM dashboard_meta WHERE key = ?",
                         (key,), "one")[0]
         return row["value"] if row else default
+
+    # ── Sentinel PR watcher baseline (27.09, durable) ────────────────────────
+    def get_pr_watch_state(self, pr_key: str) -> Optional[dict]:
+        """Last observed `{status, mergeable_state}` for one watched PR.
+
+        A MISSING row is a missing baseline — the watcher records the current
+        state WITHOUT sending a message (this covers a brand-new PR added to
+        WATCHED_PRS and a store that cannot be reached). Never invents a
+        transition from nothing.
+        """
+        row = self._run(
+            "SELECT status, mergeable_state FROM pr_watch_state "
+            "WHERE pr_key = ?",
+            (pr_key,), "one")[0]
+        return dict(row) if row else None
+
+    def set_pr_watch_state(self, pr_key: str, status: str,
+                           mergeable_state: str = "") -> None:
+        """Upsert the observed PR state — survives deploys (like payment_guards)."""
+        self._run(
+            """INSERT INTO pr_watch_state
+                   (pr_key, status, mergeable_state, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT (pr_key) DO UPDATE SET
+                   status = excluded.status,
+                   mergeable_state = excluded.mergeable_state,
+                   updated_at = excluded.updated_at""",
+            (pr_key, status, mergeable_state or "",
+             datetime.now(timezone.utc).isoformat()))
 
     def record_vip_invite(self, code: str, wallet: str, tx_hash: str = "",
                           chat_id: str = "", source: str = "onchain") -> bool:
@@ -1658,6 +1700,16 @@ HYBRID since 14.09:
     def claim_payment_retry_slot(self, tx_hash: str, token: str) -> bool:
         """Single-flight recovery slot — see HistoryStore.claim_payment_retry_slot."""
         return self.history.claim_payment_retry_slot(tx_hash, token)
+
+    # ── Sentinel PR watcher baseline (27.09) ─────────────────────────────────
+    def get_pr_watch_state(self, pr_key: str) -> Optional[dict]:
+        """Durable PR-watch baseline — see HistoryStore.get_pr_watch_state."""
+        return self.history.get_pr_watch_state(pr_key)
+
+    def set_pr_watch_state(self, pr_key: str, status: str,
+                           mergeable_state: str = "") -> None:
+        """Record the observed PR state — see HistoryStore.set_pr_watch_state."""
+        self.history.set_pr_watch_state(pr_key, status, mergeable_state)
 
     def release_payment_retry_slot(self, tx_hash: str, token: str) -> bool:
         """Free the slot on a non-delivery — see HistoryStore."""
