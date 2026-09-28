@@ -260,6 +260,12 @@ def _check_github(state: dict) -> None:
                 f"https://api.github.com/repos/{full_repo}/pulls/{number}",
                 headers=headers, timeout=30).json()
             status = "merged" if pr.get("merged", False) else pr.get("state", "?")
+            if status == "?":
+                # GitHub fetch failed (rate limit / network): NOT a transition
+                # and never a baseline — the durable row must survive untouched,
+                # otherwise a later good fetch would fire a bogus "→ open".
+                log.warning("Sentinel PR fetch failed for %s — baseline kept", key)
+                continue
             mergeable_state = (pr.get("mergeable_state") or "").strip().lower()
             try:
                 baseline = store.get_pr_watch_state(key) if store else None

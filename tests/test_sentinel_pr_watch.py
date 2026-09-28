@@ -181,3 +181,25 @@ def test_unknown_mergeable_never_overwrites_the_baseline(store, sent, monkeypatc
     sentinel._check_github({})
     assert store.get_pr_watch_state("acme/widgets#7")["mergeable_state"] == "dirty"
     assert len(sent) == 1
+
+
+def test_failed_fetch_keeps_baseline_and_stays_silent(store, sent, monkeypatch):
+    """status='?' (GitHub error payload) is no transition and no baseline:
+    the durable row keeps its real values, nothing is sent."""
+    from services import sentinel
+    store.set_pr_watch_state("acme/widgets#7", "open", "clean")
+    _watch(monkeypatch, store)
+
+    class _RateLimited:
+        def json(self):
+            return {"message": "API rate limit exceeded"}   # no state/merged
+
+    monkeypatch.setattr(sentinel.requests, "get",
+                        lambda url, **kw: _RateLimited())
+
+    sentinel._check_github({})
+
+    assert sent == []
+    row = store.get_pr_watch_state("acme/widgets#7")
+    assert row["status"] == "open"
+    assert row["mergeable_state"] == "clean"
