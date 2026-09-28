@@ -644,3 +644,74 @@ def test_standard_b64_signature_drives_json500_recovery(env, monkeypatch):
     assert settlement["transaction"] == TX_SELF
     row = dash.payment_guard_row(TX_SELF)
     assert row and row["delivered_at"], "recovery delivery stamps the claim"
+
+
+# ── Placeholder-hash root: the lag claim must never write '000…0' (28.09) ────
+
+def test_lag_window_claim_re_reads_the_anchor_and_never_writes_zeros(env,
+                                                                     monkeypatch):
+    """23.09, tx 0x22c4…52ab: during a node-lag window the standard rail reads
+    the receipt (main.py ~2857) BEFORE the C2 lag helper, and the node answers
+    the real block number with an ALL-ZERO blockHash (the block was not in its
+    canonical view yet). The helper re-reads the HEAD, never the receipt — so
+    the stale zero hash used to land in payment_guards as '000…0', and reorg
+    detection then compared it against the real hash forever (1273 false
+    c2_reorg events on 23.09).
+
+    The claim now re-reads the ANCHOR by height once the head is accepted;
+    before that fix this test fails on the stored row (64 zeros).
+    """
+    main, dash, client = env.main, env.dash, env.client
+
+    monkeypatch.setattr(env.connectors, "verify_standard_payment",
+                        lambda h, r: (True, PAYER, "verified_locally"))
+    monkeypatch.setattr(env.connectors, "settle_standard_payment",
+                        lambda h, r: (TX_SELF, "settled_self_broadcast"))
+
+    receipt = dict(_receipt(TX_SELF, 100, PAYER, 5000,
+                            main.X402_RECEIVER_ADDRESS))
+    receipt["blockHash"] = "0x" + "00" * 32        # the lag-window answer
+
+    class _LagEth(_FakeEth):
+        """head reads: stale → stale → caught up (the waited path);
+        get_block answers with the REAL hash the receipt could not carry."""
+
+        def __init__(self):
+            super().__init__(block_number=99,
+                             receipts={TX_SELF: receipt}, auth_logs=[])
+            # one read happens before the helper; its first/refresh reads stay
+            # stale (99) and only the post-wait read sees the caught-up head.
+            self._seq = [99, 99, 99, 105]
+            self._reads = 0
+
+        @property
+        def block_number(self):
+            i = self._reads
+            self._reads = i + 1
+            return self._seq[i] if i < len(self._seq) else self._seq[-1]
+
+        @block_number.setter
+        def block_number(self, value):
+            pass                      # _FakeEth.__init__ seeds it; keep seq
+
+        def get_block(self, height):
+            return {"hash": bytes.fromhex("cd" * 32)}
+
+    _install_fake_web3(monkeypatch, _LagEth())
+
+    header = _standard_header(main)
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": header})
+    assert r.status_code == 200, r.get_json()
+
+    kinds = dash.guard_stats(recent_limit=5)["by_kind"]
+    assert kinds.get("waited_and_accepted") == 1, kinds
+    assert "node_lagging_rejected" not in kinds
+
+    anchors = dash.guard_claims_with_blocks()
+    assert len(anchors) == 1, anchors
+    assert anchors[0]["block_number"] == 100
+    stored = (anchors[0].get("block_hash") or "").lower()
+    assert stored.removeprefix("0x").strip("0"), \
+        "the claim stored the all-zero placeholder — the 23.09 bug"
+    assert stored.removeprefix("0x") == "cd" * 32, \
+        "the anchor must be re-read from the block by height"

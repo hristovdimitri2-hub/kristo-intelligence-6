@@ -2898,6 +2898,24 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     except Exception as exc:
         log.info("settlement receipt block fetch failed (non-fatal): %s", exc)
 
+    # Placeholder-hash root fix (28.09): during a node-lag window the receipt
+    # read above can answer with an ALL-ZERO blockHash — 23.09, tx 0x22c4…52ab:
+    # real block number 51670537 but a 64-zero hash, which later produced 1273
+    # false c2_reorg alerts (the detector compared the placeholder with the
+    # real hash every cycle). The lag helper re-reads the HEAD, never the
+    # receipt, so the stale zero hash reached payment_guards. The head is
+    # accepted now — re-read the ANCHOR by height; an unreadable anchor becomes
+    # '' (no anchor data), NEVER the '000…0' placeholder.
+    if block_number and (not block_hash
+                         or (block_hash[2:] if block_hash.startswith("0x")
+                             else block_hash).strip("0") == ""):
+        try:
+            reread = _read_block_hash(block_number) or ""
+        except Exception:
+            reread = ""
+        anchor = reread[2:] if reread.startswith("0x") else reread
+        block_hash = reread if anchor.strip("0") else ""
+
     # C1 — durable replay lock on the standard rail too: the same settlement
     # tx can never buy a second call, even across restarts.
     recovered = False
