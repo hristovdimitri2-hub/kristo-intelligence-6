@@ -144,3 +144,40 @@ def test_payment_alert_falls_back_to_the_channel(store, sent, monkeypatch, tmp_p
 
     assert len(sent) == 1
     assert sent[0][1] == ""                  # empty → _tg_send resolves the channel
+
+
+# ── 5. conflict watch is open-only; "unknown" never overwrites ──────────────
+def test_conflict_alert_skipped_for_non_open_pr(store, sent, monkeypatch):
+    """A closed PR going dirty gets the status change, NOT the conflict alarm."""
+    from services import sentinel
+    store.set_pr_watch_state("acme/widgets#7", "open", "clean")
+    _watch(monkeypatch, store)
+    _fake_github(monkeypatch, state="closed", mergeable_state="dirty")
+
+    sentinel._check_github({})
+
+    assert len(sent) == 1                     # only open → closed
+    assert "ℹ️" in sent[0][0] and "closed" in sent[0][0]
+    assert not any("⚠️" in text for text, _ in sent)
+
+
+def test_unknown_mergeable_never_overwrites_the_baseline(store, sent, monkeypatch):
+    """mergeable_state=unknown is information-free: baseline stays put,
+    and the real transition is still detected once GitHub settles."""
+    from services import sentinel
+    store.set_pr_watch_state("acme/widgets#7", "open", "clean")
+    _watch(monkeypatch, store)
+
+    _fake_github(monkeypatch, mergeable_state="unknown")
+    sentinel._check_github({})
+    assert sent == []
+    assert store.get_pr_watch_state("acme/widgets#7")["mergeable_state"] == "clean"
+
+    _fake_github(monkeypatch, mergeable_state="dirty")   # clean → dirty: alert
+    sentinel._check_github({})
+    assert len(sent) == 1 and "⚠️" in sent[0][0]
+
+    _fake_github(monkeypatch, mergeable_state="unknown")  # unknown must not reset
+    sentinel._check_github({})
+    assert store.get_pr_watch_state("acme/widgets#7")["mergeable_state"] == "dirty"
+    assert len(sent) == 1

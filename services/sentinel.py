@@ -288,7 +288,13 @@ def _check_github(state: dict) -> None:
                     )
                 # CONFLICTING/DIRTY: one message per TRANSITION into conflict,
                 # not one per cycle (the baseline keeps "dirty" until it clears).
-                if prev_ms and prev_ms != "dirty" and mergeable_state == "dirty":
+                # Only an OPEN PR has a meaningful conflict state, and GitHub's
+                # "unknown" (still computing) carries NO information — it must
+                # never overwrite the stored baseline.
+                eff_ms = prev_ms if mergeable_state in ("", "unknown") \
+                    else mergeable_state
+                if (status == "open" and prev_ms and prev_ms != "dirty"
+                        and eff_ms == "dirty"):
                     _tg_send(
                         f"⚠️ <b>PR има конфликт</b>\n"
                         f"{key}\n"
@@ -296,8 +302,7 @@ def _check_github(state: dict) -> None:
                     )
                 if store:
                     try:
-                        store.set_pr_watch_state(
-                            key, status, mergeable_state or prev_ms)
+                        store.set_pr_watch_state(key, status, eff_ms)
                     except Exception as exc:
                         log.warning("Sentinel PR baseline write failed for %s: %s",
                                     key, exc)
