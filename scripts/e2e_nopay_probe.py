@@ -14,11 +14,15 @@
 
 Защити: payTo/цени/стражи НЕ се пипат (само четене + синтетичен proof,
 който сървърът отказва). Никакъв ключ, никакво балансово движение.
+ФЛАГ `--pay`: САМО тогава (и само със зареден DEMO_PRIVATE_KEY) стъпка 6
+изпълнява реалния превод на 3000 atomic USDC + retry с истински proof.
+Без ключ — честен PRE-SKIPPED с едноредова инструкция, exit 0.
 """
 from __future__ import annotations
 
 import base64
 import json
+import os
 import statistics
 import sys
 import time
@@ -29,6 +33,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE = "https://kristo-intelligence-api.onrender.com"
 ENDPOINT = "/api/v1/signal"
+PAY = "--pay" in sys.argv[1:]
 FAILS: list[str] = []
 
 
@@ -121,12 +126,87 @@ print(f"[5] retry (no proof)     {code}  {ms:7.1f} ms")
 check("challenge-ът се издава отново — claim няма, state не е променен",
       code == 402, str(code))
 
-# ── 6. Какво остава (документира се, не се изпълнява) ────────────────────────
+# ── 6. Реално плащане — само с --pay и зареден DEMO_PRIVATE_KEY ────────────────
 print("-" * 66)
-print("[6] ПОСЛЕДНА СТЪПКА — ЧАКА WALLET (човешко зареждане, не решение):")
-print("     плати 3000 atomic ($0.003 USDC) → незабавен retry цикъл")
-print("     (~6× на 3-5s, за да се улови естественият 425 прозорец на")
-print("     вътрешния node) → до 200 данни. Нужно: funded DEMO_PRIVATE_KEY.")
+if not PAY:
+    print("[6] ПОСЛЕДНА СТЪПКА — ЧАКА WALLET (човешко зареждане, не решение):")
+    print("     плати 3000 atomic ($0.003 USDC) → незабавен retry цикъл")
+    print("     (~6× на 3-5s, за да се улови естественият 425 прозорец на")
+    print("     вътрешния node) → до 200 данни. Нужно: funded DEMO_PRIVATE_KEY.")
+    print("     Автоматизирано: пусни с флага --pay (виж логиката по-долу).")
+else:
+    pk = os.getenv("DEMO_PRIVATE_KEY", "").strip()
+    if not pk:
+        # Честен PRE-SKIPPED — не е грешка, просто чака човешко действие.
+        print("[6] PAY: PRE-SKIPPED — DEMO_PRIVATE_KEY не е зададен в средата.")
+        print("     ИНСТРУКЦИЯ: зареди DEMO_PRIVATE_KEY с USDC (>=0.003 + газ за Base) "
+              "и пусни отново: python scripts/e2e_nopay_probe.py --pay")
+        print("=" * 66)
+        print("A2 PAY:", "PRE-SKIPPED (no DEMO_PRIVATE_KEY)"
+              + ("" if not FAILS else f"  + {len(FAILS)} FAILED: {FAILS}"))
+        sys.exit(1 if FAILS else 0)
+
+    try:
+        from web3 import Web3
+        from config import BASE_RPC_URL, BASE_USDC_CONTRACT
+
+        w3 = Web3(Web3.HTTPProvider(BASE_RPC_URL, request_kwargs={"timeout": 30}))
+        acct = w3.eth.account.from_key(pk)
+        payer = Web3.to_checksum_address(acct.address)
+        usdc = w3.eth.contract(
+            address=Web3.to_checksum_address(BASE_USDC_CONTRACT),
+            abi=[
+                {"name": "balanceOf", "type": "function", "stateMutability": "view",
+                 "inputs": [{"name": "account", "type": "address"}],
+                 "outputs": [{"name": "", "type": "uint256"}]},
+                {"name": "transfer", "type": "function", "stateMutability": "nonpayable",
+                 "inputs": [{"name": "to", "type": "address"},
+                            {"name": "value", "type": "uint256"}],
+                 "outputs": [{"name": "", "type": "bool"}]},
+            ])
+        atomic = int(amount)
+        check("challenge amount е 3000 atomic (както гласи F1)", atomic == 3000,
+              str(atomic))
+        bal = usdc.functions.balanceOf(payer).call()
+        if bal < atomic:
+            print(f"[6] BALANCE: DEMO портфейлът държи {bal} atomic USDC < {atomic} — "
+                  "зареди USDC (+ газ ETH) и пусни отново --pay.")
+            sys.exit(1)
+        tx = usdc.functions.transfer(
+            Web3.to_checksum_address(str(pay_to)), atomic).build_transaction({
+                "from": payer, "nonce": w3.eth.get_transaction_count(payer),
+                "gas": 60_000, "chainId": 8453,
+                "maxFeePerGas": w3.to_wei(5, "gwei"),
+                "maxPriorityFeePerGas": w3.to_wei(1, "gwei"),
+            })
+        signed = acct.sign_transaction(tx)
+        raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+        tx_hash = w3.eth.send_raw_transaction(raw)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        tx_hex = "0x" + bytes(tx_hash).hex()
+        check("USDC преводът от 3000 atomic е минат (status=1)",
+              receipt.status == 1, tx_hex[:20] + "…")
+
+        proof = b64url({"payer": payer, "transaction_hash": tx_hex,
+                        "amount_usdc": 0.003})
+        seen: list[int] = []
+        for i in range(6):
+            code, ms, body = timed_get(ENDPOINT, {"X-Payment-Proof": proof})
+            seen.append(code)
+            print(f"[6.{i + 1}] retry (real proof)    {code}  {ms:7.1f} ms")
+            if code == 200:
+                break
+            time.sleep(3 + (i % 3))          # 3–5 s — улавя 425 прозореца
+        check("стигна се до 200 (по пътя са възможни 425)", bool(seen) and seen[-1] == 200,
+              str(seen))
+        if bool(seen) and seen[-1] == 200:
+            print(f"    200 payload: {body[:160]}")
+            print("    guard_events доклад: пусни scripts/_guard_row_select.py и виж "
+                  "реда за tx " + tx_hex[:22] + "…")
+    except Exception as exc:                 # никога не глътва грешката мълчаливо
+        check("pay flow се изпълни без изключение", False,
+              f"{type(exc).__name__}: {exc}")
+
 print("=" * 66)
 print("A2 NO-PAY:", "ALL CHECKS PASSED ✅" if not FAILS
       else f"{len(FAILS)} FAILED: {FAILS}")
