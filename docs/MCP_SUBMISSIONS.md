@@ -11,7 +11,7 @@
 - OpenAPI: `https://kristo-intelligence-api.onrender.com/openapi.json`
 - Description: `Paid DeFi intelligence API on Base: trading-agent signals (action, confidence, price, reasoning for ETH/ONDO/KAITO/DEGEN), cross-DEX arbitrage spreads, whale USDC tracking, rug-risk checks. x402-native: agents pay per call in USDC, from $0.003 — no signup, no API keys.`
 - Category: Finance / Market Data
-- Pricing note: pay-per-call via x402 protocol (HTTP 402 challenge), $0.003–$0.05
+- Pricing note: pay-per-call via x402 protocol (HTTP 402 challenge), $0.003–$0.005
 
 ## 1. PulseMCP (най-бързото — форма, без PR)
 1. Отиди на pulsemcp.com → „Add Server" / Submit

@@ -23,7 +23,7 @@
 | `GET /api/stats` | 0.005 | `5000` | ✅ 402, CAIP-2 `eip155:8453`, `extra.name = "USD Coin"` |
 | `GET /api/bot-status` | 0.005 | `5000` | ✅ същото |
 | `GET /api/arb/opportunities` | 0.005 | `5000` | ✅ същото |
-| `GET /api/sales` | 0.05 | `50000` | ✅ същото |
+| `GET /api/sales` | 0.005 | `5000` | ✅ същото |
 
 - **Receiver (Base USDC):** `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
 - **USDC contract:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
