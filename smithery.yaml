@@ -1,0 +1,22 @@
+# Smithery configuration — https://smithery.ai/docs
+#
+# NOTE (29.09): the NEW Smithery/Arcade publish flow is URL-based
+# (https://smithery.ai/new → public HTTPS URL, streamable HTTP) and reads the
+# tool list by scanning the live server — this file keeps the classic
+# startCommand format documented in docs/MCP_SUBMISSIONS.md as the portable
+# fallback for registry tooling.
+#
+# Transports (both live):
+#   streamable HTTP : POST https://kristo-intelligence-api.onrender.com/mcp
+#   SSE              :     https://kristo-intelligence-api.onrender.com/mcp/sse
+#
+# Tools (3, advertised in /api/mcp/manifest and server.json):
+#   get_market_stats  -> GET /api/stats          ($0.005/call)
+#   get_onchain_sales -> GET /api/sales          ($0.005/call)
+#   get_bot_status    -> GET /api/bot-status     ($0.005/call)
+# All paid via x402 (HTTP 402 challenge, USDC on Base, chain 8453).
+
+startCommand:
+  type: sse
+  config:
+    url: https://kristo-intelligence-api.onrender.com/mcp/sse
