@@ -5150,6 +5150,21 @@ def _start_background_threads():
       - KRISTO_WORKER_MODE=true → always start (worker process mode)
     Default (neither flag): start threads inline (legacy single-process mode).
     """
+    # ── Root guard: duplicate module load (defect documented 30.09) ──
+    # A lazy `import main` (sentinel._dashboard_store, telegram_sales
+    # handlers, discovery routes) re-executes this module with a FRESH
+    # Flask app — so `app._bg_started` below is False again and every
+    # background loop would start a SECOND time in the same process
+    # (observed on every boot since 27.09: double revenue checks, double
+    # alerts, double blockchain-monitor settle attempts). os.environ is
+    # process-wide, so this flag is shared by the __main__ load and every
+    # re-execution — the second load skips ALL background threads.
+    if os.getenv("KRISTO_BG_THREADS_STARTED", "") == "1":
+        log.info(
+            "Background threads already started in this process "
+            "(KRISTO_BG_THREADS_STARTED=1) — duplicate module load skipped."
+        )
+        return
     if getattr(app, "_bg_started", False):
         return
     app._bg_started = True
@@ -5162,6 +5177,10 @@ def _start_background_threads():
         return
     if worker_mode:
         log.info("Worker mode active (KRISTO_WORKER_MODE=true) — starting all background threads.")
+
+    # Set only when threads are about to start, so the env guard above
+    # always means "a full thread set already runs in this process".
+    os.environ["KRISTO_BG_THREADS_STARTED"] = "1"
 
     # Start blockchain monitor (real wallet)
     t_chain = threading.Thread(target=_blockchain_monitor_loop, daemon=True, name="blockchain-monitor")

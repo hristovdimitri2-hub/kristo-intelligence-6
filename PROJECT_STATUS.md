@@ -37,12 +37,22 @@ fix(conversion): C2 re-reads the clock before refusing a facilitator settlement`
    (0 жив tx-shape трафик от 23.09; щета при задействане = временен отказ до
    самолечение, НЕ загуба на пари). Липсващият фикс = **adoption по детерминиран
    tx hash** (вместо authorization nonce). Остава в опашката **СЛЕД F1**.
-3. **НОВ ДЕФЕКТ:** Sentinel двойни цикъли → **дублирани Telegram alerts**
-   (доказано 30.09: два идентични „+0.0030, balance 0.0460" в 05:05:49.973 и
-   05:05:50.183). Статус: **диагностика** — механизмът е ДВЕ живи инстанции от
-   deploy-а на 28.09 20:34 (двойни boot-и в логовете), in-memory dedup на
-   `sentinel.py:174-177` не хваща междупроцесния случай; план за фикс чака
-   одобрение.
+3. **ДЕФЕКТ УТОЧНЕН + КОРЕН-ГАРД (30.09):** дублирани Telegram alerts идват от **двоен старт при ВСЕКИ boot**
+   — lazy `import main` (`services/sentinel.py:216`,
+   `telegram_sales.py:316/375/662/711`, discovery routes) преизпълнява
+   целия module-level код на `main.py` в ЕДИН контейнер (`-85rph`), пускайки
+   **ВСИЧКИ** цикъли втори път (вкл. двойни blockchain-monitor
+   settle-опити): втори Flask app, но **без** втори `app.run` → един
+   web-сървър, два комплекта нишки. Доказателство: два идентични
+   „+0.0030, balance 0.0460" в 05:05:49.973 и 05:05:50.183. Документирано
+   от **27.09** (`-7p5x5`) през `-28q4x` (преди deploy-а 28.09) до днес —
+   възпроизвежда се при всяко зареждане; старият контейнер `-jfcrh` е живял
+   само в swap-прозореца 20:34:43–20:35:04 и НЕ е носителят. In-memory dedup
+   на `sentinel.py:174-177` не хваща втория module state. **Корен-фикс
+   приложен локално (commit #8): env-var guard `KRISTO_BG_THREADS_STARTED`
+   в `_start_background_threads()` — `os.environ` е process-wide → второто
+   изпълнение пропуска всички нишки** (1 нов регресионен тест; suite
+   423/423). DB dedup (б) = отложен след F1 като втори слой (OPEN ITEMS).
 4. **ТОКЕН:** `TELEGRAM_BOT_TOKEN` е сменен **28.09 в прозореца
    18:33:16–18:36:56 UTC** (границите са последният 401 → deploy-ът, който го
    зареди), текущият е **`…zkp8`** и работи (getMe ok, днешните alerts стигнаха).
@@ -68,6 +78,8 @@ fix(conversion): C2 re-reads the clock before refusing a facilitator settlement`
 | **F8** — proof fast path (мониторът е записал sale + съвпадащ sender) заобикаля C2 дълбочината при claim (латентен, дефиниран 29.09) | Код / инженерна вълна | диагностика, чака вълна | няма |
 | **placeholder hash — EDGE:** `9418c8f` пази само при `block_number>0`; при receipt с `block_number=0` + нулев hash claim-ът още може да запише `000…0` (латентен, прецизиран 29.09) | Код / инженерна вълна | edge-case, чака вълна | няма |
 | **CORS** — browser клиенти не могат да четат x402 хедърите (латентен, дефиниран 29.09) | Код / инженерна вълна | дефиниран, чака вълна | няма |
+| **Werkzeug dev server** — prod работи на `python main.py` (werkzeug dev-сървър), Procfile/gunicorn НЕ се ползва; `numInstances=1` | Човек / решение | преглед СЛЕД F1 (worker-сървър при следващия deploy) | няма |
+| **DB dedup (б)** — трайна записка за alert-dedup (втори слой след env-guard-а от commit #8; пази и при бъдещ междупроцесен случай) | Код / инженерна вълна | СЛЕД F1 | няма |
 | *F2b (transaction-shape без nonce) и TODO retry >2.8h — вече са в тази таблица (редове по-горе).*
 
 *Махнати от таблицата, защото са ИЗПЪЛНЕНИ: placeholder-hash коренът (`9418c8f`) · flaky тестът (`a3d4362`) · двата nudge-а (публикувани 28.09) · ротация на `TELEGRAM_WEBHOOK_SECRET` (27.09) · `pr_watch_state` durable baseline (27–28.09).*

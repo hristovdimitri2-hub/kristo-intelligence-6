@@ -99,7 +99,7 @@ blockchain/wallet.py     # Base wallet, USDC transfers, on-chain verification
 scripts/                 # On-chain recon tools, demo agent, E2E helpers
 examples/demo_agent/     # Public reference x402 client
 docs/                    # Audit reports, recon findings, outreach docs
-tests/                   # Test suite (422 tests)
+tests/                   # Test suite (423 tests)
 ```
 
 ## Verification
@@ -109,7 +109,7 @@ tests/                   # Test suite (422 tests)
 - **x402 registered**: 11 resources on [x402scan](https://www.x402scan.com),
   canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
 - **23/23 adversarial audit** (mystery-agent simulation, see `docs/`)
-- **422 automated tests** in this repository
+- **423 automated tests** in this repository
 
 ## Docs
 
