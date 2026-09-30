@@ -1,6 +1,6 @@
 # DISTRIBUTION STATUS — пускане на Kristo Intelligence в x402 екосистемата
 
-*Актуализирано: 2026-09-22 (листинг каналите: Glama + PR #13219) · Сървър: https://kristo-intelligence-api.onrender.com (Render, live)*
+*Актуализирано: 2026-09-30 (Smithery → PUBLISHED, slug -v4) · 2026-09-22 (листинг каналите: Glama + PR #13219) · Сървър: https://kristo-intelligence-api.onrender.com (Render, live)*
 
 ---
 
@@ -13,7 +13,8 @@
 | **nohumans.directory** | ✅ 3× VERIFIED | Листинги активни. |
 | **BlockRun (data source)** | 🟡 ПРЕГОВОРИ (03.09) | Основателят @1bcmax зададе 2 due-diligence въпроса (consistency/quality + стойност спрямо x402) — отговорени 22:06 с аргументите settlement-proofs + curated discovery reach. Очаква решение за листинг; follow-up на Ден 5 ако мълчи. |
 | **Glama** | ✅ LIVE + CLAIMED (connectors **rated A**, servers **rated A**) | Два живи листинга: (1) `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` — Hosted, health-checked, оценен **A**; (2) `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` — claimed (glama.json), **released**, значка **„MCP server rated A"**, 3 tools с цени + remotes (`/mcp`, `/mcp/sse`). 🎫 **Билет #130688574** (първоначален) + 🎫 **Билет #135407945** (22.09, Frank се включи сам след build грешките): сървърът е регистриран под „Runs from source" по грешка; правилният тип е **„Hosted endpoint"** (нашият `/mcp` на Render) → поискан type change/reset, **чакаме отговор**. Значката/tools/release не се губят — type change само спира счупения build път. |
-| **MCP Registry / PulseMCP / mcp.so / Smithery** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
+| **MCP Registry / PulseMCP / mcp.so** | ⏳ ПРЕЗ PayAPI | PayAPI автоматично публикува одобрени листинги в тези канали. |
+| **Smithery** | ✅ **PUBLISHED 2026-09-30** | https://smithery.ai/server/hristovdimitri2/kristo-intelligence-v4 — **score 76/100**, **3/3 tools detected**; slug „-v4“, защото базовият „kristo-intelligence“ беше зает; description + homepage + GitHub линк попълнени; **Unlisted: не**. |
 | **awesome-x402 (PR #1308) / awesome-mcp-servers (PR #13219)** | ⏳ Отворени PR-и | **#13219 (21.09):** значката е добавена в искания от Frank формат (servers `OWNER/REPO`, веднага след линка) → бот етикетът `missing-glama` падна сам, остава `has-glama`; чака се merge от Frank. #1308 (awesome-x402) — без ревю. Детайли: LISTING_CHANNELS_AUDIT.md |
 
 ## 2. Платени endpoints (всички верифицирани live на 2026-08-30)

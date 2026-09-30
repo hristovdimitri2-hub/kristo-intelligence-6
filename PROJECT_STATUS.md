@@ -57,6 +57,10 @@ fix(conversion): C2 re-reads the clock before refusing a facilitator settlement`
    18:33:16–18:36:56 UTC** (границите са последният 401 → deploy-ът, който го
    зареди), текущият е **`…zkp8`** и работи (getMe ok, днешните alerts стигнаха).
    „Кой е инициирал смяната" — **отворен въпрос** (чака GLM 5.3).
+5. **ВИДИМОСТ:** Smithery gap CLOSED 2026-09-30 — listing live, score 76/100.
+   (https://smithery.ai/server/hristovdimitri2/kristo-intelligence-v4, 3/3
+   tools, slug „-v4“ — детайли в `docs/DISTRIBUTION_STATUS.md`; старите
+   текстове „ПРЕЗ PayAPI“ и „ПУБЛИКУВАНО УСПЕШНО“ от 07.09 са остарели.)
 
 ## 📋 OPEN ITEMS
 
@@ -2405,7 +2409,9 @@ H2 (bound proof на чужд път → 401 без консумация; legacy
 - ✅ **ИЗПЪЛНЕНО И ПОТВЪРДЕНО:** разписката на Chet + линкът към статията — изпратени. НЕ се включват повече в „остава за човека".
 - ❌ **ПРЕМАХНАТО:** X постът — обявен за мъртъв от собственика. Не се споменава в планове/табла.
 - 🗄 **ПАРКИРАНО:** loopA мостът — готов текст в `LOOPEEMAIL_PACKAGE.md`, чака канал. Не е мъртъв, но не е активен ход.
-- ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery.
+- ✅ **ПУБЛИКУВАНО УСПЕШНО:** Smithery. **[УТОЧНЕНИЕ 30.09 — остаряло:**
+  потвърденият жив листинг е от 2026-09-30 (score 76/100, slug „-v4“),
+  вж. CURRENT/LEDGER 30.09.]
 - ⏳ **Glama:** чака човешки преглед — билет **#130688574**.
 - ⏳ **PulseMCP → 🛑 ПРИЕМА СПРЯНО (проверено на живо 07.09, pulsemcp.com/submit):** „Apologies, submissions and changes are temporarily paused… We are not accepting new MCP server or client submissions right now" (Last updated: September 3, 2026 — паузата е от 03.09). **Опция за БЪДЕЩЕ (без изпълнение, решение на собственика):** препоръката на сайта е да публикуваме в **Official MCP Registry** (registry.modelcontextprotocol.io) — „That is the best first step even when we are not paused, and we will pick it up automatically once we are back" — PulseMCP щяха да ни вземат автоматично при връщането си. Забележка: Registry вече е обвързан и с PayAPI потока („през PayAPI"), така че ръчното подаване е отделен, по-късен ход.
 - 🐋 **Whale flow построен (09-10.09, ДАВАЙ на собственика) — чака canary.**
@@ -2527,7 +2533,7 @@ H2 (bound proof на чужд път → 401 без консумация; legacy
 | Разписка към Chet | ✅ ИЗПЪЛНЕНО | ПОСТОЯННИ ОТБЕЛЕЖКИ (горе): „разписката… изпратени. НЕ се включват повече в остава за човека" |
 | Линк към статията за Chet | ✅ ИЗПЪЛНЕНО | същият ред — и двете изпратени |
 | Follow-up към Glama (билет #130688574) | ✅ ИЗПРАТЕН ДНЕС (07.09) | по потвърждение на собственика в задачата (нотификацията/коментарът се виждат само в неговия Glama акаунт — от мен не е проверяем) |
-| Smithery Publish | ✅ ИЗПЪЛНЕНО | ПОСТОЯННИ ОТБЕЛЕЖКИ: „ПУБЛИКУВАНО УСПЕШНО: Smithery" |
+| Smithery Publish | ✅ ИЗПЪЛНЕНО | ПОСТОЯННИ ОТБЕЛЕЖКИ: „ПУБЛИКУВАНО УСПЕШНО: Smithery" **[остаряло 30.09: живият листинг е 2026-09-30, score 76/100 — см. LEDGER 30.09]** |
 | travel-api → private | ✅ ИЗПЪЛНЕНО | GitHub API PATCH (07.09); анонимен GET → 404 |
 | foresight-oracle weekly | ✅ ИЗКЛЮЧЕН | API: state = `disabled_manually` (потвърдено анонимно) |
 | PulseMCP — сайтът отворен? | 🛑 **НЕ — приема СПРЯНО** | жива проверка 07.09: pulsemcp.com/submit → „submissions and changes are temporarily paused" (от 03.09). Формата съществува, но не приема. Опция за бъдеще (без изпълнение): Official MCP Registry по препоръка на сайта |
