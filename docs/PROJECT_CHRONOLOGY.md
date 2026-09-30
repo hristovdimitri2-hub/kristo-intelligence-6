@@ -247,7 +247,10 @@ WATERMARK DURABLE", „ДИАГНОЗА 1M КИТА", „ПУБЛИЧЕН TRACK 
   в канала — **420+ теста**.
 - **Сигурност:** `TELEGRAM_WEBHOOK_SECRET` **ротиран** (env PUT + setWebhook с
   същия URL, getWebhookInfo чист, e2e `/vip` → 200 `vip_offer`); правило: **env
-  се изброяват само по ИМЕ**.
+  се изброяват само по ИМЕ**. **Датата е 28.09 (потвърдено по логове 30.09):**
+  rejection 401 в 08:18:48 → e2e 200 в 08:25:52 UTC, повторна проверка 19:03:42;
+  на 27.09 webhook-събитията са само boot-регистрации (0 e2e/rejection) —
+  `PROJECT_STATUS` беше записал „27.09" и е коригиран.
 - **Инструменти:** `scripts/_pr_watch_select.py` (read-only SELECT през Render
   job — днешните routes: `/v1/services/{sid}/jobs/{id}` + `/v1/logs?ownerId&resource`).
 - **Този архив:** `docs/PROJECT_CHRONOLOGY.md` — цялата история на едно място.

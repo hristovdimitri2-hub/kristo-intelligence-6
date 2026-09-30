@@ -9,7 +9,7 @@
 - **Ботът е жив и зелен:** getMe ok · webhook запазен (clean, pending 0, без last_error) · synthetic `/vip` → 200 `vip_offer` (28.09 19:03 UTC).
 - **F1 гейт:** A1 живо; A2 no-pay E2E зелено; **скриптът готов до ключ** — `python scripts/e2e_nopay_probe.py --pay` (комит `2ef3df4`): без ключ честен PRE-SKIPPED с едноредова инструкция, с ключ върши целия pay-flow (3000 atomic → retry 6× 3–5s → 200 → указание за guard_events). Остава **само човешкото действие**: funded `DEMO_PRIVATE_KEY`.
 - **Срокове:** **PR #13219 → 01.10.2026** (32-дневно правило, брои се от създаването — коментари не reset-ват, калибрирано по #11557); **PR #1308 → 08.10.2026** (45 дни от 24.08). И двата nudge-а са публикувани **28.09 19:10 UTC** и са последните коментари в нишките.
-- **Сигурност:** `TELEGRAM_WEBHOOK_SECRET` ротиран (27.09, e2e проверено); ротацията на `RENDER_API_KEY`/`ADMIN_API_TOKEN` има **готов план**, изпълнението чака одобрение.
+- **Сигурност:** `TELEGRAM_WEBHOOK_SECRET` ротиран (**28.09**, e2e проверено — дата коригирана 30.09 по логове: rejection 401 в **08:18:48** → e2e 200 в **08:25:52 UTC**; на 27.09 няма нито един e2e/rejection → „27.09" беше грешен, вж. `PROJECT_CHRONOLOGY`); ротацията на `RENDER_API_KEY`/`ADMIN_API_TOKEN` има **готов план**, изпълнението чака одобрение.
 - **Отворени дългове (една линия всеки):** F2b tx-hash идемпотентност (дефиниран, чака вълна) · TODO тест retry >2.8h извън 5000-блоковия прозорец · F1 стъпка 6 чака ключа · ротацията чака „да" · Chet re-warehouse писмо чака реакция · PulseMCP чака решение · Glama `license: F` / `quality: null` · `0xA19F` relabel · whaleflow DB 458MB/1GB преди рестарт · съобщението от Frank не е открито (7-дневен retention).
 
 ## 💸 INCIDENT 14.09 — платещ външен отказан от C2 race (записан 29.09)
@@ -53,10 +53,13 @@ fix(conversion): C2 re-reads the clock before refusing a facilitator settlement`
    в `_start_background_threads()` — `os.environ` е process-wide → второто
    изпълнение пропуска всички нишки** (1 нов регресионен тест; suite
    423/423). DB dedup (б) = отложен след F1 като втори слой (OPEN ITEMS).
-4. **ТОКЕН:** `TELEGRAM_BOT_TOKEN` е сменен **28.09 в прозореца
-   18:33:16–18:36:56 UTC** (границите са последният 401 → deploy-ът, който го
-   зареди), текущият е **`…zkp8`** и работи (getMe ok, днешните alerts стигнаха).
-   „Кой е инициирал смяната" — **отворен въпрос** (чака GLM 5.3).
+4. **ТОКЕН — СЛУЧАЯТ РАЗРЕШЕН (30.09):** `TELEGRAM_BOT_TOKEN` е сменен
+   **28.09 в прозореца 18:32:07–18:36:49 UTC** (първият 401 → успехът след
+   deploy-а), текущият е **`…zkp8`** и работи (getMe ok, днешните alerts
+   стигнаха).
+   **Инициатор: Богдан (собственик), ръчна ротация по runbook
+   `MARKETING_KIT.md:136` (@BotFather → /revoke → new token → Render →
+   Environment); документирана задача нямаше; инцидент — НЕ.**
 5. **ВИДИМОСТ:** Smithery gap CLOSED 2026-09-30 — listing live, score 76/100.
    (https://smithery.ai/server/hristovdimitri2/kristo-intelligence-v4, 3/3
    tools, slug „-v4“ — детайли в `docs/DISTRIBUTION_STATUS.md`; старите
@@ -86,7 +89,7 @@ fix(conversion): C2 re-reads the clock before refusing a facilitator settlement`
 | **DB dedup (б)** — трайна записка за alert-dedup (втори слой след env-guard-а от commit #8; пази и при бъдещ междупроцесен случай) | Код / инженерна вълна | СЛЕД F1 | няма |
 | *F2b (transaction-shape без nonce) и TODO retry >2.8h — вече са в тази таблица (редове по-горе).*
 
-*Махнати от таблицата, защото са ИЗПЪЛНЕНИ: placeholder-hash коренът (`9418c8f`) · flaky тестът (`a3d4362`) · двата nudge-а (публикувани 28.09) · ротация на `TELEGRAM_WEBHOOK_SECRET` (27.09) · `pr_watch_state` durable baseline (27–28.09).*
+*Махнати от таблицата, защото са ИЗПЪЛНЕНИ: placeholder-hash коренът (`9418c8f`) · flaky тестът (`a3d4362`) · двата nudge-а (публикувани 28.09) · ротация на `TELEGRAM_WEBHOOK_SECRET` (28.09; датата коригирана от 27.09 по логове на 30.09) · `pr_watch_state` durable baseline (27–28.09).*
 
 ## 📚 HISTORY — целият архив (текст до 28.09, без изтривания)
 
