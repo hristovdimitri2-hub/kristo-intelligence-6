@@ -41,7 +41,18 @@ def health():
     and resumes scanning from the last checked block, so no incoming
     payment is ever missed during an RPC hiccup.
     """
-    from main import _lock, _wallet_state, crm_store
+    import sys as _sys
+
+    _entry = _sys.modules.get("__main__")
+    # `python main.py`: the real initialized state lives in __main__; the lazy
+    # `import main` copy never starts its threads (env guard) and keeps the
+    # defaults — reading it reported a false "degraded".
+    if str(getattr(_entry, "__file__", "") or "").replace("\\", "/").rsplit("/", 1)[-1] == "main.py":
+        _lock = _entry._lock
+        _wallet_state = _entry._wallet_state
+        crm_store = _entry.crm_store
+    else:
+        from main import _lock, _wallet_state, crm_store
     from config import BASE_CHAIN_ID
 
     crm_ready = crm_store.is_healthy()
