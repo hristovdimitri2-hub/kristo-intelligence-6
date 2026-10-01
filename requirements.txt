@@ -11,6 +11,10 @@ gunicorn==26.1.0
 
 # ── Blockchain ─────────────────────────────────────────────────────────────
 web3==7.16.0
+# Pinned (01.10): hexbytes is transitive via web3, and hexbytes>=2 returns
+# .hex() WITHOUT the 0x prefix — that drift silently broke the manual
+# X-Payment-Proof rail until the _to_hex0x normalizations in main.py.
+hexbytes==2.0.0
 
 # ── HTTP / APIs ────────────────────────────────────────────────────────────
 requests==2.34.2

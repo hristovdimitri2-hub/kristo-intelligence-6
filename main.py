@@ -786,7 +786,7 @@ def _process_incoming_transfer(wallet, log_entry):
         amount_usd = amount_raw / (10 ** decimals)
 
         # Get tx hash
-        tx_hash = log_entry["transactionHash"].hex() if hasattr(log_entry["transactionHash"], "hex") else str(log_entry["transactionHash"])
+        tx_hash = _to_hex0x(log_entry["transactionHash"])
 
         # Get block timestamp
         block = wallet.w3.eth.get_block(log_entry["blockNumber"])
@@ -2614,8 +2614,8 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
                 topics = log_entry.get("topics") or []
                 if address != usdc_addr or len(topics) < 3:
                     continue
-                topic0 = topics[0].hex() if hasattr(topics[0], "hex") else str(topics[0])
-                if topic0.lower() != _TRANSFER_EVENT_TOPIC:
+                topic0 = topics[0].hex() if hasattr(topics[0], "hex") else topics[0]
+                if _to_hex0x(topic0) != _TRANSFER_EVENT_TOPIC:
                     continue
                 from_topic = topics[1].hex() if hasattr(topics[1], "hex") else str(topics[1])
                 to_topic = topics[2].hex() if hasattr(topics[2], "hex") else str(topics[2])
@@ -2711,10 +2711,19 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
     if amount is None:
         amount = _verify_payment_onchain(tx, proof["payer"], price)
         if amount is None:
+            log.warning(
+                "x402 proof not verified on-chain: tx=%s payer=%s amount=%s "
+                "price=%s path=%s",
+                tx, proof["payer"], amount, price, endpoint,
+            )
             return False
         verified_onchain = True
 
     if amount + 1e-9 < price:
+        log.warning(
+            "x402 proof underpaid: tx=%s amount=%s price=%s path=%s",
+            tx, amount, price, endpoint,
+        )
         return False
 
     # C1 — DURABLE claim. This is the lock: one tx hash, one paid call, and
