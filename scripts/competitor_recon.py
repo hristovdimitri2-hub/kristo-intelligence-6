@@ -82,6 +82,19 @@ KNOWN_PAYERS = {
     # "1 + N" seeding we saw for A19F). It paid our $0.003 tier once
     # (2026-09-14 19:57 UTC, block 51313253) → heartbeat, never a launch signal.
     "0xe3badbd4f38214b9eae528a1a5398f6678f63fb3": "market_crawler_e3ba",
+    # PROMOTED 02.10 — first seen on our receiver 02.10 13:12 UTC (one payment
+    # of the $0.003 signal tier, block 52078713, tx 0x6abd9c30…fba7b). The
+    # 30-day fingerprint settles it: **939 outgoing USDC transfers to 353
+    # DISTINCT receivers in 13 days (≈197/week)** — seven times our own
+    # CRAWLER_MIN_RECEIVERS=50 threshold — across $0.001–$5 tiers, with 57
+    # receivers paid 2–36× (loop re-sampling). Corroborating: it never sent a
+    # native tx (0 rows) — every payment is relayed via EIP-3009
+    # transferWithAuthorization (selector 0xe3ee160e, submitter
+    # 0x8F5cB67B…531), and it is funded by the SAME hub 0x6302d9e6…57 that
+    # seeds a19f/54e1/e3ba/4dB7 ($0.01 on 02.10) plus $99.99 from 0x2CfF890f…
+    # (19.09). Machine by our own threshold → HEARTBEAT, never a launch
+    # signal; kept in the totals as a real settlement.
+    "0x4c29ec4f680ca88d0019edbfe3a8ff5c80499494": "market_crawler_4c29ec",
 }
 
 # ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──

@@ -66,6 +66,12 @@ PAYER_CLASSES = {
     # 707 distinct receivers (threshold: 50), so it was a crawler from the
     # start. Class `sampler` = heartbeat, never a launch signal.
     "market_crawler_e3ba": "sampler",
+    # 02.10: 0x4C29EC promoted — the 30-day fingerprint found **353 distinct
+    # receivers in 13 days (≈197/week)** vs threshold 50, all payments relayed
+    # (EIP-3009, no native txs) and seeded by the shared hub 0x6302d9e6.
+    # Class `sampler` = heartbeat, never a launch signal (external humans stay
+    # 0x4dB7 / 0x902dcf / 0xce4fbd).
+    "market_crawler_4c29ec": "sampler",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
