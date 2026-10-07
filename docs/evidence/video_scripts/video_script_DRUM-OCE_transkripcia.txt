@@ -1,0 +1,58 @@
+ТРАНСКРИПЦИЯ ЗА ЧЕТЕНЕ ПРЕД КАМЕРА — DRUM-OCE (лимит 3:00 мин)
+
+[0:00] КИРИЛИЦА (чети това):
+Хелоу, ми нейм из Димитри Христов - индивиджуъл апликант, ПИК: ейт, сикс, уан, уан, сикс, ейт, ейт, уан, фоур. Май проиджект из ДРЪМ: ан опън-сорс, фото-върифайд карбън римувъл енд инвайърънмънтал евидж леджър.
+
+АНГЛИЙСКИ (за сверка):
+Hello, my name is Dimitri Hristov - individual applicant, PIC 861168814. My project is DRUM: an open-source, photo-verified carbon removal and environmental evidence ledger.
+
+----------------------------------------------------------------------
+
+[0:20] КИРИЛИЦА (чети това):
+Тудей, карбън римувъл клеймс ар тръстид, нот проувън. Байърз, реджюлейтърз енд иншурърз кенът индипендентли върифай уот ъ кредит сейз - ем-ар-ви рипортс ар опак пи-ди-еф-ез зад ар нот тампър-евидънт. Фрод енд оувърклейминг хев дистройд конфиденс ин волънтри карбън маркетс. Енд фром туоу-туенти-севън, андъ зад ии-ю си-ар-си-иф риджюлейшън, къмпайлънт евидж маст би сърд-пърти върифайд.
+
+АНГЛИЙСКИ (за сверка):
+Today, carbon removal claims are trusted, not proven. Buyers, regulators and insurers cannot independently verify what a credit says - MRV reports are opaque PDFs that are not tamper-evident. Fraud and over-claiming have destroyed confidence in voluntary carbon markets. And from 2027, under the EU CRCF Regulation, compliant evidence must be third-party verified.
+
+----------------------------------------------------------------------
+
+[0:50] КИРИЛИЦА (чети това):
+ДРЪМ търнз еври римувъл клейм интоу върифайъбъл евидж обджект. Ич клейм бикъмз он евидж съртификейт анкърд туоу биткойн енд ии-ви-и блокчейнз - ъпенд-онли, тампър-евидънт. Ениуан кен ри-върифай еври пруф енд-туоу-енд, бикоз зад кор из фули опън сорс. Инкамбънтс сел дашбордз. Уи сел пруфс.
+
+АНГЛИЙСКИ (за сверка):
+DRUM turns every removal claim into a verifiable evidence object. Each claim becomes an evidence certificate anchored to Bitcoin and EVM blockchains - append-only, tamper-evident. Anyone can re-verify every proof end-to-end, because the core is fully open source. Incumbents sell dashboards. We sell proofs.
+
+----------------------------------------------------------------------
+
+[1:25] КИРИЛИЦА (чети това):
+Зъ маркит из свичинг он: уан туоу туоу билиън долърз тудей, ай-ем-ес сайтид файв туоу тен билиън бай туенти-тироу. Зъ ем-ар-ви маркит онли из уан пойнт файв туоу туоу билиън долърз - енд еври кредит керис ит аз ъ кост лайн.
+
+АНГЛИЙСКИ (за сверка):
+The market is switching on: 1 to 2 billion dollars today, IMF-cited 5 to 10 billion by 2030. The MRV market alone is 1.5 to 2 billion dollars - and every credit carries it as a cost line.
+
+----------------------------------------------------------------------
+
+[1:50] КИРИЛИЦА (чети това):
+Уи ар олреди лайв: туенти зироу три хандрид туенти-найн върификаейшън чекс сървд, фифти-ейт кънтрис, фор хандрид сикстийн оргънайзейшънз, фор хандрид фифти-ейт дивелъпърз - уиз зироу маркитинг спенд. Уи ар роутид сроу ем-си-пи енд ей-ай реджистри дайректориз, имбидид дайректли интоу дивелъпър уоркфлоуз.
+
+АНГЛИЙСКИ (за сверка):
+We are already live: 20,339 verification checks served, 58 countries, 416 organizations, 458 developers - with zero marketing spend. We are routed through MCP and AI registry directories, embedded directly into developer workflows.
+
+----------------------------------------------------------------------
+
+[2:10] КИРИЛИЦА (чети това):
+Ай ам зад фаундър, уиз оувър сърти ярз ин софтуеър енджиниринг, енд ай билт зад комплит ДРЪМ стак солоу. Ин яр уан ай клоуз зад гепс: он ем-ар-ви съртификаейшън адвайзър, он имбидид енджинир, енд ат лийст форти пърсент уимън амънг зад фърст фор хайърз.
+
+АНГЛИЙСКИ (за сверка):
+I am the founder, with over 30 years in software engineering, and I built the complete DRUM stack solo. In year one I close the gaps: an MRV certification advisor, an embedded engineer, and at least 40 percent women among the first four hires.
+
+----------------------------------------------------------------------
+
+[2:35] КИРИЛИЦА (чети това):
+Ай ам аскинг зад ий-ай-си фор туоу пойнт файв милиън юроуз ин грант фъндинг - бикоз, при-ривенью енд при-инкорпорейшън, ноу маркит актър уил фънд зад фоул амаунт йет. Зъ грант фъндс туенти-фор манси туоу ТРЛ (ти-ар-ел) найн, енд ъ кридибъл сийд раунд афтър ит. Вижън: зад дифоулт евидж лейър фор еври карбън римувъл енд инвайърънмънтал клейм уълд-уайд. Донт тръст - върифай. Сенк ю.
+
+АНГЛИЙСКИ (за сверка):
+I am asking the EIC for 2.5 million euros in grant funding - because, pre-revenue and pre-incorporation, no market actor will fund the full amount yet. The grant funds 24 months to TRL 9, and a credible seed round after it. Vision: the default evidence layer for every carbon removal and environmental claim worldwide. Don't trust - verify. Thank you.
+
+----------------------------------------------------------------------
+
