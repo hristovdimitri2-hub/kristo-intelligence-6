@@ -2867,20 +2867,50 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # populated on the settle path).
     block_number = 0
     block_hash = ""
+    receipt = None
     try:
         from web3 import Web3 as _W3
         _w3 = _W3(_W3.HTTPProvider(
             os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
             request_kwargs={"timeout": 20}))
         receipt = _w3.eth.get_transaction_receipt(tx_hash)
-        block_number = int(receipt.get("blockNumber", 0) or 0)
-        # Finality anchor (21.09): remember the CONFIRMING block's hash so a
-        # later re-read can prove this settlement was not reorganised away.
-        # Depth alone cannot see a reorg that keeps the height.
-        raw_hash = receipt.get("blockHash") or b""
-        block_hash = (
-            raw_hash.hex() if hasattr(raw_hash, "hex") else str(raw_hash)
-        ).lower()
+    except Exception as exc:
+        log.warning("settlement receipt fetch failed: %s: %s",
+                    type(exc).__name__, exc)
+
+    # а5 (07.10, одит): доставка САМО при доказан receipt.status == 1.
+    # Reverted receipt или недостъпен receipt = преводът не е доказан →
+    # fail-closed, БЕЗ доставка. Парите не се губят: ако преводът е станал,
+    # retry-то със същия proof го приема; ако не е — нова авторизация.
+    receipt_status = 0
+    if receipt is not None:
+        try:
+            receipt_status = int(receipt.get("status", 0) or 0)
+        except Exception:
+            receipt_status = 0
+    if receipt_status != 1:
+        g.x402_reject_reason = (
+            f"settlement_not_confirmed: receipt status={receipt_status} for tx "
+            f"{tx_hash} (1 = successful transfer) — fail-closed, no delivery. "
+            f"If the transfer is still confirming, retry the SAME proof shortly; "
+            f"if it never happened, sign a fresh authorization."
+        )
+        log.warning("standard x402 REFUSED (fail-closed, а5): tx=%s receipt "
+                    "status=%s — без доставка", tx_hash, receipt_status)
+        dashboard_db.record_guard_event(
+            "c2_receipt_status_refused", endpoint=path, tx_hash=tx_hash,
+            detail=f"receipt.status={receipt_status} — fail-closed (а5)")
+        return False
+
+    block_number = int(receipt.get("blockNumber", 0) or 0)
+    # Finality anchor (21.09): remember the CONFIRMING block's hash so a
+    # later re-read can prove this settlement was not reorganised away.
+    # Depth alone cannot see a reorg that keeps the height.
+    raw_hash = receipt.get("blockHash") or b""
+    block_hash = (
+        raw_hash.hex() if hasattr(raw_hash, "hex") else str(raw_hash)
+    ).lower()
+    try:
         # C2 (standard rail): the facilitator only returns after the tx is
         # mined, so the default depth here is 1 — raise
         # MIN_STANDARD_PAYMENT_CONFIRMATIONS to demand more. The head is
@@ -2914,7 +2944,7 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
                         f"enough on our node — 425, money already moved"))
             return False
     except Exception as exc:
-        log.info("settlement receipt block fetch failed (non-fatal): %s", exc)
+        log.info("confirmation check failed (non-fatal): %s", exc)
 
     # Placeholder-hash root fix (28.09): during a node-lag window the receipt
     # read above can answer with an ALL-ZERO blockHash — 23.09, tx 0x22c4…52ab:
@@ -2997,6 +3027,10 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     return True
 
 
+# г1: таван на EXTENSION-RESPONSES header стойността (~8KB).
+_EXT_HEADER_MAX_CHARS = 8192
+
+
 @app.after_request
 def _emit_payment_response(response):
     """x402 settlement receipt + DELIVERY bookkeeping (audit #4 / F1+F3).
@@ -3020,27 +3054,43 @@ def _emit_payment_response(response):
     # in EXTENSION-RESPONSES — raw JSON gets encoded, already-base64(JSON)
     # passes through verbatim, anything else is skipped (never a broken
     # header). Absent receipt = absent header.
+    # г1 (07.10, одит): целият блок е в try/around — счупен receipt НИКОГА не
+    # чупи отговора; стойността се санитизира (никакви CR/LF — response
+    # splitting) и се смалява до таван 8KB.
     ext_receipt = getattr(g, "x402_extension_receipt", None)
     if ext_receipt:
-        encoded = None
-        if isinstance(ext_receipt, (dict, list)):
-            encoded = base64.b64encode(
-                json.dumps(ext_receipt, separators=(",", ":")).encode()).decode()
-        else:
-            raw = str(ext_receipt).strip()
-            try:
-                json.loads(base64.b64decode(
-                    raw + "=" * (-len(raw) % 4)).decode("utf-8"))
-                encoded = raw                     # already base64(JSON)
-            except Exception:
+        try:
+            encoded = None
+            if isinstance(ext_receipt, (dict, list)):
+                encoded = base64.b64encode(
+                    json.dumps(ext_receipt, separators=(",", ":")).encode()).decode()
+            else:
+                raw = str(ext_receipt).strip()
                 try:
-                    json.loads(raw)               # raw JSON → encode below
-                    encoded = base64.b64encode(raw.encode()).decode()
+                    json.loads(base64.b64decode(
+                        raw + "=" * (-len(raw) % 4)).decode("utf-8"))
+                    encoded = raw                     # already base64(JSON)
                 except Exception:
-                    log.debug("extension receipt is neither base64(JSON) "
-                              "nor JSON — EXTENSION-RESPONSES skipped")
-        if encoded:
-            response.headers["EXTENSION-RESPONSES"] = encoded
+                    try:
+                        json.loads(raw)               # raw JSON → encode below
+                        encoded = base64.b64encode(raw.encode()).decode()
+                    except Exception:
+                        log.debug("extension receipt is neither base64(JSON) "
+                                  "nor JSON — EXTENSION-RESPONSES skipped")
+            if encoded:
+                # санитизация: CR/LF могат да дойдат от фасилитатора дори в
+                # валиден base64 поток — Werkzeug ще гръмне на нов ред в
+                # header стойност; махаме ги и таванираме размера.
+                encoded = encoded.replace("\r", "").replace("\n", "")
+                if len(encoded) > _EXT_HEADER_MAX_CHARS:
+                    log.warning("EXTENSION-RESPONSES too long (%d chars) — "
+                                "truncated to %d", len(encoded),
+                                _EXT_HEADER_MAX_CHARS)
+                    encoded = encoded[:_EXT_HEADER_MAX_CHARS]
+                response.headers["EXTENSION-RESPONSES"] = encoded
+        except Exception as exc:
+            log.warning("EXTENSION-RESPONSES emission failed (non-fatal, "
+                        "response unaffected): %s", exc)
     rid = getattr(g, "request_id", None)
     if rid:
         response.headers["X-Request-Id"] = rid

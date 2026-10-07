@@ -83,6 +83,40 @@ def test_quickstart_is_excluded_from_paywall(client, monkeypatch):
     assert client.get("/api/connectors").status_code == 200
 
 
+def _install_receipt(monkeypatch, status=1):
+    """Fake web3 за receipt-а: а5 изисква receipt.status == 1 преди доставка.
+
+    Без това фейкнатите settle-ове по-долу стигат до реален RPC lookup и
+    fail-closed gate-ът (правилно) отказва доставка.
+    """
+    import sys
+    import types
+    fake = types.ModuleType("web3")
+
+    class _Eth:
+        block_number = 10 ** 9
+
+        def get_transaction_receipt(self, tx):
+            return {"status": status, "blockNumber": 1,
+                    "blockHash": "0x" + "cd" * 32}
+
+        def get_logs(self, spec):
+            return []
+
+    class _W3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("f", url))
+
+        def __init__(self, provider=None, *a, **kw):
+            self.eth = _Eth()
+
+        @staticmethod
+        def to_checksum_address(addr):
+            return addr
+
+    fake.Web3 = _W3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+
+
 def test_standard_xpay_rail_unlocks_paid_call(client, monkeypatch):
     """A standard x402 client (X-PAYMENT / EIP-3009) pays -> 200 + sale recorded."""
     import main
@@ -102,6 +136,7 @@ def test_standard_xpay_rail_unlocks_paid_call(client, monkeypatch):
 
     monkeypatch.setattr(connectors, "verify_standard_payment", fake_verify)
     monkeypatch.setattr(connectors, "settle_standard_payment", fake_settle)
+    _install_receipt(monkeypatch)   # а5: receipt.status == 1 преди доставка
     # Keep the global sales ledger clean — the test only asserts the unlock.
     recorded = []
     monkeypatch.setattr(main, "_record_real_sale",
@@ -148,6 +183,7 @@ def test_payment_signature_header_v2_unlocks_paid_call(client, monkeypatch):
     monkeypatch.setattr(connectors, "verify_standard_payment", fake_verify)
     monkeypatch.setattr(connectors, "settle_standard_payment",
                         lambda h, req: (tx, "settled"))
+    _install_receipt(monkeypatch)   # а5: receipt.status == 1 преди доставка
     recorded = []
     monkeypatch.setattr(main, "_record_real_sale",
                         lambda **kw: recorded.append(kw))
@@ -179,6 +215,7 @@ def test_payment_signature_takes_priority_over_x_payment(client, monkeypatch):
                         lambda h, req: (seen.append(h) or (True, None, "verified")))
     monkeypatch.setattr(connectors, "settle_standard_payment",
                         lambda h, req: ("0x" + "ee" * 32, "settled"))
+    _install_receipt(monkeypatch)   # а5: receipt.status == 1 преди доставка
     monkeypatch.setattr(main, "_record_real_sale", lambda **kw: None)
 
     v2 = base64.urlsafe_b64encode(b"v2-payload").decode()
@@ -231,7 +268,7 @@ def _build_signed_payload(authorization_overrides=None, tamper_from=False):
     now = int(_time.time())
     auth = {
         "from": acct.address, "to": receiver, "value": "5000",
-        "validAfter": str(now - 60), "validBefore": str(now + 600),
+        "validAfter": str(now - 60), "validBefore": str(now + 55),  # б2: прозорец ≤60s
         "nonce": "0x" + secrets.token_hex(32),
     }
     if authorization_overrides:

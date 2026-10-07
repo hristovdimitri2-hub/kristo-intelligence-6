@@ -139,6 +139,12 @@ def decode_payment_payload(header_value):
     return None
 
 
+# б2 (07.10, одит): авторизационният прозорец има ГОРНА граница — challenge-ът
+# обявява maxTimeoutSeconds=60; по-дълъг прозорец = replayable подпис по-дълго
+# от договореното. Валидира се спрямо ВРЕМЕТО НА СЪРВЪРА.
+_MAX_AUTH_WINDOW_SECONDS = 60
+
+
 def precheck_payment_payload(payload: dict, requirements: dict):
     """
     Structural pre-check of the decoded EIP-3009 payload against the
@@ -181,6 +187,12 @@ def precheck_payment_payload(payload: dict, requirements: dict):
         if valid_after > now:
             problems.append(
                 f"authorization not yet valid: validAfter={valid_after} > now={now}"
+            )
+        # б2: горна граница на прозореца (maxTimeoutSeconds=60)
+        if valid_before > now + _MAX_AUTH_WINDOW_SECONDS:
+            problems.append(
+                f"authorization window too long: validBefore={valid_before} > "
+                f"now+{_MAX_AUTH_WINDOW_SECONDS}s (maxTimeoutSeconds)"
             )
     except (ValueError, TypeError):
         problems.append("validAfter/validBefore are not integers")

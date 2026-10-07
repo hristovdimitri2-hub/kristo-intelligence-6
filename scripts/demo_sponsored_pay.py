@@ -141,7 +141,7 @@ def build_signature(acc: dict, key: str) -> tuple[dict, str, dict, dict, dict, o
 
     value = int(acc["amount"])
     valid_after = 0
-    valid_before = int(time.time()) + 600
+    valid_before = int(time.time()) + 55   # б2: прозорец ≤60s (precheck + maxTimeoutSeconds)
     nonce_bytes = py_secrets.token_bytes(32)
 
     domain = {

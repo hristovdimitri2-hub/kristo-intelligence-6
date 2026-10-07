@@ -149,7 +149,7 @@ def _build_signed_payload():
     acct = Account.from_key("0x" + secrets.token_hex(32))
     now = int(time.time())
     auth = {"from": acct.address, "to": receiver, "value": "5000",
-            "validAfter": str(now - 60), "validBefore": str(now + 600),
+            "validAfter": str(now - 60), "validBefore": str(now + 55),  # б2: прозорец ≤60s
             "nonce": "0x" + secrets.token_hex(32)}
     domain = {"name": "USD Coin", "version": "2", "chainId": 8453,
               "verifyingContract": usdc}
