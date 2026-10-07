@@ -213,6 +213,49 @@ def verify_recovery(domain: dict, types: dict, message: dict, signed, payer: str
     log(f"      [ok] signature recovers to signer {recovered}")
 
 
+# ── Step 3b: Bazaar discovery extension ─────────────────────────────────────
+def echo_extensions(payload: dict, challenge: dict) -> dict:
+    """
+    x402 v2 rule: when the server's 402 carried `extensions`, the client MUST
+    copy them verbatim into the payment payload — that is how the facilitator
+    (PayAI) learns our Bazaar declaration and can auto-list the endpoint.
+
+    Server-side this is safe by construction: precheck_payment_payload and
+    _local_recover_signer read only `accepted`/`payload` keys (connectors.py
+    :147-148,199-200) and never reject an unknown top-level key.
+    """
+    ext = challenge.get("extensions")
+    if isinstance(ext, dict) and ext:
+        payload = dict(payload)
+        payload["extensions"] = ext
+        log(f"      echoing extensions: {sorted(ext)} "
+            f"(Bazaar declaration travels with the payment)")
+    return payload
+
+
+def read_extension_responses(hdrs: dict) -> None:
+    """
+    Settlement receipts may carry an EXTENSION-RESPONSES header — base64
+    JSON per extension, e.g. {"bazaar": {"status": "listed", ...}}. Log it
+    so the auto-listing outcome is visible in the demo output.
+    """
+    er = next((v for k, v in hdrs.items()
+               if k.lower() == "extension-responses"), "")
+    if not er:
+        log("      EXTENSION-RESPONSES: absent (facilitator sent no extension receipt)")
+        return
+    try:
+        decoded = json.loads(base64.b64decode(er + "=" * (-len(er) % 4))
+                             .decode("utf-8"))
+        log(f"      EXTENSION-RESPONSES: {json.dumps(decoded)[:200]}")
+        bazaar = (decoded.get("bazaar") or {}) if isinstance(decoded, dict) else {}
+        if isinstance(bazaar, dict) and bazaar.get("status"):
+            log(f"      bazaar status: {bazaar.get('status')}"
+                + (f" tx={bazaar.get('tx')}" if bazaar.get("tx") else ""))
+    except Exception as exc:
+        log(f"      EXTENSION-RESPONSES present but undecodable: {exc}")
+
+
 def main() -> None:
     args = list(sys.argv[1:])
     do_send = "--send" in args
@@ -272,6 +315,12 @@ def main() -> None:
         f"(signature + authorization; no private material)")
 
     if do_send:
+        # x402 v2 Bazaar rule: echo the 402's extensions into the payment
+        # payload so the facilitator can auto-list the endpoint (PayAI).
+        payload = echo_extensions(payload, body)
+        header_value = base64.urlsafe_b64encode(
+            json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii").rstrip("=")
         # PAID RUN — only with an explicit --send flag. Retries the SAME signed
         # authorization (idempotent: the server adopts an already-settled nonce)
         # while settlement is confirming (HTTP 425 settlement_in_flight).
@@ -316,6 +365,8 @@ def main() -> None:
                     f"tx={tx}")
             except Exception as exc:
                 log(f"      PAYMENT-RESPONSE present but undecodable: {exc}")
+        # Bazaar auto-listing receipt (EXTENSION-RESPONSES) — see Step 3b.
+        read_extension_responses(hdrs)
         if not tx and status in (425, 200):
             try:
                 tx = str((json.loads(body_text) or {}).get("transaction") or "")

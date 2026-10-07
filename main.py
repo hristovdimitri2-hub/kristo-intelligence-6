@@ -1524,6 +1524,12 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
         "url": resource_url,
         "description": desc,
         "mimeType": "application/json",
+        # Bazaar listing metadata (discovery extension): PayAI auto-lists
+        # endpoints carrying these fields — no manual registration. The
+        # agentcash/x402scan audit also reads them for the marketplace card.
+        "serviceName": "Kristo Intelligence",
+        "tags": ["crypto", "whale-tracking", "x402", "arbitrage", "signals"],
+        "iconUrl": request.host_url.rstrip("/") + "/static/icons/kristo.svg",
     }
     # Bazaar discovery extension: `info` carries the HTTP request structure,
     # `schema` carries the JSON-Schema view. The agentcash/x402scan audit
