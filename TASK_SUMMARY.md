@@ -72,7 +72,7 @@ pay клонът прави обикновен ERC-20 превод (за раз�
 | PR #13219 (листинг) | 🟡 чака review | bottleneck за Glama статуса |
 | Манифест/цени инвентар | 🟢 DONE | 6 paid + 2 free, receiver/tiers проверени |
 | No-pay probe | 🟢 PASS | exit 0, всички 15 проверки |
-| **Платено демо (402→200)** | 🔴 **BLOCKED** | нужно: ETH газ в `0xE50c…5763` |
+| **Платено демо (402→200)** | 🟢 **DONE** | 07.10 09:18Z · tx `0xdaf3dd0f0d16528136b7f04a68b88b5f3fe954a121f0336568b5a78333d75355` · блок 52287422 · $0.003 · gasless (Rail 1) · USDC 3.257515 → 3.254515 |
 | Double gate (Bogdan) | 🟢 OK | одобрено, цел = screen-record видео за Micro-Grant |
 | Ключове/сигурност | 🟢 CLEAN | 0 показан секрет, 0 промени по `payTo`/код |
 | Таймлайн | 🟢 актуален | `%TEMP%\kristo_timeline.txt` |
