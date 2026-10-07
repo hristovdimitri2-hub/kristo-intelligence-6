@@ -3223,8 +3223,11 @@ def api_arb_opportunities():
 
     Returns the current top arbitrage opportunities from the Arb Radar
     background scanner: pair, buy DEX, sell DEX, spread %, estimated
-    profit after gas, and liquidity constraints. Served from an
-    in-memory cache — zero additional RPC cost per call.
+    NET profit after gas (`est_profit_usd` = gross − gas; only rows whose
+    gross exceeds gas×3 are listed), and liquidity constraints. Every row
+    carries the transparency fields `block_number` (Base block at scan)
+    and `data_age_blocks`. Served from an in-memory cache — zero
+    additional RPC cost per call.
     """
     _record_request("api_arb_opportunities", True)
     from services.arb_radar import get_opportunities, get_scan_info
@@ -3239,8 +3242,10 @@ def api_arb_opportunities():
         "source": "dexscreener_cross_dex",
         "network": "base",
         "disclaimer": (
-            "Spreads computed from DEXScreener aggregated prices. "
-            "Estimates are indicative; verify on-chain before executing."
+            "Spreads computed from DEXScreener aggregated prices; "
+            "est_profit_usd is NET after an estimated round-trip gas cost "
+            "(see scan_info.gas_cost_usdc). Estimates are indicative; "
+            "verify on-chain before executing."
         ),
     })
 
