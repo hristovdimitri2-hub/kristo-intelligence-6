@@ -72,3 +72,7 @@ _msg.txt
 # Downloaded registry CLI / archive (owner's step, never part of the repo)
 mcp-publisher.exe
 mcp-publisher.tar.gz
+
+# Video evidence artifacts (never commit / push) 
+kristo_paid_demo_*.mp4
+kristo_paid_demo_preview.jpg
