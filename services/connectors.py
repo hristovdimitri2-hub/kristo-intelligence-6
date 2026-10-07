@@ -76,8 +76,11 @@ def _facilitator_post(base_url: str, endpoint: str, body: dict,
                       token: str | None = None):
     """
     POST JSON to a facilitator; returns (http_status, parsed_dict_or_None,
-    raw_text). Logs every attempt and every failure reason clearly — this is
-    the observability PayAPI's review asked for.
+    raw_text, response_headers_dict). Logs every attempt and every failure
+    reason clearly — this is the observability PayAPI's review asked for.
+
+    The response HEADERS are returned too: facilitator extension receipts
+    (EXTENSION-RESPONSES) travel there and must reach the client.
     """
     url = f"{base_url}/{endpoint}"
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -92,19 +95,20 @@ def _facilitator_post(base_url: str, endpoint: str, body: dict,
     try:
         with urllib.request.urlopen(req, timeout=FACILITATOR_TIMEOUT) as resp:
             raw = resp.read().decode()
+            resp_headers = dict(resp.headers or {})
             try:
-                return resp.status, json.loads(raw), raw
+                return resp.status, json.loads(raw), raw, resp_headers
             except ValueError:
-                return resp.status, None, raw
+                return resp.status, None, raw, resp_headers
     except urllib.error.HTTPError as e:
         raw = e.read().decode(errors="replace")[:500]
         log.warning("facilitator %s %s -> HTTP %s: %s",
                     base_url, endpoint, e.code, raw)
-        return e.code, None, raw
+        return e.code, None, raw, dict(getattr(e, "headers", None) or {})
     except Exception as e:  # transport (DNS, timeout, TLS)
         log.warning("facilitator %s %s -> %s: %s",
                     base_url, endpoint, type(e).__name__, e)
-        return None, None, f"{type(e).__name__}: {e}"
+        return None, None, f"{type(e).__name__}: {e}", {}
 
 
 def decode_payment_payload(header_value):
@@ -698,6 +702,43 @@ def extract_authorization_nonce(payment_header) -> str:
         return ""
 
 
+def _extension_receipt_from_headers(headers) -> str | None:
+    """EXTENSION-RESPONSES header from a facilitator settle response (if any)."""
+    if not headers:
+        return None
+    for key, value in headers.items():
+        if str(key).lower() == "extension-responses":
+            return value
+    return None
+
+
+def _adopt_already_settled(resp) -> str | None:
+    """
+    Bonus fix (2026-10-07): a CDP 400 body can carry the transaction field
+    for an authorization that is ALREADY settled on-chain
+    ("authorization nonce already submitted; transaction already on-chain" —
+    observed with tx 0x64cf7a79…). That is a SUCCESS the response status
+    failed to express — adopt the tx instead of failing a settlement that has,
+    in fact, happened.
+
+    Safety subset of the agreed rule: the body must also confirm with the
+    word "already" (errorMessage/errorReason/invalidReason/error). A failure
+    body without it keeps the old behaviour (never adopt an unrelated tx).
+    """
+    if not isinstance(resp, dict):
+        return None
+    if resp.get("success") is True:
+        return None  # the regular success path handles it
+    tx = resp.get("transaction")
+    if not tx:
+        return None
+    msg = " ".join(str(resp.get(k, "")) for k in
+                   ("errorMessage", "errorReason", "invalidReason", "error")).lower()
+    if "already" not in msg:
+        return None
+    return str(tx)
+
+
 def settle_standard_payment(payment_header, requirements: dict):
     """
     Settle a locally-verified standard x402 payment ON-CHAIN.
@@ -709,7 +750,8 @@ def settle_standard_payment(payment_header, requirements: dict):
       3. PayAI public facilitator — fallback (v1-era; noisy on some v2
          payloads, so it goes last).
 
-    Returns (tx_hash | None, detail).
+    Returns (tx_hash | None, detail, extension_receipt | None) — the receipt
+    is the facilitator's EXTENSION-RESPONSES header value (if any).
     """
     payload = decode_payment_payload(payment_header)
     payment_requirements = _merged_requirements(payload, requirements)
@@ -721,7 +763,7 @@ def settle_standard_payment(payment_header, requirements: dict):
         if tx_hash:
             touch("base-usdc-receiver")
             touch("x402-eip3009")
-            return tx_hash, detail
+            return tx_hash, detail, None
         last_detail = detail
         # CDP fallback: pass the v2 transaction payload through untouched.
         token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
@@ -730,24 +772,31 @@ def settle_standard_payment(payment_header, requirements: dict):
             body = {"x402Version": 2,
                     "paymentPayload": payload,
                     "paymentRequirements": payment_requirements}
-            status, resp, _raw = _facilitator_post(
+            status, resp, _raw, resp_headers = _facilitator_post(
                 "https://api.cdp.coinbase.com/platform/v2/x402", "settle",
                 body, token=token)
             if isinstance(resp, dict) and resp.get("success") is True \
                     and resp.get("transaction"):
                 touch("base-usdc-receiver")
                 touch("x402-eip3009")
-                return resp["transaction"], "settled"
+                return resp["transaction"], "settled", \
+                    _extension_receipt_from_headers(resp_headers)
+            adopted = _adopt_already_settled(resp)   # (г) already on-chain
+            if adopted:
+                log.warning("cdp reported already-settled tx %s — adopting "
+                            "instead of failing (tx-shape path)", adopted)
+                return adopted, "settled_already_onchain", \
+                    _extension_receipt_from_headers(resp_headers)
             reason = (resp or {}).get("errorReason", f"cdp_settle(status={status})")
             last_detail = f"cdp:{reason}"
-        return None, last_detail
+        return None, last_detail, None
 
     # 1) Self-broadcast: we are the facilitator.
     tx_hash, detail = _self_broadcast_settlement(payload or {})
     if tx_hash:
         touch("base-usdc-receiver")
         touch("x402-eip3009")
-        return tx_hash, detail
+        return tx_hash, detail, None
     last_detail = detail
 
     # 2) + 3) Facilitator chain.
@@ -766,8 +815,8 @@ def settle_standard_payment(payment_header, requirements: dict):
             # legacy facilitators (PayAI) also accept the raw header field
             body["paymentHeader"] = (payment_header
                                      if isinstance(payment_header, str) else None)
-        status, resp, _raw = _facilitator_post(base_url, "settle", body,
-                                               token=token)
+        status, resp, _raw, resp_headers = _facilitator_post(base_url, "settle",
+                                                             body, token=token)
         if not isinstance(resp, dict):
             last_detail = f"{name}_unreachable(status={status})"
             continue
@@ -775,13 +824,22 @@ def settle_standard_payment(payment_header, requirements: dict):
             touch("base-usdc-receiver")
             log.info("standard x402 settled via %s: tx=%s",
                      name, resp["transaction"])
-            return resp["transaction"], "settled"
+            return resp["transaction"], "settled", \
+                _extension_receipt_from_headers(resp_headers)
+        if name == "cdp":
+            adopted = _adopt_already_settled(resp)   # (г) already on-chain
+            if adopted:
+                log.warning("standard x402 settle: %s reported already-settled "
+                            "tx %s (%s) — adopting instead of failing",
+                            name, adopted, resp.get("errorReason"))
+                return adopted, "settled_already_onchain", \
+                    _extension_receipt_from_headers(resp_headers)
         reason = resp.get("errorReason",
                           resp.get("invalidReason", "settle_failed"))
         last_detail = f"{name}:{reason}"
         log.warning("standard x402 settle failed via %s: %s",
                     name, last_detail)
-    return None, last_detail
+    return None, last_detail, None
 
 
 # ── L402 (Lightning) outbound bridge ────────────────────────────────────────

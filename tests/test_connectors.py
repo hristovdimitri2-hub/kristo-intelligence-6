@@ -340,9 +340,10 @@ def test_settle_prefers_self_broadcast(monkeypatch):
         raise AssertionError("facilitator must not be tried after self-broadcast")
 
     monkeypatch.setattr(connectors, "_facilitator_post", forbidden)
-    tx, detail = connectors.settle_standard_payment(header, dict(accepted))
+    tx, detail, receipt = connectors.settle_standard_payment(header, dict(accepted))
     assert tx == "0x" + "ff" * 32
     assert detail == "settled_self_broadcast"
+    assert receipt is None   # self-broadcast → без фасилитаторска разписка
 
 
 def test_settle_falls_back_to_facilitator_when_no_wallet(monkeypatch):
@@ -357,11 +358,14 @@ def test_settle_falls_back_to_facilitator_when_no_wallet(monkeypatch):
     seen = []
     def fake_post(base_url, endpoint, body, token=None):
         seen.append((base_url, endpoint))
-        return 200, {"success": True, "transaction": "0x" + "ab" * 32}, ""
+        return 200, {"success": True, "transaction": "0x" + "ab" * 32}, "", \
+            {"EXTENSION-RESPONSES": "eyJmb28iOiJiYXIifQ=="}
 
     monkeypatch.setattr(connectors, "_facilitator_post", fake_post)
-    tx, detail = connectors.settle_standard_payment(header, dict(accepted))
+    tx, detail, receipt = connectors.settle_standard_payment(header, dict(accepted))
     assert tx == "0x" + "ab" * 32
+    # (б) разписката се предава нататък
+    assert receipt == "eyJmb28iOiJiYXIifQ=="
     assert any("payai" in u for u, _ in seen) and all(
         e == "settle" for _, e in seen)
 

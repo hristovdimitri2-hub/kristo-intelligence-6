@@ -2827,7 +2827,7 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # — adopt THAT transaction instead of settling again. A re-settle cannot
     # succeed (the authorization nonce is spent), which is why the old
     # "retry the signature" advice was a dead end that cost the sale.
-    tx_hash, settle_detail = "", ""
+    tx_hash, settle_detail, settle_extra = "", "", []
     nonce = connectors.extract_authorization_nonce(payment_header)
     if nonce and payer:
         adopted = _find_settlement_by_nonce(payer, nonce, price)
@@ -2842,7 +2842,10 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
                 detail=f"authorization nonce {nonce[:18]} already consumed; "
                        f"channel-agnostic recovery, settle skipped")
     if not tx_hash:
-        tx_hash, settle_detail = connectors.settle_standard_payment(payment_header, requirements)
+        # *rest = extension receipt (facilitator EXTENSION-RESPONSES header);
+        # 2-tuple fakes in older tests stay compatible.
+        tx_hash, settle_detail, *settle_extra = connectors.settle_standard_payment(
+            payment_header, requirements)
         if not tx_hash:
             g.x402_reject_reason = f"settlement_failed: {settle_detail}"
             # Audit #4, check в (22.09): the nonce-revert path that our
@@ -2980,6 +2983,12 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         "network": "eip155:8453",
         "payer": payer or "unknown",
     })
+    # Facilitator extension receipt (EXTENSION-RESPONSES header value, if the
+    # facilitator returned one) — relayed to the client by
+    # _emit_payment_response. No receipt (self-broadcast / no extension)
+    # simply leaves the header absent.
+    if settle_extra and settle_extra[0]:
+        g.x402_extension_receipt = settle_extra[0]
     # after_request stamps `delivered_at` on a produced response (F3) — that
     # is what turns a later attempt of this settlement into a REFUSED replay.
     g.x402_delivered_tx = tx_hash
@@ -3007,6 +3016,31 @@ def _emit_payment_response(response):
         # to their safeBase64Encode output (btoa / Buffer, padding kept).
         response.headers["PAYMENT-RESPONSE"] = base64.b64encode(
             settlement.encode()).decode()
+    # Extension receipt relay (base64 JSON): whatever the facilitator returned
+    # in EXTENSION-RESPONSES — raw JSON gets encoded, already-base64(JSON)
+    # passes through verbatim, anything else is skipped (never a broken
+    # header). Absent receipt = absent header.
+    ext_receipt = getattr(g, "x402_extension_receipt", None)
+    if ext_receipt:
+        encoded = None
+        if isinstance(ext_receipt, (dict, list)):
+            encoded = base64.b64encode(
+                json.dumps(ext_receipt, separators=(",", ":")).encode()).decode()
+        else:
+            raw = str(ext_receipt).strip()
+            try:
+                json.loads(base64.b64decode(
+                    raw + "=" * (-len(raw) % 4)).decode("utf-8"))
+                encoded = raw                     # already base64(JSON)
+            except Exception:
+                try:
+                    json.loads(raw)               # raw JSON → encode below
+                    encoded = base64.b64encode(raw.encode()).decode()
+                except Exception:
+                    log.debug("extension receipt is neither base64(JSON) "
+                              "nor JSON — EXTENSION-RESPONSES skipped")
+        if encoded:
+            response.headers["EXTENSION-RESPONSES"] = encoded
     rid = getattr(g, "request_id", None)
     if rid:
         response.headers["X-Request-Id"] = rid

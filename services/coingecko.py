@@ -143,7 +143,8 @@ class CoinGeckoClient:
                 if resp.ok:
                     return resp.json()
                 # 404 / 401 / 403 -> proxy endpoint not available; fall back.
-                log.debug("Base44 proxy returned %s — falling back to public API.", resp.status_code)
+                log.debug("Base44 proxy returned %s at %s — falling back to "
+                          "public API.", resp.status_code, resp.url)
                 self._base44_available = False
             except Exception as exc:
                 log.debug("Base44 proxy request failed (%s) — falling back to public API.", exc)
