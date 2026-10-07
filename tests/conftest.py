@@ -21,3 +21,9 @@ thread ever starts under pytest. No test asserts that the threads start.
 import os
 
 os.environ["KRISTO_DISABLE_BACKGROUND_THREADS"] = "true"
+# Фаза 1 value-check (services/verifier.py) прави реални HTTP заявки към
+# CoinGecko/DexScreener — под pytest това би забавило и разклатило серията.
+# По подразбиране проверката е ИЗКЛЮЧЕНА тук; тестовете, които я проверяват,
+# я включват изрично с monkeypatch.setenv("VALUE_CHECK_ENABLED", "1") и
+# подменят източниците с фалкове (никаква мрежа в серията).
+os.environ.setdefault("VALUE_CHECK_ENABLED", "0")

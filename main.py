@@ -3999,17 +3999,62 @@ def api_signal():
             "generated_at": _latest_signals.get("generated_at"),
             "signals": list(_latest_signals.get("signals") or []),
         }
+    # Фаза 1 (07.10.2026): rule-based проверяващ слой „никой не лъже" —
+    # кръстосана проверка на числата CoinGecko × DexScreener ПРЕДИ доставка.
+    signals, scan_info = _verify_signal_values(snapshot["signals"])
     return _safe_jsonify({
         "service": "Kristo Intelligence — live agent signal",
         "price_usdc": KRISTO_SIGNAL_PRICE,
         "engine": "8-agent intelligence engine (CoinGecko + DeFi signals + risk overlay)",
         "generated_at": snapshot["generated_at"],
-        "signal_count": len(snapshot["signals"]),
-        "signals": snapshot["signals"],
+        "signal_count": len(signals),
+        "signals": signals,
+        "scan_info": scan_info,
         "refresh_note": "Signals refresh automatically every 5 minutes.",
         "disclaimer": "Not financial advice. Auto-execution is disabled "
                       "(AGENT_AUTO_EXECUTE=false) — signals are informational.",
     })
+
+
+def _verify_signal_values(signals):
+    """Фаза 1 value-check hook (07.10.2026, модел „никой не лъже").
+
+    Връща (доставими сигнали, scan_info). ДВОЕН fail-open:
+      * services.verifier.verify_signals не хвърля (вътрешен fail-open);
+      * тук целият му поток е в try/except — ако и той падне, платеният
+        сигнал се доставя непокътнат и се бележи като непроверен
+        (плащането вече е факт; парите никога не се губят заради проверка).
+    Отхвърлените/непроверените се записват и в guard_events (дълготраен лог —
+    „да виждаме дали някой агент редовно лъже").
+    """
+    if os.getenv("VALUE_CHECK_ENABLED", "1").lower() in ("0", "false", "off"):
+        return list(signals or []), {
+            "verification": "disabled",
+            "reason": "value_check_disabled",
+        }
+    try:
+        from services import verifier
+        deliverable, scan_info = verifier.verify_signals(signals)
+    except Exception as exc:
+        log.warning("value_check fell — fail-open, delivering paid signal "
+                    "unverified: %s: %s", type(exc).__name__, exc)
+        return list(signals or []), {
+            "verification": "unverified",
+            "reason": f"checker_error: {type(exc).__name__}",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "details": [],
+        }
+    for entry in (scan_info.get("details") or []):
+        verdict = entry.get("verdict")
+        if verdict not in ("rejected", "unverified"):
+            continue
+        try:
+            dashboard_db.record_guard_event(
+                f"value_check_{verdict}", endpoint="/api/v1/signal",
+                detail=json.dumps(entry, default=str)[:300])
+        except Exception as exc:
+            log.debug("value_check guard event not recorded: %s", exc)
+    return deliverable, scan_info
 
 
 @app.route("/api/v1/agents", methods=["GET"])
