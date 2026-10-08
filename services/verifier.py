@@ -9,8 +9,9 @@ Base chain, реална ликвидност). Правилата (docs/VERIFIE
   verified   — и двата източника дават цена и разминаването е ≤ TOLERANCE_PCT
                → сигналът минава и се доставя;
   rejected   — източниците се разминават ИЛИ един от тях няма цена
-               → „сигналът не минава": НЕ се доставя, записва се в scan_info
-               и се логва (за да се вижда дали някой агент редовно лъже);
+               → „сигналът не минава": НЕ влиза в signals[], но се връща в
+               rejected_signals[] (двете цени, diff_pct, причина) и се логва
+               (за да се вижда дали някой агент редовно лъже);
   unverified — проверката падна (транспортна грешка/изключение)
                → fail-open: платеният сигнал СЕ ДОСТАВЯ (парите са факт),
                но е бележен като непроверен в scan_info.
@@ -154,13 +155,17 @@ def _verdict(signal_price: float, cg: tuple, ds: tuple) -> Tuple[str, str, dict]
 
 
 def verify_signals(signals: list) -> tuple:
-    """(deliverable_signals, scan_info) — виж модулния докстринг.
+    """(deliverable_signals, rejected_signals, scan_info) — виж модулния
+    докстринг. НЕ хвърля: всеки проблем се превръща в unverified/fail-open
+    вердикт.
 
-    НЕ хвърля: всеки проблем се превръща в unverified/fail-open вердикт.
+    rejected_signals[] (б1, Вариант А): отхвърлените напускат signals[], но
+    остават видими — всеки носи двете цени, diff_pct и причина.
     """
     signals = [s for s in (signals or []) if isinstance(s, dict)]
     checked_at = datetime.now(timezone.utc).isoformat()
     deliverable: list = []
+    rejected_signals: list = []
     details: list = []
     counts = {"verified": 0, "rejected": 0, "unverified": 0}
 
@@ -206,7 +211,15 @@ def verify_signals(signals: list) -> tuple:
                         "coingecko=%s dexscreener=%s (%s) — сигналът не минава",
                         token, value, detail.get("coingecko_usd"),
                         detail.get("dexscreener_usd"), reason)
-            # „не минава" → НЕ влиза в доставката
+            # „не минава" → излиза от signals[], но влиза в rejected_signals[]
+            # с двете цени, diff_pct и причината (клиентът вижда защо).
+            rejected_entry = dict(sig)
+            rejected_entry["verification"] = "rejected"
+            rejected_entry["reason"] = reason
+            rejected_entry["coingecko_usd"] = detail.get("coingecko_usd")
+            rejected_entry["dexscreener_usd"] = detail.get("dexscreener_usd")
+            rejected_entry["diff_pct"] = detail.get("diff_pct")
+            rejected_signals.append(rejected_entry)
             continue
         if verdict == "unverified":
             log.warning("value_check UNVERIFIED token=%s (%s) — fail-open, "
@@ -231,7 +244,8 @@ def verify_signals(signals: list) -> tuple:
         "delivered": len(deliverable),
         "verified": counts["verified"],
         "rejected": counts["rejected"],
+        "rejected_count": counts["rejected"],
         "unverified": counts["unverified"],
         "details": details,
     }
-    return deliverable, scan_info
+    return deliverable, rejected_signals, scan_info
