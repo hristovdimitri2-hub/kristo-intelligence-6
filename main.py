@@ -2180,6 +2180,14 @@ def _find_settlement_by_nonce(payer: str, nonce: str,
                      "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913").lower()
     try:
         w3 = _get_verify_web3()
+        # фикс 3 (08.10): web3.py v8 изисква CHECKSUM адрес за eth_getLogs
+        # (`address=` полето) — lowercased вход хвърля ValueError, осиновяването
+        # на вече-платено се счупваше и клиентът ядеше 401 „плати, празни ръце".
+        # Сравненията по-долу си остават върху LOWERCASE копие.
+        try:
+            usdc_checksum = w3.to_checksum_address(usdc)
+        except Exception:
+            usdc_checksum = usdc   # фалкове/по-стари web3 — старото поведение
         latest = int(w3.eth.block_number)
         if latest <= 0:
             return None
@@ -2187,7 +2195,7 @@ def _find_settlement_by_nonce(payer: str, nonce: str,
         logs = w3.eth.get_logs({
             "fromBlock": from_block,
             "toBlock": latest,
-            "address": usdc,
+            "address": usdc_checksum,
             "topics": [
                 _AUTHORIZATION_USED_TOPIC,
                 _topic_address(payer),

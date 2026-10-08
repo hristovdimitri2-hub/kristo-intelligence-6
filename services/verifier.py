@@ -7,14 +7,17 @@ Phase 1 rule-based value checker — модел „никой не лъже" (07
 Base chain, реална ликвидност). Правилата (docs/VERIFIER_RESEARCH.md, Фаза 1):
 
   verified   — и двата източника дават цена и разминаването е ≤ TOLERANCE_PCT
+               (за тънки пулове < $50k ликвидност — ≤ THIN_POOL_TOLERANCE_PCT)
                → сигналът минава и се доставя;
-  rejected   — източниците се разминават ИЛИ един от тях няма цена
+  rejected   — и двата източника дават цена, но РЕАЛНО се разминават
                → „сигналът не минава": НЕ влиза в signals[], но се връща в
                rejected_signals[] (двете цени, diff_pct, причина) и се логва
                (за да се вижда дали някой агент редовно лъже);
-  unverified — проверката падна (транспортна грешка/изключение)
+  unverified — един източник липсва ИЛИ проверката падна (грешка/изключение)
                → fail-open: платеният сигнал СЕ ДОСТАВЯ (парите са факт),
-               но е бележен като непроверен в scan_info.
+               но е бележен като непроверен в scan_info. Липсващ източник НЕ
+               е отхвърляне — само реално разминаване на две налични цени
+               образува rejected.
 
 Кодът тук НЕ блокира доставката при своя собствена повреда — целият поток е
 обгърнат с try/except и в main._verify_signal_values (двоен fail-open).
@@ -42,7 +45,18 @@ SOURCE_TIMEOUT_SECONDS = max(1, int(os.getenv("VERIFIER_SOURCE_TIMEOUT", "5")))
 # DexScreener няма нашия кеш — кратък TTL, за да не наливаме заявки при
 # заявка към платения route на всеки клик.
 _DEX_CACHE_TTL_SECONDS = max(1, int(os.getenv("VERIFIER_DEX_CACHE_TTL", "60")))
-_DEX_MIN_LIQUIDITY_USD = 50_000.0
+# фикс 2 (08.10): разумен под за ликвидността — тънките пулове на Base често
+# са ЕДИНСТВЕН пазар за токена там (KAITO: $862–$11k ликвидност с ЦЕНИ, които
+# съвпадат с CoinGecko). Под този под кандидатът се игнорира изцяло.
+_DEX_MIN_LIQUIDITY_USD = 5_000.0
+# Тънък пул = под $50k: участва в кръстосаната проверка, но с по-широк
+# толеранс (шумът при малка ликвидност е по-висок).
+_DEX_THIN_POOL_USD = 50_000.0
+THIN_POOL_TOLERANCE_PCT = max(
+    0.05, float(os.getenv("VERIFIER_THIN_TOLERANCE_PCT", "3.0")))
+# Символен мап (фикс 2): на Base ETH се търгува като WETH — търсим и
+# сверяваме под името, което двойката реално носи там.
+_DEX_SYMBOL_MAP = {"ETH": "WETH"}
 
 _dex_cache: dict = {}
 _dex_cache_lock = threading.RLock()
@@ -72,23 +86,27 @@ def _coingecko_source(symbols: List[str]) -> dict:
 
 
 def _dexscreener_source(symbol: str, reference_price: Optional[float]) -> tuple:
-    """(price_usd | None, 'ok' | 'missing' | 'error') за ЕДИН символ.
+    """(price_usd | None, 'ok' | 'missing' | 'error', liquidity_usd | None)
+    за ЕДИН символ.
 
     Същите гвардове като signal_track_record: точен символ, Base chain,
     реална ликвидност и цена в разумна близост до познатата (фалшива „ETH"
-    на $0.01 не бива да потвърждава истинска ETH цена).
+    на $0.01 не бива да потвърждава истинска ETH цена). фикс 2: търсим под
+    името, което двойката носи на Base (ETH → WETH), и пускаме тънки пулове
+    (≥ $5k) — те често са единственият пазар там.
     """
     sym = (symbol or "").upper()
     if not sym:
-        return None, "missing"
+        return None, "missing", None
+    dex_sym = _DEX_SYMBOL_MAP.get(sym, sym)   # фикс 2: как се казва на Base
     with _dex_cache_lock:
         cached = _dex_cache.get(sym)
         if cached and time.monotonic() - cached[1] < _DEX_CACHE_TTL_SECONDS:
-            return cached[0], cached[2]
+            return cached[0], cached[2], (cached[3] if len(cached) > 3 else None)
 
-    price, outcome = None, "missing"
+    price, outcome, pool_liq = None, "missing", None
     try:
-        response = requests.get(DEXSCREENER_SEARCH, params={"q": sym},
+        response = requests.get(DEXSCREENER_SEARCH, params={"q": dex_sym},
                                 timeout=SOURCE_TIMEOUT_SECONDS)
         if response.status_code != 200:
             price, outcome = None, "error"
@@ -99,7 +117,7 @@ def _dexscreener_source(symbol: str, reference_price: Optional[float]) -> tuple:
                 base = (pair.get("baseToken") or {}).get("symbol") or ""
                 liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
                 raw_price = pair.get("priceUsd")
-                if base.upper() != sym or not raw_price:
+                if base.upper() != dex_sym or not raw_price:
                     continue
                 if (pair.get("chainId") or "").lower() != "base":
                     continue
@@ -118,7 +136,7 @@ def _dexscreener_source(symbol: str, reference_price: Optional[float]) -> tuple:
                 candidates.append((liquidity, value))
             if candidates:
                 candidates.sort(reverse=True)
-                price, outcome = candidates[0][1], "ok"
+                pool_liq, price, outcome = candidates[0][0], candidates[0][1], "ok"
     except Exception as exc:  # транспорт/decode → проверката падна
         log.warning("value_check: DexScreener source error for %s (%s: %s)",
                     sym, type(exc).__name__, exc)
@@ -126,15 +144,20 @@ def _dexscreener_source(symbol: str, reference_price: Optional[float]) -> tuple:
 
     if outcome == "ok":
         with _dex_cache_lock:
-            _dex_cache[sym] = (price, time.monotonic(), "ok")
-    return price, outcome
+            _dex_cache[sym] = (price, time.monotonic(), "ok", pool_liq)
+    return price, outcome, pool_liq
 
 # ── вердикт на сигнал ───────────────────────────────────────────────────────
 
 def _verdict(signal_price: float, cg: tuple, ds: tuple) -> Tuple[str, str, dict]:
-    """(verdict, reason, detail) — виж модулния докстринг за семантиката."""
-    cg_price, cg_out = cg
-    ds_price, ds_out = ds
+    """(verdict, reason, detail) — виж модулния докстринг за семантиката.
+
+    Фикс 1: rejected САМО при реално разминаване на ДВЕ налични цени;
+    липсващ източник = unverified (доставя се с бележка).
+    """
+    cg_price, cg_out = cg[0], cg[1]
+    ds_price, ds_out = ds[0], ds[1]
+    ds_liq = ds[2] if len(ds) > 2 else None   # по-стари фалкове са 2-tuple
     detail = {"signal_price_usd": round(signal_price, 8),
               "coingecko_usd": cg_price, "dexscreener_usd": ds_price}
     if cg_out == "error" or ds_out == "error":
@@ -146,10 +169,18 @@ def _verdict(signal_price: float, cg: tuple, ds: tuple) -> Tuple[str, str, dict]
         reason = "source_missing:" + ",".join(
             name for name, out in (("coingecko", cg_out), ("dexscreener", ds_out))
             if out == "missing")
-        return "rejected", reason, detail
+        # фикс 1: липсващ източник НЕ е отхвърляне — само real mismatch
+        return "unverified", reason, detail
+    # и двата източника говорят — чак сега може да има несъответствие
     diff_pct = abs(cg_price - ds_price) / max(cg_price, ds_price) * 100.0
     detail["diff_pct"] = round(diff_pct, 4)
-    if diff_pct <= TOLERANCE_PCT:
+    tolerance = TOLERANCE_PCT
+    if ds_liq is not None and ds_liq < _DEX_THIN_POOL_USD:
+        # фикс 2: тънък пул → по-широк толеранс (по-висок шум при малка ликвидност)
+        tolerance = max(tolerance, THIN_POOL_TOLERANCE_PCT)
+        detail["dex_liquidity_usd"] = round(ds_liq, 2)
+    detail["tolerance_pct"] = tolerance
+    if diff_pct <= tolerance:
         return "verified", "sources_agree", detail
     return "rejected", "mismatch", detail
 

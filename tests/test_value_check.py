@@ -2,9 +2,11 @@
 """
 Фаза 1 — rule-based проверяващ слой „никой не лъже" (services/verifier.py).
 
-Правила:
-  * разминаване > толеранс ИЛИ един източник без цена → сигналът НЕ минава
-    (не се доставя; логва се и влиза в scan_info.details);
+Правила (Фикс 1, 08.10):
+  * разминаване > толеранс при ДВЕ налични цени → сигналът НЕ минава
+    (не се доставя; влиза в rejected_signals[] с двете цени и причината);
+  * липсващ източник → НЕ е отхвърляне: доставя се с unverified бележка
+    в scan_info.details;
   * източник с транспортна грешка / целият checker падне → fail-open:
     платеният сигнал СЕ ДОСТАВЯ, бележен като непроверен в scan_info;
   * отхвърлените/непроверените се записват в guard_events (дълготраен лог).
@@ -45,40 +47,47 @@ def test_verified_when_sources_agree_within_tolerance(monkeypatch, verifier):
 
 
 def test_mismatch_beyond_tolerance_does_not_pass(monkeypatch, verifier, caplog):
+    """Фикс 1: отхвърля САМО реално разминаване на ДВЕ налични цени."""
     _fake_sources(monkeypatch, verifier,
                   {"ETH": (2500.0, "ok")}, {"ETH": (2600.0, "ok")})  # 3.8%
     signals = [{"token": "ETH", "price_usd": 2501.2},
                {"token": "ONDO", "price_usd": 0.38}]
-    # ONDO няма фалкове → source missing → също не минава
+    # ONDO няма фалкове → липсващ източник НЕ е отхвърляне — доставя се с
+    # unverified бележка. Отхвърлен остава само ETH (две цени се карат).
     deliverable, rejected, scan_info = verifier.verify_signals(signals)
-    assert deliverable == []                     # „сигналът не минава"
-    assert scan_info["verification"] == "rejected"
-    assert scan_info["rejected"] == 2
+    assert [s["token"] for s in deliverable] == ["ONDO"]
+    assert scan_info["verification"] == "partial"
+    assert scan_info["rejected"] == 1 and scan_info["unverified"] == 1
     eth = scan_info["details"][0]
     assert eth["verdict"] == "rejected" and eth["reason"] == "mismatch"
     assert eth["coingecko_usd"] == 2500.0 and eth["dexscreener_usd"] == 2600.0
     assert "REJECTED" in caplog.text             # лог за „кой агент лъже"
-    # б1, Вариант А: отхвърлените се връщат видими — двете цени + diff + причина
-    assert len(rejected) == 2
-    by_token = {r["token"]: r for r in rejected}
-    assert by_token["ETH"]["reason"] == "mismatch"
-    assert by_token["ETH"]["coingecko_usd"] == 2500.0
-    assert by_token["ETH"]["dexscreener_usd"] == 2600.0
-    assert by_token["ETH"]["diff_pct"] == pytest.approx(3.85, abs=0.01)
-    assert by_token["ETH"]["verification"] == "rejected"
-    assert by_token["ONDO"]["reason"] == "source_missing:coingecko,dexscreener"
-    assert by_token["ONDO"]["diff_pct"] is None   # без двете цени → без diff
+    # б1, Вариант А: rejected_signals[] съдържа САМО истинските несъответствия
+    assert len(rejected) == 1
+    r = rejected[0]
+    assert r["token"] == "ETH" and r["reason"] == "mismatch"
+    assert r["coingecko_usd"] == 2500.0
+    assert r["dexscreener_usd"] == 2600.0
+    assert r["diff_pct"] == pytest.approx(3.85, abs=0.01)
+    assert r["verification"] == "rejected"
+    ondo = scan_info["details"][1]
+    assert ondo["verdict"] == "unverified"
+    assert ondo["reason"] == "source_missing:coingecko,dexscreener"
 
 
-def test_one_source_missing_does_not_pass(monkeypatch, verifier):
+def test_missing_source_delivers_unverified_not_rejected(monkeypatch, verifier):
+    """Фикс 1: липсващ източник → доставен с бележка, НЕ отхвърлен."""
     _fake_sources(monkeypatch, verifier,
                   {"ETH": (2500.0, "ok")}, {"ETH": (None, "missing")})
     deliverable, rejected, scan_info = verifier.verify_signals(
         [{"token": "ETH", "price_usd": 2501.2}])
-    assert deliverable == []
+    assert len(deliverable) == 1          # платеният сигнал се доставя
+    assert rejected == []                 # …и не влиза в rejected_signals[]
+    assert scan_info["verification"] == "unverified"
+    assert scan_info["unverified"] == 1 and scan_info["rejected"] == 0
     assert scan_info["details"][0]["reason"] == "source_missing:dexscreener"
-    assert rejected[0]["coingecko_usd"] == 2500.0
-    assert rejected[0]["dexscreener_usd"] is None
+    assert scan_info["details"][0]["coingecko_usd"] == 2500.0
+    assert scan_info["details"][0]["dexscreener_usd"] is None
 
 
 def test_source_error_fails_open_delivering_unverified(monkeypatch, verifier):
@@ -160,24 +169,26 @@ def test_route_excludes_rejected_signal_and_records_guard_event(
                         lambda kind, **kw: events.append((kind, kw)))
     r = client.get("/api/v1/signal")
     payload = r.get_json()
-    # и двата отхвърлени → „не минават"; парите са факт, но лъжа не се доставя
-    assert payload["signals"] == []
-    assert payload["signal_count"] == 0
-    assert payload["scan_info"]["verification"] == "rejected"
-    assert payload["scan_info"]["rejected"] == 2
-    assert payload["scan_info"]["rejected_count"] == 2
-    # б1, Вариант А: signals[] е празен, но rejected_signals[] е пълен —
-    # клиентът вижда защо (двете цени, diff_pct, причина)
-    assert len(payload["rejected_signals"]) == 2
-    by_token = {rj["token"]: rj for rj in payload["rejected_signals"]}
-    assert by_token["ETH"]["reason"] == "mismatch"
-    assert by_token["ETH"]["coingecko_usd"] == 2500.0
-    assert by_token["ETH"]["dexscreener_usd"] == 2600.0
-    assert by_token["ETH"]["diff_pct"] == pytest.approx(3.85, abs=0.01)
+    # ETH: реално разминаване → излиза от signals[], влиза в rejected_signals[]
+    assert [s["token"] for s in payload["signals"]] == ["ONDO"]
+    assert payload["signal_count"] == 1
+    assert payload["scan_info"]["rejected_count"] == 1
+    # б1, Вариант А: сигналът излиза, но видимо — с двете цени, diff, причина
+    rejected = payload["rejected_signals"]
+    assert len(rejected) == 1
+    assert rejected[0]["token"] == "ETH"
+    assert rejected[0]["reason"] == "mismatch"
+    assert rejected[0]["coingecko_usd"] == 2500.0
+    assert rejected[0]["dexscreener_usd"] == 2600.0
+    assert rejected[0]["diff_pct"] == pytest.approx(3.85, abs=0.01)
+    # ONDO: липсващ източник → доставен с unverified бележка (Фикс 1)
+    by_token = {d["token"]: d for d in payload["scan_info"]["details"]}
+    assert by_token["ONDO"]["verdict"] == "unverified"
     assert by_token["ONDO"]["reason"] == "source_missing:dexscreener"
-    # дълготраен лог за „кой агент редовно лъже"
+    # дълготраен лог и за двата случая
     kinds = [k for k, _ in events]
-    assert kinds.count("value_check_rejected") == 2
+    assert kinds.count("value_check_rejected") == 1
+    assert kinds.count("value_check_unverified") == 1
     assert all(kw["endpoint"] == "/api/v1/signal" for _, kw in events)
 
 

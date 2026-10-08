@@ -715,3 +715,59 @@ def test_lag_window_claim_re_reads_the_anchor_and_never_writes_zeros(env,
         "the claim stored the all-zero placeholder — the 23.09 bug"
     assert stored.removeprefix("0x") == "cd" * 32, \
         "the anchor must be re-read from the block by height"
+
+
+# ── Фикс 3 (08.10): eth_getLogs + web3.py v8 checksum правило ──────────────
+
+def test_nonce_search_adopts_under_web3_v8_checksum_rule(env, monkeypatch):
+    """web3.py v8 приема само CHECKSUM адреси в eth_getLogs (`address=`).
+
+    Преди фикса lowercased USDC вход хвърляше ValueError, търсенето по nonce
+    се проваляше тихо и клиент с ВЕЩЕ платено плащане минаваше през re-settle
+    → CDP 400 „nonce already submitted" → 401 „плати, празни ръце"
+    (07.10, tx 0x64cf7a79…). Тук фалк web3 налага СЪЩОТО checksum правило —
+    осиновяването на вече-settle-ната транзакция трябва да мине от раз."""
+    main = env.main
+
+    def _checksum(addr):
+        return "0x" + addr[2:].upper()      # детерминирана „checksum" форма
+
+    class _V8Eth(_FakeEth):
+        """web3.py v8 поведение: не-checksum `address` → ValueError."""
+
+        def get_logs(self, spec):
+            addr = spec.get("address") or ""
+            if addr != _checksum(addr):
+                raise ValueError(
+                    "web3.py only accepts checksum addresses, "
+                    "not '%s'..." % addr)
+            return super().get_logs(spec)
+
+    eth = _V8Eth(block_number=105,          # глава СЛЕД блока на сетълмента
+                 receipts={TX_CDP: _receipt(TX_CDP, 100, PAYER, 5000,
+                                            main.X402_RECEIVER_ADDRESS)},
+                 auth_logs=[_auth_log(TX_CDP, 100, PAYER, NONCE_A)])
+    fake = types.ModuleType("web3")
+
+    class _W3:
+        HTTPProvider = staticmethod(
+            lambda url, request_kwargs=None: ("fake", url))
+
+        def __init__(self, provider=None, *args, **kwargs):
+            self.eth = eth
+
+        to_checksum_address = staticmethod(_checksum)
+
+    fake.Web3 = _W3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+    monkeypatch.setattr(main, "_payment_verify_w3", None)
+
+    found = main._find_settlement_by_nonce(PAYER.lower(), NONCE_A.lower(),
+                                           0.005)
+
+    assert found == {"tx_hash": TX_CDP, "block_number": 100,
+                     "block_hash": "0x" + "cd" * 32}, \
+        "адаптирането на вече-платено падна заради checksum изискването"
+    spec = eth.get_logs_calls[0]
+    assert spec["address"] == _checksum(USDC.lower()), \
+        "eth_getLogs трябва да получи checksum-натия USDC адрес"
