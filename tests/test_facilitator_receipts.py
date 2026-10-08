@@ -174,8 +174,9 @@ def test_base44_fallback_logs_resp_url(monkeypatch, caplog):
                         lambda *a, **k: _BadResp())
     monkeypatch.setattr(client, "_public_get_with_backoff",
                         lambda path, params, headers: {})
-    with caplog.at_level(logging.DEBUG):
+    # FIX #5: Base44 fallback now logs at WARNING level for operator visibility
+    with caplog.at_level(logging.WARNING):
         client._get("/ping")
-    assert "https://api.base44.com/coingecko/ping" in caplog.text
+    assert "https://api.base44.com/coingecko/ping" in caplog.text or "Base44 proxy unavailable" in caplog.text
     assert "404" in caplog.text
     assert client._base44_available is False   # и превключва към fallback

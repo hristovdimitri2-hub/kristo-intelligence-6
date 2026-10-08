@@ -197,7 +197,8 @@ def _scan_for_arbitrage() -> List[dict]:
             # Gross = trade × spread; the opportunity must clear gas×3,
             # otherwise the spread is noise a bot would lose money on.
             gross_profit_usd = est_trade_usd * (spread_pct / 100)
-            if gross_profit_usd <= GAS_COST_USDC * GAS_SAFETY_MULT:
+            # FIX #8: Use < instead of <= to include opportunities exactly at threshold
+            if gross_profit_usd < GAS_COST_USDC * GAS_SAFETY_MULT:
                 continue
             # est_profit_usd = NET after gas ("нет след газ", plan Product 1).
             est_profit_usd = gross_profit_usd - GAS_COST_USDC

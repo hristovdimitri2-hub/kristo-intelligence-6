@@ -80,6 +80,12 @@ class CoinGeckoClient:
                 oldest_key = min(cls._price_cache, key=lambda item: cls._price_cache[item]["stored_at"])
                 cls._price_cache.pop(oldest_key, None)
             cls._price_cache[cache_key] = {"data": dict(data), "stored_at": time.monotonic()}
+    
+    @classmethod
+    def _clear_cache_on_source_change(cls):
+        """FIX #2: Clear cache when API source changes (Base44→public fallback)."""
+        with cls._cache_lock:
+            cls._price_cache.clear()
 
     def _public_get_with_backoff(self, path: str, params: dict, headers: dict) -> dict:
         """Bound public API retries and cool down after a 429 response."""
@@ -143,12 +149,16 @@ class CoinGeckoClient:
                 if resp.ok:
                     return resp.json()
                 # 404 / 401 / 403 -> proxy endpoint not available; fall back.
-                log.debug("Base44 proxy returned %s at %s — falling back to "
-                          "public API.", resp.status_code, resp.url)
+                # FIX #5: Log at WARNING level for operator visibility
+                log.warning("Base44 proxy unavailable (HTTP %s) — falling back to public API",
+                          resp.status_code)
                 self._base44_available = False
+                self._clear_cache_on_source_change()  # FIX #2: invalidate cache
             except Exception as exc:
-                log.debug("Base44 proxy request failed (%s) — falling back to public API.", exc)
+                # FIX #5: Log at WARNING level
+                log.warning("Base44 proxy unavailable (%s) — falling back to public API", exc)
                 self._base44_available = False
+                self._clear_cache_on_source_change()  # FIX #2: invalidate cache
 
         # Public CoinGecko fallback (always works without a key).
         url = f"{_COINGECKO_PUBLIC}{path}"

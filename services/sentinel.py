@@ -58,9 +58,21 @@ def _load_persisted() -> dict:
 
 
 def _persist(data: dict) -> None:
+    """FIX #6: Atomic write using temp file + os.replace() to prevent corruption."""
     try:
-        with open(STATE_FILE, "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
+        import os as _os
+        state_dir = _os.path.dirname(STATE_FILE) or "."
+        _os.makedirs(state_dir, exist_ok=True)
+        
+        # Write to temp file first, then atomically move
+        fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with _os.fdopen(fd, 'w', encoding="utf-8") as fh:
+                json.dump(data, fh)
+            _os.replace(tmp_path, STATE_FILE)  # Atomic on all platforms
+        except Exception:
+            _os.remove(tmp_path)
+            raise
     except Exception as exc:
         log.debug("Sentinel state persist failed: %s", exc)
 

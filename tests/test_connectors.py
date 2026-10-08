@@ -470,6 +470,54 @@ def test_cdp_jwt_supports_pem_and_legacy_secret(monkeypatch):
     assert token2 and token2.count(".") == 2, "legacy secret must also build"
 
 
+# ── FIX v3: extra.name/extra.version pinning ──────────────────────────────────
+
+def test_precheck_validates_extra_name_and_version_pinning():
+    """FIX v3: extra.name and extra.version must match challenged values (no polymorphic clients)."""
+    from services.connectors import precheck_payment_payload
+    
+    # Minimal valid payload with extra fields
+    payload = {
+        "accepted": {"scheme": "exact", "network": "eip155:8453", "amount": "5000"},
+        "payload": {
+            "signature": "0x123",
+            "authorization": {
+                "nonce": "0x" + "1" * 64,
+                "validAfter": "0",
+                "validBefore": "9999999999",
+            }
+        },
+        "extra": {"name": "my-client", "version": "1.0"}
+    }
+    
+    # Matching requirements: should pass
+    reqs_match = {
+        "extra_name": "my-client",
+        "extra_version": "1.0"
+    }
+    problems = precheck_payment_payload(payload, reqs_match)
+    # No extra-related problems (may have other issues, but not extra ones)
+    extra_problems = [p for p in problems if "extra" in p]
+    assert not extra_problems, f"Matched extra should not produce problems: {extra_problems}"
+    
+    # Wrong name
+    reqs_wrong_name = {"extra_name": "wrong-name", "extra_version": "1.0"}
+    problems = precheck_payment_payload(payload, reqs_wrong_name)
+    assert any("extra.name" in p for p in problems), f"Should reject wrong name: {problems}"
+    
+    # Wrong version
+    reqs_wrong_version = {"extra_name": "my-client", "extra_version": "2.0"}
+    problems = precheck_payment_payload(payload, reqs_wrong_version)
+    assert any("extra.version" in p for p in problems), f"Should reject wrong version: {problems}"
+    
+    # No expected_name/version in requirements: should not fail
+    payload_no_extra = dict(payload)
+    payload_no_extra["extra"] = {}
+    problems = precheck_payment_payload(payload_no_extra, {})
+    extra_problems = [p for p in problems if "extra" in p]
+    assert not extra_problems, f"Missing optional extra should not fail: {extra_problems}"
+
+
 def test_cdp_jwt_rejects_wrong_curve_and_missing(monkeypatch):
     from services.connectors import _cdp_jwt
     pytest.importorskip("cryptography")

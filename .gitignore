@@ -75,4 +75,8 @@ mcp-publisher.tar.gz
 
 # Video evidence artifacts (never commit / push) 
 kristo_paid_demo_*.mp4
+
+# Archive backups (never commit)
+ops/*.zip
+
 kristo_paid_demo_preview.jpg

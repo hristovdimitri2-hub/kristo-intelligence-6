@@ -314,6 +314,9 @@ def main() -> None:
     log(f"      {PAYMENT_HEADER} payload built: {len(header_value)} chars "
         f"(signature + authorization; no private material)")
 
+    # FIX #3: Store signed nonce for verification
+    signed_nonce_hex = payload.get("authorization", {}).get("nonce", "")
+    
     if do_send:
         # x402 v2 Bazaar rule: echo the 402's extensions into the payment
         # payload so the facilitator can auto-list the endpoint (PayAI).
@@ -359,6 +362,11 @@ def main() -> None:
             try:
                 settle = json.loads(
                     base64.b64decode(pr + "=" * (-len(pr) % 4)).decode("utf-8"))
+                # FIX #3: Verify returned nonce matches signed nonce (adoption attack prevention)
+                returned_nonce = settle.get("nonce", "")
+                if returned_nonce and signed_nonce_hex:
+                    if returned_nonce.lower() != signed_nonce_hex.lower():
+                        fail(f"Nonce mismatch: signed {signed_nonce_hex[:20]}..., got {returned_nonce[:20]}...")
                 tx = str(settle.get("transaction") or "")
                 log(f"      PAYMENT-RESPONSE: success={settle.get('success')} "
                     f"network={settle.get('network')} payer={settle.get('payer')} "

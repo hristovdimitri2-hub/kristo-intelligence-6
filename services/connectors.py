@@ -152,11 +152,15 @@ def precheck_payment_payload(payload: dict, requirements: dict):
     (empty list = structurally valid). Covers exactly what the review asked
     to see validated: scheme, network, amount, receiver, asset and the
     authorization time window (validAfter/validBefore).
+    
+    FIX v3: Also validate extra.name and extra.version are pinned exactly
+    to what was challenged (no polymorphic clients).
     """
     problems = []
     accepted = payload.get("accepted") or {}
     inner = payload.get("payload") or {}
     auth = inner.get("authorization") or {}
+    extra = payload.get("extra") or {}
     now = int(time.time())
 
     if accepted.get("scheme") not in (None, "exact"):
@@ -198,6 +202,20 @@ def precheck_payment_payload(payload: dict, requirements: dict):
         problems.append("validAfter/validBefore are not integers")
     if not inner.get("signature"):
         problems.append("payload.signature missing")
+    
+    # FIX v3: Validate extra.name and extra.version are pinned (no polymorphic clients)
+    expected_name = requirements.get("extra_name")
+    expected_version = requirements.get("extra_version")
+    
+    if expected_name and extra.get("name") != expected_name:
+        problems.append(
+            f"extra.name mismatch: {extra.get('name')!r} != {expected_name!r}"
+        )
+    if expected_version and extra.get("version") != expected_version:
+        problems.append(
+            f"extra.version mismatch: {extra.get('version')!r} != {expected_version!r}"
+        )
+    
     return problems
 
 
