@@ -40,6 +40,20 @@ def _sections(test_client):
     return body["sections"]
 
 
+def _admin_sections(test_client):
+    """The same read model, served to an ADMIN (X-Admin-Token).
+
+    Since 10.10 the OFF-CHAIN `crm_stripe` section exists only behind admin
+    auth — the public response carries the key ABSENT (never null). Tests that
+    cover the off-chain numbers read them from here.
+    """
+    body = test_client.get(
+        "/api/dashboard/data",
+        headers={"X-Admin-Token": "test-admin-token"},
+    ).get_json()
+    return body["sections"]
+
+
 # ── 1. ON-CHAIN SALES: the chain numbers, permanently on screen ─────────────
 
 def test_onchain_section_carries_the_verified_chain_truth(client):
@@ -241,9 +255,16 @@ def test_offchain_storage_durability_is_visible_not_assumed(client):
     """AUDIT A2: with DATABASE_URL unset the CRM is SQLite on Render's EPHEMERAL
     disk — every deploy wipes leads and paid records. The dashboard must say
     that out loud, because a confident "$0" there means "unknown", not "zero".
-    (Making it durable is an owner action: set DATABASE_URL.)"""
+    (Making it durable is an owner action: set DATABASE_URL.)
+
+    10.10: the section is ADMIN-ONLY. The public response carries the key
+    ABSENT (never null) — off-chain sums must not be curl-able; the durability
+    truth is still visible to the admin who can act on it.
+    """
     test_client, _main, _dash = client
-    c = _sections(test_client)["crm_stripe"]
+    # The public response carries NO crm_stripe key at all.
+    assert "crm_stripe" not in _sections(test_client)
+    c = _admin_sections(test_client)["crm_stripe"]
     assert c["storage_backend"] in ("sqlite", "postgresql")
     assert c["durable"] is (c["storage_backend"] == "postgresql")
     assert c["storage_note"]
@@ -1303,12 +1324,18 @@ def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
     reported `stripe_list_unavailable` — so the section showed "Stripe snapshot: не"
     and fell back silently. All three states are now visible in words:
     недостъпен / сверка ОК / РАЗЛИКА.
+
+    10.10: the whole section is ADMIN-ONLY — the public response carries the
+    key ABSENT (never null), so the cross-check stays covered through
+    `_admin_sections` and the public leak is asserted the other way round.
     """
     test_client, main, _dash = client
+    # Public: no crm_stripe key at all.
+    assert "crm_stripe" not in _sections(test_client)
 
     _set_stripe_snapshot(main, monkeypatch, available=False,
                          reason="stripe_list_unavailable")
-    crm = _sections(test_client)["crm_stripe"]
+    crm = _admin_sections(test_client)["crm_stripe"]
     assert crm["source"] == "crm_paid_events", "the label must name the CRM rows"
     assert crm["stripe_link"]["status"] == "unavailable"
     assert "недостъпен" in crm["stripe_link"]["detail"]
@@ -1318,7 +1345,7 @@ def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
         {"amount_usd": i["amount_usd"], "plan": i["plan"],
          "checkout_id": "cs_live_aligned", "provider": "stripe"}
         for i in crm["items"]])
-    link = _sections(test_client)["crm_stripe"]["stripe_link"]
+    link = _admin_sections(test_client)["crm_stripe"]["stripe_link"]
     assert link["status"] == "in_sync", link
     assert "съвпадат" in link["detail"]
 
@@ -1326,12 +1353,72 @@ def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
     _set_stripe_snapshot(main, monkeypatch, payments=[
         {"amount_usd": 99.0, "plan": "pro", "checkout_id": "cs_live_ghost",
          "provider": "stripe"}])
-    link = _sections(test_client)["crm_stripe"]["stripe_link"]
+    link = _admin_sections(test_client)["crm_stripe"]["stripe_link"]
     assert link["status"] == "mismatch", link
     assert "РАЗЛИКА" in link["detail"]
 
     html = test_client.get("/dashboard").get_data(as_text=True)
     assert 'id="crm-note"' in html and "stripe_link" in html
+# ── 12. PUBLIC LEAK-PROOFING: off-chain data is admin-only (10.10) ──────────
+
+def test_public_payload_carries_no_crm_or_stripe_keys_at_all(client):
+    """An anonymous caller must not be able to read CRM/Stripe sums, masked
+    emails or Stripe checkout IDs with curl. The `crm_stripe` key is ABSENT
+    (never a null placeholder) and NO other key smuggles the same data; the
+    admin response keeps the full section, so the coverage is not lost.
+
+    (Substring search for `total_usd` alone would false-positive on the
+    on-chain `total_usdc` — the checks below use exact JSON keys.)
+    """
+    test_client, _main, _dash = client
+    resp = test_client.get("/api/dashboard/data")
+    raw = resp.get_data(as_text=True)
+    body = resp.get_json()
+
+    # 1. The section key is absent — not null, not empty.
+    assert "crm_stripe" not in body["sections"]
+    assert body["sections"].get("crm_stripe") is None
+
+    # 2. No CRM/Stripe key hides anywhere else in the public JSON tree.
+    found = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                found.add(k)
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(body)
+    for key in found:
+        lowered = key.lower()
+        assert not any(t in lowered for t in ("crm", "stripe", "refund")), \
+            f"public payload smuggles a CRM/Stripe key: {key!r}"
+
+    # 3. The exact off-chain keys/values may not appear raw either.
+    for exact in ('"crm_stripe"', '"total_usd"', '"net_usd"', '"refund_note"',
+                  '"refunded_usd"', '"checkout_id"', '"storage_backend"',
+                  '"storage_note"', '"crm_paid_event"', '"stripe_link"'):
+        assert exact not in raw, f"public payload leaks {exact}"
+
+    # 4. The other public surface (/api/dashboard-stats) is clean as well.
+    stats_raw = test_client.get("/api/dashboard-stats").get_data(as_text=True)
+    for exact in ('"crm_stripe"', '"total_usd"', '"net_usd"', '"refund_note"',
+                  '"checkout_id"', '"stripe_link"', '"crm_paid_event"'):
+        assert exact not in stats_raw, f"dashboard-stats leaks {exact}"
+
+    # 5. ADMIN: the full section is still served (coverage is not lost).
+    admin = test_client.get(
+        "/api/dashboard/data",
+        headers={"X-Admin-Token": "test-admin-token"}).get_json()
+    crm = admin["sections"]["crm_stripe"]
+    assert crm["excluded_from_onchain"] is True
+    assert "stripe_link" in crm and "storage_backend" in crm
+    assert "items" in crm and "refund_note" in crm
+
+
 # ── 11. REFUNDS ON SCREEN: paid, refunded and net are three numbers ─────────
 
 def test_the_offchain_section_separates_paid_from_refunded(client, monkeypatch,
@@ -1342,6 +1429,8 @@ def test_the_offchain_section_separates_paid_from_refunded(client, monkeypatch,
     was no longer there.
     """
     test_client, main, _dash = client
+    # 10.10: the section is ADMIN-ONLY — public carries the key ABSENT.
+    assert "crm_stripe" not in _sections(test_client)
     from integrations.crm_store import CRMStore
 
     store = CRMStore(tmp_path / "crm.db")
@@ -1353,7 +1442,7 @@ def test_the_offchain_section_separates_paid_from_refunded(client, monkeypatch,
                     paid_at="2026-09-16T08:56:08+00:00")
     store.mark_refund("buyer@example.com", 34.80, "2026-09-17T06:23:30+00:00")
 
-    crm = _sections(test_client)["crm_stripe"]
+    crm = _admin_sections(test_client)["crm_stripe"]
     assert crm["total_usd"] == 34.80, "the sale is what was charged"
     assert crm["refunded_usd"] == 34.80 and crm["refunded_count"] == 1
     assert crm["net_usd"] == 0.0, "net = paid − refunded"

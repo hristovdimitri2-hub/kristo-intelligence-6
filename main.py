@@ -1720,6 +1720,21 @@ def _require_admin_access():
     return None
 
 
+def _is_admin_request() -> bool:
+    """True when the CURRENT request carries valid admin auth (never rejects).
+
+    Used by read surfaces that serve BOTH the public and the admin view
+    (e.g. /api/dashboard/data): the answer is richer for an admin, but a
+    public caller is served normally — only the protected sections are
+    left out of the response entirely (absent key, never null).
+    """
+    if session.get("admin_authenticated"):
+        return True
+    configured = _get_admin_token()
+    supplied = (request.headers.get("X-Admin-Token", "") or "").strip()
+    return bool(configured and supplied and hmac.compare_digest(supplied, configured))
+
+
 def _require_research_ingest_access():
     """Authenticate an external research source without exposing admin credentials."""
     configured = (os.getenv("RESEARCH_INGEST_TOKEN", "") or "").strip()
@@ -3418,6 +3433,67 @@ def api_sales():
     })
 
 
+def _daily_sales_series(history_rows) -> list:
+    """Last 7 UTC days of on-chain USDC volume — chart series (added 10.10).
+
+    Aggregated from the SAME durable `onchain_sales` rows as the On-Chain Sales
+    section (`sales_summary()['history']`), so the chart can never disagree with
+    the totals on screen. Days without sales are 0, never missing.
+    """
+    buckets: Dict[str, Dict[str, float]] = {}
+    for row in history_rows or []:
+        day = str(row.get("ts") or row.get("timestamp") or "")[:10]
+        if not day:
+            continue
+        try:
+            amount = float(row.get("amount_usdc") or row.get("amount_usd") or 0.0)
+        except (TypeError, ValueError):
+            amount = 0.0
+        bucket = buckets.setdefault(day, {"usdc": 0.0, "count": 0})
+        bucket["usdc"] += amount
+        bucket["count"] += 1
+    today = datetime.now(timezone.utc).date()
+    series = []
+    for offset in range(6, -1, -1):
+        day = (today - timedelta(days=offset)).isoformat()
+        bucket = buckets.get(day, {"usdc": 0.0, "count": 0})
+        series.append({
+            "date": day,
+            "usdc": round(bucket["usdc"], 6),
+            "count": int(bucket["count"]),
+        })
+    return series
+
+
+def _hourly_requests_series(hourly_rows) -> list:
+    """Today's request counts per hour 0–23 UTC — chart series (added 10.10).
+
+    Sourced from `requests_summary()['hourly']`, the same query behind the API
+    Requests section. `clean` excludes the internal Render/1.0 keep-alive noise
+    exactly like the "ДНЕС ЧИСТИ" card, so the chart and the card agree.
+    """
+    by_hour: Dict[int, Dict[str, int]] = {}
+    for row in hourly_rows or []:
+        try:
+            hour = int(str(row.get("hour") or "0")[:2])
+            n = int(row.get("n") or 0)
+            noise = int(row.get("noise") or 0)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= hour <= 23:
+            by_hour[hour] = {"n": n, "noise": noise}
+    series = []
+    for hour in range(24):
+        row = by_hour.get(hour, {"n": 0, "noise": 0})
+        series.append({
+            "hour": hour,
+            "n": row["n"],
+            "noise": row["noise"],
+            "clean": max(0, row["n"] - row["noise"]),
+        })
+    return series
+
+
 def _statistics_payload(include_recent_requests: bool) -> dict:
     """Build real stats from durable catalog events and live runtime state."""
     with _lock:
@@ -3516,6 +3592,13 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
         "total_sales": total_sales,
         "by_token": sales_by_token,
         "history": history,
+        # Chart series (10.10) — ADDITIVE ONLY, no existing field touched.
+        # `daily_sales` aggregates the exact `history` rows reported above (RAM
+        # fallback or store rows, whichever is authoritative), so the 7-day chart
+        # can never disagree with the visible totals.
+        "daily_sales": _daily_sales_series(history),
+        "hourly_requests": _hourly_requests_series(
+            store_reqs.get("hourly") if store_reqs else None),
         "telegram_bot_running": bot_status.get("telegram_bot_running", False),
         "commands_processed": bot_status.get("commands_processed", 0),
         "products": products,
@@ -4657,6 +4740,10 @@ def _admin_overview_payload() -> dict:
         "payments": displayed_payments[:100],
         "payment_source": "stripe_checkout" if use_stripe_feed else "crm_paid_events",
         "vip_plans": vip_plans[:100],
+        # 10.10: the full OFF-CHAIN section (masked items, stripe_link,
+        # storage durability) lives behind this admin surface too — it is
+        # generated nowhere else for a browser, and never for the public.
+        "crm_stripe": _crm_stripe_section(),
         "request_log": list(reversed(live_requests)),
         "agent_catalog": catalog_metrics,
         "services": {
@@ -4951,18 +5038,17 @@ def _published_price_map() -> Dict[str, float]:
     return price_map
 
 
-def _canonical_dashboard_payload() -> dict:
-    """Build the whole read model from persistent sources only."""
-    sales = dashboard_db.sales_summary()
-    requests = dashboard_db.requests_summary()
-    payapi = dashboard_db.get_payapi_state()
-    price_map = _published_price_map()
-    clients = dashboard_db.clients_summary(price_map=price_map)
-    whales = dashboard_db.whaleflow_summary(window_hours=24, limit=25)
-    guards = dashboard_db.guard_stats()
-    guard_claims = dashboard_db.payment_guard_stats()
+def _crm_stripe_section() -> dict:
+    """The OFF-CHAIN CRM/Stripe section, as one unit (extracted 10.10).
 
-    # (d) CRM/Stripe — OFF-CHAIN, never part of on-chain totals.
+    BUILT ONLY FOR ADMIN-READS. The public payload carries no CRM/Stripe data
+    at all (the `crm_stripe` key is ABSENT, never null), so off-chain sums,
+    masked emails and Stripe checkout IDs cannot leak through
+    /api/dashboard/data. The only surfaces that see this section are
+    /api/admin/overview and an admin-token request to /api/dashboard/data.
+
+    (d) CRM/Stripe — OFF-CHAIN, never part of on-chain totals.
+    """
     leads = crm_store.get_all()
     paid_leads = [l for l in leads if l.get("payment_status") == "paid"]
     paid_leads.sort(key=lambda l: l.get("created_at") or "", reverse=True)
@@ -5029,6 +5115,55 @@ def _canonical_dashboard_payload() -> dict:
         "total_usd": stripe_total,
         "detail": stripe_detail,
     }
+
+    return {
+        "label": "OFF-CHAIN — НЕ е включено в on-chain сумите",
+        "excluded_from_onchain": True,
+        "source": "crm_paid_events",
+        "count": len(crm_items),
+        "total_usd": crm_total,
+        # Paid / refunded / net, all three visible: the sale figure stays
+        # what was charged, and the return is its own number (17.09).
+        "refunded_usd": refunded_total,
+        "refunded_count": refunded_count,
+        "net_usd": net_total,
+        "refund_note": refund_note,
+        "items": crm_items[:50],
+        "stripe_available": bool(stripe.get("available")),
+        "stripe_link": stripe_link,
+        # AUDIT A2: with DATABASE_URL unset the CRM is SQLite on the
+        # EPHEMERAL disk, so every deploy wipes leads, paid leads and
+        # the whole pipeline. The on-chain numbers are protected by the
+        # chain-verified seed; the off-chain money record was not
+        # protected at all — so say it out loud instead of showing a
+        # confident "$0" that is really "unknown".
+        "storage_backend": getattr(crm_store, "backend", "unknown"),
+        "durable": getattr(crm_store, "backend", "") == "postgresql",
+        "storage_note": (
+            "PostgreSQL (durable)" if getattr(crm_store, "backend", "")
+            == "postgresql" else
+            "SQLite на ефимерния диск — deploy изтрива leads/paid "
+            "записите. Задай DATABASE_URL за durable CRM."
+        ),
+    }
+
+
+def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
+    """Build the whole read model from persistent sources only.
+
+    `include_crm` (10.10): the OFF-CHAIN CRM/Stripe section is generated ONLY
+    for admin-authenticated reads. Public callers get the key ABSENT (never
+    null) — off-chain sums must not be reachable with curl by anyone who knows
+    the URL. See `_crm_stripe_section`.
+    """
+    sales = dashboard_db.sales_summary()
+    requests = dashboard_db.requests_summary()
+    payapi = dashboard_db.get_payapi_state()
+    price_map = _published_price_map()
+    clients = dashboard_db.clients_summary(price_map=price_map)
+    whales = dashboard_db.whaleflow_summary(window_hours=24, limit=25)
+    guards = dashboard_db.guard_stats()
+    guard_claims = dashboard_db.payment_guard_stats()
 
     onchain_total = sales["total_usdc"]
     # Priority-0 guard: the on-chain total must NEVER contain off-chain money.
@@ -5153,49 +5288,37 @@ def _canonical_dashboard_payload() -> dict:
                 "count": len(REAL_X402_ROUTES),
                 "routes": _real_routes_payload(),
             },
-            "crm_stripe": {
-                "label": "OFF-CHAIN — НЕ е включено в on-chain сумите",
-                "excluded_from_onchain": True,
-                "source": "crm_paid_events",
-                "count": len(crm_items),
-                "total_usd": crm_total,
-                # Paid / refunded / net, all three visible: the sale figure stays
-                # what was charged, and the return is its own number (17.09).
-                "refunded_usd": refunded_total,
-                "refunded_count": refunded_count,
-                "net_usd": net_total,
-                "refund_note": refund_note,
-                "items": crm_items[:50],
-                "stripe_available": bool(stripe.get("available")),
-                "stripe_link": stripe_link,
-                # AUDIT A2: with DATABASE_URL unset the CRM is SQLite on the
-                # EPHEMERAL disk, so every deploy wipes leads, paid leads and
-                # the whole pipeline. The on-chain numbers are protected by the
-                # chain-verified seed; the off-chain money record was not
-                # protected at all — so say it out loud instead of showing a
-                # confident "$0" that is really "unknown".
-                "storage_backend": getattr(crm_store, "backend", "unknown"),
-                "durable": getattr(crm_store, "backend", "") == "postgresql",
-                "storage_note": (
-                    "PostgreSQL (durable)" if getattr(crm_store, "backend", "")
-                    == "postgresql" else
-                    "SQLite на ефимерния диск — deploy изтрива leads/paid "
-                    "записите. Задай DATABASE_URL за durable CRM."
-                ),
-            },
+            # (d) CRM/Stripe — OFF-CHAIN (10.10): ONLY for admin reads. For a
+            # public caller this key is ABSENT (never null) — see
+            # `_crm_stripe_section` for the whole story.
+            **({"crm_stripe": _crm_stripe_section()} if include_crm else {}),
         },
         "invariant": (
             "On-chain сумите идват САМО от реални USDC трансфери към "
-            f"{X402_RECEIVER_ADDRESS}. CRM/Stripe (off-chain) е отделна "
-            "секция и никога не се смесва с тях."
+            f"{X402_RECEIVER_ADDRESS}."
+            + (" CRM/Stripe (off-chain) е отделна секция и никога не се смесва с тях."
+               if include_crm else
+               " Off-chain платни записи не се показват в този отговор.")
         ),
+        # Chart series (10.10) — ADDITIVE ONLY. Same helpers as
+        # /api/dashboard-stats so the two public JSON surfaces cannot disagree:
+        # `daily_sales` from the durable on-chain history, `hourly_requests`
+        # from the durable request log (clean = without internal keep-alive).
+        "daily_sales": _daily_sales_series(sales.get("history")),
+        "hourly_requests": _hourly_requests_series(requests.get("hourly")),
     }
 
 
 @app.route("/api/dashboard/data")
 def api_dashboard_data():
-    """Free, read-only JSON for the canonical dashboard (persistent sources)."""
-    return _safe_jsonify(_canonical_dashboard_payload())
+    """Free, read-only JSON for the canonical dashboard (persistent sources).
+
+    include_crm (10.10): the OFF-CHAIN CRM/Stripe section is served ONLY to an
+    admin-authenticated caller (session or X-Admin-Token). For the public the
+    key is ABSENT from the response — off-chain sums are not curl-able.
+    """
+    return _safe_jsonify(
+        _canonical_dashboard_payload(include_crm=_is_admin_request()))
 
 
 @app.route("/api/v1/whaleflow")

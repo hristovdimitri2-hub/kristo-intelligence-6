@@ -223,7 +223,12 @@ def test_payapi_state_roundtrip_and_baseline(tmp_path):
 
 
 def test_dashboard_data_sections_and_crm_never_in_onchain(client):
-    """The (г) CRM/Stripe section must stay OUT of on-chain totals."""
+    """The (г) CRM/Stripe section must stay OUT of on-chain totals.
+
+    10.10: it must ALSO stay out of the PUBLIC response entirely — the
+    `crm_stripe` key is ABSENT (never null) for an anonymous caller, and the
+    full section lives only behind admin auth (coverage kept below).
+    """
     test_client, main, dash = client
     # Seed: one real on-chain sale + one off-chain CRM paid lead ($79.02).
     dash.record_sale(
@@ -250,11 +255,20 @@ def test_dashboard_data_sections_and_crm_never_in_onchain(client):
     assert onchain["external_payers"] == 1
     assert onchain["by_class"]["external"]["total_usdc"] == 0.003
 
-    crm = sections["crm_stripe"]
+    # PUBLIC: the off-chain section is not served at all — absent key, and
+    # neither the masked nor the full email may leak into the response.
+    assert "crm_stripe" not in sections, "public payload must not carry crm_stripe"
+    assert sections.get("crm_stripe") is None   # absent, NOT a null placeholder
+    assert "investor@crypto.io" not in resp.get_data(as_text=True)
+
+    # ADMIN: the same numbers stay reachable and covered (not lost to the fix).
+    admin_resp = test_client.get(
+        "/api/dashboard/data", headers={"X-Admin-Token": "test-admin-token"})
+    crm = admin_resp.get_json()["sections"]["crm_stripe"]
     assert crm["excluded_from_onchain"] is True
     assert crm["total_usd"] == 79.02           # visible only in its own section
     assert crm["items"][0]["customer"].startswith("in")  # masked, not the full email
-    assert "investor@crypto.io" not in resp.get_data(as_text=True)
+    assert "investor@crypto.io" not in admin_resp.get_data(as_text=True)
 
     assert sections["requests"]["total"] >= 1  # this very request is logged
     assert "invariant" in payload

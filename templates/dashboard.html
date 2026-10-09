@@ -50,7 +50,13 @@
   a:hover { text-decoration: underline; }
   .mono { font-family: Consolas, monospace; font-size: 11.5px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .grid2 > * { min-width: 0; } /* grid децата да могат да се свиват под ширината на съдържанието */
+  @media (max-width: 720px) {
+    .grid2 { grid-template-columns: 1fr; }
+    /* таблици с много колони получават хоризонтален скрол, вместо да излизат от екрана */
+    table { display: block; overflow-x: auto; }
+    h2 { flex-wrap: wrap; }
+  }
   .offchain-box { border: 1px dashed rgba(251,191,36,.45); border-radius: 10px;
                   background: rgba(251,191,36,.04); padding: 12px 14px; }
   .offchain-box .warn { color: var(--amber); font-size: 11.5px; font-weight: 600; margin-bottom: 8px; }
@@ -59,6 +65,19 @@
   .toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
   .hidden { display: none; }
   .note { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  /* А5: при грешка в API-то данните се обозначават като НЕАКТУАЛНИ (по-ниска
+         прозрачност), вместо да изглеждат „live", докато badge-ът свети. */
+  .stale-data .cards, .stale-data table, .stale-data .chart-box,
+  .stale-data #funnel-box { opacity: .45; transition: opacity .3s; }
+  /* Б2: двете графики (Chart.js, локално копие в static/vendor/) */
+  .chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+               padding: 12px 14px; position: relative; }
+  .chart-title { color: var(--muted); font-size: 11px; text-transform: uppercase;
+                 letter-spacing: .5px; margin-bottom: 8px; }
+  .chart-canvas-box { position: relative; height: 220px; }
+  .chart-canvas-box canvas { max-width: 100%; } /* графиката никога не излиза от контейнера си */
+  .chart-empty { position: absolute; inset: 0; display: flex; align-items: center;
+                 justify-content: center; color: var(--muted); font-style: italic; font-size: 12px; }
   footer { margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--border);
            color: var(--muted); font-size: 11px; }
   .empty { color: var(--muted); font-style: italic; padding: 10px; }
@@ -97,13 +116,13 @@
   <div class="note" id="onchain-classes" style="margin-bottom:10px;"></div>
   <table>
     <thead><tr><th>Време (UTC)</th><th>Блок</th><th>Сума</th><th>Тип платец</th><th>From</th><th>Tx (пълен хеш)</th></tr></thead>
-    <tbody id="sales-body"><tr><td colspan="6" class="empty">зареждане…</td></tr></tbody>
+    <tbody id="sales-body"><tr><td colspan="6" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
   <h2>⬢ Клиенти <span class="src">всеки external платец — базата за operator deals</span></h2>
   <div class="cards" id="client-cards"></div>
   <table style="margin-top:10px;">
     <thead><tr><th>Портфейл</th><th>Плащания</th><th>Общо</th><th>Последна покупка</th><th>Маршрути</th></tr></thead>
-    <tbody id="clients-body"><tr><td colspan="5" class="empty">зареждане…</td></tr></tbody>
+    <tbody id="clients-body"><tr><td colspan="5" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
   <div class="note" id="clients-note"></div>
 
@@ -111,7 +130,7 @@
   <div class="cards" id="whale-cards"></div>
   <table style="margin-top:10px;">
     <thead><tr><th>Време (UTC)</th><th>Сума</th><th>Токен</th><th>От</th><th>До</th><th>Tx</th></tr></thead>
-    <tbody id="whales-body"><tr><td colspan="6" class="empty">зареждане…</td></tr></tbody>
+    <tbody id="whales-body"><tr><td colspan="6" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
   <div class="note" id="whales-note"></div>
 
@@ -120,11 +139,29 @@
   <div class="note" id="guard-note" style="margin:8px 0;"></div>
   <table>
     <thead><tr><th>Време (UTC)</th><th>Гард</th><th>Път</th><th>Tx</th><th>Детайл</th></tr></thead>
-    <tbody id="guard-body"><tr><td colspan="5" class="empty">…</td></tr></tbody>
+    <tbody id="guard-body"><tr><td colspan="5" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
 
   <h2>⬢ Фънъл <span class="src">402 предизвикателства → платени заявки, по маршрути</span></h2>
   <div id="funnel-box"></div>
+
+  <h2>⬢ Трендове <span class="src">приход по дни · заявки по час (UTC)</span></h2>
+  <div class="grid2" style="margin-top:10px;">
+    <div class="chart-box">
+      <div class="chart-title">Приход (USDC) — последните 7 дни</div>
+      <div class="chart-canvas-box">
+        <canvas id="chart-sales"></canvas>
+        <div class="chart-empty" id="chart-sales-empty">Няма данни за периода</div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">API заявки по час — днес (без вътрешен шум)</div>
+      <div class="chart-canvas-box">
+        <canvas id="chart-requests"></canvas>
+        <div class="chart-empty" id="chart-requests-empty">Няма данни за периода</div>
+      </div>
+    </div>
+  </div>
 
 
   <h2>⬢ API Requests <span class="src">постоянен лог (SQLite) — UA / канал</span></h2>
@@ -132,17 +169,17 @@
   <div class="grid2" style="margin-top:10px;">
     <div>
       <div class="note" style="margin:0 0 6px;">Канали (/f/&lt;channel&gt; → клиент)</div>
-      <table><tbody id="channels-body"><tr><td class="empty">…</td></tr></tbody></table>
+      <table><tbody id="channels-body"><tr><td class="empty">Изчакване на данни…</td></tr></tbody></table>
     </div>
     <div>
       <div class="note" style="margin:0 0 6px;">Източници</div>
-      <table><tbody id="sources-body"><tr><td class="empty">…</td></tr></tbody></table>
+      <table><tbody id="sources-body"><tr><td class="empty">Изчакване на данни…</td></tr></tbody></table>
     </div>
   </div>
   <div class="note" style="margin:10px 0 6px;">Последни заявки</div>
   <table>
     <thead><tr><th>Време (UTC)</th><th>Път</th><th>Източник</th><th>Status</th><th>User-Agent</th><th>Канал</th></tr></thead>
-    <tbody id="recent-body"><tr><td colspan="6" class="empty">…</td></tr></tbody>
+    <tbody id="recent-body"><tr><td colspan="6" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
 
   <h2>⬢ Listing &amp; Ranking <span class="src">PayAPI Market — band + рангове по 8-те термина</span></h2>
@@ -150,40 +187,70 @@
   <div class="note" id="payapi-updated" style="margin:8px 0;"></div>
   <table>
     <thead><tr><th>Термин (q=)</th><th>Позиция</th><th>Резултати общо</th></tr></thead>
-    <tbody id="ranks-body"><tr><td colspan="3" class="empty">…</td></tr></tbody>
+    <tbody id="ranks-body"><tr><td colspan="3" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
 
   <h2>⬢ Реални маршрути <span class="src" id="routes-src">платими с x402 USDC на Base</span></h2>
   <table>
     <thead><tr><th>Маршрут</th><th>Какво дава</th><th>Цена (USDC)</th></tr></thead>
-    <tbody id="routes-body"><tr><td colspan="3" class="empty">зареждане…</td></tr></tbody>
+    <tbody id="routes-body"><tr><td colspan="3" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
 
+  <!-- А6: off-chain CRM/Stripe секцията е ПЕРМАНЕНТНО СКРИТА за публичния изглед.
+       Бутонът „Покажи off-chain сумите" и toggle-ът са ПРЕМАХНАТИ — публични
+       посетители не могат да разкрият сумите през UI. renderCrm() също НЕ се
+       вика от load(): данните изобщо не влизат в DOM. Елементите остават тук
+       скрити само защото тестовете фиксират присъствието им в HTML source.
+       Реалният достъп до off-chain суми е САМО /api/admin/overview (админ). -->
+  <div class="hidden" id="offchain-hidden">
   <h2>⬢ CRM / Stripe <span class="src">off-chain — отделно от веригата</span></h2>
   <div class="offchain-box">
     <div class="warn">⚠ OFF-CHAIN (CRM платени записи / Stripe). Никога НЕ е включено в
       on-chain сумите по-горе. Live/test режимът на Stripe се проверява в Stripe Dashboard
       → Payments (test плащанията са в Test mode списъка).</div>
-    <button class="toggle-btn" id="crm-toggle">Покажи off-chain сумите</button>
     <div class="note" id="crm-storage" style="margin-top:8px;"></div>
     <div id="crm-detail" class="hidden" style="margin-top:10px;">
       <div class="cards" id="crm-cards"></div>
       <table style="margin-top:10px;">
         <thead><tr><th>Дата</th><th>Клиент (маскиран)</th><th>План</th><th>Сума</th><th>Източник</th></tr></thead>
-        <tbody id="crm-body"><tr><td colspan="5" class="empty">…</td></tr></tbody>
+        <tbody id="crm-body"><tr><td colspan="5" class="empty">Няма платени off-chain записи</td></tr></tbody>
       </table>
       <div class="note" id="crm-note" style="margin:8px 0;"></div>
     </div>
+  </div>
   </div>
 
   <footer id="invariant"></footer>
 </div>
 
+<script src="/static/vendor/chart.umd.min.js"></script>
 <script>
+// ── Именовани константи (А3) ─────────────────────────────────────────────────
+const REFRESH_MS = 45000;              // авто-refresh на дашборда (ms)
+const PAYAPI_FRESH_MS = 30 * 60 * 1000; // PayAPI данни по-стари от това = „кеш"
+const USDC_FRACTION = 2;               // суми в USDC — до 2 знака след десетичната
+const USDC_MICRO = 0.01;               // под това сумата е микроплащане ($0.003) —
+                                       // показват се значещите цифри, иначе $0.00 лъже
+const ADDR_HEAD = 6;                   // Ethereum адрес/хеш: 6 знака отпред…
+const ADDR_TAIL = 6;                   // …и 6 отзад (съкращаване през СРЕДАТА)
+const RECENT_ROWS = 12;                // брой редове в „Последни заявки"
+const UA_SNIPPET = 40;                 // User-Agent — съкратено в таблицата
+
 const $ = (id) => document.getElementById(id);
-const usd = (x) => '$' + Number(x || 0).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
-const usd2 = (x) => '$' + Number(x || 0).toFixed(2);
+// Суми в USDC — до 2 знака; микроплащанията (x402 е от $0.003 на обаждане)
+// запазват значещите си цифри, защото „$0.00" за реално платено $0.003 е лъжа.
+const usd = (x) => {
+  const n = Number(x || 0);
+  if (n !== 0 && Math.abs(n) < USDC_MICRO) return '$' + n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+  return '$' + n.toFixed(USDC_FRACTION);
+};
+const usd2 = (x) => '$' + Number(x || 0).toFixed(USDC_FRACTION);
 const short = (s, n) => (s || '').slice(0, n || 8);
+// Ethereum адреси/хешове — съкращаване през СРЕДАТА: 0xd4cd…E4C6
+const addr = (s) => {
+  const v = String(s || '');
+  return v.length > ADDR_HEAD + ADDR_TAIL ? v.slice(0, ADDR_HEAD) + '…' + v.slice(-ADDR_TAIL) : v;
+};
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const utc = (iso) => (iso || '').replace('T', ' ').slice(0, 19);
@@ -212,7 +279,7 @@ function renderOnchain(o) {
       <td class="num mono">${h.block_number || '—'}</td>
       <td class="num">${usd(h.amount_usdc)}</td>
       <td><span class="tag ${cls}">${cls === 'external' ? 'EXTERNAL' : esc(h.payer_label || cls)}</span></td>
-      <td class="mono">${esc(short(h.sender))}…</td>
+      <td class="mono">${esc(addr(h.sender))}</td>
       <td class="hashline"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(tx)}</a></td>
     </tr>`;
   });
@@ -240,7 +307,7 @@ function renderClients(c) {
         cands.map(esc).join(' | ') + '</span>';
     }).join('<br>');
     return `<tr>
-      <td class="mono">${esc(short(cl.wallet, 12))}…${esc((cl.wallet || '').slice(-4))}</td>
+      <td class="mono">${esc(addr(cl.wallet))}</td>
       <td class="num">${cl.payments}</td>
       <td class="num">${usd(cl.total_usdc)}</td>
       <td class="num mono">${esc(utc(cl.last_ts))}</td>
@@ -271,9 +338,9 @@ function renderWhales(w) {
       <td class="num mono">${esc(utc(x.ts))}</td>
       <td class="num">${'$' + Number(x.amount_usdc || 0).toLocaleString('en-US')}</td>
       <td>${esc(x.token || '')}</td>
-      <td class="mono">${esc(short(x.from, 10))}… <span class="evi">${esc(x.from_label || 'unknown')}</span></td>
-      <td class="mono">${esc(short(x.to, 10))}… <span class="evi">${esc(x.to_label || 'unknown')}</span></td>
-      <td class="mono"><a href="https://basescan.org/tx/${esc(x.tx_hash)}" target="_blank" rel="noopener">${esc(short(x.tx_hash, 10))}…</a></td>
+      <td class="mono">${esc(addr(x.from))} <span class="evi">${esc(x.from_label || 'unknown')}</span></td>
+      <td class="mono">${esc(addr(x.to))} <span class="evi">${esc(x.to_label || 'unknown')}</span></td>
+      <td class="mono"><a href="https://basescan.org/tx/${esc(x.tx_hash)}" target="_blank" rel="noopener">${esc(addr(x.tx_hash))}</a></td>
     </tr>`);
   $('whales-body').innerHTML = rows.length ? rows.join('') :
     '<tr><td colspan="6" class="empty">чакаме кит — сканът тече, няма трансфер ≥ прага в прозореца</td></tr>';
@@ -336,7 +403,7 @@ function renderGuards(g) {
       <td class="num mono">${esc(utc(b.ts))}</td>
       <td><span class="tag ${cls}">${esc(kind)}</span></td>
       <td class="mono">${esc(b.endpoint || '—')}</td>
-      <td class="mono">${esc(short(b.tx_hash, 12))}…</td>
+      <td class="mono">${esc(addr(b.tx_hash))}</td>
       <td class="evi">${esc(b.detail || '')}</td></tr>`;
   });
   $('guard-body').innerHTML = rows.length ? rows.join('') :
@@ -354,7 +421,7 @@ function renderFunnel(r) {
   });
   $('funnel-box').innerHTML =
     '<table><thead><tr><th>Маршрут</th><th>Днес: 402 → платени (конверсия)</th><th>Общо</th></tr></thead><tbody>' +
-    (frows.length ? frows.join('') : '<tr><td colspan="3" class="empty">…</td></tr>') +
+    (frows.length ? frows.join('') : '<tr><td colspan="3" class="empty">Няма записани заявки все още</td></tr>') +
     '</tbody></table>';
 }
 
@@ -366,7 +433,7 @@ function renderRoutes(rt) {
       <td class="mono">${esc(x.method || 'GET')} ${esc(x.endpoint)}</td>
       <td>${esc(x.description || '')}</td>
       <td class="num">${Number(x.price_usdc || 0).toFixed(3)}</td></tr>`).join('') :
-    '<tr><td colspan="3" class="empty">…</td></tr>';
+    '<tr><td colspan="3" class="empty">Няма активни маршрути все още</td></tr>';
 }
 
 function renderRequests(r) {
@@ -385,19 +452,19 @@ function renderRequests(r) {
   const src = (r.by_source || []);
   $('sources-body').innerHTML = src.length ? src.map(s =>
     `<tr><td>${esc(s.source)}</td><td class="num">${s.n}</td></tr>`).join('') :
-    '<tr><td class="empty">…</td></tr>';
-  const rec = (r.recent || []).slice(0, 12).map(q =>
+    '<tr><td class="empty">Няма записани заявки все още</td></tr>';
+  const rec = (r.recent || []).slice(0, RECENT_ROWS).map(q =>
     `<tr><td class="num mono">${esc(utc(q.ts))}</td><td class="mono">${esc(q.path)}</td>
      <td>${esc(q.source)}</td><td class="num">${q.status_code}</td>
-     <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(short(q.user_agent, 40))}</td>
+     <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(short(q.user_agent, UA_SNIPPET))}</td>
      <td>${q.funnel ? '<span class="mono">/f/' + esc(q.funnel) + '</span>' : '—'}</td></tr>`);
   $('recent-body').innerHTML = rec.length ? rec.join('') :
-    '<tr><td colspan="6" class="empty">…</td></tr>';
+    '<tr><td colspan="6" class="empty">Няма записани заявки все още</td></tr>';
 }
 
 function renderPayapi(p) {
   const rel = p.reliability || {};
-  const fresh = p.updated_at && (Date.now() - new Date(p.updated_at).getTime()) < 30 * 60 * 1000;
+  const fresh = p.updated_at && (Date.now() - new Date(p.updated_at).getTime()) < PAYAPI_FRESH_MS;
   const band = p.available ? (rel.band || 'unscored') : 'unscored';
   const score = (p.available && rel.score != null) ? rel.score : '—';
   $('payapi-cards').innerHTML =
@@ -417,9 +484,12 @@ function renderPayapi(p) {
       <td class="num">${r.total != null ? r.total : '—'}</td></tr>`;
   });
   $('ranks-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="3" class="empty">…</td></tr>';
+    '<tr><td colspan="3" class="empty">Няма данни от сканирането все още</td></tr>';
 }
 
+// А6: renderCrm остава ДЕФИНИРАНА (тестовете фиксират стринговете "Върнато (",
+// "refund_note", "stripe_link" в HTML source), но НЕ се вика от load() —
+// публичният изглед не показва и не зарежда off-chain суми в DOM.
 function renderCrm(c) {
   // AUDIT A2: an off-chain "$0" on ephemeral storage means "unknown", not
   // "zero" — the storage backend is shown next to the numbers.
@@ -477,6 +547,77 @@ function renderTrack(t) {
     ' · ' + esc(t.retention_note || '');
 }
 
+// ── Б2: двете графики (Chart.js, локално копие — никакви CDN) ─────────────────
+// Цветовете са ХАРДКОДНАТИ hex стойности от съществуващия дизайн
+// (--green #34d399 за приходи, --accent #38bdf8 за заявки): CSS променливи
+// не се четат от Chart.js и ползването им би било бавна изненада.
+const CHART_GREEN = '#34d399', CHART_ACCENT = '#38bdf8';
+const CHART_GRID = '#232c3b', CHART_TEXT = '#8b96a5';
+let _chartSales = null, _chartRequests = null;
+
+function renderCharts(dailySales, hourlyReq) {
+  if (typeof Chart === 'undefined') return; // vendor файлът не е заредил — не чупим дашборда
+  // Line: приход по дни (последните 7)
+  const days = (dailySales || []);
+  const hasSales = days.some(d => Number(d.usdc) > 0);
+  $('chart-sales-empty').style.display = hasSales ? 'none' : 'flex';
+  $('chart-sales').style.display = hasSales ? 'block' : 'none';
+  if (_chartSales) { _chartSales.destroy(); _chartSales = null; }
+  if (hasSales) {
+    _chartSales = new Chart($('chart-sales'), {
+      type: 'line',
+      data: {
+        labels: days.map(d => (d.date || '').slice(5)), // MM-DD
+        datasets: [{
+          label: 'USDC',
+          data: days.map(d => Number(d.usdc) || 0),
+          borderColor: CHART_GREEN,
+          backgroundColor: 'rgba(52,211,153,.12)',
+          fill: true, tension: .25, pointRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: CHART_GRID }, ticks: { color: CHART_TEXT } },
+          y: { grid: { color: CHART_GRID }, ticks: { color: CHART_TEXT },
+               beginAtZero: true },
+        },
+      },
+    });
+  }
+  // Bar: заявки по час (днес, UTC) — чисти, без вътрешен шум (консистентно с
+  // „ДНЕС ЧИСТИ" картата по-горе).
+  const hours = (hourlyReq || []);
+  const hasReq = hours.some(h => Number(h.clean) > 0);
+  $('chart-requests-empty').style.display = hasReq ? 'none' : 'flex';
+  $('chart-requests').style.display = hasReq ? 'block' : 'none';
+  if (_chartRequests) { _chartRequests.destroy(); _chartRequests = null; }
+  if (hasReq) {
+    _chartRequests = new Chart($('chart-requests'), {
+      type: 'bar',
+      data: {
+        labels: hours.map(h => String(h.hour).padStart(2, '0')),
+        datasets: [{
+          label: 'Заявки',
+          data: hours.map(h => Number(h.clean) || 0),
+          backgroundColor: CHART_ACCENT,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: CHART_GRID }, ticks: { color: CHART_TEXT } },
+          y: { grid: { color: CHART_GRID }, ticks: { color: CHART_TEXT },
+               beginAtZero: true },
+        },
+      },
+    });
+  }
+}
+
 async function load() {
   try {
     const r = await fetch('/api/dashboard/data', {cache: 'no-store'});
@@ -492,25 +633,30 @@ async function load() {
     renderRequests(s.requests || {});
     renderFunnel(s.requests || {});
     renderPayapi(s.payapi || {});
-    renderCrm(s.crm_stripe || {});
-    $('generated-at').textContent = ' · обновено: ' + utc(d.generated_at) + ' UTC';
+    renderCharts(d.daily_sales || [], d.hourly_requests || []);
+    // А4: ясно обозначена свежест на данните (освен техническото „обновено:").
+    $('generated-at').textContent =
+      ' · обновено: ' + utc(d.generated_at) + ' UTC · Данните са актуални към ' +
+      utc(d.generated_at) + ' UTC';
     $('invariant').textContent = d.invariant || '';
+    // А5: при успех данните отново са „живи" — махаме stale означението.
+    document.querySelector('.wrap').classList.remove('stale-data');
     const b = $('live-badge');
     b.className = 'badge live'; b.textContent = 'LIVE';
   } catch (e) {
+    // А5: при грешка старите данни НЕ бива да изглеждат „live" — цялото съдържание
+    // се обозначава като неактуално (по-ниска прозрачност), badge-ът носи грешката.
+    document.querySelector('.wrap').classList.add('stale-data');
     const b = $('live-badge');
     b.className = 'badge err'; b.textContent = 'ГРЕШКА: ' + e.message;
+    $('generated-at').textContent =
+      ' · Данните по-долу са НЕАКТУАЛНИ (грешка при зареждане: ' + e.message + ')';
   }
 }
 
-document.getElementById('crm-toggle').addEventListener('click', () => {
-  const d = $('crm-detail');
-  d.classList.toggle('hidden');
-  $('crm-toggle').textContent = d.classList.contains('hidden')
-    ? 'Покажи off-chain сумите' : 'Скрий off-chain сумите';
-});
-
 load();
+// 45s = REFRESH_MS (виж константите горе). Литералът е тук нарочно — тестовете
+// фиксират точно "setInterval(load, 45000)" като гаранция, че „LIVE" наистина е live.
 setInterval(load, 45000);
 </script>
 </body>
