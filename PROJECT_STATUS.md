@@ -1282,7 +1282,7 @@ Glama поиска ownership proof за конектора; прозорчето
 **`https://kristo-intelligence-api.onrender.com/.well-known/glama.json`**.
 
 - **Документът** (точно, 2 ключа, нищо друго) — `glama-connector-claim.json` в корена:
-  `{"$schema": "https://glama.ai/mcp/schemas/connector.json", "claim": "glama_claim_e-w2Yrd4h6-G4ECF-YRdZ291LHRQ7kpH"}`;
+  `{"$schema": "https://glama.ai/mcp/schemas/connector.json", "claim": "glama_claim_e-w2Yrd4h6-G4ECF-YRdZ29lLHRQ7kpH"}`;
 - **route-ът** (нов, `app/blueprints/discovery.py`): `/.well-known/glama.json` сервира
   файла **дословно** чрез `Response(bytes, mimetype="application/json")` — умишлено не
   `jsonify`, което би разместило ключовете и би попречило на байтово сравнение;

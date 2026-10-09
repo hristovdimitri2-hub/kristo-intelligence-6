@@ -275,7 +275,7 @@ def test_glama_connector_claim_is_live_at_the_well_known_path(client):
 
     assert doc == {
         "$schema": "https://glama.ai/mcp/schemas/connector.json",
-        "claim": "glama_claim_e-w2Yrd4h6-G4ECF-YRdZ291LHRQ7kpH",
+        "claim": "glama_claim_e-w2Yrd4h6-G4ECF-YRdZ29lLHRQ7kpH",
     }, "the claim document must match Glama's window exactly"
 
     served = main.app.test_client().get("/.well-known/glama.json")
