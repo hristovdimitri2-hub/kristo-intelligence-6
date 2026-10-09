@@ -158,6 +158,39 @@ def _norm_tx(tx_hash: str) -> str:
     return tx if tx.startswith("0x") else ("0x" + tx if tx else "")
 
 
+def _failure_backoff_seconds() -> float:
+    """Seconds to pause BEFORE retrying a refused getLogs window (10.10).
+
+    The halving loop used to fire identical requests back-to-back; against a
+    rate-limited public RPC that is a self-inflicted ban. Default 2s; tests
+    set RPC_FAILURE_BACKOFF_SECONDS=0 to keep the suite fast.
+    """
+    try:
+        return max(0.0, float(os.getenv("RPC_FAILURE_BACKOFF_SECONDS", "2.0")))
+    except ValueError:
+        return 2.0
+
+
+def _is_fresh(iso_ts: Optional[str], max_age_seconds: float = 180.0) -> bool:
+    """True when an ISO timestamp is 0..max_age_seconds old (10.10).
+
+    Used to tell a LIVE failure from a stale one: the whale scanner records
+    `whaleflow_last_attempt` at the start of every cycle, so an old timestamp
+    means the scan is not running at all — and an old error string must not
+    keep the dashboard red forever.
+    """
+    if not iso_ts:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(iso_ts))
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - ts).total_seconds()
+    return 0 <= age <= max_age_seconds
+
+
 def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
                        chunk_blocks: int, pause_seconds: float,
                        handle_logs, address: str = USDC_BASE,
@@ -197,13 +230,28 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
                 "address": Web3.to_checksum_address(address),
                 "topics": topics,
             })
-        except Exception:
+        except Exception as exc:
+            # Telemetry (10.10): never swallow WHY a window was refused — a
+            # rate-limited public RPC (HTTP 429) and a dead node looked
+            # identical in this silent branch. Control flow is UNCHANGED.
+            _resp = getattr(exc, "response", None)
+            _status = getattr(_resp, "status_code", None)
+            log.warning("getLogs %s..%s refused (span=%d%s): %s",
+                        start, end, span,
+                        f", HTTP {_status}" if _status is not None else "",
+                        str(exc)[:200])
             if span > 1:
                 # Adaptive back-off: halve and retry the SAME start block.
                 span = max(1, span // 2)
                 effective_span = min(effective_span, span)
                 log.debug("getLogs %s.. refused — retry with span=%d",
                           start, span)
+                # A longer pause before the retry (10.10): the halving loop
+                # used to fire identical requests back-to-back, which turns a
+                # rate-limited RPC into a self-inflicted ban. 0 in tests via
+                # RPC_FAILURE_BACKOFF_SECONDS.
+                if _failure_backoff_seconds() > 0:
+                    _time.sleep(_failure_backoff_seconds())
                 continue
             break
         safe_end = end
@@ -2248,9 +2296,18 @@ HYBRID since 14.09:
             # healthy again and the dashboard must stop saying otherwise.
             self.set_meta("whaleflow_last_error", "")
         else:
+            # Honest progress (10.10): the old "scanned X-Y" printed the
+            # FROZEN watermark as Y = from_block - 1 when nothing landed,
+            # which reads as a reversed range ("52343009-52343008"). Report
+            # the real covered block count instead.
+            scanned_count = max(0, safe_end - from_block + 1)
+            progress = (f"scanned {scanned_count} blocks ending at "
+                        f"{max(0, safe_end)}" if scanned_count
+                        else f"scanned 0 blocks (nothing completed "
+                             f"from {from_block})")
             self.set_meta(
                 "whaleflow_last_error",
-                f"scanned {from_block}-{max(0, safe_end)} of {to_block} "
+                f"{progress} of {to_block} "
                 f"(RPC refused a {effective_span}-block window; the next cycle "
                 f"retries from the watermark)",
             )
@@ -2346,11 +2403,17 @@ HYBRID since 14.09:
             # burning a paid RPC) — first in precedence, because it is the only
             # state where the reason for an empty feed is a human decision,
             # not a fault.
+            # A stale error must not keep the panel red forever (10.10):
+            # "scan_failed" means the scanner is ACTIVELY failing — its last
+            # attempt is recent. An old error string with no fresh attempt
+            # means the scan is not running at all; the ladder below reports
+            # that honestly instead of a permanent alarm.
             "state": ("scan_paused_by_owner"
                       if (self.get_meta("whaleflow_state")
                           == "scan_paused_by_owner")
                       else "live_data" if whales
-                      else "scan_failed" if last_error
+                      else "scan_failed" if (last_error
+                                             and _is_fresh(last_attempt))
                       else "awaiting_whale" if scanned_until
                       else "scanning" if last_attempt
                       else "scan_not_started"),

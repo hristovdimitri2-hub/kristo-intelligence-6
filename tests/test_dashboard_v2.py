@@ -1454,3 +1454,136 @@ def test_the_offchain_section_separates_paid_from_refunded(client, monkeypatch,
     html = test_client.get("/dashboard").get_data(as_text=True)
     assert "Върнато (" in html, "the refund card must be on the page"
     assert "refund_note" in html, "the note line must be rendered"
+
+
+# ── 13. WHALE SCANNER HONESTY: stale alarms & real telemetry (10.10) ───────
+
+def _refusing_web3(monkeypatch, accept_before=None):
+    """Fake web3 whose eth_getLogs refuses every window (like a rate-limited
+    public RPC), or every window starting at/after `accept_before` (so a walk
+    can make partial progress and then fail)."""
+    import sys
+    import types
+
+    fake = types.ModuleType("web3")
+
+    class FakeEth:
+        block_number = 10_500
+
+        def is_connected(self):
+            return True
+
+        def get_logs(self, spec):
+            if accept_before is not None and spec["fromBlock"] < accept_before:
+                return []
+            raise RuntimeError("429 Too Many Requests")
+
+        def get_block(self, n):
+            return {"timestamp": 0}
+
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: None)
+
+        def __init__(self, provider):
+            self.eth = FakeEth()
+
+        def is_connected(self):
+            return True
+
+        to_checksum_address = staticmethod(lambda a: a)
+        to_hex = staticmethod(lambda h: str(h))
+
+    fake.Web3 = FakeWeb3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+
+
+def test_a_stale_whale_error_does_not_keep_the_panel_red(tmp_path):
+    """A red "СКАНЪТ СЕ ПРОВАЛЯ" must mean the scanner is ACTIVELY failing —
+    an old error string from a scan that no longer runs must not hold the
+    panel red forever (the live dashboard sat red for a day like that)."""
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    # A failed cycle = error + attempt recorded moments ago → live failure.
+    store.set_meta("whaleflow_last_attempt",
+                   datetime.now(timezone.utc).isoformat())
+    store.set_meta("whaleflow_last_error",
+                   "scanned 0 blocks (nothing completed from 10000) of 10400")
+    store.set_meta("whaleflow_safe_scanned_block", "10099")
+    assert store.whaleflow_summary()["state"] == "scan_failed"
+
+    # The scan stops running: the SAME error string is now old news.
+    store.set_meta("whaleflow_last_attempt",
+                   (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat())
+    s = store.whaleflow_summary()
+    assert s["state"] != "scan_failed", "a stale error must not stay red"
+    assert s["state"] == "awaiting_whale"      # the watermark is still real
+    assert s["last_error"], "the reason is still reported, just not as a live fault"
+
+
+def test_the_whale_error_message_reports_real_progress(tmp_path, monkeypatch):
+    """The old message printed 'scanned X-(X-1)' when nothing landed — a
+    reversed range that misled the owner. It must report real progress."""
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("RPC_FAILURE_BACKOFF_SECONDS", "0")
+    _refusing_web3(monkeypatch)
+    store = DashboardStore(tmp_path / "d.db")
+    store.scan_whale_window(10_000, 10_400, pause_seconds=0.0, rpc_url="http://fake")
+    err = store.whaleflow_summary(window_hours=24)["last_error"]
+    assert "scanned 0 blocks (nothing completed from 10000)" in err
+    assert "10000-9999" not in err, "the reversed range is exactly the lie"
+    assert "refused" in err
+
+
+def test_the_whale_error_message_reports_partial_progress(tmp_path, monkeypatch):
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("RPC_FAILURE_BACKOFF_SECONDS", "0")
+    _refusing_web3(monkeypatch, accept_before=1_100)
+    store = DashboardStore(tmp_path / "d.db")
+    store.scan_whale_window(1_000, 1_200, chunk_blocks=50, pause_seconds=0.0,
+                            rpc_url="http://fake")
+    err = store.whaleflow_summary(window_hours=24)["last_error"]
+    # chunks 1000-1049 and 1050-1099 landed → 100 blocks ending at 1099
+    assert "scanned 100 blocks ending at 1099" in err
+    assert "1000-" not in err
+
+
+def test_a_refused_getlogs_window_logs_the_reason(tmp_path, monkeypatch, caplog):
+    """Telemetry: the refusal reason (the HTTP/RPC message) must reach the
+    log — a silent except hid every 429 from the public RPC."""
+    import logging
+
+    from integrations.dashboard_store import DashboardStore
+
+    caplog.set_level(logging.WARNING, logger="integrations.dashboard_store")
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("RPC_FAILURE_BACKOFF_SECONDS", "0")
+    _refusing_web3(monkeypatch)
+    store = DashboardStore(tmp_path / "d.db")
+    store.scan_whale_window(10_000, 10_010, pause_seconds=0.0, rpc_url="http://fake")
+    refused = [r for r in caplog.records if "refused" in r.getMessage()]
+    assert refused, "a refused getLogs window must be logged"
+    assert any("429" in r.getMessage() for r in refused), \
+        "the refusal message must carry the RPC's reason"
+
+
+def test_the_refused_window_retry_pauses_before_retrying(tmp_path, monkeypatch):
+    """The halving loop fired identical requests back-to-back, which turns a
+    rate-limited RPC into a self-inflicted ban. The retry must wait."""
+    import time as _time
+
+    from integrations.dashboard_store import DashboardStore
+
+    slept = []
+    monkeypatch.setattr(_time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("RPC_FAILURE_BACKOFF_SECONDS", "0.5")
+    _refusing_web3(monkeypatch)
+    store = DashboardStore(tmp_path / "d.db")
+    store.scan_whale_window(10_000, 10_099, pause_seconds=0.0, rpc_url="http://fake")
+    assert slept, "the retry must pause before firing the next request"
+    assert any(s == 0.5 for s in slept)

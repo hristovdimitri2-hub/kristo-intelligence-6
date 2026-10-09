@@ -275,6 +275,10 @@ def _install_refusing_web3(monkeypatch, logs, blocks_ts, latest, max_span):
     """Fake web3 that REFUSES any window wider than `max_span` — exactly how
     the public Base RPC behaves (HTTP 500 at 250 blocks network-wide, fine at
     <=100). Records every attempted span so a test can prove the halving."""
+    # The production backoff between refused windows would make every refusal
+    # test sleep for real — keep the suite fast, the pause itself is covered
+    # by its own test below.
+    monkeypatch.setenv("RPC_FAILURE_BACKOFF_SECONDS", "0")
     fake = types.ModuleType("web3")
     attempts = []
 

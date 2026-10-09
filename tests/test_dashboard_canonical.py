@@ -455,6 +455,10 @@ def test_the_whale_scan_can_be_paused_truthfully(tmp_path):
 
     # The deliberate stop outranks a fault — it is the actual reason why the
     # feed is empty, so it must not be masked by a stale error string.
+    # (10.10: a LIVE fault is an error plus a RECENT attempt — exactly what a
+    # failed cycle records; a bare old string is not a live failure anymore.)
+    store.set_meta("whaleflow_last_attempt",
+                   datetime.now(timezone.utc).isoformat())
     store.set_meta("whaleflow_last_error", "boom")
     assert store.whaleflow_summary()["state"] == "scan_paused_by_owner"
 
@@ -463,6 +467,7 @@ def test_the_whale_scan_can_be_paused_truthfully(tmp_path):
     assert store.whaleflow_summary()["state"] == "scan_failed"
     assert store.whaleflow_summary()["paused_at"] is None
     store.set_meta("whaleflow_last_error", "")
+    store.set_meta("whaleflow_last_attempt", "")
     assert store.whaleflow_summary()["state"] == "scan_not_started"
 
 
