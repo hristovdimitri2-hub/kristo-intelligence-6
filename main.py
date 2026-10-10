@@ -2911,10 +2911,13 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         log.warning("settlement receipt fetch failed: %s: %s",
                     type(exc).__name__, exc)
 
-    # а5 (07.10, одит): доставка САМО при доказан receipt.status == 1.
-    # Reverted receipt или недостъпен receipt = преводът не е доказан →
-    # fail-closed, БЕЗ доставка. Парите не се губят: ако преводът е станал,
-    # retry-то със същия proof го приема; ако не е — нова авторизация.
+    # а5 → А+ (10.10.2026, двойна врата): платил (proof локално верифициран,
+    # settled през PayAI) НИКОГА не получава отказ. Наблюдението от 10.10: receipt
+    # read 0.163с след settled → status още 0/None → отказ → загубен платещ
+    # клиент. Сега: poll до ~4×2с; status=1 → доставя се по реда; иначе fail-open
+    # доставка (WARN c2_receipt_status_override_delivered), guard-събитието се
+    # записва както досега. C1 replay-lock (по-долу) остава недокоснат; неплатените
+    # си остават 402; невалиден proof — 401; in-flight — 425.
     receipt_status = 0
     if receipt is not None:
         try:
@@ -2922,27 +2925,46 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         except Exception:
             receipt_status = 0
     if receipt_status != 1:
-        g.x402_reject_reason = (
-            f"settlement_not_confirmed: receipt status={receipt_status} for tx "
-            f"{tx_hash} (1 = successful transfer) — fail-closed, no delivery. "
-            f"If the transfer is still confirming, retry the SAME proof shortly; "
-            f"if it never happened, sign a fresh authorization."
-        )
-        log.warning("standard x402 REFUSED (fail-closed, а5): tx=%s receipt "
-                    "status=%s — без доставка", tx_hash, receipt_status)
-        dashboard_db.record_guard_event(
-            "c2_receipt_status_refused", endpoint=path, tx_hash=tx_hash,
-            detail=f"receipt.status={receipt_status} — fail-closed (а5)")
-        return False
+        for _poll in range(4):          # ~4 × 2с = до ~8с
+            time.sleep(2)
+            try:
+                receipt = _w3.eth.get_transaction_receipt(tx_hash)
+            except Exception:
+                receipt = None
+            receipt_status = 0
+            if receipt is not None:
+                try:
+                    receipt_status = int(receipt.get("status", 0) or 0)
+                except Exception:
+                    receipt_status = 0
+            if receipt_status == 1:
+                break
+        if receipt_status == 1:
+            log.info("c2_receipt_status_confirmed_after_poll: tx=%s — receipt "
+                     "status=1 след poll, доставя се по реда", tx_hash)
+        else:
+            # Fail-open за платилите: settle-ът е потвърден (PayAI), а receipt
+            # не се чете като status=1 → доставяме. Отказът връща платещ
+            # клиент и губи продажбата (наблюдение 10.10.2026).
+            log.warning("c2_receipt_status_override_delivered: tx=%s receipt "
+                        "status=%s след ~8s poll — fail-open, доставя се",
+                        tx_hash, receipt_status)
+            dashboard_db.record_guard_event(
+                "c2_receipt_status_refused", endpoint=path, tx_hash=tx_hash,
+                detail=f"receipt.status={receipt_status} — fail-open override "
+                       f"доставка (А+, 10.10) вместо отказ")
 
-    block_number = int(receipt.get("blockNumber", 0) or 0)
-    # Finality anchor (21.09): remember the CONFIRMING block's hash so a
-    # later re-read can prove this settlement was not reorganised away.
-    # Depth alone cannot see a reorg that keeps the height.
-    raw_hash = receipt.get("blockHash") or b""
-    block_hash = (
-        raw_hash.hex() if hasattr(raw_hash, "hex") else str(raw_hash)
-    ).lower()
+    if receipt is not None:
+        block_number = int(receipt.get("blockNumber", 0) or 0)
+        # Finality anchor (21.09): remember the CONFIRMING block's hash so a
+        # later re-read can prove this settlement was not reorganised away.
+        # Depth alone cannot see a reorg that keeps the height.
+        raw_hash = receipt.get("blockHash") or b""
+        block_hash = (
+            raw_hash.hex() if hasattr(raw_hash, "hex") else str(raw_hash)
+        ).lower()
+    # receipt is None (fail-open override) → block_number/block_hash остават
+    # 0/"" от инициализацията по-горе; C1 claim-ът по-долу пази replay-а.
     try:
         # C2 (standard rail): the facilitator only returns after the tx is
         # mined, so the default depth here is 1 — raise
@@ -2950,7 +2972,9 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         # RE-READ before any refusal: on 14.09 an external facilitator settled
         # one block ahead of our view and a valid $0.003 was refused for a
         # clock skew (the payer never retried).
-        if not _confirmations_ok_with_lag_refresh(
+        # А+ (10.10): receipt is None → къс-съкращение: без receipt няма как
+        # да твърдим in-flight; fail-open доставката по-горе продължава нататък.
+        if receipt is not None and not _confirmations_ok_with_lag_refresh(
             receipt_block=block_number,
             read_head=lambda: int(_w3.eth.block_number),
             required=_required_standard_confirmations(),

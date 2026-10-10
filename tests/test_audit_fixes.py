@@ -2,7 +2,8 @@
 """
 Одит фиксове (07.10.2026), всеки с тест:
 
-  а5 — преди доставка receipt.status == 1, иначе fail-closed (без доставка);
+  а5 → А+ (10.10.2026): платил+settled получава доставка — poll 4×2с,
+       после fail-open override (без 401); неплатил си остава 402;
   г1 — EXTENSION-RESPONSES санитизация (CR/LF strip + таван 8KB + try/around);
   б2 — precheck: valid_before <= now + 60s (горна граница на прозореца).
 """
@@ -89,19 +90,25 @@ def client(monkeypatch):
 
 # ── а5: receipt.status == 1 или нищо не се доставя ─────────────────────────
 
-def test_a5_reverted_receipt_fails_closed_without_delivery(client, monkeypatch):
+def test_a5_reverted_receipt_polls_then_overrides_to_delivery(
+        client, monkeypatch, caplog):
+    """А+ (10.10): платил+settled с receipt.status=0 → poll 4×2с → 200."""
     import main
     events = []
     monkeypatch.setattr(main.dashboard_db, "record_guard_event",
                         lambda kind, **kw: events.append(kind))
+    sleeps = []
+    monkeypatch.setattr(main.time, "sleep", lambda s: sleeps.append(s))
     _install_web3(monkeypatch, receipt={"status": 0, "blockNumber": 100,
                                         "blockHash": "0x" + "cd" * 32})
-    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
-    assert r.status_code == 401
-    body = r.get_json()
-    assert "settlement_not_confirmed" in body.get("reason", "")
-    assert "PAYMENT-RESPONSE" not in r.headers      # никаква разписка/доставка
-    assert "c2_receipt_status_refused" in events    # fail-closed е логнат
+    with caplog.at_level("WARNING"):
+        r = client.get("/api/stats",
+                       headers={"PAYMENT-SIGNATURE": _payment_header()})
+    assert r.status_code == 200
+    assert "PAYMENT-RESPONSE" in r.headers
+    assert sleeps == [2, 2, 2, 2]        # ~4 × 2с poll, НЕ отказ
+    assert "c2_receipt_status_override_delivered" in caplog.text
+    assert "c2_receipt_status_refused" in events  # guard-събитието както досега
 
 
 def test_a5_successful_receipt_still_delivers(client, monkeypatch):
@@ -110,6 +117,51 @@ def test_a5_successful_receipt_still_delivers(client, monkeypatch):
     r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
     assert r.status_code == 200
     assert "PAYMENT-RESPONSE" in r.headers
+
+
+def test_a5_receipt_becomes_1_during_poll_delivers(client, monkeypatch):
+    """А+: status=0 при първото четене, status=1 след втория poll → 200."""
+    import main
+    seq = [{"status": 0, "blockNumber": 100, "blockHash": "0x" + "cd" * 32},
+           {"status": 0, "blockNumber": 100, "blockHash": "0x" + "cd" * 32},
+           {"status": 1, "blockNumber": 100, "blockHash": "0x" + "cd" * 32}]
+    state = {"i": 0}
+    fake = types.ModuleType("web3")
+
+    class _Eth:
+        block_number = 10 ** 9
+
+        def get_transaction_receipt(self, tx):
+            r = seq[min(state["i"], len(seq) - 1)]
+            state["i"] += 1
+            return r
+
+        def get_logs(self, spec):
+            return []
+
+    class _W3:
+        HTTPProvider = staticmethod(
+            lambda url, request_kwargs=None: ("fake", url))
+
+        def __init__(self, provider=None, *args, **kwargs):
+            self.eth = _Eth()
+
+        @staticmethod
+        def to_checksum_address(addr):
+            return addr
+
+    fake.Web3 = _W3
+    monkeypatch.setitem(sys.modules, "web3", fake)
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
+    assert r.status_code == 200
+    assert "PAYMENT-RESPONSE" in r.headers
+
+
+def test_unpaid_client_still_gets_402(client):
+    """А+ не пипа правилото: неплатил → 402 „плати, за да получиш“."""
+    r = client.get("/api/stats")
+    assert r.status_code == 402
 
 
 
@@ -217,11 +269,13 @@ def test_b2_window_fix_matches_demo_client():
     assert re.search(r"time\.time\(\)\)\s*\+\s*(5[0-9]|60)\b", src), \
         "demo клиентът трябва да подписва с validBefore ≤ now+60"
 
-def test_a5_missing_receipt_fails_closed(client, monkeypatch):
+def test_a5_missing_receipt_polls_then_overrides_to_delivery(client, monkeypatch):
+    """А+: receipt недостъпен след ~8с → fail-open доставка (без 401)."""
     import main
     monkeypatch.setattr(main.dashboard_db, "record_guard_event",
                         lambda kind, **kw: None)
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
     _install_web3(monkeypatch, raise_missing=True)
     r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
-    assert r.status_code == 401
-    assert "settlement_not_confirmed" in r.get_json().get("reason", "")
+    assert r.status_code == 200
+    assert "PAYMENT-RESPONSE" in r.headers
