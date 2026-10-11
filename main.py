@@ -3758,10 +3758,53 @@ def public_signals_history():
     return _safe_jsonify(payload)
 
 
+# ── Public dashboard-stats TTL cache (option A, double-door approved 11.10) ──
+# /api/dashboard-stats aggregates request_log (~783K rows, ~22 seq scans) and
+# measured ~41s live — above the Sentinel weekly-report client's own 30s
+# timeout (services/sentinel.py), so the bot rendered "API stats unavailable".
+# This caches ONLY the public read-only payload of THIS route (nothing tied to
+# payments/admin/sessions; the paid /api/stats keeps include_recent_requests=True
+# and is untouched — see test_dashboard_stats_cache.py). TTL 60s; an expired
+# entry is dropped and rebuilt from the durable store on the next request.
+_stats_cache_lock = threading.Lock()
+_stats_cache_payload: Optional[dict] = None
+_stats_cache_built_at: float = 0.0
+STATS_CACHE_TTL_SECONDS = max(
+    1, int(os.getenv("DASHBOARD_STATS_CACHE_TTL_SECONDS", "60")))
+
+
+def _reset_stats_cache() -> None:
+    """Drop the cached payload (tests / manual invalidation)."""
+    global _stats_cache_payload, _stats_cache_built_at
+    with _stats_cache_lock:
+        _stats_cache_payload = None
+        _stats_cache_built_at = 0.0
+
+
+def _cached_statistics_payload() -> dict:
+    """Thread-safe TTL-cached wrapper around the PUBLIC dashboard payload.
+
+    The build is intentionally NOT done under the lock (it can take tens of
+    seconds and the Sentinel thread polls this route); two concurrent cache
+    misses may both build — benign duplicate work, last writer wins.
+    """
+    global _stats_cache_payload, _stats_cache_built_at
+    with _stats_cache_lock:
+        if (_stats_cache_payload is not None
+                and time.monotonic() - _stats_cache_built_at
+                        < STATS_CACHE_TTL_SECONDS):
+            return _stats_cache_payload
+    payload = _statistics_payload(include_recent_requests=False)
+    with _stats_cache_lock:
+        _stats_cache_payload = payload
+        _stats_cache_built_at = time.monotonic()
+    return payload
+
+
 @app.route("/api/dashboard-stats")
 def dashboard_stats():
     """Return free, read-only aggregate data required by the public dashboard."""
-    return _safe_jsonify(_statistics_payload(include_recent_requests=False))
+    return _safe_jsonify(_cached_statistics_payload())
 
 
 @app.route("/api/connectors")

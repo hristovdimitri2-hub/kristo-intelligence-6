@@ -27,3 +27,23 @@ os.environ["KRISTO_DISABLE_BACKGROUND_THREADS"] = "true"
 # я включват изрично с monkeypatch.setenv("VALUE_CHECK_ENABLED", "1") и
 # подменят източниците с фалкове (никаква мрежа в серията).
 os.environ.setdefault("VALUE_CHECK_ENABLED", "0")
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_dashboard_stats_cache():
+    """The /api/dashboard-stats TTL cache lives on the shared `main` module.
+
+    Without a per-test reset, a payload built by one test (e.g. with a seeded
+    sale of 0.031) leaks into later tests that expect a fresh empty-store
+    build — observed 11.10 in test_dashboard_v2 and test_integration.
+    """
+    import main
+    if hasattr(main, "_reset_stats_cache"):
+        main._reset_stats_cache()
+    yield
+    if hasattr(main, "_reset_stats_cache"):
+        main._reset_stats_cache()
+
+os.environ.setdefault("VALUE_CHECK_ENABLED", "0")
