@@ -411,6 +411,9 @@ class HistoryStore:
                   "ON request_log (ts)")
         self._run("CREATE INDEX IF NOT EXISTS idx_whaleflow_ts "
                   "ON whaleflow_events (ts)")
+        # Path index for the payment funnel / top-paths queries (option B,
+        # double-door 11.10) — see _ensure_request_log_path_index().
+        self._ensure_request_log_path_index()
         # The canonical MONEY table (moved here 14.09 — see the class comment).
         # `block_number` is BIGINT: Base has been above the 2^31 range for a
         # while and SQLite's INTEGER is 64-bit anyway.
@@ -602,6 +605,36 @@ class HistoryStore:
         )
         return max(0, int(rowcount or 0))
 
+    def _ensure_request_log_path_index(self) -> None:
+        """Create idx_request_log_path (option B, double-door 11.10).
+
+        Serves `WHERE path IN (…)` (payment funnel) and the by_path top-10 —
+        both were full scans over request_log (~783K rows). Idempotent both
+        ways. On PostgreSQL prefer CONCURRENTLY (no write lock on the table)
+        via a short autocommit side connection — CREATE INDEX CONCURRENTLY
+        cannot run inside the regular transactional _run. The plain CREATE
+        INDEX IF NOT EXISTS is the SQLite path and the PostgreSQL fallback;
+        an index problem must never block boot.
+        """
+        ddl = ("CREATE INDEX IF NOT EXISTS idx_request_log_path "
+               "ON request_log (path)")
+        if self.backend == "postgresql":
+            try:
+                import psycopg
+                with psycopg.connect(self.database_url, autocommit=True,
+                                     connect_timeout=5) as conn:
+                    conn.execute(
+                        "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+                        "idx_request_log_path ON request_log (path)")
+                return
+            except Exception:
+                try:
+                    self._run(ddl)
+                except Exception:
+                    pass
+            return
+        self._run(ddl)
+
     def requests_summary(self, recent_limit: int = 25) -> Dict[str, Any]:
         """today/total + channel (/f/<name>) + source breakdown.
 
@@ -613,21 +646,28 @@ class HistoryStore:
         """
         one = "one"
         all_ = "all"
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc)
+        today = now.strftime("%Y-%m-%d")
+        tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        # Sargable day window (option B, double-door 11.10): ts is a TEXT ISO
+        # string, so the lexicographic range [today, tomorrow) matches exactly
+        # the rows substr(ts, 1, 10) = today used to match — but lets
+        # idx_request_log_ts serve the predicate instead of forcing a scan.
+        day_params = (today, tomorrow)
         internal_sql = "user_agent LIKE 'Render/%'"
 
         total = self._run(
             "SELECT COUNT(*) AS n FROM request_log", (), one)[0]["n"]
         today_row = self._run(
-            "SELECT COUNT(*) AS n FROM request_log WHERE substr(ts, 1, 10) = ?",
-            (today,), one)[0]["n"]
+            "SELECT COUNT(*) AS n FROM request_log "
+            "WHERE ts >= ? AND ts < ?", day_params, one)[0]["n"]
         noise_total = self._run(
             f"SELECT COUNT(*) AS n FROM request_log WHERE {internal_sql}",
             (), one)[0]["n"]
         noise_today = self._run(
             f"SELECT COUNT(*) AS n FROM request_log "
-            f"WHERE substr(ts, 1, 10) = ? AND {internal_sql}",
-            (today,), one)[0]["n"]
+            f"WHERE ts >= ? AND ts < ? AND {internal_sql}",
+            day_params, one)[0]["n"]
         by_source = self._run(
             """SELECT source, COUNT(*) AS n FROM request_log
                GROUP BY source ORDER BY n DESC""", (), all_)[0]
@@ -651,35 +691,41 @@ class HistoryStore:
                       SUM(CASE WHEN user_agent LIKE 'Render/%' THEN 1 ELSE 0 END)
                           AS noise
                FROM request_log
-               WHERE substr(ts, 1, 10) = ?
+               WHERE ts >= ? AND ts < ?
                GROUP BY substr(ts, 12, 2) ORDER BY hour""",
-            (today,), all_)[0]
+            day_params, all_)[0]
 
         # ── payment funnel per paid route: 402 challenges vs paid retries ──
+        # One grouped scan instead of two full scans per route (option B,
+        # double-door 11.10): 12 scans over request_log -> 1, served by
+        # idx_request_log_path. Same numbers as the old per-path loop —
+        # including the 13.09 bugfix where "today" must come from the TODAY
+        # predicate, not from the all-time totals.
+        placeholders = ", ".join("?" for _ in FUNNEL_ROUTES)
+        funnel_rows = self._run(
+            f"""SELECT path,
+                       SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END)
+                           AS challenges,
+                       SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END)
+                           AS paid,
+                       SUM(CASE WHEN status_code = 402 AND ts >= ? AND ts < ?
+                                THEN 1 ELSE 0 END) AS challenges_today,
+                       SUM(CASE WHEN status_code = 200 AND ts >= ? AND ts < ?
+                                THEN 1 ELSE 0 END) AS paid_today
+                FROM request_log
+                WHERE path IN ({placeholders})
+                GROUP BY path""",
+            (*day_params, *day_params, *FUNNEL_ROUTES), all_)[0]
+        funnel_by_path = {r["path"]: r for r in funnel_rows}
         funnel = {}
         for path in FUNNEL_ROUTES:
-            cur = self._run(
-                """SELECT
-                     SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END)
-                         AS challenges,
-                     SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
-                   FROM request_log WHERE path = ?""", (path,), one)[0]
-            cur_today = self._run(
-                """SELECT
-                     SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END)
-                         AS challenges,
-                     SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS paid
-                   FROM request_log
-                   WHERE path = ? AND substr(ts, 1, 10) = ?""",
-                (path, today), one)[0]
-            # BUGFIX (13.09): "today" used to be filled from the TOTAL query
-            # (`cur`), so the dashboard's "Днес: 402 → платени" column silently
-            # repeated the all-time numbers (cur_today was thrown away).
+            cur = funnel_by_path.get(path)
             funnel[path] = {
-                "challenges_total": cur["challenges"] or 0,
-                "paid_total": cur["paid"] or 0,
-                "challenges_today": cur_today["challenges"] or 0,
-                "paid_today": cur_today["paid"] or 0,
+                "challenges_total": (cur["challenges"] or 0) if cur else 0,
+                "paid_total": (cur["paid"] or 0) if cur else 0,
+                "challenges_today":
+                    (cur["challenges_today"] or 0) if cur else 0,
+                "paid_today": (cur["paid_today"] or 0) if cur else 0,
             }
         recent = self._run(
             """SELECT ts, method, path, source, status_code, user_agent, funnel

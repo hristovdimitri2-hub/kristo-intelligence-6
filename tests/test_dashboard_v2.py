@@ -495,8 +495,20 @@ class _FakeCursor:
             self._rows = [{"n": len(self.db.requests)}]
             return
         if "AS challenges" in s:
-            # Real PostgreSQL always returns ONE row for a bare SUM (NULLs on an
-            # empty table); the fake must do the same instead of None.
+            # The unified funnel query (option B) groups by path and always
+            # returns one row per requested route; real PostgreSQL returns
+            # SUMs as NULL on empty tables — the fake mirrors both.
+            if "GROUP BY path" in s:
+                routes = ["/api/v1/signal", "/api/stats", "/api/sales",
+                          "/api/bot-status", "/api/arb/opportunities",
+                          "/api/v1/whaleflow"]
+                self._rows = [
+                    {"path": p, "challenges": 0, "paid": 0,
+                     "challenges_today": 0, "paid_today": 0}
+                    for p in routes
+                ]
+                return
+            # Legacy per-path shape (kept for any other callers).
             self._rows = [{"challenges": 0, "paid": 0}]
             return
         self._rows = []

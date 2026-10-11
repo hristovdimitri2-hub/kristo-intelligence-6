@@ -545,3 +545,45 @@ def test_whale_retention_deletes_only_rows_past_the_horizon(tmp_path):
     assert store.purge_old_whale_events() == 1        # the 40-day-old row
     assert store.whaleflow_summary()["all_time_count"] == 1
     assert store.purge_old_whale_events() == 0        # idempotent
+
+
+def test_sargable_day_range_is_boundary_exact(tmp_path):
+    """Option B (double-door 11.10): the new `ts >= today AND ts < tomorrow`
+    predicate must count EXACTLY the rows the old `substr(ts, 1, 10) = today`
+    matched — a midnight-boundary row must not leak in or out, and the
+    unified funnel GROUP BY must agree with the row counts."""
+    from datetime import datetime, timedelta, timezone
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    yesterday = (datetime.now(timezone.utc)
+                 - timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow = (datetime.now(timezone.utc)
+                + timedelta(days=1)).strftime("%Y-%m-%d")
+    boundary_rows = [
+        f"{today}T12:00:00",             # today (midday)
+        f"{today}T12:00:00.000001+00:00",  # today (isoformat shape)
+        f"{yesterday}T23:59:59.999999+00:00",  # yesterday — just outside
+        f"{tomorrow}T00:00:00",          # tomorrow — just outside
+    ]
+    with store._write_lock, store._connect() as conn:
+        for ts in boundary_rows:
+            conn.execute(
+                """INSERT INTO request_log
+                       (ts, method, path, source, status_code, user_agent,
+                        referer, funnel)
+                   VALUES (?, 'GET', '/api/v1/signal', 'api', 402, 'node',
+                           '', NULL)""", (ts,))
+        conn.commit()
+
+    s = store.requests_summary()
+    assert s["total"] == 4
+    assert s["today"] == 2, "day window must include exactly today's rows"
+    f = s["funnel"]["/api/v1/signal"]
+    assert f["challenges_total"] == 4
+    assert f["challenges_today"] == 2
+    assert f["paid_total"] == 0
+    assert f["paid_today"] == 0
+
+    assert store.purge_old_whale_events() == 0        # idempotent
