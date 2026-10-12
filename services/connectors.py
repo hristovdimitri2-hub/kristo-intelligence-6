@@ -62,13 +62,38 @@ FACILITATOR_URL = os.getenv(
     "https://facilitator.payai.network",
 ).rstrip("/")
 
+# ── Dual-rail CDP selection (config only, double-gated 11.10) ──────────────
+# Optional credential pair, namespaced from the legacy CDP_API_KEY_* names.
+# Selection rule: BOTH present → the defaults portion of the chain prefers
+# the CDP facilitator (PayAI stays as the transport fallback); anything less
+# — which is every current deployment — keeps the chain and every byte of the
+# default behavior EXACTLY as today. X402_FACILITATOR_URL keeps absolute
+# priority when explicitly set. Activation (Render env, test settlements,
+# CDP Bazaar listing) is OUT OF SCOPE and separately gated.
+CDP_RAIL_KEY_ID_ENV = "FACILITATOR_CDP_API_KEY_ID"
+CDP_RAIL_KEY_SECRET_ENV = "FACILITATOR_CDP_API_KEY_SECRET"
+_CHAIN_BY_NAME = dict(_DEFAULT_CHAIN)
+
+
+def _cdp_rail_ready() -> bool:
+    """True only when the full dual-rail CDP credential pair is configured."""
+    return bool(
+        (os.getenv(CDP_RAIL_KEY_ID_ENV) or "").strip()
+        and (os.getenv(CDP_RAIL_KEY_SECRET_ENV) or "").strip()
+    )
+
 
 def _facilitator_chain():
     chain = []
     env_url = os.getenv("X402_FACILITATOR_URL", "").strip()
     if env_url:
         chain.append(("env", env_url.rstrip("/")))
-    chain.extend(_DEFAULT_CHAIN)
+    if _cdp_rail_ready():
+        # Opt-in switch (see block comment): CDP first, PayAI still behind it.
+        chain.append(("cdp", _CHAIN_BY_NAME["cdp"]))
+        chain.append(("payai", _CHAIN_BY_NAME["payai"]))
+    else:
+        chain.extend(_DEFAULT_CHAIN)
     return chain
 
 
@@ -416,9 +441,11 @@ def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
     Returns (token | None, detail) where detail explains a failure precisely
     (missing keys vs unparseable PEM vs wrong curve).
     """
-    key_id = (os.getenv("CDP_API_KEY_ID") or
+    key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
+              os.getenv("CDP_API_KEY_ID") or
               os.getenv("X402_FACILITATOR_API_KEY_ID") or "").strip()
-    secret = (os.getenv("CDP_API_KEY_SECRET") or
+    secret = (os.getenv(CDP_RAIL_KEY_SECRET_ENV) or
+              os.getenv("CDP_API_KEY_SECRET") or
               os.getenv("X402_FACILITATOR_API_KEY_SECRET") or "").strip()
     if not key_id or not secret:
         missing = []
@@ -906,7 +933,8 @@ def _eip3009_detail() -> str:
     a canary with a misleading reason.
     """
     gas = bool(os.getenv("WALLET_PRIVATE_KEY"))
-    key_id = (os.getenv("CDP_API_KEY_ID") or "").strip()
+    key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
+              os.getenv("CDP_API_KEY_ID") or "").strip()
     if not key_id:
         cdp = "keys missing"
     else:
