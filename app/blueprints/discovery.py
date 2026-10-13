@@ -768,8 +768,12 @@ def openapi_spec():
         "info": {
             "title": "Kristo Intelligence API",
             "version": "6.0.0",
-            "description": "AI-powered DeFi trading signals and crypto market intelligence. "
-                           "Uses x402 payment protocol — USDC on Base.",
+            "description": "AI-powered DeFi trading signals and crypto market "
+                           "intelligence — pay-per-call USDC on Base (x402 v2, "
+                           "no API keys). Example: curl -i "
+                           "https://kristo-intelligence-api.onrender.com/api/v1/signal "
+                           "→ 402 → pay accepts[0].amount → retry with "
+                           "X-PAYMENT → 200.",
             # x402scan lists info.x-guidance among the required top-level fields;
             # it is the agent-facing "how do I call this" hint.
             "x-guidance": "GET-only paid JSON routes. Every unpaid call returns HTTP 402 "

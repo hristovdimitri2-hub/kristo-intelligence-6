@@ -115,6 +115,10 @@ CHALLENGE_DESCRIPTIONS = {
         "counterparties — scanned continuously (freshness follows the RPC "
         "provider's limits; the response always states the block scanned to)."
     ),
+    "/api/bot-status": (
+        "Telegram sales bot status: heartbeat, subscribers, processed "
+        "commands and service wallet state — updated live."
+    ),
 }
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
