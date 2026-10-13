@@ -163,15 +163,37 @@ def test_openapi_paid_operations_declare_402_response(client):
             f"{path}: missing '402' response declaration"
 
 
-def test_openapi_has_security_scheme_for_x402(client):
-    """x402scan spec: use OpenAPI security + components.securitySchemes."""
+def test_openapi_paid_ops_declare_no_security_scheme(client):
+    """Paid = x-payment-info + 402 ONLY — no security scheme (x402scan #1270).
+
+    The old components.securitySchemes.x402 (apiKey named X-Payment-Address)
+    made agentcash discovery classify every paid route as "apiKey+paid", so
+    agents without a key bailed out BEFORE paying. The 402 response and
+    x-payment-info remain the payment contract (asserted by the tests above/
+    below); the free ops keep their explicit security: [] declaration.
+    """
     r = client.get("/openapi.json")
     spec = r.get_json()
-    assert "components" in spec, "Missing 'components'"
-    assert "securitySchemes" in spec["components"], \
-        "Missing 'components.securitySchemes'"
-    assert "x402" in spec["components"]["securitySchemes"], \
-        "Missing 'x402' security scheme"
+    schemes = (spec.get("components") or {}).get("securitySchemes") or {}
+    assert "x402" not in schemes, "x402 security scheme must stay removed"
+    # Root document must not apply security globally either.
+    assert "security" not in spec, "top-level security must not be declared"
+    paid_paths = [p for p, ops in spec["paths"].items()
+                  if isinstance(ops, dict)
+                  and isinstance(ops.get("get"), dict)
+                  and "x-payment-info" in ops["get"]]
+    assert len(paid_paths) >= 3, "expected the paid routes in the spec"
+    for path in paid_paths:
+        op = spec["paths"][path]["get"]
+        assert op.get("security") in (None, []), \
+            f"{path}: paid op must not declare security: {op.get('security')!r}"
+        assert "402" in op.get("responses", {}), \
+            f"{path}: paid op must keep its 402 response"
+        # The wrong manual flow must be gone everywhere in the spec.
+        assert "X-Payment-Address header set to the sender" not in \
+            (op.get("description") or ""), path
+    flat = str(spec)
+    assert "X-Payment-Address header set to the sender" not in flat
 
 
 # ── Runtime 402 challenge behavior ──────────────────────────────────────────

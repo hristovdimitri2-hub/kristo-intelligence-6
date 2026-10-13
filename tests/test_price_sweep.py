@@ -327,15 +327,19 @@ def test_the_whale_threshold_is_5m_on_every_public_surface(client):
     assert "$50k" not in readme
     assert "≥ $5M" in readme
 
-    # The x402 security blurb must never state ONE flat amount again: the routes
-    # cost different prices (0.003 / 0.005) and "send 0.005 USDC" made a buyer
-    # overpay on the cheap ones. It now points at the route's own 402 challenge.
+    # The old securitySchemes.x402 blurb is GONE (x402scan #1270): it was the
+    # surface that once said "send 0.005 USDC" (overpay on cheap routes) and
+    # advertised a wrong X-Payment-Address retry flow. Paid pricing now lives
+    # only in per-op x-payment-info (swept above), so sweep the whole spec.
+    import json as _json
     spec = c.get("/openapi.json").get_json()
-    blurb = spec["components"]["securitySchemes"]["x402"]["description"]
-    assert "402 challenge" in blurb
-    assert "send 0.005 USDC" not in blurb
-    assert "$%.3f" % min(float(p) for p in
-                         __import__("main").X402_PRICE_MAP.values()) in blurb
+    flat = _json.dumps(spec, ensure_ascii=False)
+    assert "x402" not in ((spec.get("components") or {})
+                          .get("securitySchemes") or {}), \
+        "x402 security scheme must stay removed"
+    assert "send 0.005 USDC" not in flat
+    assert "X-Payment-Address header set to the sender" not in flat
+    assert "402 challenge" in flat
 def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
     """Publishing the NEXT version must not require a code edit (`--version 6.0.1`),
     and a typo must be caught HERE rather than by `mcp-publisher publish` — the

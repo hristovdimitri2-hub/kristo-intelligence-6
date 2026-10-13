@@ -658,7 +658,8 @@ def openapi_spec():
     Includes:
     - x-discovery.ownershipProofs (top-level, x402scan preferred location)
     - x-payment-info per paid operation (x402scan required)
-    - security + securitySchemes for x402 authentication
+    - NO security scheme on paid ops: paid = x-payment-info + 402 only
+      (an apiKey scheme misclassified routes as "apiKey+paid"; see #1270)
     - 402 response declared on every paid operation
     """
     from main import (
@@ -735,7 +736,10 @@ def openapi_spec():
             "description": description,
             "x-payment-info": op_payment_info,
             "x402": {"cost_usdc": cost, "free_tier_eligible": True},
-            "security": [{"x402": []}],
+            # NO security/securitySchemes for x402 (maintainer review, x402scan
+            # #1270): an apiKey scheme here made agentcash classify every paid
+            # route as "apiKey+paid" and keyless agents bailed out BEFORE
+            # paying. Paid = x-payment-info + a 402 response, nothing else.
             "responses": {
                 # x402scan: an operation without an input/output schema is
                 # reported as "Input/Output Schema Missing", so every paid route
@@ -858,21 +862,12 @@ def openapi_spec():
                 "HTML dashboard page with charts and metrics.",
             )},
         },
-        "components": {
-            "securitySchemes": {
-                "x402": {
-                    "type": "apiKey",
-                    "in": "header",
-                    "name": "X-Payment-Address",
-                    "description": (
-                        "x402 payment: send the EXACT USDC amount stated by the "
-                        f"endpoint's 402 challenge (from ${_cheapest:.3f}) on Base to "
-                        f"{X402_RECEIVER_ADDRESS}. After payment, retry the endpoint "
-                        "with X-Payment-Address header set to the sender wallet address."
-                    ),
-                }
-            }
-        },
+        # components.securitySchemes.x402 REMOVED (x402scan #1270): the apiKey
+        # scheme made agentcash classify paid routes as "apiKey+paid" (keyless
+        # agents quit before paying) and its description advertised a wrong
+        # manual flow ("retry with X-Payment-Address …"). The real flow is the
+        # 402 challenge + X-PAYMENT / PAYMENT-SIGNATURE header — documented in
+        # x-payment-info and the 402 response, both kept above.
     }
     return jsonify(spec)
 
