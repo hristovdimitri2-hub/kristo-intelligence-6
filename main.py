@@ -3215,6 +3215,33 @@ def _is_parked_demo_surface(path: str) -> bool:
                for p in DEMO_SURFACE_PREFIXES[1:])
 
 
+# ── 402 challenge: cache + browser-readability headers (double gate 13.10) ──
+# x402-doctor (revecs-hq) + live curl found two real gaps on the 402s:
+#   * no Cache-Control → a browser/proxy can CACHE the challenge and the
+#     later payment fails against a stale/foreign challenge (payment risk #1);
+#   * zero Access-Control-* → cross-origin browser clients cannot read the
+#     response at all; even with Allow-Origin, PAYMENT-REQUIRED stays
+#     invisible without Expose-Headers (x402-foundation/x402#3722).
+# No CORS layer existed in this codebase, so this is the FIRST and only one,
+# scoped strictly to 402 responses (paid routes, incl. OPTIONS when the
+# paywall challenges it). Existing 402 headers/body are untouched.
+_EXPOSE_402_HEADERS = (
+    "PAYMENT-REQUIRED, payment-required, "
+    "x-payment-address, x-payment-amount-usdc, x-payment-chain, "
+    "x-payment-required, x-payment-token-contract"
+)
+
+
+@app.after_request
+def _x402_402_cache_and_cors(response):
+    """Add Cache-Control + CORS headers to 402 challenges only."""
+    if response.status_code == 402:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = _EXPOSE_402_HEADERS
+    return response
+
+
 @app.before_request
 def _x402_paywall():
     """
