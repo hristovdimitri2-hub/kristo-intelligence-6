@@ -57,6 +57,15 @@ THIN_POOL_TOLERANCE_PCT = max(
 # Символен мап (фикс 2): на Base ETH се търгува като WETH — търсим и
 # сверяваме под името, което двойката реално носи там.
 _DEX_SYMBOL_MAP = {"ETH": "WETH"}
+# Фикс 14.10: DexScreener search е popularity-ranked и НЕ връща тези Base
+# пулове в топ-30 на заявка (live диагноза: 'WETH' → 0 Base пака от 30,
+# 'WETH base' → други токени). Tokens endpoint-ът дава пуловете директно —
+# резервен път, когато search не върне НИТО един валиден Base кандидат
+# (иначе ETH = винаги source_missing:dexscreener). Ключът е dex_sym.
+_DEX_BASE_TOKEN_ADDRESSES = {
+    "WETH": "0x4200000000000000000000000000000000000006",  # Base Wrapped Ether
+}
+_DEX_TOKENS_URL = "https://api.dexscreener.com/tokens/v1/base/"
 
 _dex_cache: dict = {}
 _dex_cache_lock = threading.RLock()
@@ -105,38 +114,59 @@ def _dexscreener_source(symbol: str, reference_price: Optional[float]) -> tuple:
             return cached[0], cached[2], (cached[3] if len(cached) > 3 else None)
 
     price, outcome, pool_liq = None, "missing", None
+
+    def _scan(payload) -> list:
+        """(liquidity, price) кандидати от search (`{"pairs": ...}`) или
+        tokens (`[...]`) отговор — едни и същи гвардове и в двата случая."""
+        pairs = payload.get("pairs") if isinstance(payload, dict) else payload
+        cands = []
+        for pair in pairs or []:
+            base = (pair.get("baseToken") or {}).get("symbol") or ""
+            liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
+            raw_price = pair.get("priceUsd")
+            if base.upper() != dex_sym or not raw_price:
+                continue
+            if (pair.get("chainId") or "").lower() != "base":
+                continue
+            if liquidity < _DEX_MIN_LIQUIDITY_USD:
+                continue
+            try:
+                value = float(raw_price)
+            except (TypeError, ValueError):
+                continue
+            if value <= 0:
+                continue
+            if reference_price and reference_price > 0:
+                ratio = max(value / reference_price, reference_price / value)
+                if ratio > 10:   # фалшив символ — същият праг като track record
+                    continue
+            cands.append((liquidity, value))
+        return cands
+
     try:
         response = requests.get(DEXSCREENER_SEARCH, params={"q": dex_sym},
                                 timeout=SOURCE_TIMEOUT_SECONDS)
         if response.status_code != 200:
             price, outcome = None, "error"
         else:
-            pairs = response.json().get("pairs") or []
-            candidates = []
-            for pair in pairs:
-                base = (pair.get("baseToken") or {}).get("symbol") or ""
-                liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
-                raw_price = pair.get("priceUsd")
-                if base.upper() != dex_sym or not raw_price:
-                    continue
-                if (pair.get("chainId") or "").lower() != "base":
-                    continue
-                if liquidity < _DEX_MIN_LIQUIDITY_USD:
-                    continue
-                try:
-                    value = float(raw_price)
-                except (TypeError, ValueError):
-                    continue
-                if value <= 0:
-                    continue
-                if reference_price and reference_price > 0:
-                    ratio = max(value / reference_price, reference_price / value)
-                    if ratio > 10:   # фалшив символ — същият праг като track record
-                        continue
-                candidates.append((liquidity, value))
+            candidates = _scan(response.json())
+            if not candidates:
+                # фикс 14.10: search не върна НИТО един валиден Base кандидат
+                # (live: 'WETH' → 0 Base пака от топ-30) — резервният tokens
+                # endpoint дава пуловете на токена директно.
+                token_address = _DEX_BASE_TOKEN_ADDRESSES.get(dex_sym)
+                if token_address:
+                    token_response = requests.get(
+                        _DEX_TOKENS_URL + token_address,
+                        timeout=SOURCE_TIMEOUT_SECONDS)
+                    if token_response.status_code == 200:
+                        candidates = _scan(token_response.json())
+                    else:
+                        price, outcome = None, "error"
             if candidates:
                 candidates.sort(reverse=True)
-                pool_liq, price, outcome = candidates[0][0], candidates[0][1], "ok"
+                pool_liq, price, outcome = (candidates[0][0],
+                                            candidates[0][1], "ok")
     except Exception as exc:  # транспорт/decode → проверката падна
         log.warning("value_check: DexScreener source error for %s (%s: %s)",
                     sym, type(exc).__name__, exc)

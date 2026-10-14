@@ -167,3 +167,34 @@ def test_ondo_honest_missing_is_delivered_unverified(monkeypatch, verifier):
     assert detail["reason"] == "source_missing:dexscreener"
     assert detail["coingecko_usd"] == 0.465
     assert detail["dexscreener_usd"] is None
+
+
+def test_eth_falls_back_to_tokens_when_search_yields_no_base_candidate(
+        monkeypatch, verifier):
+    """14.10 live диагноза: search не връща Base WETH в топ-30 ('WETH' →
+    0 Base пака от 30) → резервният tokens endpoint дава пуловете директно →
+    ETH вече НЕ е source_missing. Search остава основен път; fallback се
+    задейства САМО когато няма нито един валиден Base кандидат."""
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, dict(params or {})))
+        if "tokens/v1" in url:
+            return _FakeResp([_pair("WETH", 2430.30, 4_399_956.0)])
+        # search отговаря 200, но без валиден Base WETH кандидат
+        return _FakeResp({"pairs": [
+            _pair("WETH", 2430.1, 900.0, chain="ethereum"),   # друга верига
+            _pair("ETH", 0.00000035, 34_303.0),               # != dex_sym
+        ]})
+
+    monkeypatch.setattr(verifier.requests, "get", fake_get)
+
+    price, outcome, liq = verifier._dexscreener_source("ETH", 2430.0)
+
+    assert outcome == "ok"
+    assert price == 2430.30
+    assert liq == 4_399_956.0
+    assert calls[0][0].endswith("/latest/dex/search")   # search = основен път
+    assert calls[0][1]["q"] == "WETH"                   # мапнатият символ
+    assert any("tokens/v1/base/0x4200000000000000000000000000000000000006" in u
+               for u, _ in calls)                       # резервният tokens път

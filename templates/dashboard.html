@@ -92,6 +92,69 @@
    .tag.guard-h2 { background: rgba(56,189,248,.12); color: var(--accent); border: 1px solid rgba(56,189,248,.35); }
    .evi { font-size: 10px; color: var(--muted); }
    .refresh { margin-left: auto; font-size: 11px; color: var(--muted); }
+  /* Pricing — възстановена секция (оригинал от 754b0ee^; махната в 754b0ee) */
+  .pricing-section {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+  }
+  .pricing-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+      transition: transform 0.2s, box-shadow 0.2s;
+      position: relative;
+  }
+  .pricing-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+  }
+  .pricing-card.featured {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px rgba(99,102,241,0.15);
+  }
+  .pricing-card .tier-name {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+  }
+  .pricing-card .tier-price {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin: 1rem 0;
+  }
+  .pricing-card .tier-price .currency { font-size: 1.2rem; color: var(--muted); }
+  .pricing-card .tier-desc {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+  }
+  .pricing-card .tier-features {
+      list-style: none;
+      text-align: left;
+      margin-bottom: 1.5rem;
+  }
+  .pricing-card .tier-features li {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--text);
+  }
+  .pricing-card .tier-features li:last-child { border-bottom: none; }
+  .pricing-card .badge-popular {
+      position: absolute;
+      top: -10px;
+      right: 20px;
+      background: var(--accent);
+      color: #fff;
+      padding: 0.2rem 0.8rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -218,6 +281,36 @@
       <div class="note" id="crm-note" style="margin:8px 0;"></div>
     </div>
   </div>
+  </div>
+
+  <!-- Pricing Section — възстановено от 754b0ee^ (махнато в 754b0ee, 06.09.2026) -->
+  <h2 class="section-title">💎 Предлагани продукти и ценоразпис</h2>
+  <div class="pricing-section">
+    <div class="pricing-card">
+      <div class="tier-name">🔧 Микро-заявка</div>
+      <div class="tier-price"><span class="currency">$</span>0.10<span class="currency"> USDC</span></div>
+      <div class="tier-desc">Pay-per-call — плащаш само за това, което използваш</div>
+      <ul class="tier-features">
+        <li>✅ 1 API заявка (stats / sales / bot-status)</li>
+        <li>✅ Real-time DeFi сигнали</li>
+        <li>✅ On-chain продажби история</li>
+        <li>✅ MCP/x402 съвместимост</li>
+      </ul>
+    </div>
+    <div class="pricing-card featured">
+      <span class="badge-popular">⭐ ПОПУЛЯРЕН</span>
+      <div class="tier-name">👑 Месечен VIP</div>
+      <div class="tier-price"><span class="currency">$</span>29.00<span class="currency"> USDC</span></div>
+      <div class="tier-desc">Неограничен достъп + Telegram VIP група</div>
+      <ul class="tier-features">
+        <li>✅ Неограничени API заявки (30 дни)</li>
+        <li>✅ Telegram VIP група поканителен код</li>
+        <li>✅ Priority DeFi сигнали</li>
+        <li>✅ AI Agent machine-to-machine достъп</li>
+        <li>✅ Real-time blockchain мониторинг</li>
+        <li>✅ VIP поддръжка 24/7</li>
+      </ul>
+    </div>
   </div>
 
   <footer id="invariant"></footer>
