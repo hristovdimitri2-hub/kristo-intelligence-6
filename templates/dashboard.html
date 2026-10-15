@@ -155,6 +155,11 @@
       font-size: 0.7rem;
       font-weight: 600;
   }
+  /* ON-CHAIN SALES — сортируеми колони (клик в header) */
+  #sales-table thead th { cursor: pointer; user-select: none; }
+  #sales-table thead th:hover { color: var(--accent); }
+  #sales-table thead th.sort-asc::after { content: ' ▲'; color: var(--accent); }
+  #sales-table thead th.sort-desc::after { content: ' ▼'; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -177,9 +182,9 @@
   <h2>⬢ On-Chain Sales <span class="src">истина: реални USDC трансфери към payTo</span></h2>
   <div class="cards" id="onchain-cards"></div>
   <div class="note" id="onchain-classes" style="margin-bottom:10px;"></div>
-  <table>
-    <thead><tr><th>Време (UTC)</th><th>Блок</th><th>Сума</th><th>Тип платец</th><th>From</th><th>Tx (пълен хеш)</th></tr></thead>
-    <tbody id="sales-body"><tr><td colspan="6" class="empty">Изчакване на данни…</td></tr></tbody>
+  <table id="sales-table">
+    <thead><tr><th>Време (UTC)</th><th>Сума</th><th>УСЛУГА</th><th>КЛИЕНТ</th><th>From</th><th>Tx (пълен хеш)</th><th>Блок</th></tr></thead>
+    <tbody id="sales-body"><tr><td colspan="7" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
   <h2>⬢ Клиенти <span class="src">всеки external платец — базата за operator deals</span></h2>
   <div class="cards" id="client-cards"></div>
@@ -347,6 +352,12 @@ const addr = (s) => {
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const utc = (iso) => (iso || '').replace('T', ' ').slice(0, 19);
+// Ясни думи за типа платец (14.10) — разцветката (tag класовете) остава същата.
+const CLS_WORDS = {
+  external: 'човек / външен клиент',
+  sampler: 'бот — сондьор',
+  canary: 'наш тест',
+};
 
 function card(v, k, hero) {
   return `<div class="card${hero ? ' hero' : ''}"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`;
@@ -367,18 +378,54 @@ function renderOnchain(o) {
   const rows = (o.history || []).map(h => {
     const cls = h.payer_class || 'external';
     const tx = (h.tx_hash || '');
+    const route = h.route || '';   // от payment_guards claim-а; без него "—"
+    const who = CLS_WORDS[cls] || cls;
+    const label = (o.class_labels || {})[cls] || cls;
     return `<tr>
-      <td class="num mono">${esc(utc(h.ts))}</td>
-      <td class="num mono">${h.block_number || '—'}</td>
-      <td class="num">${usd(h.amount_usdc)}</td>
-      <td><span class="tag ${cls}">${cls === 'external' ? 'EXTERNAL' : esc(h.payer_label || cls)}</span></td>
-      <td class="mono">${esc(addr(h.sender))}</td>
-      <td class="hashline"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(tx)}</a></td>
+      <td class="num mono" data-v="${esc(h.ts || '')}">${esc(utc(h.ts))}</td>
+      <td class="num mono" data-v="${Number(h.amount_usdc) || 0}">${usd(h.amount_usdc)}</td>
+      <td class="mono" data-v="${esc(route)}">${esc(route || '—')}</td>
+      <td data-v="${esc(cls)}"><span class="tag ${cls}" title="${esc(label)}">${esc(who)}</span></td>
+      <td class="mono" data-v="${esc(h.sender || '')}">${esc(addr(h.sender))}</td>
+      <td class="hashline" data-v="${esc(tx)}"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(tx)}</a></td>
+      <td class="num mono" data-v="${Number(h.block_number) || 0}">${h.block_number || '—'}</td>
     </tr>`;
   });
   $('sales-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="6" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
+    '<tr><td colspan="7" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
 }
+
+// ON-CHAIN SALES — сортиране по колона (клик върху header). data-v носи
+// стойността за сравнение (ISO дата / число / низ); без библиотеки.
+(function () {
+  const body = document.getElementById('sales-body');
+  if (!body || !body.closest('table')) return;
+  const head = body.closest('table').querySelector('thead');
+  if (!head) return;
+  let col = -1, asc = false;   // старата подредба (DESC по време) е default
+  head.addEventListener('click', (e) => {
+    const th = e.target.closest('th');
+    if (!th) return;
+    const idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+    asc = (idx === col) ? !asc : true;
+    col = idx;
+    const rows = Array.prototype.filter.call(
+      body.children, r => r.children.length > 1);
+    rows.sort((a, b) => {
+      const av = (a.children[idx] && a.children[idx].dataset.v) || '';
+      const bv = (b.children[idx] && b.children[idx].dataset.v) || '';
+      const an = parseFloat(av), bn = parseFloat(bv);
+      let r;
+      if (av !== '' && bv !== '' && !isNaN(an) && !isNaN(bn)) r = an - bn;
+      else r = String(av).localeCompare(String(bv), 'bg');
+      return asc ? r : -r;
+    });
+    rows.forEach(r => body.appendChild(r));
+    head.querySelectorAll('th').forEach(
+      t => t.classList.remove('sort-asc', 'sort-desc'));
+    th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+  });
+})();
 
 function renderClients(c) {
   const list = c.clients || [];

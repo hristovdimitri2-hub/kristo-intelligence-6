@@ -5255,6 +5255,18 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
     the URL. See `_crm_stripe_section`.
     """
     sales = dashboard_db.sales_summary()
+    # ON-CHAIN SALES · УСЛУГА (14.10): the route each payment was CONSUMED on.
+    # The granted claim in payment_guards is the ONLY honest evidence (the same
+    # join the CLIENTS section uses) — rows without a claim get route: None and
+    # the table renders "—". Never guess a route from the amount here.
+    try:
+        _route_map = dashboard_db.guard_endpoint_map()
+    except Exception as exc:
+        log.debug("dashboard: guard endpoint map unavailable (%s)", exc)
+        _route_map = {}
+    for _row in sales["history"]:
+        _row["route"] = _route_map.get(
+            (_row.get("tx_hash") or "").lower()) or None
     requests = dashboard_db.requests_summary()
     payapi = dashboard_db.get_payapi_state()
     price_map = _published_price_map()

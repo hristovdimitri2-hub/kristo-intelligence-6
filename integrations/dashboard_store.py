@@ -1841,6 +1841,15 @@ HYBRID since 14.09:
         """
         return self.history.guard_stats(recent_limit)
 
+    def guard_endpoint_map(self) -> Dict[str, str]:
+        """{tx_hash → endpoint} — see HistoryStore.guard_endpoint_map.
+
+        Route evidence for the ON-CHAIN SALES table (14.10): the granted claim
+        is the only honest answer to "which route did this TX pay for" — the
+        same join the CLIENTS section already relies on.
+        """
+        return self.history.guard_endpoint_map()
+
     def sale_by_tx(self, tx_hash: str) -> Optional[dict]:
         """Sale lookup — see HistoryStore.sale_by_tx (Telegram VIP claim path)."""
         return self.history.sale_by_tx(tx_hash)
