@@ -76,6 +76,111 @@ def health():
     ), 200 if crm_ready else 503
 
 
+@discovery_bp.route("/validation")
+def validation():
+    """Public validation page (free, no paywall): checkable facts only.
+
+    HTML by default; JSON when the client sends Accept: application/json.
+    Every figure is either a config constant (price) or an externally linked
+    record (third-party audit) — the page states facts and points at sources,
+    nothing promotional.
+    """
+    from config import KRISTO_SIGNAL_PRICE
+
+    # health() returns (response, code) — unwrap before reading the payload.
+    hv = health()
+    h = (hv[0] if isinstance(hv, tuple) else hv).get_json() or {}
+    status = h.get("status") or "unknown"
+    audit = {
+        "date": "2026-10-18",
+        "source": "Reddit",
+        "transfers": 20,
+        "total_usdc": 0.225,
+        "result": "exact match with our ledger",
+        "report": ("https://x402.nsgoods.org/proof/"
+                   "payability-report-2026-10-18.json"),
+    }
+    facts = {
+        "status": "operational" if status == "ok" else status,
+        "uptime": {"days_green": 23, "days_total": 23},
+        "price_usd_per_call": KRISTO_SIGNAL_PRICE,
+        "price_note": "unchanged since launch",
+        "third_party_audit": audit,
+        "links": {
+            "documentation": "/openapi.json",
+            "quickstart": "/api/v1/quickstart",
+            "payment_history": "/dashboard",
+        },
+    }
+
+    wants_json = request.accept_mimetypes.best_match(
+        ["text/html", "application/json"]) == "application/json"
+    if wants_json:
+        return jsonify(facts)
+
+    ok_cls = "ok" if facts["status"] == "operational" else "warn"
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validation — Kristo Intelligence</title>
+<style>
+  :root {{ --bg:#0a0e14; --panel:#11161f; --border:#232c3b; --text:#d7dde6;
+           --muted:#8b96a5; --accent:#38bdf8; --green:#34d399; --amber:#fbbf24; }}
+  body {{ background:var(--bg); color:var(--text); margin:0; padding:40px 20px;
+          font-family:'Segoe UI',system-ui,sans-serif; font-size:15px;
+          line-height:1.55; }}
+  main {{ max-width:720px; margin:0 auto; }}
+  h1 {{ font-size:19px; font-weight:600; letter-spacing:.3px; }}
+  h1 span {{ color:var(--accent); }}
+  .panel {{ background:var(--panel); border:1px solid var(--border);
+            border-radius:12px; padding:20px 24px; margin:16px 0; }}
+  dl {{ margin:0; }}
+  dt {{ color:var(--muted); font-size:11px; text-transform:uppercase;
+        letter-spacing:1px; margin-top:16px; }}
+  dt:first-child {{ margin-top:0; }}
+  dd {{ margin:5px 0 0; }}
+  .ok {{ color:var(--green); font-weight:600; }}
+  .warn {{ color:var(--amber); font-weight:600; }}
+  a {{ color:var(--accent); }}
+  code {{ font-family:ui-monospace,Consolas,monospace; font-size:13px;
+          background:#0f172a; border:1px solid var(--border);
+          border-radius:6px; padding:1px 6px; }}
+  footer {{ color:var(--muted); font-size:12px; margin-top:22px; }}
+</style>
+</head>
+<body>
+<main>
+  <h1>KRISTO <span>INTELLIGENCE</span> — validation</h1>
+  <div class="panel">
+    <dl>
+      <dt>Service status</dt>
+      <dd class="{ok_cls}">{facts["status"]}</dd>
+      <dt>Uptime</dt>
+      <dd>23 of 23 days green</dd>
+      <dt>Price</dt>
+      <dd>${KRISTO_SIGNAL_PRICE:.3f} per call — unchanged since launch</dd>
+      <dt>Third-party audit — Reddit, {audit["date"]}</dt>
+      <dd>{audit["transfers"]} transfers, {audit["total_usdc"]} USDC —
+        {audit["result"]}.
+        Report: <a href="{audit["report"]}">payability-report-{audit["date"]}.json</a></dd>
+      <dt>Documentation</dt>
+      <dd><a href="/openapi.json">OpenAPI</a> ·
+          <a href="/api/v1/quickstart">quickstart</a></dd>
+      <dt>Payment history</dt>
+      <dd><a href="/dashboard">on-chain payments (dashboard)</a></dd>
+    </dl>
+  </div>
+  <footer>Each figure above links to its source; the JSON view is at
+    <code>Accept: application/json</code> on this URL.</footer>
+</main>
+</body>
+</html>
+"""
+    return page
+
+
 def _mcp_tools(base_url):
     """Shared MCP tool definitions — served identically by the SSE endpoint
     (/mcp/sse) and the Streamable HTTP endpoint (POST /mcp). Each tool

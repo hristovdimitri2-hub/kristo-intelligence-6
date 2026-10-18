@@ -140,7 +140,8 @@ X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
-    "/", "/health", "/dashboard", "/nexus", "/api/mcp/manifest",
+    "/", "/health", "/validation", "/dashboard", "/nexus",
+    "/api/mcp/manifest",
     "/.well-known/x402.json", "/.well-known/ai-plugin.json", "/openapi.json",
     "/llms.txt", "/agents.json", "/robots.txt", "/sitemap.xml",
     "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
