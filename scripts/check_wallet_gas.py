@@ -15,7 +15,7 @@ print("Chain ID:", w3.eth.chain_id)
 # burned/published operator wallet is intentionally NOT hardcoded here —
 # never fund or transact from it.
 for label, addr in [
-    ("RECEIVER  ", os.getenv("BASE_FEE_RECEIVER", "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f")),
+    ("RECEIVER  ", os.getenv("BASE_FEE_RECEIVER", "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f")),
     ("PAYER-NOW ", os.getenv("WALLET_ADDRESS", "")),
     ("OLD-RENDER", "0x298268446cb8f5387258655527c7b70f876b7493"),
 ]:

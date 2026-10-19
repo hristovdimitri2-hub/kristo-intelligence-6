@@ -9,7 +9,7 @@ by a deploy (priority-0 invariant: "deploy must not zero the counters").
 
 Hard facts (chain, 100% reproducible):
 
-  receiver  : 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
+  receiver  : 0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f
   token     : USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 (Base, 6 decimals)
   transfers : 9 (ALL incoming, ALL USDC — the address has no other token flow)
   total     : 31000 atomic = $0.031
@@ -46,7 +46,7 @@ VERIFIED_TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 
 #: Source query (reproduce the whole list in one request):
 #:   https://base.blockscout.com/api?module=account&action=tokentx
-#:     &address=0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
+#:     &address=0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f
 #:     &contractaddress=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 #:     &sort=asc&page=1&offset=200
 VERIFIED_SALES_SOURCE = (

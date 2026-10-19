@@ -16,7 +16,7 @@ import types
 import pytest
 
 USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-PAYTO = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+PAYTO = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"  # canonical EIP-55
 TX = "0x" + "cd" * 32
 PAYER = "0x" + "aa" * 20
 

@@ -264,7 +264,7 @@ def _build_signed_payload(authorization_overrides=None, tamper_from=False):
     from eth_account.messages import encode_typed_data
 
     usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    receiver = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"  # canonical EIP-55
     acct = Account.from_key("0x" + secrets.token_hex(32))
     now = int(_time.time())
     auth = {
@@ -578,7 +578,7 @@ def _make_signed_transfer_tx(receiver, amount_atomic, key_hex, to_usdc=True):
 
 def test_transaction_shape_verify_ok():
     from services.connectors import verify_standard_payment
-    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    receiver = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
     raw, addr = _make_signed_transfer_tx(receiver, 5000, "0x" + "31" * 32)
     header = _b64.urlsafe_b64encode(_json.dumps({
         "x402Version": 2, "scheme": "exact", "network": "eip155:8453",
@@ -594,7 +594,7 @@ def test_transaction_shape_verify_ok():
 
 def test_transaction_shape_wrong_recipient_rejected():
     from services.connectors import verify_standard_payment
-    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    receiver = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
     raw, addr = _make_signed_transfer_tx("0x" + "99" * 20, 5000, "0x" + "32" * 32)
     header = _b64.urlsafe_b64encode(_json.dumps({
         "x402Version": 2, "scheme": "exact", "network": "eip155:8453",
@@ -609,7 +609,7 @@ def test_transaction_shape_wrong_recipient_rejected():
 
 def test_transaction_shape_underpayment_rejected():
     from services.connectors import verify_standard_payment
-    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    receiver = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
     raw, addr = _make_signed_transfer_tx(receiver, 1, "0x" + "33" * 32)
     header = _b64.urlsafe_b64encode(_json.dumps({
         "x402Version": 2, "scheme": "exact", "network": "eip155:8453",

@@ -15,25 +15,42 @@ from __future__ import annotations
 
 import os
 
+try:
+    from eth_utils import to_checksum_address as _checksum
+except ImportError:  # config се чете и извън пълния venv — identity fallback
+    def _checksum(address: str) -> str:
+        return address
+
 # ── Base network fee receiver (HARD FALLBACK) ──────────────────────────────
 # This is the real, bound wallet address that receives the per-request
 # micro-fee on Base (the amount comes from BASE_FEE_AMOUNT_USDC below and is
 # overridden per route by X402_PRICE_MAP — never a literal in this comment).
 # It is used unconditionally when the BASE_FEE_RECEIVER environment variable is
 # absent or empty.
-BOUND_BASE_FEE_RECEIVER = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+# EIP-55 canonical form (19.10): the literal below historically carried a
+# mismatched-case register; the BYTES are identical (BaseScan-verified — the
+# wallet does not change). Normalising here means every consumer (402 header,
+# body mirrors, manifests, tests) inherits ONE spelling.
+BOUND_BASE_FEE_RECEIVER = _checksum(
+    "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f")
 
 
 def get_base_fee_receiver() -> str:
     """
-    Return the Base fee-receiver address.
+    Return the Base fee-receiver address in canonical EIP-55 form.
 
     Priority:
       1. BASE_FEE_RECEIVER env var (if non-empty)
       2. BOUND_BASE_FEE_RECEIVER hard fallback
+    Both paths pass through to_checksum_address so a stale-cased env value
+    (e.g. set in Render) can never reintroduce the mismatched register.
     """
     env_val = os.getenv("BASE_FEE_RECEIVER", "").strip()
-    return env_val if env_val else BOUND_BASE_FEE_RECEIVER
+    raw = env_val if env_val else BOUND_BASE_FEE_RECEIVER
+    try:
+        return _checksum(raw)
+    except Exception:
+        return raw
 
 
 # ── Base network constants ────────────────────────────────────────────────

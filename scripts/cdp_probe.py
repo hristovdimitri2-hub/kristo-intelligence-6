@@ -30,7 +30,7 @@ req = urllib.request.Request("https://api.cdp.coinbase.com/platform/v2/x402/veri
     "x402Version": 2, "scheme": "exact", "network": "eip155:8453",
     "payload": {"signature": "0x" + "00" * 65,
                 "authorization": {"from": "0x" + "01" * 20,
-                                  "to": "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+                                  "to": "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
                                   "value": "5000", "validAfter": "0",
                                   "validBefore": "9999999999",
                                   "nonce": "0x" + "00" * 32},

@@ -65,8 +65,13 @@ def test_payment_required_header_matches_body_field_by_field(client):
     assert b["accepts[]"] == h_acc
     assert b["x402_accepts"] == h_acc
 
-    # every x402_*/payment mirror repeats the SAME values (units included)
+    # canonical EIP-55 payTo everywhere (checksum fix, 19.10 — bytes are
+    # identical, only the register changed; wallet untouched)
+    CANON = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
     acc0 = h_acc[0]
+    assert acc0["payTo"] == CANON
+    assert b["x402_recipient"] == CANON
+    assert b["payment"]["receiver_address"] == CANON
     assert b["x402_network"] == acc0["network"] == "eip155:8453"
     assert b["payment"]["network"] == acc0["network"]
     assert b["payment"]["chain"] == acc0["network"]

@@ -145,7 +145,7 @@ def _build_signed_payload():
     from eth_account.messages import encode_typed_data
 
     usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-    receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    receiver = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"  # canonical EIP-55
     acct = Account.from_key("0x" + secrets.token_hex(32))
     now = int(time.time())
     auth = {"from": acct.address, "to": receiver, "value": "5000",

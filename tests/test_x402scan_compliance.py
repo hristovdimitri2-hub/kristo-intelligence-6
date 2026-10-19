@@ -220,8 +220,8 @@ def test_402_response_includes_payment_headers(client, monkeypatch):
         f"Missing X-Payment-Address header. Headers: {list(headers_lower.keys())}"
     assert "x-payment-amount-usdc" in headers_lower, \
         f"Missing X-Payment-Amount-USDC header"
-    # Address must be the corrected one (commit dcebafd)
-    assert headers_lower["x-payment-address"] == "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+    # Address must be the canonical EIP-55 form (checksum fix, 19.10)
+    assert headers_lower["x-payment-address"] == "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
 
 
 def test_402_response_body_includes_payment_details(client, monkeypatch):
@@ -234,8 +234,8 @@ def test_402_response_body_includes_payment_details(client, monkeypatch):
     assert data is not None, "402 response must be JSON"
     # Look for payment details in any reasonable field
     json_str = json.dumps(data)
-    assert "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f" in json_str, \
-        "402 body must include correct receiver address"
+    assert "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f" in json_str, \
+        "402 body must include the canonical receiver address"
     # Amount comes from the single source of truth (config.py price map)
     from config import KRISTO_STATS_PRICE
     expected_amount = f"{KRISTO_STATS_PRICE:g}"

@@ -38,7 +38,7 @@ function installMockFetch({ saleTx }) {
           x402_token: "USDC",
           x402_token_contract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
           x402_amount: "0.05",
-          x402_recipient: "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+          x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
           x402_accepts: ["tx_hash"],
         }),
         { status: 402, headers: { "Content-Type": "application/json" } }
@@ -55,7 +55,7 @@ function installMockFetch({ saleTx }) {
     // Unknown/replayed proof → server keeps the paywall up.
     return new Response(
       JSON.stringify({ error: "payment_required", x402_amount: "0.05",
-                       x402_recipient: "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f" }),
+                       x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f" }),
       { status: 402, headers: { "Content-Type": "application/json" } }
     );
   };
@@ -82,13 +82,13 @@ test("parsePaymentChallenge reads canonical x402_* fields", () => {
   const challenge = parsePaymentChallenge({
     error: "payment_required",
     x402_amount: "0.05",
-    x402_recipient: "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+    x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
     x402_token_contract: "0x8335",
     x402_chain_id: 8453,
   });
   assert.deepEqual(challenge, {
     amount: 0.05,
-    recipient: "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f",
+    recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
     tokenContract: "0x8335",
     chainId: 8453,
   });

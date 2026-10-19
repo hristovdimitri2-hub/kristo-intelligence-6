@@ -44,7 +44,7 @@ try:
 except Exception as exc:
     print("probe base ERR:", str(exc)[:120])
     raise SystemExit(1)
-receiver = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+receiver = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
 padded = "0x" + "0" * 24 + receiver[2:].lower()
 try:
     probe = w3.eth.get_logs({

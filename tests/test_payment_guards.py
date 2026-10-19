@@ -302,7 +302,7 @@ def test_sales_chunk_env_is_not_clamped_upwards(tmp_path, monkeypatch):
 
     monkeypatch.setenv("SALES_CHUNK_BLOCKS", "10")
     monkeypatch.setenv("BASE_FEE_RECEIVER",
-                       "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f")
+                       "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f")
     logs = [_sale_log("77", 0.003, "aa" * 20, 55)]
     _install_fake_web3(monkeypatch, logs, {55: 1_700_000_000}, latest=100,
                        max_span=10)
@@ -319,7 +319,7 @@ def test_scan_halves_a_rejected_chunk_instead_of_stalling(tmp_path, monkeypatch)
 
     monkeypatch.delenv("SALES_CHUNK_BLOCKS", raising=False)
     monkeypatch.setenv("BASE_FEE_RECEIVER",
-                       "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f")
+                       "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f")
     logs = [_sale_log("88", 0.003, "bb" * 20, 55)]
     _install_fake_web3(monkeypatch, logs, {55: 1_700_000_000}, latest=100,
                        max_span=10)

@@ -8,7 +8,7 @@ End-to-end automated test that verifies:
   a) Real ETH/USDC price extraction from DEXScreener API (no demo data).
   b) GLM AI model generates a short market bulletin from the live data.
   c) BASE_FEE_RECEIVER points exactly to the bound wallet address:
-       0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
+       0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f
 
 Run:
     python scripts/test_live_system.py
@@ -42,7 +42,7 @@ logging.basicConfig(
 log = logging.getLogger("kristo.test.live_system")
 
 # ── The exact bound address that MUST be used as fallback
-BOUND_ADDRESS = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+BOUND_ADDRESS = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
 
 
 def check_dexscreener_eth_usdc_price() -> dict:
