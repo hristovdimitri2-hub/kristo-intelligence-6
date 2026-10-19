@@ -49,6 +49,41 @@ def _get_402(client, path):
     return r
 
 
+def test_payment_required_header_matches_body_field_by_field(client):
+    """Header/body parity (ContextIQ x402 Inspector, 18.10): the authoritative
+    PAYMENT-REQUIRED header and the body must carry the same payment details —
+    same payTo bytes, same atomic units, canonical CAIP-2 network, no
+    base/base-mainnet variants in the mirrors."""
+    r = _get_402(client, "/api/v1/whaleflow")
+    header = json.loads(
+        base64.b64decode(r.headers["PAYMENT-REQUIRED"]).decode())
+    b = r.get_json()
+    h_acc = header["accepts"]
+
+    # the three accepts mirrors are byte-for-byte the header's accepts
+    assert b["accepts"] == h_acc
+    assert b["accepts[]"] == h_acc
+    assert b["x402_accepts"] == h_acc
+
+    # every x402_*/payment mirror repeats the SAME values (units included)
+    acc0 = h_acc[0]
+    assert b["x402_network"] == acc0["network"] == "eip155:8453"
+    assert b["payment"]["network"] == acc0["network"]
+    assert b["payment"]["chain"] == acc0["network"]
+    assert b["x402_recipient"] == acc0["payTo"]
+    assert b["payment"]["receiver_address"] == acc0["payTo"]
+    assert b["x402_amount"] == acc0["amount"]           # atomic, not decimal
+    assert b["payment"]["amount_usdc"] == int(acc0["amount"])
+    assert b["x402_token_contract"] == acc0["asset"]
+    assert b["payment"]["token_contract"] == acc0["asset"]
+    assert b["x402_chain_id"] == 8453
+    # legacy string variants must be gone from the mirrors
+    body_dump = json.dumps(b)
+    assert '"base-mainnet"' not in body_dump
+    assert b["payment"].get("chain") != "base"
+    assert b["payment"].get("network") != "base"
+
+
 def test_402_carries_no_store_on_every_paid_route(client):
     """(а) Cache-Control: no-store — a cached challenge breaks settlement."""
     for path in ROUTES:

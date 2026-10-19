@@ -250,8 +250,9 @@ def test_api_sales_price_is_flat_0_005(client, monkeypatch):
     assert r.status_code == 402
     body = r.get_json()
     assert body["accepts"][0]["amount"] == "5000"
-    assert float(body["x402_amount"]) == pytest.approx(0.005)
-    assert float(body["payment"]["amount_usdc"]) == pytest.approx(0.005)
+    # Mirrors of accepts[0]: atomic units everywhere (header/body parity).
+    assert body["x402_amount"] == "5000"
+    assert body["payment"]["amount_usdc"] == 5000
 
 
 # ── EIP-3009 layered verification (PayAPI review round 2) ───────────────────

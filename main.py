@@ -1588,6 +1588,12 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
     description = CHALLENGE_DESCRIPTIONS.get(endpoint, "")
     accepts, resource, extensions = _x402_challenge_core(
         endpoint, amount, description=description)
+    # Single source of truth: every mirrored payment field is DERIVED from
+    # accepts[0] — the body cannot contradict the authoritative
+    # PAYMENT-REQUIRED header (ContextIQ x402 Inspector warning, 18.10):
+    # same payTo, same atomic units, canonical CAIP-2 network everywhere.
+    acc0 = accepts[0]
+    atomic_amount = str(int(round(float(amount) * 1_000_000)))
     body = {
         "x402Version": 2,
         "error": "payment_required",
@@ -1600,12 +1606,12 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         # Canonical x402_* top-level fields — self-contained for LLM agents:
         # a model that receives ONLY this JSON can construct the payment
         # and the retry request without reading llms.txt or the docs.
-        "x402_network": "base-mainnet",
+        "x402_network": acc0["network"],        # CAIP-2, as in accepts (was "base-mainnet")
         "x402_chain_id": X402_CHAIN_ID,
         "x402_token": "USDC",
-        "x402_token_contract": X402_USDC_CONTRACT,
-        "x402_amount": str(amount),
-        "x402_recipient": X402_RECEIVER_ADDRESS,
+        "x402_token_contract": acc0["asset"],
+        "x402_amount": atomic_amount,           # atomic units, as in accepts (was decimal)
+        "x402_recipient": acc0["payTo"],
         # accepts / accepts[] / x402_accepts are defined at the top of the
         # body (canonical x402 v1 payment requirements, x402scan-parseable).
         "x402_retry_instructions": (
@@ -1623,13 +1629,15 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
             f"{X402_RECEIVER_ADDRESS} to unlock this endpoint."
         ),
         "payment": {
-            "chain": X402_CHAIN,
+            # Mirror of accepts[0] — same address, same atomic units,
+            # canonical CAIP-2 network (no "base" / "base-mainnet" variants).
+            "chain": acc0["network"],
             "chain_id": X402_CHAIN_ID,
             "currency": "USDC",
-            "token_contract": X402_USDC_CONTRACT,
-            "receiver_address": X402_RECEIVER_ADDRESS,
-            "amount_usdc": amount,
-            "network": "base",
+            "token_contract": acc0["asset"],
+            "receiver_address": acc0["payTo"],
+            "amount_usdc": int(atomic_amount),
+            "network": acc0["network"],
         },
         "endpoint": endpoint,
         "free_tier_limit": FREE_TIER_LIMIT,

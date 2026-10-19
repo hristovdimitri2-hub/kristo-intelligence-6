@@ -323,7 +323,7 @@ def test_x402_response_is_self_contained_for_llm_agents(client, monkeypatch):
     resp = client.get("/api/sales")
     assert resp.status_code == 402
     b = resp.get_json()
-    assert b["x402_network"] == "base-mainnet"
+    assert b["x402_network"] == "eip155:8453"   # canonical CAIP-2, as accepts
     assert b["x402_chain_id"] == 8453
     assert b["x402_token"] == "USDC"
     assert b["x402_token_contract"].startswith("0x")
@@ -450,7 +450,8 @@ def test_strict_x402_mode_first_call_requires_payment(client, monkeypatch):
             "v2 network must be CAIP-2 form (eip155:8453 = Base)"
         assert isinstance(req["amount"], str) and req["amount"].isdigit(), \
             "amount must be atomic units (0.005 USDC -> '5000')"
-        assert int(req["amount"]) == int(round(float(b["x402_amount"]) * 1_000_000))
+        # Same units as the x402_* mirror (both are atomic, like the header).
+        assert int(req["amount"]) == int(b["x402_amount"])
         assert req["payTo"] == b["x402_recipient"]
         assert req["asset"].startswith("0x")
         assert isinstance(req["maxTimeoutSeconds"], int)
