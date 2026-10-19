@@ -1494,6 +1494,61 @@ def _safe_jsonify(obj):
     return jsonify(_sanitize_json(obj))
 
 
+# Realistic samples of the PAID responses, per route — served inside
+# extensions.bazaar.info.output.example so discovery agents (CDP validator,
+# Bazaar search) can see what a successful call returns before paying
+# (docs: get-discovered — complete output schemas with realistic examples
+# raise metadata quality). Shapes mirror the live handlers:
+# whaleflow → {state, whales[], threshold_usdc, scanned_until_block, source};
+# signal    → {generated_at, signals[] with scan_info}; stats → counters.
+_BAZAAR_OUTPUT_EXAMPLES = {
+    "/api/v1/whaleflow": {
+        "state": "ok",
+        "threshold_usdc": 5_000_000,
+        "count": 1,
+        "whales": [
+            {
+                "tx_hash": "0x9f2c…" * 1,
+                "amount_usdc": 5_200_000.0,
+                "block_number": 52_610_000,
+                "ts": "2026-10-19T09:15:00+00:00",
+                "from_label": "Binance",
+                "to_label": "unknown",
+            },
+        ],
+        "scanned_until_block": 52_610_105,
+        "all_time_count": 47,
+        "last_event_at": "2026-10-19T09:15:00+00:00",
+        "source": "onchain_eth_getLogs",
+    },
+    "/api/v1/signal": {
+        "generated_at": "2026-10-19T09:20:00+00:00",
+        "signals": [
+            {
+                "token": "ETH",
+                "price_usd": 2426.55,
+                "confidence": "high",
+                "action": "watch",
+                "reasoning": "spot premium within tolerance; depth confirming",
+                "scan_info": {
+                    "verification": "verified",
+                    "checked_at": "2026-10-19T09:19:50+00:00",
+                },
+            },
+        ],
+    },
+    "/api/stats": {
+        "today": "2026-10-19",
+        "requests_today": 120,
+        "requests_total": 5400,
+        "top_paths": [
+            {"path": "/api/v1/signal", "count": 70},
+            {"path": "/api/v1/whaleflow", "count": 30},
+        ],
+    },
+}
+
+
 def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     """
     Canonical x402 v2 challenge pieces: accepts + resource + extensions.
@@ -1542,11 +1597,17 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     # .body|.queryParams and the output schema from schema.properties.output
     # .properties.example — both must be present or the route fails with
     # SCHEMA_INPUT_MISSING / SCHEMA_OUTPUT_MISSING (severity: error).
+    # CDP's validator additionally wants info.output.example (18.10 finding:
+    # "recommended for discovery quality, not required for indexing") — a
+    # realistic sample of the PAID response so agents can construct the call
+    # (docs: get-discovered → complete input and output schemas with examples).
+    info = {"input": {"type": "http", "method": "GET"}}
+    example = _BAZAAR_OUTPUT_EXAMPLES.get(endpoint)
+    if example is not None:
+        info["output"] = {"example": example}
     extensions = {
         "bazaar": {
-            "info": {
-                "input": {"type": "http", "method": "GET"},
-            },
+            "info": info,
             "schema": {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
