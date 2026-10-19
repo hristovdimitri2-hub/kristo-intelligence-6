@@ -147,6 +147,7 @@ X402_FREE_ENDPOINTS = {
     "/mcp.json", "/api/telegram-webhook", "/api/dashboard-stats",
     "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
+    "/.well-known/x402-trust.txt",
 }
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -2156,6 +2157,25 @@ def _capture_live_request(response):
         # Observability must never affect the application response.
         pass
     return response
+
+
+@app.route("/.well-known/x402-trust.txt")
+def x402_trust_verification_file():
+    """x402 Trust provider claim — domain proof file (public, no auth, no 402).
+
+    Format per https://x402-trust.com/verify: the file at
+    /.well-known/x402-trust.txt must carry the single line
+    ``x402-trust-verification=v1:<public key>``. The public key below is the
+    matching half of the P-256 keypair whose private half lives OUTSIDE the
+    repo (public half is safe by design; it only authorises later signed
+    actions like removal). Verification never changes the trust grade.
+    """
+    line = (
+        "x402-trust-verification=v1:"
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETjvLhHoH7WpJad+nnhNwYqcOT8mV"
+        "iR9vVLxioMCzIfkBim1CwZP9F+cR+ASHpkJ2P2trmw9p5GAX3J0g4xsSNA=="
+    )
+    return line + "\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 @app.route("/f/<channel>")
