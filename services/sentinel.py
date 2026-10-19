@@ -32,7 +32,7 @@ import os
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 
@@ -329,6 +329,77 @@ def _check_github(state: dict) -> None:
             log.warning("Sentinel PR check failed for %s: %s", key, exc)
 
 
+def _market_numbers() -> list:
+    """Exactly six market numbers for the weekly report (owner ask, 18.10).
+
+    All sources are free/public: CoinGecko simple price, our own Base RPC
+    (eth_gasPrice), DefiLlama /v2/chains, x402-doctor /api/trust/summary,
+    and our durable on-chain store for the 7-day payment count. A failing
+    source becomes 'n/a' — the report never blocks on a market feed.
+    """
+    btc = eth = None
+    try:
+        cg = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price"
+            "?ids=bitcoin,ethereum&vs_currencies=usd",
+            timeout=20).json()
+        btc = (cg.get("bitcoin") or {}).get("usd")
+        eth = (cg.get("ethereum") or {}).get("usd")
+    except Exception as exc:
+        log.debug("Sentinel market: coingecko failed (%s)", exc)
+
+    gas_gwei = None
+    try:
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_gasPrice",
+                   "params": []}
+        result = requests.post(BASE_RPC_URL, json=payload, timeout=20).json()
+        gas_gwei = int(result["result"], 16) / 1e9
+    except Exception as exc:
+        log.debug("Sentinel market: gas failed (%s)", exc)
+
+    tvl = None
+    try:
+        chains = requests.get("https://api.llama.fi/v2/chains",
+                              timeout=25).json()
+        tvl = sum(float(c.get("tvl") or 0) for c in chains) / 1e9
+    except Exception as exc:
+        log.debug("Sentinel market: defillama failed (%s)", exc)
+
+    trust_eps = None
+    try:
+        summary = requests.get(
+            "https://x402-doctor.fizzl.eu/api/trust/summary",
+            timeout=25).json()
+        trust_eps = int(summary.get("resources") or 0) or None
+    except Exception as exc:
+        log.debug("Sentinel market: x402 trust failed (%s)", exc)
+
+    pay_n = pay_usd = None
+    try:
+        store = _dashboard_store()
+        if store:
+            rows = store.sales_summary().get("history") or []
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            week = [r for r in rows
+                    if r.get("ts")
+                    and datetime.fromisoformat(str(r["ts"])) >= cutoff]
+            pay_n = len(week)
+            pay_usd = sum(float(r.get("amount_usdc") or 0) for r in week)
+    except Exception as exc:
+        log.debug("Sentinel market: weekly payments failed (%s)", exc)
+
+    return [
+        f"• BTC/USD: ${btc:,.0f}" if btc else "• BTC/USD: n/a",
+        f"• ETH/USD: ${eth:,.0f}" if eth else "• ETH/USD: n/a",
+        f"• Base gas: {gas_gwei:.1f} gwei" if gas_gwei else "• Base gas: n/a",
+        f"• DeFi TVL (DefiLlama): ${tvl:,.1f}B" if tvl else "• DeFi TVL: n/a",
+        f"• x402 Trust resources (x402-doctor API): {trust_eps:,}" if trust_eps
+        else "• x402 Trust resources (x402-doctor API): n/a",
+        (f"• Our 402 payments (7d): {pay_n} · ${pay_usd:.4f} USDC"
+         if pay_n is not None else "• Our 402 payments (7d): n/a"),
+    ]
+
+
 def _build_report(state: dict) -> str:
     lines = ["📊 <b>Kristo Sentinel — weekly report</b>",
              f"_{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_", ""]
@@ -347,6 +418,9 @@ def _build_report(state: dict) -> str:
     if state.get("prs"):
         lines.append("📋 Directory PRs: " + ", ".join(
             f"{k.split('#')[0].split('/')[-1]}: {v}" for k, v in state["prs"].items()))
+    lines.append("")
+    lines.append("🧭 Market (6 numbers)")
+    lines.extend(_market_numbers())
     lines.append("")
     lines.append(f"🔗 {_api_base()}/dashboard")
     return "\n".join(lines)
