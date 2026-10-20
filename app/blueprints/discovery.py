@@ -111,6 +111,44 @@ def validation():
             "quickstart": "/api/v1/quickstart",
             "payment_history": "/dashboard",
         },
+        # x402 Trust — live values read from https://x402-trust.com/trust/search
+        # on LAST_CHECKED (grades/scores/ids are their measurements, not ours).
+        "x402_trust": {
+            "profile": "https://x402-trust.com/endpoint/139372",
+            "search": "https://x402-trust.com/trust/search?q=kristo",
+            "badge": (
+                '<a href="https://x402-trust.com/endpoint/139372">'
+                '<img src="https://x402-trust.com/badge.svg?resource='
+                'https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi'
+                '%2Fstats" alt="x402 Trust: grade B, recommendation proceed">'
+                "</a>"
+            ),
+            "claim": "4/4 complete (Claim, Email confirmed, Domain file "
+                     "seen, verified)",
+            "scoring_note": (
+                "Weighted scoring across technical fit, transparency, "
+                "ecosystem presence and operational confidence; letter "
+                "grades per endpoint (ours: A–B). Current weights: see the "
+                "leaderboard. Free snapshots refresh at least every 24 h."
+            ),
+            "leaderboard": "https://x402-trust.com/trust/leaderboard",
+            "last_checked": "2026-10-19",
+            "paid_endpoints": [
+                {"path": "/api/v1/signal", "grade": "A", "score": 81.2,
+                 "page": "https://x402-trust.com/endpoint/122932"},
+                {"path": "/api/v1/whaleflow", "grade": "B", "score": 79.9,
+                 "page": "https://x402-trust.com/endpoint/139367"},
+                {"path": "/api/stats", "grade": "B", "score": 79.9,
+                 "page": "https://x402-trust.com/endpoint/139372"},
+                {"path": "/api/arb/opportunities", "grade": "B",
+                 "score": 79.9,
+                 "page": "https://x402-trust.com/endpoint/139339"},
+                {"path": "/api/sales", "grade": "B", "score": 79.9,
+                 "page": "https://x402-trust.com/endpoint/139342"},
+                {"path": "/api/bot-status", "grade": "B", "score": 79.9,
+                 "page": "https://x402-trust.com/endpoint/139366"},
+            ],
+        },
     }
 
     wants_json = request.accept_mimetypes.best_match(
@@ -170,6 +208,47 @@ def validation():
           <a href="/api/v1/quickstart">quickstart</a></dd>
       <dt>Payment history</dt>
       <dd><a href="/dashboard">on-chain payments (dashboard)</a></dd>
+    </dl>
+  </div>
+  <div class="panel">
+    <dl>
+      <dt>x402 Trust — provider profile</dt>
+      <dd><a href="https://x402-trust.com/endpoint/139372">endpoint 139372
+            (profile)</a> · <a
+            href="https://x402-trust.com/trust/search?q=kristo">search
+            "kristo"</a></dd>
+      <dt>Badge (auto-updates with their score)</dt>
+      <dd><a href="https://x402-trust.com/endpoint/139372"><img
+            src="https://x402-trust.com/badge.svg?resource=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fstats"
+            alt="x402 Trust: grade B, recommendation proceed"
+            height="20"></a></dd>
+      <dt>Claim status</dt>
+      <dd class="ok">4/4 complete — Claim ✓ · Email confirmed ✓ ·
+          Domain file seen ✓ · verified ✓</dd>
+      <dt>What x402 Trust measures</dt>
+      <dd>Independent probes scored with a weighted mix of technical fit,
+          transparency, ecosystem presence and operational confidence; each
+          endpoint gets a letter grade (ours currently <b>A–B</b>). The
+          current weighting lives on their
+          <a href="https://x402-trust.com/trust/leaderboard">leaderboard</a>.
+          Free snapshots refresh at least every 24 hours.</dd>
+      <dt>Paid endpoints on x402 Trust</dt>
+      <dd><ul style="margin:6px 0 0; padding-left:18px;">
+            <li><code>/api/v1/signal</code> — grade A (81.2) ·
+              <a href="https://x402-trust.com/endpoint/122932">page</a></li>
+            <li><code>/api/v1/whaleflow</code> — grade B (79.9) ·
+              <a href="https://x402-trust.com/endpoint/139367">page</a></li>
+            <li><code>/api/stats</code> — grade B (79.9) ·
+              <a href="https://x402-trust.com/endpoint/139372">page</a></li>
+            <li><code>/api/arb/opportunities</code> — grade B (79.9) ·
+              <a href="https://x402-trust.com/endpoint/139339">page</a></li>
+            <li><code>/api/sales</code> — grade B (79.9) ·
+              <a href="https://x402-trust.com/endpoint/139342">page</a></li>
+            <li><code>/api/bot-status</code> — grade B (79.9) ·
+              <a href="https://x402-trust.com/endpoint/139366">page</a></li>
+          </ul></dd>
+      <dt>Last checked</dt>
+      <dd>2026-10-19 (grades/scores read live from x402 Trust that day)</dd>
     </dl>
   </div>
   <footer>Each figure above links to its source; the JSON view is at
