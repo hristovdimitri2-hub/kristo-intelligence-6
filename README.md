@@ -34,6 +34,8 @@ flow is three steps and works from any HTTP client:
 No keys. No accounts. Prices from **$0.003 per call** (the cheapest route is
 `GET /api/v1/signal`). Settled in USDC on Base (chain 8453).
 
+[![x402 Trust: grade B, recommendation proceed](https://x402-trust.com/badge.svg?resource=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fstats)](https://x402-trust.com/endpoint/139372)
+
 ## MCP (Model Context Protocol)
 
 The API is exposed as an MCP server for Claude Desktop, Cursor, Continue,
