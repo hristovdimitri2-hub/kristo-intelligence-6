@@ -1741,8 +1741,20 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
             f"retry this endpoint."
         ),
     }
-    resp = jsonify(body)
-    resp.status_code = 402
+    # x402 Doctor "envelope-body-mirror" (21.10): the check in
+    # Fizzl13/x402-doctor lib/diagnose.js compares
+    #     JSON.stringify(bodyJson.accepts) === JSON.stringify(decoded.accepts)
+    # — a STRICT key-order string compare. jsonify() sorts keys
+    # alphabetically (app.json.sort_keys=True on Flask 3.x) while the
+    # PAYMENT-REQUIRED header payload is json.dumps'd in insertion order,
+    # so the SAME dict serialized twice compared UNEQUAL and all 6 routes
+    # warned even though every accepts[] value was identical. Serve the
+    # body WITHOUT key sorting so accepts[] serialises in the header's
+    # order — same content, same JSON semantics (objects are unordered);
+    # response headers, prices and payTo are untouched.
+    from flask import Response
+    resp = Response(json.dumps(body), status=402,
+                    mimetype="application/json")
     resp.headers["X-Payment-Required"] = "x402"
     resp.headers["X-Payment-Address"] = X402_RECEIVER_ADDRESS
     resp.headers["X-Payment-Amount-USDC"] = str(amount)
