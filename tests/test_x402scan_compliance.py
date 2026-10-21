@@ -53,8 +53,11 @@ def test_well_known_x402_returns_resources_array(client):
     assert "resources" in data, "Missing 'resources' field"
     assert isinstance(data["resources"], list), "resources must be array"
     assert len(data["resources"]) > 0, "resources must be non-empty"
-    # Each resource must be an absolute URL
-    for url in data["resources"]:
+    # Each resource must be an absolute URL — entries are {url,name,
+    # description} objects (x402 Doctor well-known-names), plain strings
+    # still tolerated for forward/backward compatibility.
+    for res in data["resources"]:
+        url = res["url"] if isinstance(res, dict) else res
         assert url.startswith("http"), f"Resource URL must be absolute: {url}"
 
 
@@ -75,7 +78,8 @@ def test_well_known_x402_resources_match_paid_endpoints(client):
     """Resources array should list the actual paid endpoints."""
     r = client.get("/.well-known/x402")
     data = r.get_json()
-    resources = data["resources"]
+    resources = [res["url"] if isinstance(res, dict) else res
+                 for res in data["resources"]]
     # Should include /api/stats, /api/sales, /api/bot-status
     paths_in_resources = [r.split("/", 3)[-1] if "/" in r else r for r in resources]
     assert "/api/stats" in resources or any("api/stats" in r for r in resources), \
@@ -89,7 +93,8 @@ def test_well_known_x402_lists_flagship_signal_and_arb_routes(client):
     x402scan re-index of the signal route was stuck."""
     r = client.get("/.well-known/x402")
     data = r.get_json()
-    resources = data["resources"]
+    resources = [res["url"] if isinstance(res, dict) else res
+                 for res in data["resources"]]
     assert any("api/v1/signal" in r for r in resources), \
         f"resources must include /api/v1/signal: {resources}"
     assert any("api/arb/opportunities" in r for r in resources), \

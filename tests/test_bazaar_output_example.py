@@ -25,7 +25,8 @@ def test_whaleflow_402_carries_bazaar_output_example(client):
     r = client.get("/api/v1/whaleflow")
     assert r.status_code == 402
     info = r.get_json()["extensions"]["bazaar"]["info"]
-    assert info["input"] == {"type": "http", "method": "GET"}
+    assert info["input"] == {"type": "http", "method": "GET",
+                             "queryParams": {}}
     example = info.get("output", {}).get("example")
     assert isinstance(example, dict) and example, "info.output.example missing"
     for key in ("state", "whales", "threshold_usdc", "source"):
@@ -57,5 +58,9 @@ def test_unknown_route_keeps_info_without_output(client):
     r = client.get("/api/arb/opportunities")
     assert r.status_code == 402
     info = r.get_json()["extensions"]["bazaar"]["info"]
-    assert info["input"] == {"type": "http", "method": "GET"}
+    # Explicit empty queryParams: the route reads no query parameters
+    # (x402 Doctor bazaar-input — an undeclared input looks like "may need
+    # params", so declare the zero).
+    assert info["input"] == {"type": "http", "method": "GET",
+                             "queryParams": {}}
     assert "output" not in info

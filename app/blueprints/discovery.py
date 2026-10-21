@@ -681,9 +681,18 @@ def well_known_x402_scan():
     Returns the fan-out format expected by x402scan:
         {
           "version": 1,
-          "resources": ["https://host/api/stats", ...],
+          "resources": [{"url": "https://host/api/stats",
+                         "name": "…", "description": "…"}, …],
           "ownershipProofs": ["0x..."]
         }
+
+    Each resource is an OBJECT with url/name/description — the exact shape
+    x402 Doctor's well-known-names check reads ("Serve the resources as
+    {"url": …, "name": …, "description": …} objects"): directories such as
+    the XRPL AI Hub list resources BY name+description, and 6 bare URL
+    strings would show up unnamed ("6 of 6 resources … have no name and
+    description"). Same 6 URLs, same order as before; only the wrapping
+    changed.
 
     This is the discovery endpoint that https://www.x402scan.com/resources/register
     probes when a user submits the server URL. See:
@@ -708,13 +717,48 @@ def well_known_x402_scan():
     )
     return jsonify({
         "version": 1,
+        # Objects, not bare strings (x402 Doctor well-known-names): each
+        # entry names the resource so directories can list it as
+        # "Kristo — …" instead of a generic label. Order and URLs are the
+        # exact 6 paid routes, unchanged.
         "resources": [
-            f"{base_url}/api/stats",
-            f"{base_url}/api/sales",
-            f"{base_url}/api/bot-status",
-            f"{base_url}/api/arb/opportunities",
-            f"{base_url}/api/v1/signal",
-            f"{base_url}/api/v1/whaleflow",
+            {
+                "url": f"{base_url}/api/stats",
+                "name": "Kristo — Market Stats",
+                "description": ("Real-time market activity and daily "
+                                "aggregated stats for Base DeFi."),
+            },
+            {
+                "url": f"{base_url}/api/sales",
+                "name": "Kristo — On-Chain Sales",
+                "description": ("Verified on-chain sales history from the "
+                                "Base ecosystem with amounts and timestamps."),
+            },
+            {
+                "url": f"{base_url}/api/bot-status",
+                "name": "Kristo — Bot Status",
+                "description": ("Telegram sales bot status: heartbeat, "
+                                "subscribers and processed commands."),
+            },
+            {
+                "url": f"{base_url}/api/arb/opportunities",
+                "name": "Kristo — Arbitrage Radar",
+                "description": ("Live cross-DEX arbitrage spreads on Base, "
+                                "refreshed every 60 seconds."),
+            },
+            {
+                "url": f"{base_url}/api/v1/signal",
+                "name": "Kristo — Trading Signal",
+                "description": ("Live DeFi trading signal: action, "
+                                "confidence and reasoning for "
+                                "ETH/ONDO/KAITO/DEGEN."),
+            },
+            {
+                "url": f"{base_url}/api/v1/whaleflow",
+                "name": "Kristo — Whale Flow",
+                "description": ("USDC whale transfers >= $5M on Base with "
+                                "labeled counterparties."),
+            },
         ],
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
         # The price line is GENERATED from the price map (see the top of this
@@ -915,9 +959,19 @@ def openapi_spec():
                 **payment_info["price"],
                 "amount": str(cost),
             }
+        # x402 Doctor "openapi-input-schema" (21.10): x402scan does not
+        # register a paid operation without an input declaration. All six
+        # routes are plain GET handlers with NO query parameters (no
+        # request.args in any of them), so the honest declaration is an
+        # explicit empty parameters list plus a "no parameters" note in the
+        # description — a paid operation that stays silent about its input
+        # reads as "may need input we can't see".
         return {
             "summary": summary,
-            "description": description,
+            "description": (description
+                            + " Takes no parameters (plain GET, no query "
+                            "string)."),
+            "parameters": [],
             "x-payment-info": op_payment_info,
             "x402": {"cost_usdc": cost, "free_tier_eligible": True},
             # NO security/securitySchemes for x402 (maintainer review, x402scan

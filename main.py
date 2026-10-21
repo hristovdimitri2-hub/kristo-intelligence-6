@@ -1602,7 +1602,12 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     # "recommended for discovery quality, not required for indexing") — a
     # realistic sample of the PAID response so agents can construct the call
     # (docs: get-discovered → complete input and output schemas with examples).
-    info = {"input": {"type": "http", "method": "GET"}}
+    # x402 Doctor "bazaar-input" (21.10): the declared input must SHOW what a
+    # request looks like. All 6 paid routes take no query parameters (no
+    # request.args anywhere in their handlers — verified), so the honest
+    # example is an explicit EMPTY queryParams map, per @x402/extensions
+    # QueryDiscoveryInfo: input.queryParams is the declared parameter map.
+    info = {"input": {"type": "http", "method": "GET", "queryParams": {}}}
     example = _BAZAAR_OUTPUT_EXAMPLES.get(endpoint)
     if example is not None:
         info["output"] = {"example": example}
@@ -1616,8 +1621,27 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
                     "input": {
                         "type": "object",
                         "properties": {
-                            "queryParams": {"type": "object", "properties": {}}
+                            # Mirrors @x402/extensions ParamMapSchemaProperty:
+                            # type + properties + additionalProperties. The
+                            # map is DECLARED empty on purpose — none of the
+                            # 6 paid GET routes reads request.args, and an
+                            # undeclared input reads as "may need params"
+                            # (x402 Doctor bazaar-input: agents could pay
+                            # and then guess). description states the zero.
+                            "type": {"type": "string", "const": "http"},
+                            "method": {"type": "string", "const": "GET"},
+                            "queryParams": {
+                                "type": "object",
+                                "properties": {},
+                                "additionalProperties": False,
+                                "description": (
+                                    "No query parameters: none are "
+                                    "required — call this route as plain "
+                                    "GET without a query string."
+                                ),
+                            },
                         },
+                        "required": ["type", "method"],
                     },
                     "output": {
                         "type": "object",
