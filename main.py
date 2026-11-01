@@ -148,6 +148,12 @@ X402_FREE_ENDPOINTS = {
     "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
     "/.well-known/x402-trust.txt",
+    "/api/v1/signal/sample",
+    "/api/stats/sample",
+    "/api/v1/whaleflow/sample",
+    "/api/sales/sample",
+    "/api/bot-status/sample",
+    "/api/arb/opportunities/sample",
 }
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -2152,7 +2158,26 @@ def _build_x402_discovery(base_url: str) -> dict:
             "receiver_address": X402_RECEIVER_ADDRESS,
             "settlement_status": "discovery_only",
         },
-        "agents": _real_routes_payload(),
+        "agents": [
+            {
+                **route,
+                # Input schema per endpoint (само добавяне на полета — цените
+                # и останалият payload не се пипат): тип/задължителен/обяснение
+                # + работещи URL-и (402 terms и free sample).
+                "input": {
+                    "method": route.get("method", "GET"),
+                    "parameters": [],
+                    "parameters_note": (
+                        "Parameter objects are {type, required, description}. "
+                        "This endpoint declares none — call it as-is "
+                        "(no query or path parameters required)."
+                    ),
+                    "example_url": base_url + route["endpoint"],
+                    "sample_url": base_url + route["endpoint"] + "/sample",
+                },
+            }
+            for route in _real_routes_payload()
+        ],
         "note": "These are the 6 live x402 endpoints. Payment is verified on-chain (Base, USDC).",
     }
 

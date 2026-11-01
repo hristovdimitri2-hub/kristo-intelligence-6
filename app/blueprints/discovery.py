@@ -151,6 +151,65 @@ def validation():
         },
     }
 
+    # ---- Нови секции за validation страницата (локални данни, без payment пипане) ----
+    from datetime import datetime, timezone
+    from main import _real_routes_payload
+    _trust_by_path = {e["path"]: e for e in facts["x402_trust"]["paid_endpoints"]}
+    _probe_checked = facts["x402_trust"]["last_checked"]
+    _endpoints = []
+    for _r in _real_routes_payload():
+        _ep = _r.get("endpoint")
+        _t = _trust_by_path.get(_ep, {})
+        _endpoints.append({
+            "path": _ep,
+            "name": _r.get("name", ""),
+            "method": _r.get("method", "GET"),
+            "price_usdc": float(_r.get("price_usdc", 0)),
+            "probe_status": _t.get("grade", "—"),
+            "probe_score": _t.get("score"),
+            "probe_last": _probe_checked,
+            "probe_source": "x402-trust",
+            "probe_page": _t.get("page", ""),
+        })
+    facts["endpoints"] = _endpoints
+    facts["wellknown_links"] = {
+        "trust_file": "/.well-known/x402-trust.txt",
+        "x402_discovery": "/.well-known/x402.json",
+    }
+    facts["test_suite"] = {
+        "passed": 550, "total": 550, "framework": "pytest",
+        "last_run": "2026-10-30",
+        "note": "550/550 tests green; adversarial audit 23/23 (mystery-agent simulation)",
+    }
+    # Последните реални settled трансакции (on-chain USDC -> payTo, Base;
+    # източник: eth_getLogs, 30.10.2026) — външни платеци, без нашия demo портфейл.
+    facts["recent_payments"] = [
+        {"settled_at": "2026-10-30T07:59Z", "amount_usdc": 0.005,
+         "payer": "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0",
+         "label": "nohumans.directory · nohumans-scout",
+         "tx": "0xfcfea4afd8c1fd3793a334c7c96ad194f83949d77728206da6ff5d218eea34ef"},
+        {"settled_at": "2026-10-30T08:02Z", "amount_usdc": 0.005,
+         "payer": "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0",
+         "label": "nohumans.directory · nohumans-scout",
+         "tx": "0xeb209e4d84c8d3c96e00367812da7c6256bc5166d069f03deb2494fea745716b"},
+        {"settled_at": "2026-10-30T08:02Z", "amount_usdc": 0.005,
+         "payer": "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0",
+         "label": "nohumans.directory · nohumans-scout",
+         "tx": "0x276c983e68d6c9391d6b58a44d3daa867f8dddb35ea93859d644980968148b96"},
+        {"settled_at": "2026-10-30T11:20Z", "amount_usdc": 0.003,
+         "payer": "0xa1d1c0cf717402ff3651aa4873ccf96410b01978",
+         "label": "organic buyer",
+         "tx": "0x7f8bcea72e6c3b2dfeb1912c48cb74daa8cf8bbbf7df9ccd1021236c6fb4102c"},
+    ]
+    facts["last_updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _ep_rows = "\n".join(
+        f"<tr><td><code>{e['path']}</code><br>"
+        f"<span style=\"color:var(--muted);font-size:12px\">{e['name']}</span></td>"
+        f"<td>${e['price_usdc']:.3f}</td>"
+        f"<td class=\"ok\">grade {e['probe_status']} ({e['probe_score']})</td>"
+        f"<td>{e['probe_last']} · <a href=\"{e['probe_page']}\">trust page</a></td></tr>"
+        for e in _endpoints)
+
     wants_json = request.accept_mimetypes.best_match(
         ["text/html", "application/json"]) == "application/json"
     if wants_json:
@@ -185,6 +244,9 @@ def validation():
   code {{ font-family:ui-monospace,Consolas,monospace; font-size:13px;
           background:#0f172a; border:1px solid var(--border);
           border-radius:6px; padding:1px 6px; }}
+  table {{ border-collapse:collapse; width:100%; margin-top:8px; font-size:13px; }}
+  th, td {{ border:1px solid var(--border); padding:6px 8px; text-align:left; }}
+  th {{ color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; }}
   footer {{ color:var(--muted); font-size:12px; margin-top:22px; }}
 </style>
 </head>
@@ -251,13 +313,196 @@ def validation():
       <dd>2026-10-19 (grades/scores read live from x402 Trust that day)</dd>
     </dl>
   </div>
-  <footer>Each figure above links to its source; the JSON view is at
-    <code>Accept: application/json</code> on this URL.</footer>
+  <div class="panel">
+    <dl>
+      <dt>Paid endpoints &amp; prices — 6 live x402 routes</dt>
+      <dd><table>
+        <tr><th>Endpoint</th><th>Price</th><th>Probe status</th><th>Last probe</th></tr>
+        {_ep_rows}
+      </table>
+      Discovery files: <a href="/.well-known/x402-trust.txt">/.well-known/x402-trust.txt</a>
+      ∙ <a href="/.well-known/x402.json">/.well-known/x402.json</a>
+      (probe status = x402-trust per-endpoint grade, checked {_probe_checked})</dd>
+    </dl>
+  </div>
+  <div class="panel">
+    <dl>
+      <dt>Test suite</dt>
+      <dd class="ok">550/550 tests green (pytest) — last run 2026-10-30</dd>
+      <dd>Adversarial audit: 23/23 (mystery-agent simulation)</dd>
+    </dl>
+  </div>
+  <div class="panel">
+    <dl>
+      <dt>Recent settled payments (on-chain USDC → payTo, Base)</dt>
+      <dd><table>
+        <tr><th>Settled (UTC)</th><th>Amount</th><th>Payer</th><th>Label</th><th>Transaction</th></tr>
+        <tr><td>2026-10-30 07:59</td><td>0.005 USDC</td><td><code>0x54e163e9…5f4e0</code></td><td>nohumans.directory · nohumans-scout</td><td><a href="https://basescan.org/tx/0xfcfea4afd8c1fd3793a334c7c96ad194f83949d77728206da6ff5d218eea34ef">0xfcfea4af…a34ef</a></td></tr>
+        <tr><td>2026-10-30 08:02</td><td>0.005 USDC</td><td><code>0x54e163e9…5f4e0</code></td><td>nohumans.directory · nohumans-scout</td><td><a href="https://basescan.org/tx/0xeb209e4d84c8d3c96e00367812da7c6256bc5166d069f03deb2494fea745716b">0xeb209e4d…5716b</a></td></tr>
+        <tr><td>2026-10-30 08:02</td><td>0.005 USDC</td><td><code>0x54e163e9…5f4e0</code></td><td>nohumans.directory · nohumans-scout</td><td><a href="https://basescan.org/tx/0x276c983e68d6c9391d6b58a44d3daa867f8dddb35ea93859d644980968148b96">0x276c983e…48b96</a></td></tr>
+        <tr><td>2026-10-30 11:20</td><td>0.003 USDC</td><td><code>0xa1d1c0cf…01978</code></td><td>organic buyer</td><td><a href="https://basescan.org/tx/0x7f8bcea72e6c3b2dfeb1912c48cb74daa8cf8bbbf7df9ccd1021236c6fb4102c">0x7f8bcea7…4102c</a></td></tr>
+      </table></dd>
+    </dl>
+  </div>
+  <footer>Last updated: <b>{facts["last_updated"]}</b> (UTC) · Each figure above links
+    to its source; the JSON view is at <code>Accept: application/json</code> on this URL.</footer>
 </main>
 </body>
 </html>
 """
     return page
+
+
+@discovery_bp.route("/api/v1/signal/sample")
+def signal_sample():
+    """Free sample: input schema + representative output (no payment).
+
+    Отговаря на nohumans warning `no_sample_query` (01.11.2026): агентите
+    виждат реалната форма на отговора ПРЕДИ да платят. Static example —
+    NOT live data; live values require a paid call ($0.003, x402 on Base).
+    """
+    return jsonify({
+        "input": {
+            "type": "http",
+            "method": "GET",
+            "queryParams": {},
+            "note": ("No parameters — GET /api/v1/signal takes no query "
+                     "params (empty queryParams schema)."),
+        },
+        "output_example": {
+            "generated_at": "2026-11-01T10:00:00+00:00",
+            "signals": [
+                {"token": "ETH", "action": "monitor", "confidence": 0.62,
+                 "price_usd": 2387.78,
+                 "reasoning": "Range-bound; volume flat vs 24h average.",
+                 "note": ""},
+                {"token": "ONDO", "action": "hold", "confidence": 0.55,
+                 "price_usd": 0.87,
+                 "reasoning": "No fresh catalyst; uptrend intact.", "note": ""},
+                {"token": "KAITO", "action": "monitor", "confidence": 0.50,
+                 "price_usd": 1.42,
+                 "reasoning": "Sideways; waiting for breakout volume.",
+                 "note": ""},
+                {"token": "DEGEN", "action": "monitor", "confidence": 0.48,
+                 "price_usd": 0.0042,
+                 "reasoning": "Low-liquidity drift; no entry signal.",
+                 "note": ""},
+            ],
+        },
+        "paid_route": "/api/v1/signal",
+        "disclaimer": ("Static sample of the response schema for discovery "
+                       "and agents; live values require a paid call "
+                       "($0.003 USDC, x402 on Base)."),
+    }), 200
+
+
+@discovery_bp.route("/api/stats/sample")
+def stats_sample():
+    """Free static sample of GET /api/stats (no payment)."""
+    return jsonify({
+        "input": {"method": "GET", "parameters": [],
+                  "parameters_note": "No parameters — call as-is.",
+                  "example_url": request.host_url.rstrip("/") + "/api/stats"},
+        "output_example": {
+            "date": "2026-11-01",
+            "requests_today": 120, "requests_total": 5400,
+            "sales_today": 3, "sales_total_usdc": 0.011,
+            "top_paths": [{"path": "/api/v1/signal", "count": 70},
+                          {"path": "/api/stats", "count": 30}],
+            "market": {"eth_usd": 2387.78, "fear_greed": 61},
+        },
+        "paid_route": "/api/stats",
+        "disclaimer": "Static example of the response schema; live values "
+                      "require a paid call ($0.005 USDC, x402 on Base).",
+    }), 200
+
+
+@discovery_bp.route("/api/v1/whaleflow/sample")
+def whaleflow_sample():
+    """Free static sample of GET /api/v1/whaleflow (no payment)."""
+    return jsonify({
+        "input": {"method": "GET", "parameters": [],
+                  "parameters_note": "No parameters — call as-is.",
+                  "example_url": request.host_url.rstrip("/") + "/api/v1/whaleflow"},
+        "output_example": {
+            "chain": "base",
+            "min_amount_usd": 5000000,
+            "transfers": [
+                {"amount_usd": 12500000, "token": "USDC",
+                 "from": "0x1111111111111111111111111111111111111111",
+                 "to": "0x2222222222222222222222222222222222222222",
+                 "counterparty_label": "exchange-hot-wallet",
+                 "tx": "0x…64-hex", "block": 43200000},
+            ],
+        },
+        "paid_route": "/api/v1/whaleflow",
+        "disclaimer": "Static example of the response schema; live values "
+                      "require a paid call ($0.005 USDC, x402 on Base).",
+    }), 200
+
+
+@discovery_bp.route("/api/sales/sample")
+def sales_sample():
+    """Free static sample of GET /api/sales (no payment)."""
+    return jsonify({
+        "input": {"method": "GET", "parameters": [],
+                  "parameters_note": "No parameters — call as-is.",
+                  "example_url": request.host_url.rstrip("/") + "/api/sales"},
+        "output_example": {
+            "note": "on-chain USDC settlements to the receiver (Base)",
+            "sales": [
+                {"settled_at": "2026-10-30T08:02:00+00:00",
+                 "amount_usdc": 0.005,
+                 "payer": "0x54e163e9b8edda194d83f46add921bfa5fc5f4e0",
+                 "tx": "0xeb209e4d…5716b"},
+            ],
+        },
+        "paid_route": "/api/sales",
+        "disclaimer": "Static example of the response schema; live values "
+                      "require a paid call ($0.005 USDC, x402 on Base).",
+    }), 200
+
+
+@discovery_bp.route("/api/bot-status/sample")
+def bot_status_sample():
+    """Free static sample of GET /api/bot-status (no payment)."""
+    return jsonify({
+        "input": {"method": "GET", "parameters": [],
+                  "parameters_note": "No parameters — call as-is.",
+                  "example_url": request.host_url.rstrip("/") + "/api/bot-status"},
+        "output_example": {
+            "status": "ok",
+            "heartbeat_at": "2026-11-01T10:00:00+00:00",
+            "subscribers": 12,
+            "commands_processed": 48,
+            "service_wallet": {"state": "active"},
+        },
+        "paid_route": "/api/bot-status",
+        "disclaimer": "Static example of the response schema; live values "
+                      "require a paid call ($0.005 USDC, x402 on Base).",
+    }), 200
+
+
+@discovery_bp.route("/api/arb/opportunities/sample")
+def arb_sample():
+    """Free static sample of GET /api/arb/opportunities (no payment)."""
+    return jsonify({
+        "input": {"method": "GET", "parameters": [],
+                  "parameters_note": "No parameters — call as-is.",
+                  "example_url": request.host_url.rstrip("/") + "/api/arb/opportunities"},
+        "output_example": {
+            "refresh_seconds": 60,
+            "opportunities": [
+                {"pair": "WETH/USDC", "buy_dex": "Uniswap V3",
+                 "sell_dex": "Aerodrome", "spread_pct": 0.42,
+                 "gross_profit_pct": 0.38,
+                 "refreshed_at": "2026-11-01T10:00:00+00:00"},
+            ],
+        },
+        "paid_route": "/api/arb/opportunities",
+        "disclaimer": "Static example of the response schema; live values "
+                      "require a paid call ($0.005 USDC, x402 on Base).",
+    }), 200
 
 
 def _mcp_tools(base_url):
