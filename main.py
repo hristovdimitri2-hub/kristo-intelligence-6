@@ -2229,7 +2229,7 @@ def nohumans_claim():
     POST /v1/listings/af0e26b7-0aa/claim/challenge); Option A по техните
     instructions: сервира се като plain text, нищо друго в тялото.
     """
-    return ("f62b751480f3c055c3d88c24bbca497d043fd449d13141af", 200,
+    return ("3a66496052da40a89d1dc63102ca8fa15c49346cdf630cb4", 200,
             {"Content-Type": "text/plain; charset=utf-8"})
 
 
