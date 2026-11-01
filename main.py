@@ -148,6 +148,7 @@ X402_FREE_ENDPOINTS = {
     "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
     "/.well-known/x402-trust.txt",
+    "/.well-known/nohumans-claim",
     "/api/v1/signal/sample",
     "/api/stats/sample",
     "/api/v1/whaleflow/sample",
@@ -2218,6 +2219,18 @@ def _capture_live_request(response):
         # Observability must never affect the application response.
         pass
     return response
+
+
+@app.route("/.well-known/nohumans-claim")
+def nohumans_claim():
+    """nohumans.directory claim challenge — plain text token.
+
+    Еднократен challenge (24ч, издаден 01.11.2026 от
+    POST /v1/listings/af0e26b7-0aa/claim/challenge); Option A по техните
+    instructions: сервира се като plain text, нищо друго в тялото.
+    """
+    return ("f62b751480f3c055c3d88c24bbca497d043fd449d13141af", 200,
+            {"Content-Type": "text/plain; charset=utf-8"})
 
 
 @app.route("/.well-known/x402-trust.txt")
