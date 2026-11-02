@@ -224,12 +224,22 @@ def echo_extensions(payload: dict, challenge: dict) -> dict:
     _local_recover_signer read only `accepted`/`payload` keys (connectors.py
     :147-148,199-200) and never reject an unknown top-level key.
     """
+    orig = payload
     ext = challenge.get("extensions")
     if isinstance(ext, dict) and ext:
         payload = dict(payload)
         payload["extensions"] = ext
         log(f"      echoing extensions: {sorted(ext)} "
             f"(Bazaar declaration travels with the payment)")
+    # x402 v2: payload must carry resource.url (CDP bazaar reject:
+    # 'resource url missing') — виж docs/BAZAAR_RESEARCH.md (Step 2, ~:96)
+    res = challenge.get("resource")
+    if isinstance(res, dict) and isinstance(res.get("url"), str) and \
+            res["url"].startswith(("http://", "https://")):
+        if payload is orig:
+            payload = dict(payload)
+        payload["resource"] = res
+        log(f"      echoing resource: {res['url']}")
     return payload
 
 
