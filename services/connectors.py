@@ -193,7 +193,29 @@ def precheck_payment_payload(payload: dict, requirements: dict):
     if accepted.get("network") not in (None, "eip155:8453"):
         problems.append(f"network mismatch: {accepted.get('network')!r} != 'eip155:8453'")
     want_amount = str(requirements.get("amount", ""))
-    got_amount = str(accepted.get("amount") or auth.get("value") or "")
+    # The SIGNED value is what actually moves money on-chain; the echoed
+    # accepted.amount is client-supplied and unsigned. Reading the echo first
+    # (audit F-02) let a payload echo the full price while signing a far smaller
+    # value: a genuine signature over 1 atomic unit plus an echoed 5000 passed
+    # this function with zero problems, and _self_broadcast_settlement then
+    # broadcasts the signed value, so the buyer would have received $0.005 of
+    # data for $0.000001. The signature decides; the echo is only a fallback for
+    # payloads that carry no authorization value at all.
+    signed_amount = auth.get("value")
+    echoed_amount = accepted.get("amount")
+    # Only a lying echo is a problem: one claiming MORE than was signed. An echo
+    # that claims less is a client paying above the quoted price, which is
+    # allowed — rejecting that would be stricter than the protocol and could
+    # turn away real money.
+    if (signed_amount is not None and echoed_amount is not None
+            and str(signed_amount).isdigit() and str(echoed_amount).isdigit()
+            and int(echoed_amount) > int(signed_amount)):
+        problems.append(
+            f"accepted.amount {echoed_amount} > signed authorization.value "
+            f"{signed_amount}: the echo is unsigned and cannot raise the price"
+        )
+    got_amount = str(signed_amount if signed_amount is not None
+                     else (echoed_amount or ""))
     if want_amount and got_amount.isdigit() and int(got_amount) < int(want_amount):
         problems.append(
             f"amount below price: {got_amount} < {want_amount} atomic units"

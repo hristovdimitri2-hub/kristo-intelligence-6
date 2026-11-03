@@ -345,6 +345,47 @@ def test_precheck_catches_structural_problems():
     assert any("expired" in p for p in problems3)
 
 
+def test_precheck_reads_the_signed_amount_not_the_unsigned_echo():
+    """Audit F-02: the unsigned echo must not be able to set the price.
+
+    A client sends `accepted` as an echo of the requirements we issued, and only
+    `authorization` is signed. The check used to read the echo first, so a
+    payload could echo the full 5000 atomic units while signing 1 — and
+    _self_broadcast_settlement broadcasts the SIGNED value, so the buyer would
+    have received $0.005 of data for $0.000001. This was reproducible: a genuine
+    signature over 1, an echoed 5000, and precheck returned zero problems.
+
+    The existing underpayment test set BOTH fields to "1", which is why it never
+    covered the divergence.
+    """
+    from services.connectors import precheck_payment_payload
+
+    _, payload, requirements = _build_signed_payload(
+        authorization_overrides={"value": "1"})
+    reqs = dict(requirements)
+
+    assert payload["accepted"]["amount"] == "5000"        # the echo claims the price
+    assert payload["payload"]["authorization"]["value"] == "1"   # the signature does not
+
+    problems = precheck_payment_payload(payload, reqs)
+    assert any("cannot raise the price" in p for p in problems), problems
+    assert any("amount below price" in p for p in problems), problems
+
+    # Paying ABOVE the quoted price is allowed. Only an echo claiming MORE than
+    # was signed is a lie; an echo that falls short of the signed value is a
+    # client being generous, and rejecting that would turn away real money.
+    _, generous, generous_reqs = _build_signed_payload(
+        authorization_overrides={"value": "10000"})
+    generous["accepted"]["amount"] = "5000"
+    assert precheck_payment_payload(generous, dict(generous_reqs)) == []
+
+    # A payload carrying no authorization value still falls back to the echo, so
+    # the change cannot break a scheme that has no signed amount to read.
+    _, tx_payload, tx_reqs = _build_signed_payload()
+    del tx_payload["payload"]["authorization"]["value"]
+    assert precheck_payment_payload(tx_payload, dict(tx_reqs)) == []
+
+
 def test_local_recovery_detects_signature_from_mismatch():
     from services.connectors import _local_recover_signer
     _, payload, _ = _build_signed_payload(tamper_from=True)
