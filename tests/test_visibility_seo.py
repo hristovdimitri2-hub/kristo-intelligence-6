@@ -522,3 +522,47 @@ def test_the_vip_threshold_says_it_applies_to_one_payment(client):
         "the note should name the dearest route so the gap is visible")
     assert dearest < main.VIP_THRESHOLD_USDC, (
         "a route now costs as much as the VIP threshold — the note needs rewriting")
+
+
+def test_the_pricing_and_terms_pages_answer_and_are_honest(client):
+    """x402-list.com checks for a reachable pricing page and a terms page.
+
+    Both answered 404, so a directory that agents actually read scored us 4/6 on
+    site-and-docs reachability, and an agent had only llms.txt to read. A pricing
+    page that drifts from the route table would be worse than none, so this
+    compares the served page against main.REAL_X402_ROUTES rather than against
+    text typed here.
+    """
+    app_client, main = client
+
+    for path in ("/pricing", "/terms"):
+        assert app_client.get(path).status_code == 200, (
+            "%s does not answer; x402-list scores a reachable pricing page and "
+            "a reachable terms page" % path)
+
+    pricing = app_client.get("/pricing").get_data(as_text=True)
+    for route in main.REAL_X402_ROUTES:
+        assert route["endpoint"] in pricing, (
+            "/pricing omits %s" % route["endpoint"])
+        assert "$%.3f" % float(route["price_usdc"]) in pricing, (
+            "/pricing omits the real price of %s" % route["endpoint"])
+
+    assert "PAYMENT-SIGNATURE" in pricing, "the preferred rail is not named"
+    assert "X-Payment-Proof" in pricing, "the alternative rail is not named"
+    assert "12 confirmations" in pricing, (
+        "the legacy rail's real cost is missing from the page that states prices")
+    assert "does not unlock the API" in " ".join(pricing.split()), (
+        "the VIP product must not look like it buys API access")
+
+    for path in ("/pricing", "/terms"):
+        page = app_client.get(path).get_data(as_text=True)
+        for tag in ('rel="canonical"', 'property="og:image"',
+                    'name="twitter:card"', "application/ld+json"):
+            assert tag in page, "%s is missing %s" % (path, tag)
+
+    sitemap = app_client.get("/sitemap.xml").get_data(as_text=True)
+    for path in ("/pricing", "/terms"):
+        assert path in sitemap, "sitemap does not list %s" % path
+
+    assert "/pricing" in app_client.get("/llms.txt").get_data(as_text=True), (
+        "llms.txt does not point agents at the pricing page")

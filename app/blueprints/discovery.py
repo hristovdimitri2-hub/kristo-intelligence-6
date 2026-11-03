@@ -18,6 +18,7 @@ imports them at request time to avoid circular imports at module load.
 """
 from __future__ import annotations
 
+import html
 import json
 import queue
 import secrets
@@ -38,7 +39,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 578
+SUITE_TESTS_PASSED = 579
 SUITE_LAST_RUN = "2026-11-03"
 
 
@@ -435,6 +436,275 @@ def validation():
   </div>
   <footer>Last updated: <b>{facts["last_updated"]}</b> (UTC) · Each figure above links
     to its source; the JSON view is at <code>Accept: application/json</code> on this URL.</footer>
+</main>
+</body>
+</html>
+"""
+    return page
+
+
+# Shared styling for the human-facing pages below. A plain string, so the CSS
+# braces stay literal inside the f-strings that interpolate it.
+_PAGE_CSS = """
+  :root { --bg:#0a0e14; --panel:#11161f; --border:#232c3b; --text:#d7dde6;
+           --muted:#8b96a5; --accent:#38bdf8; --green:#34d399; --amber:#fbbf24; }
+  body { background:var(--bg); color:var(--text); margin:0; padding:40px 20px;
+          font-family:'Segoe UI',system-ui,sans-serif; font-size:15px;
+          line-height:1.55; }
+  main { max-width:760px; margin:0 auto; }
+  h1 { font-size:19px; font-weight:600; letter-spacing:.3px; }
+  h1 span { color:var(--accent); }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px;
+        color:var(--muted); margin:0 0 12px; font-weight:600; }
+  .panel { background:var(--panel); border:1px solid var(--border);
+            border-radius:12px; padding:20px 24px; margin:16px 0; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:7px 10px 7px 0;
+            border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase;
+        letter-spacing:.6px; font-weight:600; }
+  code { background:#0d1117; border:1px solid var(--border); border-radius:5px;
+          padding:1px 5px; font-size:13px; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .price { white-space:nowrap; font-weight:600; }
+  .ok { color:var(--green); }
+  ul { padding-left:18px; margin:8px 0 0; }
+  li { margin:4px 0; }
+  footer { color:var(--muted); font-size:12px; margin-top:26px;
+            border-top:1px solid var(--border); padding-top:14px; }
+"""
+
+_CONTACT_EMAIL = "hristovdimitri2@gmail.com"
+
+
+def _human_page_head(title: str, description: str, path: str,
+                     site_root: str) -> str:
+    """The crawler-facing head shared by the human pages, so the tags cannot drift."""
+    canonical = site_root + path
+    og_image = site_root + "/static/og/kristo-og.png"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<meta name="description" content="{description}">
+<link rel="canonical" href="{canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Kristo Intelligence">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{description}">
+<meta property="og:url" content="{canonical}">
+<meta property="og:image" content="{og_image}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{description}">
+<meta name="twitter:image" content="{og_image}">
+<script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "{title}",
+  "url": "{canonical}",
+  "isPartOf": {{ "@type": "WebSite", "name": "Kristo Intelligence",
+                 "url": "{site_root}/" }}
+}}
+</script>
+<style>{_PAGE_CSS}</style>
+</head>
+<body>
+<main>
+"""
+
+
+@discovery_bp.route("/pricing")
+def pricing():
+    """The pricing page directories check for, built from the live route table.
+
+    x402-list.com lists a reachable pricing page among its site-and-docs signals.
+    This path answered 404, which cost a signal and left an agent with only
+    llms.txt to read. Every figure below comes from REAL_X402_ROUTES — the same
+    table the 402 challenges are built from — so this page cannot advertise a
+    price the service will not charge.
+    """
+    from main import (FREE_TIER_LIMIT, REAL_X402_ROUTES, VIP_MONTHLY_USDC,
+                      VIP_THRESHOLD_USDC)
+
+    site_root = request.host_url.rstrip("/")
+    ordered = sorted(REAL_X402_ROUTES,
+                     key=lambda r: (float(r["price_usdc"]), r["endpoint"]))
+    rows = "".join(
+        f"<tr><td><code>{html.escape(r['endpoint'])}</code></td>"
+        f"<td class='price'>${float(r['price_usdc']):.3f}</td>"
+        f"<td>{html.escape(r.get('description') or r.get('name') or '')}</td>"
+        f"<td><a href=\"{html.escape(r['endpoint'])}/sample\">free sample</a></td>"
+        f"</tr>"
+        for r in ordered)
+    cheapest = float(ordered[0]["price_usdc"])
+    dearest = float(ordered[-1]["price_usdc"])
+
+    if FREE_TIER_LIMIT:
+        free_line = (f"{FREE_TIER_LIMIT} free call per client; after that every "
+                     "unpaid call returns HTTP 402.")
+    else:
+        free_line = ("No free calls. Every unpaid call to a paid route returns "
+                     "HTTP 402 with the terms — a quote, not a charge.")
+
+    page = _human_page_head(
+        "Pricing — Kristo Intelligence",
+        f"Six x402 routes on Base, ${cheapest:.3f} to ${dearest:.3f} USDC per "
+        "call. Pay per call, no API key, no signup, no subscription. Free "
+        "samples and machine-readable specs included.",
+        "/pricing", site_root)
+    page += f"""
+<h1>Pricing <span>— pay per call, nothing else</span></h1>
+<div class="panel">
+  <h2>Paid routes — USDC on Base, x402</h2>
+  <table>
+    <tr><th>Endpoint</th><th>Price</th><th>Returns</th><th>Try it</th></tr>
+    {rows}
+  </table>
+  <p>{free_line} No API key, no account, no subscription: the price of a call is
+     stated in its own HTTP 402 challenge before you pay anything, and the same
+     figure appears here, in <a href="/llms.txt">llms.txt</a> and in
+     <a href="/openapi.json">openapi.json</a>.</p>
+  <p>Range: <b>${cheapest:.3f}–${dearest:.3f} USDC</b> per call. Payment settles
+     on Base; nothing is billed later.</p>
+</div>
+<div class="panel">
+  <h2>How you pay — two rails</h2>
+  <ul>
+    <li><b>Preferred: <code>PAYMENT-SIGNATURE</code></b> (x402 v2). Sign an
+        EIP-3009 <code>transferWithAuthorization</code> and retry; a facilitator
+        verifies and settles it. No gas, and nothing waits on a block.
+        <code>X-PAYMENT</code> is accepted as the v1 name.</li>
+    <li><b>Alternative: <code>X-Payment-Proof</code></b>. Send USDC yourself and
+        supply the proof. Self-describing, but it waits <b>12 confirmations,
+        about 24 seconds</b> before the data is released.</li>
+  </ul>
+  <p>Status codes: <code>402</code> no credential · <code>401</code> credential
+     unusable · <code>425</code> settlement in flight, retry · <code>200</code>
+     paid and delivered.</p>
+</div>
+<div class="panel">
+  <h2>Free — no payment, no key</h2>
+  <ul>
+    <li>The six <code>/sample</code> routes: one real payload shape per paid
+        route, with a marker making clear it is an example.</li>
+    <li><a href="/health">/health</a> · <a href="/validation">/validation</a>
+        (live status, uptime, on-chain payment history) ·
+        <a href="/llms.txt">/llms.txt</a> ·
+        <a href="/openapi.json">/openapi.json</a> ·
+        <a href="/agents.json">/agents.json</a> ·
+        <a href="/mcp.json">/mcp.json</a> ·
+        <a href="/.well-known/x402.json">/.well-known/x402.json</a></li>
+  </ul>
+</div>
+<div class="panel">
+  <h2>Human products — separate, bought with a card</h2>
+  <ul>
+    <li>Research plans and the monthly VIP are sold through Stripe on the
+        <a href="/launch">launch page</a>. They are Telegram products.</li>
+    <li><b>The monthly VIP (${int(VIP_MONTHLY_USDC)}) does not unlock the
+        API.</b> API access is per call, in USDC on Base, at the prices above.</li>
+    <li>A <b>single</b> USDC transfer of at least ${VIP_THRESHOLD_USDC} to the
+        receiver generates a Telegram VIP invite code. No API route costs
+        anything near that, so ordinary per-call usage will not reach it —
+        that threshold is for large one-off transfers.</li>
+  </ul>
+</div>
+<footer>Prices are generated from the same table the payment challenges are
+  built from. Machine-readable: <a href="/llms.txt">llms.txt</a> ·
+  <a href="/openapi.json">openapi.json</a> ·
+  <a href="/.well-known/x402.json">.well-known/x402.json</a> ·
+  <a href="/validation">validation</a> · <a href="/terms">terms</a></footer>
+</main>
+</body>
+</html>
+"""
+    return page
+
+
+@discovery_bp.route("/terms")
+def terms():
+    """The terms page directories check for, and the honest fine print.
+
+    Also 404 before. Kept deliberately plain: what we license, what the data is
+    not, what a payment does and does not buy.
+    """
+    site_root = request.host_url.rstrip("/")
+    page = _human_page_head(
+        "Terms — Kristo Intelligence",
+        "Terms for the Kristo Intelligence x402 API: MIT-licensed code, data "
+        "provided as is, not financial advice, pay-per-call in USDC on Base.",
+        "/terms", site_root)
+    page += f"""
+<h1>Terms <span>— short, and meant to be read</span></h1>
+<div class="panel">
+  <h2>The software</h2>
+  <p>This repository is released under the <b>MIT licence</b> — see
+     <a href="https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/LICENSE">LICENSE</a>.
+     You may use, copy, modify and redistribute it, including commercially,
+     provided the copyright notice and permission notice are kept.</p>
+</div>
+<div class="panel">
+  <h2>The data and the API</h2>
+  <p>Every response is provided <b>as is</b>, without warranty of any kind,
+     express or implied, including merchantability or fitness for a particular
+     purpose. Figures are derived from third-party sources — market feeds, RPC
+     providers and public chain data — and can be delayed, incomplete or wrong.
+     Each response states when it was produced and, where relevant, the block it
+     was read at; check those fields rather than assuming freshness.</p>
+</div>
+<div class="panel">
+  <h2>Not financial advice</h2>
+  <p>Nothing served here is investment, legal or tax advice, or a
+     recommendation to buy or sell anything. Signals and flow data are
+     <b>inputs to your own judgement</b>, not instructions. You are solely
+     responsible for any decision you take and for complying with the laws that
+     apply to you.</p>
+</div>
+<div class="panel">
+  <h2>Paying</h2>
+  <ul>
+    <li>Calls are paid per call in <b>USDC on Base</b> over x402. There is no
+        account, no key and no recurring charge.</li>
+    <li>An HTTP <code>402</code> is a <b>quote, not a charge</b>. Nothing is
+        taken until you authorise a payment.</li>
+    <li>A settled payment is delivered once. Replaying the same credential is
+        rejected by design rather than served twice.</li>
+    <li>Settled on-chain transfers cannot be reversed by us, and we cannot
+        recover funds sent to a wrong address. Check the address in the 402
+        challenge against <a href="/validation">/validation</a> before paying.</li>
+  </ul>
+</div>
+<div class="panel">
+  <h2>Card purchases (Stripe)</h2>
+  <p>Research plans and the monthly VIP are sold through Stripe and are
+     <b>Telegram products</b>; they do not unlock the API. Refund requests go to
+     <a href="mailto:{_CONTACT_EMAIL}">{_CONTACT_EMAIL}</a> and are handled case
+     by case. The monthly VIP is a subscription and can be cancelled.</p>
+</div>
+<div class="panel">
+  <h2>Privacy and acceptable use</h2>
+  <ul>
+    <li>The API sets no accounts and no tracking cookies. Requests are logged
+        for rate limiting, abuse prevention and the counters published on
+        <a href="/validation">/validation</a>.</li>
+    <li>Payments are on a public chain. Payer addresses and amounts are public
+        and are not private data.</li>
+    <li>Do not use the service unlawfully, attempt to bypass payment, or resell
+        it in a way that misrepresents what it is.</li>
+    <li>We may change prices, routes or availability. The price of a call is
+        always the one in its own 402 challenge at the moment you call.</li>
+  </ul>
+</div>
+<footer>Questions: <a href="mailto:{_CONTACT_EMAIL}">{_CONTACT_EMAIL}</a> ·
+  <a href="/pricing">pricing</a> · <a href="/llms.txt">llms.txt</a> ·
+  <a href="/validation">validation</a> · <a href="/">home</a></footer>
 </main>
 </body>
 </html>
@@ -1545,7 +1815,9 @@ def sitemap_xml():
     pages = [
         ("/", "1.0", "daily"),
         ("/validation", "0.8", "weekly"),
+        ("/pricing", "0.8", "weekly"),
         ("/launch", "0.7", "weekly"),
+        ("/terms", "0.4", "monthly"),
         ("/llms.txt", "0.6", "weekly"),
         ("/openapi.json", "0.6", "weekly"),
         ("/.well-known/x402.json", "0.6", "weekly"),
@@ -1861,6 +2133,8 @@ Rail 2 is a legacy self-describing proof that we still honour.
 - GET /agents.json — agent and service discovery manifest
 - GET /api/v1/quickstart — step-by-step first-call walkthrough
 - GET /validation — checkable facts: status, uptime, on-chain payment history
+- GET /pricing — every paid route and its exact price, and both payment rails
+- GET /terms — licence, what the data is not, how paying works
 - GET /health — Service health check
 - GET /dashboard — HTML dashboard
 
