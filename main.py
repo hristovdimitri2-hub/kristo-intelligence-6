@@ -4034,7 +4034,31 @@ def api_quickstart():
         "cheapest_call": {
             "endpoint": f"{base_url}/api/v1/signal",
             "amount_usdc": _cheapest_price,
+            "amount_units": (
+                "decimal USDC (0.003) — this display field only. The 402 "
+                "body's `payment.amount_usdc` is **atomic** and shows 3000 for "
+                "the same price. See `units` below before you move money."
+            ),
             "note": "paid per call — no subscription, no signup, no API key",
+        },
+        # The same field name carries two different units across our surfaces:
+        # the 402 challenge is atomic (5000) and this walkthrough's
+        # cheapest_call is decimal (0.003). A developer who reads one and
+        # applies it to the other sends 5000 USDC for a $0.005 call, and our
+        # on-chain check accepts it (`amount >= price`). Spelled out so an agent
+        # cannot infer the wrong unit.
+        "units": {
+            "accepts[0].amount": 'atomic (6 decimals) — "5000" means 0.005 USDC',
+            "x402_amount": 'atomic — "5000" means 0.005 USDC',
+            "payment.amount_usdc": (
+                "atomic, despite the name — 5000 means 0.005 USDC"
+            ),
+            "X-Payment-Amount-USDC": "decimal USDC — 0.005",
+            "cheapest_call.amount_usdc": "decimal USDC — 0.003 (display only)",
+            "rule": (
+                "Pass atomic values to the ERC-20 transfer unchanged; divide by "
+                "1e6 only if your wallet API wants a decimal amount."
+            ),
         },
         # These steps used to teach the legacy rail as *the* way in, in all three
         # snippets below. That is the slow one: a plain transfer needs 12

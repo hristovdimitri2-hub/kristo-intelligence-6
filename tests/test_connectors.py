@@ -688,3 +688,64 @@ def test_transaction_shape_underpayment_rejected():
     })
     assert ok is False
     assert "below price" in detail
+
+
+# ── F-18: the same field name means two different units ─────────────────────
+#
+# The 402 challenge is ATOMIC (`payment.amount_usdc` = 5000 for a $0.005 call)
+# while this walkthrough's `cheapest_call.amount_usdc` is DECIMAL (0.003). A
+# developer who reads one and applies it to the other instructs a wallet to
+# transfer 5000 USDC for a $0.005 call — and our on-chain check accepts it,
+# because it only tests `amount >= price`. Both readings are pinned here, and
+# the units are spelled out on every surface an integrator reads.
+
+def test_the_quickstart_spells_out_the_units_of_every_amount_field(client):
+    d = client.get("/api/v1/quickstart").get_json()
+    units = d.get("units")
+    assert units, "the quickstart no longer explains its amount units"
+
+    for field in ("accepts[0].amount", "x402_amount", "payment.amount_usdc",
+                  "X-Payment-Amount-USDC", "cheapest_call.amount_usdc"):
+        assert field in units, f"the units table omits {field}"
+
+    assert "atomic" in units["accepts[0].amount"]
+    assert "atomic" in units["x402_amount"]
+    assert "atomic" in units["payment.amount_usdc"], (
+        "the field whose NAME says usdc but holds atomic units must say so")
+    assert "decimal" in units["X-Payment-Amount-USDC"]
+    assert "decimal" in units["cheapest_call.amount_usdc"]
+
+    # The one sentence that prevents a 5000 USDC transfer.
+    assert "0.005" in units["accepts[0].amount"]
+
+
+def test_the_quickstart_says_which_unit_the_display_price_is(client):
+    """`cheapest_call.amount_usdc` sits next to the 402 body's field of the same
+    name and must not be mistaken for it."""
+    cheapest = client.get("/api/v1/quickstart").get_json()["cheapest_call"]
+    assert cheapest["amount_usdc"] <= 0.005        # decimal, as always
+    note = cheapest.get("amount_units", "")
+    assert "decimal" in note
+    assert "atomic" in note, (
+        "the note must contrast itself with the 402 body's atomic field")
+    assert "3000" in note
+
+
+def test_llms_txt_never_calls_the_atomic_amount_a_usdc_amount(client):
+    """llms.txt used to say: "Send exactly the amount from `accepts[0].amount`
+    in USDC" — but that value is "5000" for a $0.005 call."""
+    text = client.get("/llms.txt").get_data(as_text=True)
+    assert "in USDC on Base to" not in text, (
+        "llms.txt again calls the atomic amount a USDC amount")
+    assert "atomic" in text
+    assert "0.005" in text, "the atomic-vs-decimal example must be concrete"
+    assert "5000" in text
+
+
+def test_llms_txt_documents_the_units_before_either_rail(client):
+    text = client.get("/llms.txt").get_data(as_text=True)
+    units_at = text.find("atomic units")
+    rail1_at = text.find("Rail 1 — standard x402")
+    assert units_at != -1 and rail1_at != -1
+    assert units_at < rail1_at, (
+        "the units warning must come before an agent starts paying")

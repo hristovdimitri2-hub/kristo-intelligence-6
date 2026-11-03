@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 593
+SUITE_TESTS_PASSED = 598
 SUITE_LAST_RUN = "2026-11-03"
 
 
@@ -2160,6 +2160,23 @@ Two rails are accepted. Rail 1 is the standard x402 flow — prefer it, because
 it is what the x402 ecosystem (x402-fetch, x402scan, facilitators) speaks.
 Rail 2 is a legacy self-describing proof that we still honour.
 
+### Units — get this right before you move money
+
+The protocol fields are in **atomic units** (USDC has 6 decimals), the way an
+ERC-20 contract wants them:
+
+| Field | Example | Unit |
+|---|---|---|
+| `accepts[0].amount` | `"5000"` | **atomic** — pass `5000` straight to `transfer()` |
+| `x402_amount` | `"5000"` | **atomic** |
+| `payment.amount_usdc` | `5000` | **atomic**, despite the name |
+| `X-Payment-Amount-USDC` header | `0.005` | **decimal USDC** |
+
+So `5000` means **0.005 USDC**, not 5000 USDC. If your wallet API takes a
+decimal amount, divide by `1e6`; if it takes the raw ERC-20 value, use the
+number as-is. Paying 5000 USDC for a 0.005 USDC call is accepted by our
+on-chain check (`amount >= price`) and the excess is NOT refunded.
+
 ### Rail 1 — standard x402 (preferred)
 
 1. Call the endpoint you want. It answers HTTP 402 with the canonical
@@ -2178,11 +2195,14 @@ Rail 2 is a legacy self-describing proof that we still honour.
 
 ### Rail 2 — legacy self-describing proof (fallback)
 
-1. Send exactly the amount from `accepts[0].amount` in USDC on Base to
-   `accepts[0].payTo`.
+1. Send `accepts[0].amount` — remembering it is in ATOMIC units, so `"5000"` is
+   0.005 USDC — on Base to `accepts[0].payTo`.
 2. Wait for 12 confirmations (~24 seconds on Base) — this rail requires them.
 3. Repeat the request with the `X-Payment-Proof` header:
-   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the amount you sent>}}))`
+   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the decimal amount you sent, e.g. 0.005>}}))`.
+   We ignore this field and decode the real amount from the transaction's
+   Transfer event, so it cannot be used to underpay — but sending a truthful
+   value keeps your logs readable.
 4. The server verifies the transfer on-chain and grants access. Each proof is
    single-use.
 

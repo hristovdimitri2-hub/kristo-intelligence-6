@@ -76,10 +76,29 @@ def _build_agent_manifest() -> Dict[str, Any]:
             "receiver": get_base_fee_receiver(),
         },
         "free_tier": {"requests_per_client": main.FREE_TIER_LIMIT},
+        # The same field name carries two units on our surfaces: the 402
+        # challenge is ATOMIC (amount "5000" for a $0.005 call) and a display
+        # price is DECIMAL (0.005). An agent that reads one and applies it to
+        # the other transfers 5000 USDC for a $0.005 call, and the on-chain
+        # check accepts it because it only tests `amount >= price`.
+        "units": {
+            "accepts[0].amount": 'atomic (6 decimals) — "5000" means 0.005 USDC',
+            "price_raw": "atomic",
+            "price_usdc": "decimal USDC",
+            "rule": (
+                "Pass atomic values to the ERC-20 transfer unchanged; divide by "
+                "1e6 only if your wallet API wants a decimal amount."
+            ),
+        },
         "payment_flow": [
             "1. GET the endpoint — a 402 challenge returns the exact amount and payTo address",
-            "2. Send the USDC transfer on Base (chain 8453) and wait for confirmation",
-            "3. Retry with the X-Payment-Proof header (base64 of {payer, transaction_hash, amount})",
+            "2. PREFERRED: sign an EIP-3009 transferWithAuthorization for "
+            "accepts[0].amount (atomic units) to accepts[0].payTo and retry with "
+            "the PAYMENT-SIGNATURE header (x402 v2; X-PAYMENT for v1 clients) — "
+            "the facilitator settles it, so nothing waits on a block (~2s)",
+            "3. Legacy alternative: send the same amount as a plain USDC transfer "
+            "on Base (chain 8453), wait for 12 confirmations (~24s), then retry "
+            "with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
             "4. Receive the data — one verified on-chain unlock per call",
         ],
         "endpoints": endpoints,

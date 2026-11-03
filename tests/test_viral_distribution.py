@@ -116,6 +116,39 @@ def test_agent_manifest_exposes_pricing_and_flow(viral_env):
     assert manifest["agent_catalog"]  # 8 seeded agents
 
 
+def test_agent_manifest_leads_with_the_fast_rail_and_states_units(viral_env):
+    """This manifest is served live at /.well-known/kristo-agent.json.
+
+    Its payment flow used to teach only the legacy rail — send a transfer, wait
+    for confirmation, retry with X-Payment-Proof — which is the ~24 second
+    path, with no mention of the standard ~2 second one. And it gave no units:
+    the 402 challenge's amount is ATOMIC ("5000" for a $0.005 call), so an agent
+    that read it as decimal would transfer 5000 USDC.
+    """
+    _, client = viral_env
+    manifest = client.get("/.well-known/kristo-agent.json").get_json()
+
+    flow = manifest["payment_flow"]
+    preferred = [i for i, step in enumerate(flow) if "PAYMENT-SIGNATURE" in step]
+    legacy = [i for i, step in enumerate(flow) if "X-Payment-Proof" in step]
+    assert preferred, "the manifest no longer offers the standard x402 rail"
+    assert legacy, "the legacy rail should stay documented as the alternative"
+    assert min(preferred) < min(legacy), (
+        "the manifest still presents the ~24s rail before the ~2s one")
+
+    units = manifest.get("units")
+    assert units, "the manifest gives amounts without saying which unit"
+    assert "atomic" in units["accepts[0].amount"]
+    assert "0.005" in units["accepts[0].amount"], (
+        "the atomic-vs-decimal example must be concrete")
+    assert units["price_raw"] == "atomic"
+    assert units["price_usdc"] == "decimal USDC"
+
+    # And the data agrees with the words: price_raw is the atomic form.
+    stats = next(e for e in manifest["endpoints"] if e["path"] == "/api/stats")
+    assert int(stats["price_raw"]) == int(round(stats["price_usdc"] * 1_000_000))
+
+
 def test_agent_manifest_alias_route_matches(viral_env):
     _, client = viral_env
     canonical = client.get("/.well-known/kristo-agent.json").get_json()
