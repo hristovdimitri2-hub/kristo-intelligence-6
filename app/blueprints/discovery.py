@@ -1860,22 +1860,32 @@ def indexnow_key_file():
     return Response(INDEXNOW_KEY + "\n", mimetype="text/plain")
 
 
+#: One-time ownership token issued by x402-list.com on 2026-11-03 for the listing
+#: update that corrects the header name in our description. It is published in
+#: the source because the directory has to read it back from this exact path, it
+#: stops being accepted on 2026-11-06T16:45Z, and it is not a secret. The
+#: environment variable overrides it, so a future review can be published without
+#: touching the source again.
+X402LIST_OWNERSHIP_TOKEN = (
+    "x402list-verify-w2MY9CZlPMUZGlduF-eSweszp2bytYkrxafDFnvVLPA")
+
+
 @discovery_bp.route("/.well-known/x402list.txt")
 def x402list_verification():
     """Ownership proof for a listing update on x402-list.com.
 
     x402-list.com proves an operator owns a listing by issuing a one-time token
     and asking them to publish it at this exact path, which it then reads back
-    before a human reviews the change. The token only arrives after the update
+    before a human reviews the change. The token arrives only after the update
     form is submitted and expires in 72 hours.
 
-    Read from the environment rather than typed into the source, so publishing a
-    token is a configuration change and not a redeploy inside a 72-hour window.
-    With no token set this answers 404, so a stale proof from a finished review
-    is never served as if it were current. The token is not a secret: the
-    directory requires it to be public.
+    The environment variable wins over the bundled token, and with neither set
+    the path answers 404, so a stale proof from a finished review is never served
+    as if it were current. The token is not a secret: the directory requires it
+    to be public.
     """
-    token = (os.environ.get("X402LIST_VERIFICATION_TOKEN") or "").strip()
+    token = (os.environ.get("X402LIST_VERIFICATION_TOKEN")
+             or X402LIST_OWNERSHIP_TOKEN).strip()
     if not token:
         return Response("not configured\n", status=404, mimetype="text/plain")
     return Response(token + "\n", mimetype="text/plain")

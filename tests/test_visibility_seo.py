@@ -568,21 +568,34 @@ def test_the_pricing_and_terms_pages_answer_and_are_honest(client):
         "llms.txt does not point agents at the pricing page")
 
 
-def test_the_x402list_proof_path_404s_until_a_token_is_issued(client,
+def test_the_x402list_proof_path_serves_only_a_current_token(client,
                                                              monkeypatch):
     """x402-list.com reads this path back to prove we own our listing.
 
-    It issues a one-time token that expires in 72 hours. Serving a token from a
-    finished review as if it were current would be an ownership claim we can no
-    longer support, so an unset token must answer 404 rather than an empty 200.
+    It issues a one-time token that expires in 72 hours. Three cases matter: the
+    bundled token is served, an environment variable overrides it so a future
+    review needs no source change, and with neither set the path answers 404 —
+    never an empty 200, because a token left from a finished review would sit
+    there as an ownership claim we can no longer support.
     """
     app_client, _main = client
+    from app.blueprints import discovery
+
+    bundled = discovery.X402LIST_OWNERSHIP_TOKEN
+    assert bundled.startswith("x402list-verify-"), (
+        "the bundled ownership token does not look like one x402-list issued")
 
     monkeypatch.delenv("X402LIST_VERIFICATION_TOKEN", raising=False)
-    assert app_client.get("/.well-known/x402list.txt").status_code == 404, (
-        "the proof path answers without a token; it must not")
+    served = app_client.get("/.well-known/x402list.txt")
+    assert served.status_code == 200
+    assert served.get_data(as_text=True).strip() == bundled
 
-    monkeypatch.setenv("X402LIST_VERIFICATION_TOKEN", "one-time-token")
-    response = app_client.get("/.well-known/x402list.txt")
-    assert response.status_code == 200
-    assert response.get_data(as_text=True).strip() == "one-time-token"
+    monkeypatch.setenv("X402LIST_VERIFICATION_TOKEN", "replacement-token")
+    replaced = app_client.get("/.well-known/x402list.txt")
+    assert replaced.get_data(as_text=True).strip() == "replacement-token", (
+        "an issued replacement must win over the bundled token")
+
+    monkeypatch.delenv("X402LIST_VERIFICATION_TOKEN", raising=False)
+    monkeypatch.setattr(discovery, "X402LIST_OWNERSHIP_TOKEN", "")
+    assert app_client.get("/.well-known/x402list.txt").status_code == 404, (
+        "the proof path answers without any token; it must not")
