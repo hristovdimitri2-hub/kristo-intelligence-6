@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import queue
 import secrets
 import threading
@@ -39,7 +40,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 579
+SUITE_TESTS_PASSED = 580
 SUITE_LAST_RUN = "2026-11-03"
 
 
@@ -1857,6 +1858,27 @@ def indexnow_key_file():
     file. /robots.txt and /sitemap.xml are unaffected.
     """
     return Response(INDEXNOW_KEY + "\n", mimetype="text/plain")
+
+
+@discovery_bp.route("/.well-known/x402list.txt")
+def x402list_verification():
+    """Ownership proof for a listing update on x402-list.com.
+
+    x402-list.com proves an operator owns a listing by issuing a one-time token
+    and asking them to publish it at this exact path, which it then reads back
+    before a human reviews the change. The token only arrives after the update
+    form is submitted and expires in 72 hours.
+
+    Read from the environment rather than typed into the source, so publishing a
+    token is a configuration change and not a redeploy inside a 72-hour window.
+    With no token set this answers 404, so a stale proof from a finished review
+    is never served as if it were current. The token is not a secret: the
+    directory requires it to be public.
+    """
+    token = (os.environ.get("X402LIST_VERIFICATION_TOKEN") or "").strip()
+    if not token:
+        return Response("not configured\n", status=404, mimetype="text/plain")
+    return Response(token + "\n", mimetype="text/plain")
 
 
 @discovery_bp.route("/agents.json")
