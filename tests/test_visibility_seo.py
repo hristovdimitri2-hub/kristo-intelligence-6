@@ -599,3 +599,34 @@ def test_the_x402list_proof_path_serves_only_a_current_token(client,
     monkeypatch.setattr(discovery, "X402LIST_OWNERSHIP_TOKEN", "")
     assert app_client.get("/.well-known/x402list.txt").status_code == 404, (
         "the proof path answers without any token; it must not")
+
+
+def test_the_x402list_proof_stops_being_served_when_it_expires(client,
+                                                              monkeypatch):
+    """A token that expired is not a proof, so the path must stop offering it.
+
+    The bundled token stops being accepted on 2026-11-06T16:45Z. Serving it past
+    that would be the same failure the rest of this file guards against: a claim
+    that outlived the fact behind it.
+    """
+    app_client, _main = client
+    from app.blueprints import discovery
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.delenv("X402LIST_VERIFICATION_TOKEN", raising=False)
+
+    monkeypatch.setattr(discovery, "X402LIST_OWNERSHIP_TOKEN_EXPIRES",
+                        datetime.now(timezone.utc) - timedelta(seconds=1))
+    assert app_client.get("/.well-known/x402list.txt").status_code == 404, (
+        "an expired ownership token is still being served")
+
+    monkeypatch.setattr(discovery, "X402LIST_OWNERSHIP_TOKEN_EXPIRES",
+                        datetime.now(timezone.utc) + timedelta(days=1))
+    assert app_client.get("/.well-known/x402list.txt").status_code == 200
+
+    # An operator-supplied replacement is not subject to the bundled expiry.
+    monkeypatch.setattr(discovery, "X402LIST_OWNERSHIP_TOKEN_EXPIRES",
+                        datetime.now(timezone.utc) - timedelta(days=365))
+    monkeypatch.setenv("X402LIST_VERIFICATION_TOKEN", "freshly-issued")
+    assert app_client.get("/.well-known/x402list.txt").get_data(
+        as_text=True).strip() == "freshly-issued"

@@ -25,6 +25,7 @@ import queue
 import secrets
 import threading
 import time
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -40,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 580
+SUITE_TESTS_PASSED = 581
 SUITE_LAST_RUN = "2026-11-03"
 
 
@@ -1868,6 +1869,8 @@ def indexnow_key_file():
 #: touching the source again.
 X402LIST_OWNERSHIP_TOKEN = (
     "x402list-verify-w2MY9CZlPMUZGlduF-eSweszp2bytYkrxafDFnvVLPA")
+X402LIST_OWNERSHIP_TOKEN_EXPIRES = datetime(2026, 11, 6, 16, 45, 52,
+                                            tzinfo=timezone.utc)
 
 
 @discovery_bp.route("/.well-known/x402list.txt")
@@ -1879,15 +1882,20 @@ def x402list_verification():
     before a human reviews the change. The token arrives only after the update
     form is submitted and expires in 72 hours.
 
-    The environment variable wins over the bundled token, and with neither set
-    the path answers 404, so a stale proof from a finished review is never served
-    as if it were current. The token is not a secret: the directory requires it
-    to be public.
+    The environment variable wins over the bundled token, and the bundled token
+    stops being served once it expires — so this path only ever answers with a
+    proof that is still current. With nothing valid to serve it answers 404
+    rather than an empty 200, because a token left over from a finished review
+    would otherwise sit here as an ownership claim we can no longer support. The
+    token is not a secret: the directory requires it to be public.
     """
     token = (os.environ.get("X402LIST_VERIFICATION_TOKEN")
              or X402LIST_OWNERSHIP_TOKEN).strip()
     if not token:
         return Response("not configured\n", status=404, mimetype="text/plain")
+    if (token == X402LIST_OWNERSHIP_TOKEN
+            and datetime.now(timezone.utc) >= X402LIST_OWNERSHIP_TOKEN_EXPIRES):
+        return Response("expired\n", status=404, mimetype="text/plain")
     return Response(token + "\n", mimetype="text/plain")
 
 
