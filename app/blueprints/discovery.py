@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 582
+SUITE_TESTS_PASSED = 583
 SUITE_LAST_RUN = "2026-11-03"
 
 
@@ -863,75 +863,103 @@ def _mcp_tools(base_url):
     """Shared MCP tool definitions — served identically by the SSE endpoint
     (/mcp/sse) and the Streamable HTTP endpoint (POST /mcp). Each tool
     advertises its x402 price so the agent can pay before calling; paid
-    calls still flow through the regular 402 paywall."""
+    calls still flow through the regular 402 paywall.
+
+    Every paid route is exposed. This list used to carry only three of the six,
+    so an MCP client could not buy /api/v1/signal (the flagship product),
+    /api/v1/whaleflow or /api/arb/opportunities at all — while agents.json
+    described all six and the tools' own descriptions pointed only at each
+    other. The names match agents_json() so one product is not two names.
+
+    Prices are read from X402_PRICE_MAP, which is the paywall's own source of
+    truth, instead of the flat X402_FEE_USDC alias they used before: every route
+    price is environment-overridable, so a hardcoded value here would silently
+    advertise a price the paywall does not charge.
+    """
     from main import (
         X402_CHAIN_ID,
         X402_FEE_USDC,
+        X402_PRICE_MAP,
         X402_RECEIVER_ADDRESS,
         X402_USDC_CONTRACT,
     )
 
+    def _price(route):
+        return float(X402_PRICE_MAP.get(route, X402_FEE_USDC))
+
+    def _tool(name, route, description):
+        return {
+            "name": name,
+            "description": description,
+            "inputSchema": {"type": "object", "properties": {},
+                            "additionalProperties": False},
+            "x402": {"price_usdc": _price(route), "chain_id": X402_CHAIN_ID,
+                     "receiver": X402_RECEIVER_ADDRESS,
+                     "token_contract": X402_USDC_CONTRACT,
+                     "endpoint": f"{base_url}{route}"},
+        }
+
+    _paid = ("Paid via x402 (HTTP 402 challenge with the exact USDC amount and "
+             "receiver on Base).")
     return [
-        {
-            "name": "get_market_stats",
-            "description": (
-                "Read-only operation — no side effects, no parameters. Returns "
-                "the live Base market snapshot: aggregated activity, daily "
-                "request/sales counters, the official agent catalog, and "
-                "real-time market data (CoinGecko, DEXScreener, Fear & Greed). "
-                "Use it for market context and price/indicator lookups; use "
-                "get_onchain_sales for paid-call revenue and get_bot_status for "
-                "integration health. Paid via x402 (HTTP 402 challenge with the "
-                "exact USDC amount and receiver on Base)."
-            ),
-            "inputSchema": {"type": "object", "properties": {},
-                            "additionalProperties": False},
-            "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
-                     "receiver": X402_RECEIVER_ADDRESS,
-                     "token_contract": X402_USDC_CONTRACT,
-                     "endpoint": f"{base_url}/api/stats"},
-        },
-        {
-            "name": "get_onchain_sales",
-            "description": (
-                "Read-only operation — no side effects, no parameters. Returns "
-                "the real on-chain payment history to this service's fee "
-                "receiver on Base: total_volume_usd, total_sales, by_token, up "
-                "to 100 history rows (tx hash, payer, amount, block, "
-                "timestamp), source=\"real_blockchain\", plus the wallet state "
-                "and a market snapshot. Use it when you need provable revenue "
-                "or settlement evidence; use get_market_stats for prices and "
-                "get_bot_status for integration health. Paid via x402 (HTTP 402 "
-                "challenge with the exact USDC amount and receiver on Base)."
-            ),
-            "inputSchema": {"type": "object", "properties": {},
-                            "additionalProperties": False},
-            "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
-                     "receiver": X402_RECEIVER_ADDRESS,
-                     "token_contract": X402_USDC_CONTRACT,
-                     "endpoint": f"{base_url}/api/sales"},
-        },
-        {
-            "name": "get_bot_status",
-            "description": (
-                "Read-only operation — no side effects, no parameters. Returns "
-                "the service's Telegram integration status as JSON: "
-                "telegram_bot_running, telegram_token_configured, "
-                "last_heartbeat, uptime_started, messages_sent, active_users, "
-                "commands_processed, vip_invites_sent, plus the wallet state. "
-                "Use it to confirm this service's own monitoring is alive (and "
-                "its heartbeat recent) before trusting other outputs; use "
-                "get_market_stats for market data or get_onchain_sales for "
-                "provable revenue. Paid via x402 (HTTP 402 challenge with the "
-                "exact USDC amount and receiver on Base)."
-            ),
-            "inputSchema": {"type": "object", "properties": {},
-                            "additionalProperties": False},
-            "x402": {"price_usdc": X402_FEE_USDC, "chain_id": X402_CHAIN_ID,
-                     "receiver": X402_RECEIVER_ADDRESS,
-                     "token_contract": X402_USDC_CONTRACT,
-                     "endpoint": f"{base_url}/api/bot-status"},
-        },
+        _tool(
+            "get_market_stats", "/api/stats",
+            "Read-only operation — no side effects, no parameters. Returns "
+            "the live Base market snapshot: aggregated activity, daily "
+            "request/sales counters, the official agent catalog, and "
+            "real-time market data (CoinGecko, DEXScreener, Fear & Greed). "
+            "Use it for market context and price/indicator lookups; use "
+            "get_onchain_sales for paid-call revenue and get_bot_status for "
+            "integration health. " + _paid,
+        ),
+        _tool(
+            "get_onchain_sales", "/api/sales",
+            "Read-only operation — no side effects, no parameters. Returns "
+            "the real on-chain payment history to this service's fee "
+            "receiver on Base: total_volume_usd, total_sales, by_token, up "
+            "to 100 history rows (tx hash, payer, amount, block, "
+            "timestamp), source=\"real_blockchain\", plus the wallet state "
+            "and a market snapshot. Use it when you need provable revenue "
+            "or settlement evidence; use get_market_stats for prices and "
+            "get_bot_status for integration health. " + _paid,
+        ),
+        _tool(
+            "get_bot_status", "/api/bot-status",
+            "Read-only operation — no side effects, no parameters. Returns "
+            "the service's Telegram integration status as JSON: "
+            "telegram_bot_running, telegram_token_configured, "
+            "last_heartbeat, uptime_started, messages_sent, active_users, "
+            "commands_processed, vip_invites_sent, plus the wallet state. "
+            "Use it to confirm this service's own monitoring is alive (and "
+            "its heartbeat recent) before trusting other outputs; use "
+            "get_market_stats for market data or get_onchain_sales for "
+            "provable revenue. " + _paid,
+        ),
+        _tool(
+            "get_trading_signal", "/api/v1/signal",
+            "Read-only operation — no side effects, no parameters. Returns "
+            "this service's flagship trading-agent signals for ETH, ONDO, "
+            "KAITO and DEGEN: action, confidence, price_usd and the model's "
+            "reasoning. Use it when you need a directional call rather than "
+            "raw market data; use get_whale_flow for large-transfer flow and "
+            "get_arbitrage_opportunities for cross-DEX spreads. " + _paid,
+        ),
+        _tool(
+            "get_whale_flow", "/api/v1/whaleflow",
+            "Read-only operation — no side effects, no parameters. Returns "
+            "network-wide USDC whale flow on Base: transfers of $5M or more, "
+            "refreshed every 60 seconds, with labelled counterparties. Use it "
+            "to see where size is moving; use get_trading_signal for "
+            "directional calls or get_market_stats for broad context. " + _paid,
+        ),
+        _tool(
+            "get_arbitrage_opportunities", "/api/arb/opportunities",
+            "Read-only operation — no side effects, no parameters. Returns "
+            "live cross-DEX arbitrage spreads on Base, refreshed every 60 "
+            "seconds. Use it for executable price gaps between venues; use "
+            "get_market_stats for aggregate prices or get_trading_signal for "
+            "directional calls. " + _paid,
+        ),
     ]
 
 

@@ -27,7 +27,10 @@
    може да са с други имена — текстът е един и същ).
 4. **Сверка на данните** (след като се появим, автоматично или ръчно):
    - URL = `https://kristo-intelligence-api.onrender.com/mcp` ✅
-   - tools = `get_market_stats`, `get_onchain_sales`, `get_bot_status` (3) ✅
+   - tools = `get_market_stats`, `get_onchain_sales`, `get_bot_status`,
+     `get_trading_signal`, `get_whale_flow`, `get_arbitrage_opportunities` (6) ✅
+     <br>Ако видиш **3**, листингът още не се е презаредил след като отворихме и
+     трите нови инструмента — не е грешка в данните, а кеш.
    - цени = **$0.003–$0.005** (`X402_PRICE_MAP`; нула „$0.05", нула „1 free call") ✅
    - repo = `hristovdimitri2-hub/kristo-intelligence-6` ✅
 
@@ -57,7 +60,7 @@ DeFi market intelligence API for AI agents on Base. Six x402 endpoints, paid per
 
 **Long description** (от готовия листинг `kristo-agentic-market-final.md`)
 ```
-Machine-readable DeFi intelligence for AI agents that trade autonomously. MCP server (Streamable HTTP + SSE on /mcp) exposing three tools — get_market_stats, get_onchain_sales, get_bot_status — over six paid GET routes, JSON only:
+Machine-readable DeFi intelligence for AI agents that trade autonomously. MCP server (Streamable HTTP + SSE on /mcp) exposing all six paid routes as tools — get_market_stats, get_onchain_sales, get_bot_status, get_trading_signal, get_whale_flow, get_arbitrage_opportunities — JSON only:
 
 - /api/v1/signal — action, confidence, price, reasoning for ETH/ONDO/KAITO/DEGEN; 8-agent engine.
 - /api/v1/whaleflow — USDC transfers >= $50k on Base with labeled counterparties and the scanned-block watermark.

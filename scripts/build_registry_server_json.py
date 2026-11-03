@@ -40,7 +40,7 @@ os.environ.setdefault("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
 
 BASE_URL = "https://kristo-intelligence-api.onrender.com"
 SERVER_NAME = "io.github.hristovdimitri2-hub/kristo-intelligence"
-VERSION = "6.1.0"
+VERSION = "6.2.0"
 SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
 PUBLISHER_KEY = "io.modelcontextprotocol.registry/publisher-provided"
 OUT_PATH = os.path.join(ROOT, "server.json")

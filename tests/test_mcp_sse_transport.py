@@ -113,8 +113,13 @@ def test_sse_full_round_trip_like_the_official_client(monkeypatch, tmp_path):
             tools = json.loads(_next_event(events, "message"))
             assert tools["id"] == 2
             names = [t["name"] for t in tools["result"]["tools"]]
+            # All six paid routes must be callable over MCP. This list used to
+            # carry only three, so the flagship /api/v1/signal could not be
+            # bought from Claude Desktop or Cursor at all, while agents.json
+            # described all six.
             assert names == ["get_market_stats", "get_onchain_sales",
-                             "get_bot_status"]
+                             "get_bot_status", "get_trading_signal",
+                             "get_whale_flow", "get_arbitrage_opportunities"]
             for t in tools["result"]["tools"]:
                 assert "price_usdc" in t["x402"]
 
@@ -130,6 +135,43 @@ def test_sse_full_round_trip_like_the_official_client(monkeypatch, tmp_path):
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_every_mcp_tool_advertises_the_paywall_real_price():
+    """The tool list must not be able to quote a price the paywall refuses.
+
+    Every route price is environment-overridable and X402_PRICE_MAP is the
+    paywall's own source of truth. The tools used the flat X402_FEE_USDC alias,
+    which happened to match the three routes they exposed — but the moment a
+    route is repriced, a hardcoded manifest starts advertising a number the 402
+    challenge contradicts. An agent that trusts it underfunds its authorization
+    and gets rejected.
+    """
+    import main
+    from app.blueprints import discovery
+
+    tools = discovery._mcp_tools("https://example.invalid")
+    routes = [t["x402"]["endpoint"].rsplit("https://example.invalid", 1)[-1]
+              for t in tools]
+
+    # Every paid route in the price map is offered, and nothing else.
+    assert sorted(routes) == sorted(main.X402_PRICE_MAP)
+    assert len(tools) == 6
+
+    for tool in tools:
+        route = tool["x402"]["endpoint"].rsplit("https://example.invalid", 1)[-1]
+        assert float(tool["x402"]["price_usdc"]) == float(
+            main.X402_PRICE_MAP[route]), (
+            f"{tool['name']} advertises {tool['x402']['price_usdc']} but the "
+            f"paywall charges {main.X402_PRICE_MAP[route]} for {route}")
+
+    # The flagship must be reachable, and the two cheap routes must not be
+    # flattened to the base fee.
+    by_name = {t["name"]: t for t in tools}
+    assert by_name["get_trading_signal"]["x402"]["price_usdc"] == \
+        main.X402_PRICE_MAP["/api/v1/signal"]
+    assert by_name["get_whale_flow"]["x402"]["price_usdc"] == \
+        main.X402_PRICE_MAP["/api/v1/whaleflow"]
 
 
 def test_initialize_without_version_falls_back_to_2025_11_25():
