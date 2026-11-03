@@ -4,6 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kristo Intelligence | VIP Crypto Intelligence</title>
+    <meta name="description" content="VIP крипто анализи, DeFi сигнали и premium Telegram известия. Реални данни от Base мрежата, без демо данни.">
+    <link rel="canonical" href="{{ request.base_url }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Kristo Intelligence">
+    <meta property="og:title" content="Kristo Intelligence | VIP Crypto Intelligence">
+    <meta property="og:description" content="VIP крипто анализи, DeFi сигнали и premium Telegram известия. Реални данни от Base мрежата, без демо данни.">
+    <meta property="og:url" content="{{ request.base_url }}">
+    <meta property="og:image" content="{{ request.url_root }}static/og/kristo-og.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Kristo Intelligence | VIP Crypto Intelligence">
+    <meta name="twitter:description" content="VIP крипто анализи, DeFi сигнали и premium Telegram известия.">
+    <meta name="twitter:image" content="{{ request.url_root }}static/og/kristo-og.png">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Kristo Intelligence",
+      "url": "{{ request.url_root }}",
+      "description": "DeFi market intelligence and crypto signals, with an x402-paid API for AI agents. No price is declared here: every plan and every route states its own value at the point of purchase."
+    }
+    </script>
     <style>
         body { font-family: Arial, sans-serif; background: #0b1020; color: #eef2ff; margin: 0; }
         .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 20px 80px; }
@@ -50,19 +73,19 @@
         <div class="grid">
             <div class="card">
                 <h3>Starter</h3>
-                <div class="price">$29</div>
+                <div class="price">${{ '%g'|format(plan_prices.starter) }}</div>
                 <p>Базов достъп до market bulletin и сигнали.</p>
                 <a class="btn" href="/sales/checkout?plan=starter">Избери Starter</a>
             </div>
             <div class="card">
                 <h3>Pro</h3>
-                <div class="price">$79</div>
+                <div class="price">${{ '%g'|format(plan_prices.pro) }}</div>
                 <p>VIP Telegram + premium market intelligence.</p>
                 <a class="btn" href="/sales/checkout?plan=pro">Избери Pro</a>
             </div>
             <div class="card">
                 <h3>API Access</h3>
-                <div class="price">$149</div>
+                <div class="price">${{ '%g'|format(plan_prices.api) }}</div>
                 <p>За по-напреднали клиенти и data access.</p>
                 <a class="btn" href="/sales/checkout?plan=api">Избери API</a>
             </div>

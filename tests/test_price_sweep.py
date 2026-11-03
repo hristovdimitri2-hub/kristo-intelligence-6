@@ -353,7 +353,7 @@ def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    assert module.build()["version"] == module.VERSION == "6.0.0"
+    assert module.build()["version"] == module.VERSION == "6.1.0"
     bumped = module.build("6.0.1")
     assert bumped["version"] == "6.0.1"
     assert module.validate(bumped) == [], module.validate(bumped)

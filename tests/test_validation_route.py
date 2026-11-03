@@ -30,10 +30,14 @@ def test_validation_html_states_the_facts(client):
     assert r.status_code == 200
     assert "text/html" in r.content_type
     html = r.get_data(as_text=True)
+    # The price facts are derived, not typed: the page must span the real range
+    # rather than quote the cheapest route alone.
+    import main
+    _prices = sorted(float(route["price_usdc"]) for route in main.REAL_X402_ROUTES)
     for fact in (
         "23 of 23 days green",
-        "$0.003 per call",
-        "unchanged since launch",
+        "$%.3f" % _prices[0],
+        "$%.3f" % _prices[-1],
         "Reddit, 2026-10-18",
         "20 transfers",
         "0.225 USDC",
@@ -58,8 +62,15 @@ def test_validation_json_when_client_asks(client):
     assert "application/json" in r.content_type
     d = r.get_json()
     assert d["uptime"] == {"days_green": 23, "days_total": 23}
-    assert d["price_usd_per_call"] == 0.003
-    assert d["price_note"] == "unchanged since launch"
+    # This assertion used to read `d["price_usd_per_call"] == 0.003` — the test
+    # was written to match the code, and the code quoted the cheapest route while
+    # four of six charge $0.005. Checked against the route table now.
+    import main
+    _prices = [float(route["price_usdc"]) for route in main.REAL_X402_ROUTES]
+    assert d["price_usd_per_call_min"] == min(_prices)
+    assert d["price_usd_per_call_max"] == max(_prices)
+    assert "unchanged since launch" not in d["price_note"], (
+        "these prices have changed; the page must not claim otherwise")
     audit = d["third_party_audit"]
     assert audit["transfers"] == 20
     assert audit["total_usdc"] == 0.225
@@ -97,7 +108,9 @@ def test_validation_html_carries_x402_trust_section(client):
         assert f"/endpoint/{ep_id}" in html, ep_id
     # старите фактове оцеляват
     assert "23 of 23 days green" in html
-    assert "$0.003 per call" in html
+    # ...но не и остарялата единна цена: страницата трябва да покрива диапазона
+    assert "$0.003" in html and "$0.005" in html
+    assert "$0.003 per call" not in html
 
 
 def test_validation_json_carries_x402_trust_block(client):
@@ -114,3 +127,20 @@ def test_validation_json_carries_x402_trust_block(client):
     # непроверени числа (weights%) не бива да присъстват
     raw = r.get_data(as_text=True)
     assert "30%" not in raw and "20%" not in raw
+
+
+def test_validation_dates_its_so_called_recent_payments(client):
+    """The list is called "recent", so the page must say how recent.
+
+    On 2026-11-03 the newest row was 4.7 days old. A settlement list that has
+    stopped moving reads as a dead product, and that reading is fair — but the
+    page should state where the list ends instead of letting a buyer assume the
+    silence means activity.
+    """
+    facts = client.get("/validation",
+                       headers={"Accept": "application/json"}).get_json()
+    payments = facts["recent_payments"]
+    assert payments, "the page no longer lists any settlement"
+    assert facts["payments_count"] == len(payments)
+    assert facts["payments_as_of"] == max(p["settled_at"] for p in payments), (
+        "payments_as_of must be the newest date actually listed")

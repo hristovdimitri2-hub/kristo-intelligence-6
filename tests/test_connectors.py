@@ -75,6 +75,33 @@ def test_quickstart_is_free_and_complete(client):
         assert "/api/stats" in d[key], f"{key} snippet must target a paid route"
 
 
+def test_quickstart_leads_with_the_fast_rail_not_only_the_slow_one(client):
+    """The onboarding doc is the first thing an integrating agent reads.
+
+    Every snippet in it used to teach the legacy X-Payment-Proof rail as *the*
+    way in. That rail waits 12 confirmations (~24s) before the data comes back,
+    so an agent that followed our own onboarding had the worst possible first
+    experience — while the fast EIP-3009 rail went unmentioned. It was the
+    llms.txt bug again, in the most-read document we publish.
+    """
+    d = client.get("/api/v1/quickstart").get_json()
+    steps = d["steps"]
+
+    preferred = [i for i, step in enumerate(steps) if "PAYMENT-SIGNATURE" in step]
+    legacy = [i for i, step in enumerate(steps) if "X-Payment-Proof" in step]
+
+    assert preferred, "the quickstart no longer mentions the preferred v2 rail"
+    assert legacy, "the legacy rail should stay documented as the alternative"
+    assert min(preferred) < min(legacy), (
+        "the 24-second legacy rail is still presented before the fast one")
+
+    for key in ("python", "node"):
+        assert "PAYMENT-SIGNATURE" in d[key], (
+            "the %s snippet still teaches only the slow legacy rail" % key)
+    assert "PAYMENT-SIGNATURE" in d["standard_client"], (
+        "the ecosystem-client note names only the v1 header")
+
+
 def test_quickstart_is_excluded_from_paywall(client, monkeypatch):
     import main
     monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)

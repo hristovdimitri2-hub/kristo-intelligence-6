@@ -29,6 +29,42 @@ from flask import Blueprint, Response, jsonify, request
 discovery_bp = Blueprint("discovery", __name__)
 
 
+# ── Test-suite facts published on /validation ──────────────────────────────
+# ONE place, deliberately. These two values used to be typed twice — once into
+# the JSON facts block and once into the HTML panel — so /validation could (and
+# did) keep advertising "550/550 tests green, last run 2026-10-30" long after the
+# suite had grown past it. On a page whose entire job is to state facts someone
+# can check, a stale count is the worst possible defect.
+#
+# UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
+# falls behind the suite actually collected.
+SUITE_TESTS_PASSED = 578
+SUITE_LAST_RUN = "2026-11-03"
+
+
+def _sample_disclaimer(endpoint: str) -> str:
+    """The price a free sample quotes must be the price its route charges.
+
+    Every /sample route used to carry a typed "$0.005 USDC" in this sentence.
+    When /api/v1/whaleflow moved to the $0.003 tier the other five were updated
+    and that one was not, so the free sample handed to a prospective buyer
+    overquoted the product by 67% — and a sample's disclaimer is the first thing
+    that buyer reads. Generated from the price map now, so it cannot drift again.
+    """
+    from main import BASE_FEE_AMOUNT_USDC, X402_PRICE_MAP
+
+    price = float(X402_PRICE_MAP.get(endpoint, BASE_FEE_AMOUNT_USDC))
+    return ("Static example of the response schema for discovery and agents; live "
+            "values require a paid call ($%.3f USDC, x402 on Base)." % price)
+
+
+def _dearest_route_price() -> float:
+    """The most expensive paid route — generated, never typed into prose."""
+    from main import REAL_X402_ROUTES
+
+    return max(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
+
+
 @discovery_bp.route("/health")
 def health():
     """Service health check (free, no paywall).
@@ -81,11 +117,20 @@ def validation():
     """Public validation page (free, no paywall): checkable facts only.
 
     HTML by default; JSON when the client sends Accept: application/json.
-    Every figure is either a config constant (price) or an externally linked
-    record (third-party audit) — the page states facts and points at sources,
-    nothing promotional.
+    Every figure is either derived from the live route table (the price range)
+    or an externally linked record (third-party audit) — the page states facts
+    and points at sources, nothing promotional.
     """
-    from config import KRISTO_SIGNAL_PRICE
+    from main import REAL_X402_ROUTES
+
+    # The page used to publish a single "price_usd_per_call" taken from
+    # KRISTO_SIGNAL_PRICE, so it advertised $0.003 while four of the six routes
+    # charge $0.005 — a buyer who read the trust page and then called /api/stats
+    # was billed 67% more than the page promised. It also called those prices
+    # "unchanged since launch", which was never true: /api/sales was $0.05 on
+    # 2026-08-29. A trust page does not get to round its own price down.
+    _prices = sorted(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
+    price_floor, price_ceiling = (_prices[0], _prices[-1]) if _prices else (0.0, 0.0)
 
     # health() returns (response, code) — unwrap before reading the payload.
     hv = health()
@@ -103,8 +148,11 @@ def validation():
     facts = {
         "status": "operational" if status == "ok" else status,
         "uptime": {"days_green": 23, "days_total": 23},
-        "price_usd_per_call": KRISTO_SIGNAL_PRICE,
-        "price_note": "unchanged since launch",
+        "price_usd_per_call_min": price_floor,
+        "price_usd_per_call_max": price_ceiling,
+        "price_note": ("six routes across two tiers; the exact atomic amount is "
+                       "stated in every 402 challenge and per route in "
+                       "endpoints[] below"),
         "third_party_audit": audit,
         "links": {
             "documentation": "/openapi.json",
@@ -177,9 +225,11 @@ def validation():
         "x402_discovery": "/.well-known/x402.json",
     }
     facts["test_suite"] = {
-        "passed": 550, "total": 550, "framework": "pytest",
-        "last_run": "2026-10-30",
-        "note": "550/550 tests green; adversarial audit 23/23 (mystery-agent simulation)",
+        "passed": SUITE_TESTS_PASSED, "total": SUITE_TESTS_PASSED,
+        "framework": "pytest",
+        "last_run": SUITE_LAST_RUN,
+        "note": "%d/%d tests green; adversarial audit 23/23 (mystery-agent "
+                "simulation)" % (SUITE_TESTS_PASSED, SUITE_TESTS_PASSED),
     }
     # Последните реални settled трансакции (on-chain USDC -> payTo, Base;
     # източник: eth_getLogs, 30.10.2026) — външни платеци, без нашия demo портфейл.
@@ -201,6 +251,14 @@ def validation():
          "label": "organic buyer",
          "tx": "0x7f8bcea72e6c3b2dfeb1912c48cb74daa8cf8bbbf7df9ccd1021236c6fb4102c"},
     ]
+    # "Recent" is a claim, so let a reader check it. On 2026-11-03 the newest row
+    # here was already 4.7 days old, and a settlement list that has stopped moving
+    # is read — fairly — as a dead product. The dates were always in the rows;
+    # what was missing was one field saying where the list ends, so nobody has to
+    # infer it. The page does not get to imply activity it cannot show.
+    facts["payments_as_of"] = max(
+        (p["settled_at"] for p in facts["recent_payments"]), default=None)
+    facts["payments_count"] = len(facts["recent_payments"])
     facts["last_updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     _ep_rows = "\n".join(
         f"<tr><td><code>{e['path']}</code><br>"
@@ -216,12 +274,41 @@ def validation():
         return jsonify(facts)
 
     ok_cls = "ok" if facts["status"] == "operational" else "warn"
+    # Absolute URLs for the crawler-facing tags. Built from the live host so the
+    # page stays correct on Render, on a custom domain and in local tests alike.
+    _site_root = request.host_url.rstrip("/")
+    _canonical = _site_root + "/validation"
+    _og_image = _site_root + "/static/og/kristo-og.png"
     page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Validation — Kristo Intelligence</title>
+<meta name="description" content="Checkable facts about the Kristo Intelligence x402 API: live status, uptime, on-chain payment history and third-party trust profiles. Free to read, no signup.">
+<link rel="canonical" href="{_canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Kristo Intelligence">
+<meta property="og:title" content="Validation — Kristo Intelligence">
+<meta property="og:description" content="Checkable facts about the Kristo Intelligence x402 API: live status, uptime, on-chain payment history and third-party trust profiles.">
+<meta property="og:url" content="{_canonical}">
+<meta property="og:image" content="{_og_image}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Validation — Kristo Intelligence">
+<meta name="twitter:description" content="Checkable facts about the Kristo Intelligence x402 API, free to read.">
+<meta name="twitter:image" content="{_og_image}">
+<script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "Validation — Kristo Intelligence",
+  "url": "{_canonical}",
+  "isPartOf": {{ "@type": "WebSite", "name": "Kristo Intelligence",
+                 "url": "{_site_root}/" }}
+}}
+</script>
 <style>
   :root {{ --bg:#0a0e14; --panel:#11161f; --border:#232c3b; --text:#d7dde6;
            --muted:#8b96a5; --accent:#38bdf8; --green:#34d399; --amber:#fbbf24; }}
@@ -260,7 +347,9 @@ def validation():
       <dt>Uptime</dt>
       <dd>23 of 23 days green</dd>
       <dt>Price</dt>
-      <dd>${KRISTO_SIGNAL_PRICE:.3f} per call — unchanged since launch</dd>
+      <dd>${price_floor:.3f}–${price_ceiling:.3f} per call, depending on the
+        route — the 402 challenge states the exact amount before you pay
+        (<a href="/llms.txt">per-route prices</a>)</dd>
       <dt>Third-party audit — Reddit, {audit["date"]}</dt>
       <dd>{audit["transfers"]} transfers, {audit["total_usdc"]} USDC —
         {audit["result"]}.
@@ -328,7 +417,7 @@ def validation():
   <div class="panel">
     <dl>
       <dt>Test suite</dt>
-      <dd class="ok">550/550 tests green (pytest) — last run 2026-10-30</dd>
+      <dd class="ok">{SUITE_TESTS_PASSED}/{SUITE_TESTS_PASSED} tests green (pytest) — last run {SUITE_LAST_RUN}</dd>
       <dd>Adversarial audit: 23/23 (mystery-agent simulation)</dd>
     </dl>
   </div>
@@ -390,9 +479,7 @@ def signal_sample():
             ],
         },
         "paid_route": "/api/v1/signal",
-        "disclaimer": ("Static sample of the response schema for discovery "
-                       "and agents; live values require a paid call "
-                       "($0.003 USDC, x402 on Base)."),
+        "disclaimer": _sample_disclaimer("/api/v1/signal"),
     }), 200
 
 
@@ -412,8 +499,7 @@ def stats_sample():
             "market": {"eth_usd": 2387.78, "fear_greed": 61},
         },
         "paid_route": "/api/stats",
-        "disclaimer": "Static example of the response schema; live values "
-                      "require a paid call ($0.005 USDC, x402 on Base).",
+        "disclaimer": _sample_disclaimer("/api/stats"),
     }), 200
 
 
@@ -436,8 +522,7 @@ def whaleflow_sample():
             ],
         },
         "paid_route": "/api/v1/whaleflow",
-        "disclaimer": "Static example of the response schema; live values "
-                      "require a paid call ($0.005 USDC, x402 on Base).",
+        "disclaimer": _sample_disclaimer("/api/v1/whaleflow"),
     }), 200
 
 
@@ -458,8 +543,7 @@ def sales_sample():
             ],
         },
         "paid_route": "/api/sales",
-        "disclaimer": "Static example of the response schema; live values "
-                      "require a paid call ($0.005 USDC, x402 on Base).",
+        "disclaimer": _sample_disclaimer("/api/sales"),
     }), 200
 
 
@@ -478,8 +562,7 @@ def bot_status_sample():
             "service_wallet": {"state": "active"},
         },
         "paid_route": "/api/bot-status",
-        "disclaimer": "Static example of the response schema; live values "
-                      "require a paid call ($0.005 USDC, x402 on Base).",
+        "disclaimer": _sample_disclaimer("/api/bot-status"),
     }), 200
 
 
@@ -500,8 +583,7 @@ def arb_sample():
             ],
         },
         "paid_route": "/api/arb/opportunities",
-        "disclaimer": "Static example of the response schema; live values "
-                      "require a paid call ($0.005 USDC, x402 on Base).",
+        "disclaimer": _sample_disclaimer("/api/arb/opportunities"),
     }), 200
 
 
@@ -871,12 +953,23 @@ def api_mcp_manifest():
                                   "/api/v1/whaleflow"],
                 },
                 {
+                    # $29 is a HUMAN product, not a machine tier. Paying it
+                    # issues a Telegram VIP invite code (see "vip_threshold" in
+                    # instructions below) and does NOT unlock API calls: no route
+                    # consults the subscriber list — main.py reads it only to
+                    # classify the payment and to de-duplicate the invite code.
+                    # The previous wording ("unlimited for 30 days", endpoints
+                    # ["ALL"]) told an autonomous agent that one $29 payment buys
+                    # unlimited access, which the code cannot honour.
                     "id": "vip_monthly",
-                    "name": "Monthly VIP",
+                    "name": "Monthly VIP (human product)",
                     "price_usdc": VIP_MONTHLY_USDC,
-                    "description": "Unlimited monthly access + Telegram VIP group invite",
-                    "access": "unlimited for 30 days",
-                    "endpoints": ["ALL"],
+                    "description": "Telegram VIP group invite code, sold to humans through Stripe",
+                    "access": "Telegram channel only",
+                    "endpoints": [],
+                    "api_access_granted": False,
+                    "unlimited_api_access": False,
+                    "machine_purchasable": False,
                     "bonus": "Telegram VIP group invite code",
                 },
             ],
@@ -905,7 +998,18 @@ def api_mcp_manifest():
         "instructions": {
             "payment": f"Send USDC to {fee_receiver} on Base network",
             "verification": "Payments are verified on-chain via Transfer event logs",
-            "vip_threshold": f"Payments >= ${VIP_THRESHOLD_USDC} USDC automatically generate a Telegram VIP invite code",
+            # This used to read "Payments >= $0.1 USDC ...", which reads as a
+            # cumulative total. The code tests a single transfer
+            # (main.py:884, `amount_usd >= VIP_THRESHOLD_USDC`), and no API route
+            # costs anywhere near $0.1 — the dearest is $0.005 — so as worded the
+            # promise could not be reached by any ordinary customer. Same family
+            # as the volume discount that could never trigger.
+            "vip_threshold": (
+                f"A single payment of at least ${VIP_THRESHOLD_USDC} USDC "
+                "generates a Telegram VIP invite code. This is for large one-off "
+                "transfers, not accumulated API calls: the dearest route costs "
+                f"${_dearest_route_price():.3f}, so ordinary per-call usage will "
+                "not reach it."),
         },
     }
     return jsonify(manifest)
@@ -1033,9 +1137,13 @@ def mcp_json():
         X402_RECEIVER_ADDRESS,
         X402_USDC_CONTRACT,
         FREE_TIER_LIMIT,
-        VIP_MONTHLY_USDC,
     )
-    from config import KRISTO_SIGNAL_PRICE, KRISTO_ARB_PRICE
+    # KRISTO_WHALEFLOW_PRICE was NOT in this import while the tool list below
+    # uses it -> NameError -> live 500 on /mcp.json. That is the exact failure
+    # "Audit #6 BREAK 2" recorded one route over, and it survived for the same
+    # reason: no test called this route. Both are fixed together.
+    from config import (KRISTO_SIGNAL_PRICE, KRISTO_ARB_PRICE,
+                        KRISTO_WHALEFLOW_PRICE)
 
     # Cheapest real route price — the same derived-floor rule as the OpenAPI
     # security blurb: never quote one flat amount for routes that differ.
@@ -1056,8 +1164,17 @@ def mcp_json():
             "receiver_address": X402_RECEIVER_ADDRESS,
             "price_per_call_usdc": X402_FEE_USDC,
             "free_tier_limit": FREE_TIER_LIMIT,
-            "monthly_vip_usdc": VIP_MONTHLY_USDC,
+            # No "monthly_vip_usdc" field: $29 is a human product sold through
+            # Stripe. It issues a Telegram invite code and does NOT unlock API
+            # calls — same reasoning as the note in agents_json() below.
+            "unlocks_api_calls_on_extra_payment": False,
         },
+        # All six paid routes. The list used to carry only three of them, so an
+        # agent reading this file could not discover /api/v1/signal,
+        # /api/v1/whaleflow or /api/arb/opportunities at all.
+        # "free_tier_eligible" is computed from the live limit instead of being
+        # hardcoded True: production runs with FREE_TIER_LIMIT=0, so promising a
+        # free call here was simply untrue.
         "tools": [
             {
                 "name": "get_market_stats",
@@ -1065,7 +1182,8 @@ def mcp_json():
                 "endpoint": f"{base_url}/api/stats",
                 "method": "GET",
                 "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
+                "free_sample": f"{base_url}/api/stats/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
                 "name": "get_sales_history",
@@ -1073,7 +1191,8 @@ def mcp_json():
                 "endpoint": f"{base_url}/api/sales",
                 "method": "GET",
                 "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
+                "free_sample": f"{base_url}/api/sales/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
                 "name": "get_bot_status",
@@ -1081,7 +1200,35 @@ def mcp_json():
                 "endpoint": f"{base_url}/api/bot-status",
                 "method": "GET",
                 "cost_usdc": X402_FEE_USDC,
-                "free_tier_eligible": True,
+                "free_sample": f"{base_url}/api/bot-status/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
+            },
+            {
+                "name": "get_arbitrage_opportunities",
+                "description": "Live cross-DEX arbitrage spreads on Base, refreshed every 60 seconds",
+                "endpoint": f"{base_url}/api/arb/opportunities",
+                "method": "GET",
+                "cost_usdc": KRISTO_ARB_PRICE,
+                "free_sample": f"{base_url}/api/arb/opportunities/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
+            },
+            {
+                "name": "get_trading_signal",
+                "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN",
+                "endpoint": f"{base_url}/api/v1/signal",
+                "method": "GET",
+                "cost_usdc": KRISTO_SIGNAL_PRICE,
+                "free_sample": f"{base_url}/api/v1/signal/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
+            },
+            {
+                "name": "get_whale_flow",
+                "description": "Large USDC transfers on Base with labeled counterparties",
+                "endpoint": f"{base_url}/api/v1/whaleflow",
+                "method": "GET",
+                "cost_usdc": KRISTO_WHALEFLOW_PRICE,
+                "free_sample": f"{base_url}/api/v1/whaleflow/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
                 "name": "get_mcp_manifest",
@@ -1388,11 +1535,16 @@ Sitemap: {request.host_url.rstrip('/')}/sitemap.xml
 def sitemap_xml():
     """Dynamic sitemap for SEO — always reflects the current host."""
     base_url = request.host_url.rstrip("/")
+    # Only genuinely indexable pages belong in a sitemap. /dashboard, /nexus and
+    # /agents all serve the SAME noindex dashboard HTML (verified live: identical
+    # 45,971-byte response), so listing them asked crawlers to index three
+    # duplicate pages that each answer "do not index me" - a direct contradiction
+    # that costs trust. Meanwhile /validation - a real content page - was missing
+    # from the sitemap entirely. The machine-readable endpoints stay: they are
+    # not HTML, but crawlers and agent registries do use sitemaps to find them.
     pages = [
         ("/", "1.0", "daily"),
-        ("/dashboard", "0.9", "hourly"),
-        ("/nexus", "0.8", "daily"),
-        ("/agents", "0.8", "daily"),
+        ("/validation", "0.8", "weekly"),
         ("/launch", "0.7", "weekly"),
         ("/llms.txt", "0.6", "weekly"),
         ("/openapi.json", "0.6", "weekly"),
@@ -1413,6 +1565,28 @@ def sitemap_xml():
     return Response(xml, mimetype="application/xml")
 
 
+#: IndexNow key (32 hex characters).
+#:
+#: IndexNow lets a site tell Bing, Yandex and Seznam IMMEDIATELY that a URL was
+#: added or changed, instead of waiting to be re-crawled. Ownership is proven
+#: simply by hosting this exact key at https://<host>/<key>.txt — no account, no
+#: login, no verification meta tag. That makes this the one indexing channel we
+#: can open without waiting on anyone, which matters because being absent from
+#: public search is our single biggest visibility gap.
+INDEXNOW_KEY = "2c90228c28c14958f379d6fd487411d3"
+
+
+@discovery_bp.route("/" + INDEXNOW_KEY + ".txt")
+def indexnow_key_file():
+    """Serve the IndexNow ownership proof at the exact path it must live at.
+
+    The rule uses the literal key rather than a `<key>` converter on purpose: a
+    converter would match ANY root-level .txt path and could shadow a future
+    file. /robots.txt and /sitemap.xml are unaffected.
+    """
+    return Response(INDEXNOW_KEY + "\n", mimetype="text/plain")
+
+
 @discovery_bp.route("/agents.json")
 def agents_json():
     """agents.json — emerging standard for AI-agent service discovery.
@@ -1427,12 +1601,12 @@ def agents_json():
         X402_RECEIVER_ADDRESS,
         X402_USDC_CONTRACT,
         FREE_TIER_LIMIT,
-        VIP_MONTHLY_USDC,
-        # Audit #6 BREAK 2: these two were used below but missing from the
-        # import list -> NameError -> LIVE 500 on /agents.json (the suite
-        # never called this route, so 405 tests stayed green).
-        KRISTO_ARB_PRICE,
-        KRISTO_SIGNAL_PRICE,
+        # The single public vitrine. The endpoint list below is GENERATED from
+        # this instead of being typed out again: the hand-typed version had
+        # drifted to 5 of the 6 real routes, quietly hiding /api/v1/whaleflow
+        # from every agent that reads this file. (Audit #6 BREAK 2 was the same
+        # class of failure one level down — an untested route served a live 500.)
+        REAL_X402_ROUTES,
     )
 
     base_url = request.host_url.rstrip("/")
@@ -1453,24 +1627,28 @@ def agents_json():
             "receiver_address": X402_RECEIVER_ADDRESS,
             "price_per_call_usdc": X402_FEE_USDC,
             "free_tier_limit": FREE_TIER_LIMIT,
-            "monthly_vip_usdc": VIP_MONTHLY_USDC,
+            # There is deliberately NO "monthly_vip_usdc" field here any more.
+            # $29 is a HUMAN product sold through Stripe: paying it issues a
+            # Telegram invite code and does NOT unlock API calls. No route
+            # consults the subscriber list — main.py only reads it to classify
+            # the payment and to avoid issuing a second invite code to the same
+            # wallet. Leaving the field here told an autonomous agent it could
+            # spend $29 on unlimited access it cannot receive.
+            "unlocks_api_calls_on_extra_payment": False,
         },
+        # Generated from the single public vitrine (main.REAL_X402_ROUTES) — the
+        # same list llms.txt, the landing pages and the tests read.
         "endpoints": [
-            {"path": "/api/stats", "method": "GET",
-             "description": "Market activity, daily stats, live market data",
-             "cost_usdc": X402_FEE_USDC},
-            {"path": "/api/sales", "method": "GET",
-             "description": "Real on-chain sales history (USDC transfers)",
-             "cost_usdc": X402_FEE_USDC},
-            {"path": "/api/bot-status", "method": "GET",
-             "description": "Telegram bot integration status",
-             "cost_usdc": X402_FEE_USDC},
-            {"path": "/api/arb/opportunities", "method": "GET",
-             "description": "Live cross-DEX arbitrage spreads on Base (60s refresh)",
-             "cost_usdc": KRISTO_ARB_PRICE},
-            {"path": "/api/v1/signal", "method": "GET",
-             "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN",
-             "cost_usdc": KRISTO_SIGNAL_PRICE},
+            {
+                "path": route["endpoint"],
+                "method": "GET",
+                "name": route.get("name", ""),
+                "description": (route.get("description") or "").strip(),
+                "cost_usdc": float(route["price_usdc"]),
+                "free_sample": "%s/sample" % route["endpoint"],
+                "free_tier_eligible": False,
+            }
+            for route in REAL_X402_ROUTES
         ],
         "docs": {
             "llms_txt": f"{base_url}/llms.txt",
@@ -1492,7 +1670,15 @@ def ai_plugin_json():
         X402_RECEIVER_ADDRESS,
         X402_USDC_CONTRACT,
         FREE_TIER_LIMIT,
+        REAL_X402_ROUTES,
     )
+
+    # Same derived-floor rule as the other manifests: never quote one flat amount
+    # for routes that differ. This blurb used to state X402_FEE_USDC alone, which
+    # is the most expensive route, so two of the six real routes were advertised
+    # above their actual price.
+    _floor = min(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
+    _ceiling = max(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
 
     base_url = request.host_url.rstrip("/")
     return jsonify({
@@ -1503,12 +1689,24 @@ def ai_plugin_json():
             "AI-powered DeFi trading signals and crypto market intelligence on "
             "Base. Pay per request with USDC via the x402 protocol — no API keys."
         ),
+        # This string used to end with "One free call per client." Production
+        # runs with FREE_TIER_LIMIT=0, so that was a promise the paywall could
+        # not keep, and it named only the legacy X-Payment-Proof rail. Both are
+        # derived/generated now: the count comes from the live limit and the
+        # price range from the vitrine.
         "description_for_model": (
-            "Fetch DeFi market stats, real on-chain USDC sales history, and "
-            "bot integration status. Paid endpoints cost "
-            f"{X402_FEE_USDC} USDC per call via x402 (HTTP 402): send USDC on "
-            f"Base (chain {X402_CHAIN_ID}) to {X402_RECEIVER_ADDRESS}, then "
-            "retry with the X-Payment-Proof header. One free call per client."
+            "Fetch DeFi market stats, real on-chain USDC sales history, whale "
+            "flow, arbitrage spreads, trading signals and bot integration "
+            "status. Every paid route costs between "
+            f"{_floor} and {_ceiling} USDC per call via x402 (HTTP 402); the "
+            "exact amount is always stated in the 402 response. Pay with the "
+            "standard x402 header PAYMENT-SIGNATURE (EIP-3009, settled through "
+            "the facilitator); clients on x402 v1 may send X-PAYMENT instead, "
+            "and a manual on-chain transfer is also accepted via the "
+            "X-Payment-Proof header after 12 confirmations. This deployment "
+            f"grants {FREE_TIER_LIMIT} free calls per client, so treat every "
+            "call as paid. A free sample of every paid route is served at "
+            "<endpoint>/sample and needs no payment."
         ),
         "auth": {"type": "none"},
         "api": {
@@ -1525,11 +1723,32 @@ def ai_plugin_json():
             "chain_id": X402_CHAIN_ID,
             "token_contract": X402_USDC_CONTRACT,
             "receiver_address": X402_RECEIVER_ADDRESS,
+            # Not one flat fee — the routes differ. The 402 always states the
+            # exact amount; these two bound it.
+            "price_min_usdc": _floor,
+            "price_max_usdc": _ceiling,
             "price_per_call_usdc": X402_FEE_USDC,
             "free_tier_limit": FREE_TIER_LIMIT,
+            # Standard rail first. This block advertised only the legacy proof
+            # header, so a spec client reading it was pointed at the slow path.
+            "challenge_header": "PAYMENT-REQUIRED",
+            "preferred_header": "PAYMENT-SIGNATURE",
+            "legacy_headers": ["X-PAYMENT", "X-Payment-Proof"],
             "proof_header": "X-Payment-Proof",
             "client_package": "kristo-x402-client (npm)",
         },
+        # What an agent scanner reading this file can actually buy. It used to
+        # name no route at all.
+        "x402_endpoints": [
+            {
+                "path": route["endpoint"],
+                "method": "GET",
+                "name": route.get("name", ""),
+                "cost_usdc": float(route["price_usdc"]),
+                "free_sample": "%s/sample" % route["endpoint"],
+            }
+            for route in REAL_X402_ROUTES
+        ],
     })
 
 
@@ -1569,6 +1788,16 @@ def llms_txt():
         % (endpoint, name, price, ("\n  " + description) if description else "")
         for endpoint, name, price, description in paid
     )
+    # Every paid route has a free /sample twin (all six are in
+    # X402_FREE_ENDPOINTS), so this list is DERIVED from REAL_X402_ROUTES and can
+    # never drift out of sync with the paid list above it. They were previously
+    # advertised nowhere at all: an agent had no way to see our response shape
+    # without paying first, which is the hardest possible way to be discovered.
+    sample_lines = "\n".join(
+        "- GET %s/sample — free sample response for %s (no payment, no signup)"
+        % (endpoint, name)
+        for endpoint, name, _price, _description in paid
+    )
 
     content = f"""# Kristo Intelligence API
 
@@ -1587,13 +1816,35 @@ def llms_txt():
 
 ## How to Pay
 
-1. Call the endpoint you want and read `accepts[0].amount` / `accepts[0].payTo`
-   from the 402 body (the amount differs per route)
-2. Send exactly that amount of USDC on Base to {X402_RECEIVER_ADDRESS}
-3. Wait for on-chain confirmation (usually ~2 seconds on Base)
-4. Retry the desired endpoint with the `X-Payment-Proof` header:
+Two rails are accepted. Rail 1 is the standard x402 flow — prefer it, because
+it is what the x402 ecosystem (x402-fetch, x402scan, facilitators) speaks.
+Rail 2 is a legacy self-describing proof that we still honour.
+
+### Rail 1 — standard x402 (preferred)
+
+1. Call the endpoint you want. It answers HTTP 402 with the canonical
+   `PAYMENT-REQUIRED` response header (base64 of the PaymentRequired JSON) and a
+   JSON body whose `accepts[0]` states the exact `amount` (atomic USDC units),
+   `payTo`, `asset` and `network` for THAT route — the amount differs per route.
+2. Sign an EIP-3009 `transferWithAuthorization` for exactly that amount (scheme
+   "exact") and repeat the SAME request with the signed payload in the
+   `PAYMENT-SIGNATURE` header. Clients still on x402 v1 send the same payload in
+   `X-PAYMENT`; both are accepted and `PAYMENT-SIGNATURE` wins if both are sent.
+3. Settlement runs through the x402 facilitator automatically. A signed payload
+   is single-use — replaying it is rejected.
+4. If the call answers HTTP 425 (`settlement_in_flight`), your payment DID settle
+   on-chain but our node has not reached the confirming block yet. Wait a few
+   seconds and retry the exact same request. Do NOT pay again.
+
+### Rail 2 — legacy self-describing proof (fallback)
+
+1. Send exactly the amount from `accepts[0].amount` in USDC on Base to
+   `accepts[0].payTo`.
+2. Wait for 12 confirmations (~24 seconds on Base) — this rail requires them.
+3. Repeat the request with the `X-Payment-Proof` header:
    `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the amount you sent>}}))`
-5. The server verifies the transfer on-chain and grants access automatically
+4. The server verifies the transfer on-chain and grants access. Each proof is
+   single-use.
 
 ## Endpoints
 
@@ -1607,8 +1858,18 @@ def llms_txt():
 - GET /openapi.json — OpenAPI 3.0 specification
 - GET /llms.txt — This file (LLM-friendly API description)
 - GET /api/mcp/manifest — MCP/x402 machine-readable manifest
+- GET /agents.json — agent and service discovery manifest
+- GET /api/v1/quickstart — step-by-step first-call walkthrough
+- GET /validation — checkable facts: status, uptime, on-chain payment history
 - GET /health — Service health check
 - GET /dashboard — HTML dashboard
+
+#### Free samples of every paid route
+
+Each one returns the real response shape with example data, and costs nothing.
+Use them to build and test a client before spending anything.
+
+{sample_lines}
 
 ## Base URL
 
@@ -1617,8 +1878,24 @@ def llms_txt():
 ## HTTP 402 Response
 
 When payment is required, the API returns HTTP 402 with:
-- JSON body containing payment details (receiver address, amount, chain)
-- Headers: X-Payment-Required, X-Payment-Address, X-Payment-Amount-USDC
+- the `PAYMENT-REQUIRED` response header — canonical standard base64 (not
+  base64url) of `{{x402Version, error, accepts, resource, extensions}}`
+- a JSON body mirroring those same fields, plus self-contained `x402_*` mirrors
+  so a model holding ONLY this JSON can still pay: `x402_network` (CAIP-2),
+  `x402_amount` (atomic units), `x402_recipient`, `x402_token_contract`
+- legacy convenience headers: `X-Payment-Required`, `X-Payment-Address`,
+  `X-Payment-Amount-USDC`, `X-Payment-Chain`, `X-Payment-Token-Contract` and
+  `WWW-Authenticate`
+
+## Status Codes
+
+- 200 — paid call delivered
+- 402 — payment required (no credential was presented at all)
+- 401 — a credential WAS presented but is unusable: bad signature, wrong amount
+  or receiver, expired authorization window, or an unknown / already-used
+  transaction
+- 425 — the payment already settled on-chain but our node has not caught up yet;
+  retry the same request shortly, and do not pay again
 
 ## Discovery Files
 

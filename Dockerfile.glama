@@ -1,0 +1,63 @@
+# Glama / stdio-only-clients image for Kristo Intelligence
+# ---------------------------------------------------------------------------
+# Wraps the SLEEPING stdio bridge (`scripts/mcp_stdio_bridge.py`) into a
+# container that answers MCP introspection over stdin/stdout: no port, no
+# listening socket, no dependency on the Render deployment.
+#
+# WHY THIS IS A SEPARATE FILE
+#   `tests/test_mcp_stdio_bridge.py` asserts that the production `Dockerfile`
+#   and the `Procfile` never reference the bridge - waking it up must be a
+#   deliberate, separate change. This file is that change, and it touches
+#   nothing that Render deploys: the production image keeps serving HTTP on
+#   $PORT exactly as before.
+#
+# WHAT IT RUNS
+#   The bridge hands every JSON-RPC line to the REAL Flask app in-process (via
+#   Flask's test client), so each payload is byte-for-byte what `/mcp` answers
+#   on Render. Tools, prices, paywall and auth behaviour are unchanged.
+#
+# VERIFIED END TO END (host, Python 3.12)
+#   initialize -> tools/list returns all 3 tools with their full JSON schemas
+#   (get_market_stats, get_onchain_sales, get_bot_status); three requests in,
+#   exactly three protocol frames out; every frame valid JSON; application
+#   logging lands on stderr and never on stdout; exit code 0.
+#
+#   docker build -f Dockerfile.glama -t kristo-mcp-stdio .
+#   docker run --rm -i kristo-mcp-stdio
+# ---------------------------------------------------------------------------
+
+FROM python:3.12-slim AS stdio
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash kristo
+WORKDIR /app
+
+COPY --chown=kristo:kristo requirements.txt ./
+USER kristo
+RUN pip install --user --no-cache-dir --upgrade pip \
+    && pip install --user --no-cache-dir -r requirements.txt
+
+USER root
+COPY --chown=kristo:kristo . .
+# `data/` is excluded by .dockerignore, but importing the app seeds a SQLite
+# catalog at `data/agent_catalog.db` and the store never creates the directory
+# itself - without this the container dies on "unable to open database file".
+RUN mkdir -p /app/data && chown -R kristo:kristo /app/data
+USER kristo
+
+# PYTHONPATH=/app is REQUIRED: running `python scripts/<file>.py` puts the
+# script's own directory (scripts/) on sys.path, not the project root, so the
+# bridge's `from main import app` fails with ModuleNotFoundError inside the
+# container. Verified by running the built image - without this line the
+# container exits 1 and introspection gets zero frames.
+ENV PATH="/home/kristo/.local/bin:${PATH}" \
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    KRISTO_DISABLE_BACKGROUND_THREADS=true
+
+# MCP stdio transport: newline-delimited JSON-RPC on stdin/stdout.
+ENTRYPOINT ["python", "scripts/mcp_stdio_bridge.py"]

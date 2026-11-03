@@ -5,6 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kristo Intelligence — API that pays for itself (x402 / USDC on Base)</title>
 <meta name="description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Paid per call, from ${{ '%.3f'|format(cheapest) }}/call (USDC on Base), retry, get data.">
+<link rel="canonical" href="{{ request.base_url }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Kristo Intelligence">
+<meta property="og:title" content="Kristo Intelligence — API that pays for itself (x402 / USDC on Base)">
+<meta property="og:description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout. Paid per call, from ${{ '%.3f'|format(cheapest) }}/call (USDC on Base), retry, get data.">
+<meta property="og:url" content="{{ request.base_url }}">
+<meta property="og:image" content="{{ request.url_root }}static/og/kristo-og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Kristo Intelligence — API that pays for itself (x402 / USDC on Base)">
+<meta name="twitter:description" content="DeFi market intelligence API for AI agents. No API keys — the HTTP 402 response IS the checkout.">
+<meta name="twitter:image" content="{{ request.url_root }}static/og/kristo-og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebAPI",
+  "name": "Kristo Intelligence API",
+  "description": "DeFi market intelligence API for AI agents, paid per call over the x402 protocol with USDC on Base.",
+  "url": "{{ request.base_url }}",
+  "documentation": "{{ request.url_root }}openapi.json",
+  "termsOfService": "{{ request.url_root }}llms.txt",
+  "provider": {
+    "@type": "Organization",
+    "name": "Kristo Intelligence",
+    "url": "{{ request.url_root }}"
+  },
+  "offers": {
+    "@type": "Offer",
+    "priceCurrency": "USDC",
+    "description": "Paid per API call through the x402 protocol on Base; each route states its exact amount in its HTTP 402 challenge."
+  }
+}
+</script>
 <style>
   :root { --bg:#0b0f1a; --panel:#111726; --line:#1e2a44; --txt:#dbe4ff;
           --green:#4ade80; --amber:#fbbf24; --blue:#60a5fa; --muted:#8294b8; }
@@ -64,7 +98,7 @@
 
   <div class="grid">
     <div class="card"><div class="big" style="color:var(--green)">${{ '%.3f'|format(cheapest) }}</div><div class="lbl">from — per call, USDC on Base (see all six below)</div></div>
-    <div class="card"><div class="big" style="color:var(--blue)">~2s</div><div class="lbl">payment settlement (Base L2)</div></div>
+    <div class="card"><div class="big" style="color:var(--blue)">~2s</div><div class="lbl">signed settlement (Base L2)</div></div>
     <div class="card"><div class="big" style="color:var(--amber)">{% if free_tier_limit %}{{ free_tier_limit }}{% else %}0{% endif %}</div><div class="lbl">{% if free_tier_limit %}free call per client{% else %}free calls — every unpaid call is a 402{% endif %}</div></div>
   </div>
 
@@ -103,16 +137,21 @@
 
 <script>
 // Animated terminal: the exact x402 handshake an autonomous agent performs.
+// This used to demo the legacy rail only, and captioned it "pays on Base (~2s)" —
+// but that rail waits 12 confirmations, about 24 seconds. The short path is the
+// signed one (EIP-3009), so that is what the animation shows now, with the legacy
+// rail named at the end and its real latency stated.
 const SCRIPT = [
   {t:800,  cls:'p',     html:'<span class="dim"># 1. Agent calls the API — no key, no auth</span>'},
   {t:400,  cls:'cmd',   html:'$ curl https://kristo-intelligence-api.onrender.com{{ cheapest_route.endpoint }}'},
   {t:900,  cls:'warn',  html:'HTTP/1.1 <b>402 Payment Required</b>'},
   {t:300,  cls:'ok',    html:'{ "accepts": [{ "amount": "{{ (cheapest * 1000000)|int }}", "asset": "0x833589fC...",<br>&nbsp;&nbsp;"payTo": "0xd4cdA900...", "network": "eip155:8453" }] }'},
-  {t:1100, cls:'p',     html:'<span class="dim"># 2. Agent reads the JSON contract, pays on Base (~2s)</span>'},
-  {t:400,  cls:'cmd',   html:'$ send {{ '%.3f'|format(cheapest) }} USDC → 0xd4cdA900... (Base mainnet) <span class="dim">tx: &lt;YOUR_TX_HASH&gt; ✓</span>'},
-  {t:1000, cls:'p',     html:'<span class="dim"># 3. Retry with the payment proof</span>'},
-  {t:400,  cls:'cmd',   html:'$ curl -H "X-Payment-Proof: ..." {{ cheapest_route.endpoint }}'},
+  {t:1100, cls:'p',     html:'<span class="dim"># 2. Agent signs an EIP-3009 transferWithAuthorization — offline, no gas</span>'},
+  {t:400,  cls:'cmd',   html:'$ sign {{ '%.3f'|format(cheapest) }} USDC → 0xd4cdA900... (Base mainnet) <span class="dim">sig 0x… ✓</span>'},
+  {t:1000, cls:'p',     html:'<span class="dim"># 3. Retry with the signed payload — the facilitator settles it, nothing waits on a block</span>'},
+  {t:400,  cls:'cmd',   html:'$ curl -H "PAYMENT-SIGNATURE: ..." {{ cheapest_route.endpoint }}'},
   {t:900,  cls:'ok',    html:'HTTP/1.1 <b>200 OK</b> — market intelligence delivered <span class="dim">✓</span>'},
+  {t:900,  cls:'p',     html:'<span class="dim"># a plain USDC transfer + X-Payment-Proof works too — it waits ~24s for 12 confirmations</span>'},
 ];
 const term = document.getElementById('term');
 let i = 0;

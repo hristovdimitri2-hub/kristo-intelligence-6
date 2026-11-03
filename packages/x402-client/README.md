@@ -1,6 +1,13 @@
 # kristo-x402-client
 
-Zero-dependency client for the [Kristo Intelligence API](https://kristo-intelligence-api.onrender.com) — handles **x402 paywalls automatically**: call an endpoint, the client pays the requested USDC on Base, retries with a cryptographic payment proof, and returns your data.
+Zero-dependency client for the [Kristo Intelligence API](https://kristo-intelligence-api.onrender.com) — it drives **our x402 paywall end to end**: call an endpoint, the client pays the requested USDC on Base, retries with a self-describing payment proof, and returns your data.
+
+It uses the **legacy `X-Payment-Proof` rail**, which is the one that accepts a
+plain ERC-20 transfer; that rail requires 12 confirmations (~24s on Base) before
+the call unlocks. The API also accepts the **standard x402 rail**
+(`PAYMENT-SIGNATURE`, EIP-3009, settled through a facilitator, no waiting) — this
+package does **not** implement EIP-3009 signing, so if you already have a spec
+client such as `x402-fetch`, prefer that one for new integrations.
 
 AI agents pay for DeFi market intelligence with **two lines of code**. No API keys. No signup.
 
@@ -82,7 +89,7 @@ const inspector = new KristoX402Client({ autoPay: false });
 
 const { paymentRequired } = await inspector.get("/api/stats");
 console.log(paymentRequired);
-// { amount: 0.05, recipient: "0xd4cd...", tokenContract: "0x8335...", chainId: 8453, path: "/api/stats" }
+// { amount: 0.005, recipient: "0xd4cd...", tokenContract: "0x8335...", chainId: 8453, path: "/api/stats" }
 ```
 
 ## How it works
@@ -120,9 +127,25 @@ Returns `{ok, status, data}` — or `{ok: false, status: 402, paymentRequired}` 
 
 ## Pricing
 
-- Free tier: 1 call per client, no signup
-- Pay-per-call: **$0.05 USDC** (volume discount to $0.01 after 10 paid calls)
-- Monthly VIP: **$29** — unlimited + Telegram group
+Prices come from the API's own price map, which is the same source the live HTTP
+402 challenges use. There is **no volume discount**: the discounted constant in
+the server (0.01) is higher than every real route price, so the "price drops
+after 10 calls" behaviour can never trigger. It is not promised here.
+
+- Free tier: **none** — production runs with a free-tier limit of 0, so every
+  unpaid call returns HTTP 402. There is no free call and no signup.
+- Pay per call, USDC on Base:
+  - **0.003** for `GET /api/v1/signal` and `GET /api/v1/whaleflow`
+  - **0.005** for `GET /api/stats`, `GET /api/sales`, `GET /api/bot-status` and
+    `GET /api/arb/opportunities`
+- Free samples of every one of those routes exist and cost nothing — e.g.
+  `GET /api/v1/signal/sample`, `GET /api/stats/sample`. Use them to build a
+  client before spending anything.
+
+The monthly plans advertised on the landing page (`/launch`, paid through
+Stripe) are a **separate human product** — market bulletin and Telegram access.
+They do **not** unlock x402 API calls: no API route consults the subscriber
+list. Paying $29 does not buy API credit.
 
 ## License
 

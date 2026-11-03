@@ -13,19 +13,28 @@ python examples/demo_agent/demo_agent.py --pay                # РЕАЛНО п�
 1. **Discovery** — GET `/.well-known/x402` (free): всички платени ресурси
 2. **Challenge** — GET платен endpoint → HTTP 402 с x402 v2 challenge
    (схема, мрежа, сума в атомни единици, payTo, описание)
-3. **Pay & retry** — изпраща точната сума USDC на Base до `payTo`, чака
-   майнингa, retry с `X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))`
+3. **Pay & retry** — изпраща точната сума USDC на Base до `payTo`, изчаква
+   потвърждения, retry с `X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))`
    → 200 с данните
+
+> **Две платежни релси — и едната е по-бърза.**
+> Демото показва **legacy** релсата, защото се обяснява най-лесно с обикновен
+> трансфер. Тя обаче изисква **12 потвърждения (≈24 секунди)** между плащането
+> и данните.
+> **Предпочитаната** релса е стандартната x402: подписваш EIP-3009
+> `transferWithAuthorization` и retry-ваш с `PAYMENT-SIGNATURE` (x402 v2;
+> `X-PAYMENT` за v1 клиенти). Facilitator-ът сетълва — не се чака блок.
+> И двете връщат данните; изборът е колко бързо искаш да е.
 
 ## Защо е публичен
 - **Доказателство:** всеки може да пусне клиента и да види работещо
   плащане от своя машина — trust през репродукция, не през обещания
 - **E2E тест:** стъпка 3 с реален wallet е точно E2E self-paid тестът
-- **Шаблон:** агент-билдъри копират `parse_challenge()` + proof header-а
-  директно в своя код
+- **Шаблон:** агент-билдъри копират `parse_challenge()` + платежния header
+  директно в своя код — и двете релси са описани по-горе
 
 ⚠️ Никога не ползвай production private key. `--pay` е за funded test
-wallet с микро-суми (0.003–0.01 USDC).
+wallet с микро-суми (0.003–0.005 USDC; точната сума я казва 402 challenge-ът).
 
 **Listing:** [Kristo Intelligence — DeFi Signals API on PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api) — settlement-verified, $0.003/call, USDC on Base.
 

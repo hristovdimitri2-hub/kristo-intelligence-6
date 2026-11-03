@@ -28,7 +28,7 @@
 
 - **Receiver (Base USDC):** `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
 - **USDC contract:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
-- **Платежни релси:** (1) `X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))` — self-describing; (2) стандартен `X-PAYMENT` (EIP-3009) — verify + settle през x402 facilitator (`services/connectors.py`).
+- **Платежни релси:** (1) **стандартната x402** — подписан EIP-3009 `transferWithAuthorization`, подаден в `PAYMENT-SIGNATURE` (v2; `X-PAYMENT` за v1 клиенти); verify + settle през x402 facilitator (`services/connectors.py`), без чакане на блокове. Предпочитана. (2) **legacy** — `X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))`, self-describing, но изисква **12 потвърждения (≈24 s)** преди данните.
 
 ## 3. Discovery линкове (всички free, live)
 

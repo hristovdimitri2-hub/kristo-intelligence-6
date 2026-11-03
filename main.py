@@ -4024,6 +4024,7 @@ def api_quickstart():
     transfer, retry carries the proof. No signup, no keys, no docs needed.
     """
     base_url = request.host_url.rstrip("/")
+    _cheapest_price = min(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
     return _safe_jsonify({
         "service": "Kristo Intelligence",
         "protocol": "x402 v2",
@@ -4032,13 +4033,25 @@ def api_quickstart():
         "receiver": X402_RECEIVER_ADDRESS,
         "cheapest_call": {
             "endpoint": f"{base_url}/api/v1/signal",
-            "amount_usdc": 0.003,
+            "amount_usdc": _cheapest_price,
             "note": "paid per call — no subscription, no signup, no API key",
         },
+        # These steps used to teach the legacy rail as *the* way in, in all three
+        # snippets below. That is the slow one: a plain transfer needs 12
+        # confirmations (~24s) before the data comes back. It was the llms.txt bug
+        # again, in the single most-read onboarding document we publish — the
+        # first thing an integrating agent fetches. Preferred rail first now, with
+        # the legacy one kept as the documented alternative.
         "steps": [
-            "GET /api/stats -> 402 challenge (fully self-describing)",
-            "send the challenge amount in USDC (Base) to the receiver",
-            "retry with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
+            "GET a paid endpoint -> 402 challenge, fully self-describing "
+            "(accepts[0] carries scheme, network, amount and payTo)",
+            "preferred: sign an EIP-3009 transferWithAuthorization for "
+            "accepts[0].amount to accepts[0].payTo and retry with the "
+            "PAYMENT-SIGNATURE header (x402 v2; X-PAYMENT for v1 clients) — the "
+            "facilitator settles it, so nothing waits on block confirmations",
+            "alternative: send the same amount as a plain USDC transfer to "
+            "accepts[0].payTo, wait 12 confirmations (~24s), then retry with "
+            "X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
         ],
         "curl": f"curl -i {base_url}/api/stats   # 402 -> read accepts[0].amount / payTo",
         "python": (
@@ -4046,22 +4059,34 @@ def api_quickstart():
             f"r = httpx.get('{base_url}/api/stats')\n"
             "assert r.status_code == 402\n"
             "req = r.json()['accepts'][0]   # scheme / network / amount / payTo\n"
-            "# 1) pay int(req['amount'])/1e6 USDC to req['payTo'] on Base\n"
-            "# 2) retry with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
+            "# preferred: sign an EIP-3009 transferWithAuthorization for "
+            "req['amount'] to req['payTo'] on Base,\n"
+            "#   then retry with the PAYMENT-SIGNATURE header (x402 v2). "
+            "x402-fetch and the x402scan wallet do this for you.\n"
+            "# alternative (legacy, slower): send the same amount as a plain "
+            "USDC transfer, wait 12 confirmations, then retry with\n"
+            "#   X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
         ),
         "node": (
             "const r = await fetch('" + base_url + "/api/stats');\n"
             "if (r.status === 402) {\n"
             "  const { accepts } = await r.json();\n"
-            "  // pay accepts[0].amount raw units (USDC, 6 decimals) to accepts[0].payTo on Base\n"
-            "  // then retry with header X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))\n"
+            "  // preferred: sign an EIP-3009 transferWithAuthorization for "
+            "accepts[0].amount (raw USDC, 6 decimals) to accepts[0].payTo,\n"
+            "  //   then retry with headers { 'PAYMENT-SIGNATURE': signed } "
+            "(x402 v2; 'X-PAYMENT' for v1 clients)\n"
+            "  // alternative (legacy, slower): plain USDC transfer, wait 12 "
+            "confirmations, then retry with\n"
+            "  //   { 'X-Payment-Proof': base64url(JSON.stringify({payer, "
+            "transaction_hash, amount_usdc})) }\n"
             "}"
         ),
         "standard_client": (
             "Any x402 v2 ecosystem client (x402-fetch SDK, x402scan embedded "
             "wallet, agentcash router) works out of the box: the challenge "
-            "served here is canonical v2 and the X-PAYMENT rail is verified "
-            "and settled through the Coinbase x402 facilitator."
+            "served here is canonical v2, and the signed EIP-3009 payload is "
+            "accepted in PAYMENT-SIGNATURE (v2) or X-PAYMENT (v1) and settled "
+            "through the Coinbase x402 facilitator."
         ),
         "discovery": {
             "well_known": f"{base_url}/.well-known/x402",
@@ -4189,8 +4214,17 @@ def home():
 
 @app.route("/launch")
 def launch_landing():
-    """Public sales landing page for live product launch."""
-    return render_template("launch_landing.html")
+    """Public sales landing page for live product launch.
+
+    The prices are handed to the template from PLAN_PRICES instead of being typed
+    into it. They used to be hardcoded in launch_landing.html ($29/$79/$149)
+    while the checkout read PLAN_PRICES, so changing a plan price would have
+    shown the buyer one number and charged them another — the same drift class as
+    the retired "$0.05".
+    """
+    from integrations.payment_integration import PLAN_PRICES
+
+    return render_template("launch_landing.html", plan_prices=PLAN_PRICES)
 
 
 @app.route("/sales/checkout", methods=["GET", "POST"])

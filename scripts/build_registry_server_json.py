@@ -40,7 +40,7 @@ os.environ.setdefault("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
 
 BASE_URL = "https://kristo-intelligence-api.onrender.com"
 SERVER_NAME = "io.github.hristovdimitri2-hub/kristo-intelligence"
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
 PUBLISHER_KEY = "io.modelcontextprotocol.registry/publisher-provided"
 OUT_PATH = os.path.join(ROOT, "server.json")
@@ -215,7 +215,9 @@ def main_cli() -> int:
             return 1
         print("OK server.json matches the price source")
     else:
-        with open(OUT_PATH, "w", encoding="utf-8") as handle:
+        # newline="\n" keeps the committed file LF-only; the default Windows text
+        # mode would write CRLF and turn a 1-line version bump into 105-line churn.
+        with open(OUT_PATH, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(payload)
         print("OK wrote server.json (%d bytes)" % len(payload))
 

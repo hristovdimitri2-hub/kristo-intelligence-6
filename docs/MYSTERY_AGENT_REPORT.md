@@ -2,6 +2,26 @@
 
 *Run 2026-08-29 09:19 UTC against `https://kristo-intelligence-api.onrender.com` by an independent buyer simulation with zero prior knowledge of the codebase.*
 
+> ## ⚠️ SUPERSEDED — read this before quoting any number below
+>
+> This is a **dated snapshot**. The body is kept exactly as written, because it
+> is the record of what a buyer saw that day — but three of its facts have since
+> moved, and one of them is the kind that would send a visitor away:
+>
+> | Then (2026-08-29) | Now |
+> |---|---|
+> | `/api/sales` cost 50000 atomic units = **$0.05** | **$0.005** (5000 atomic). The route was moved to the $0.005 tier. |
+> | **3** resources, 3 paid routes | **6** paid routes: `/api/v1/signal`, `/api/v1/whaleflow`, `/api/stats`, `/api/sales`, `/api/bot-status`, `/api/arb/opportunities` |
+> | Standard `X-PAYMENT` / EIP-3009 payloads "answered but **not yet honoured**" (finding 3 below) | **Honoured, and preferred.** Sign an EIP-3009 `transferWithAuthorization` and retry with `PAYMENT-SIGNATURE`; the facilitator settles it. x402 v1 clients may send `X-PAYMENT`. The legacy `X-Payment-Proof` rail still works. |
+>
+> The audit's **conclusions** still hold: every paid route serves a canonical v2
+> challenge, the anti-fraud gate rejects synthetic proofs, and the discovery
+> surfaces stay free.
+>
+> No document states a price as fact — prices are published live at `/llms.txt`
+> and inside every 402 challenge, and `tests/test_price_sweep.py` fails if any
+> surface quotes anything else.
+
 | Stage | Checks | Passed |
 |---|---|---|
 | discovery | 6 | 6 |

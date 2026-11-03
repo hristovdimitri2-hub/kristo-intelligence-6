@@ -262,11 +262,28 @@ def test_whaleflow_is_listed_after_the_canary(client):
 
 
 
-def test_whaleflow_not_in_readme():
+def test_whaleflow_is_listed_because_the_canary_condition_is_met():
+    """The old assertion here had it backwards.
+
+    Commit 807cb41 deliberately kept this route OUT of the README "UNLISTED from
+    catalogs/manifests/README until canary (condition 4)" - it was a paywall-only
+    route with no proof that anyone would pay for it.
+
+    Condition 4 is met. The paid canary settled on-chain (tx 0xc30268e3...4cce03,
+    block 51200083, $0.003) and main.py PROMOTED the route into the public
+    vitrine REAL_X402_ROUTES on 13.09. The route is asserted to be in that
+    vitrine by the test immediately above this one.
+
+    So the old assertion demanded that the README HIDE a route we actively sell -
+    the opposite of the visibility it was written to protect, and the reason that
+    test was the only thing standing between the storefront and a complete price
+    list.
+    """
     from pathlib import Path
+
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
         encoding="utf-8")
-    assert "/api/v1/whaleflow" not in readme
+    assert "/api/v1/whaleflow" in readme
 
 
 # ── AUDIT (Табло 2.0): the whale scan carried the SAME bug class as sales ────

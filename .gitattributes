@@ -1,0 +1,41 @@
+# Line-ending policy for this repository.
+#
+# WHY THIS FILE EXISTS
+# Without it, the line endings of a file depend on whichever editor wrote it
+# last: Git for Windows, Cline/Mimo, Notepad and an AI agent's edit tool all
+# disagree, and nothing in the repository says who is right.
+#
+# That has already cost us real time twice. A one-line version bump turned into
+# an 11,752-line diff in main.py, and a one-line assertion change turned into a
+# 910-line diff in tests/test_price_sweep.py - in both cases the whole file was
+# rewritten from LF to CRLF, so the actual change was invisible in review and
+# would have collided with any second session editing the same files.
+#
+# This file pins the policy INSIDE the repository, so it applies identically on
+# Windows, in CI, on Render and in every editor - it does not depend on any
+# per-machine git config (core.autocrlf), which is what made the behaviour
+# unpredictable before.
+
+# Text files: stored with LF in the repository and checked out with LF.
+* text=auto eol=lf
+
+# Binary files: never normalise these, never touch a byte.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.webp    binary
+*.gif     binary
+*.ico     binary
+*.mp4     binary
+*.mov     binary
+*.zip     binary
+*.gz      binary
+*.db      binary
+*.sqlite  binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+*.pdf     binary
+
+# Scalable vector graphics are text and should stay that way.
+*.svg     text eol=lf

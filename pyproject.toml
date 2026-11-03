@@ -1,0 +1,52 @@
+# Package metadata for Kristo Intelligence.
+#
+# WHY THIS FILE EXISTS
+# The repository previously had no packaging metadata at all - no pyproject.toml,
+# no setup.py, no setup.cfg. Directory and registry graders read declared
+# metadata, not the text of the LICENSE file, and Glama currently grades this
+# repository's license as "F" while the MIT LICENSE file sits right next to it.
+# This file makes the license machine-readable: PEP 639 license expression plus
+# an explicit license-files entry, and deliberately NO deprecated
+# "License :: OSI Approved :: ..." classifier (which modern graders penalise).
+#
+# It changes nothing about how the service runs: Render and the Dockerfile
+# install from requirements.txt and start `main:app`; nothing installs this
+# repository as a distribution. Runtime dependencies are therefore NOT repeated
+# here - requirements.txt stays the single source of truth, so the two can never
+# drift apart.
+
+[project]
+name = "kristo-intelligence"
+version = "6.1.0"
+description = "Pay-per-call DeFi intelligence API and MCP server for AI agents on Base, settled in USDC via x402."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "hristovdimitri2-hub" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "x402",
+    "defi",
+    "base",
+    "usdc",
+    "ai-agents",
+    "onchain-data",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://kristo-intelligence-api.onrender.com"
+Repository = "https://github.com/hristovdimitri2-hub/kristo-intelligence-6"
+Documentation = "https://github.com/hristovdimitri2-hub/kristo-intelligence-6#readme"
+"x402 discovery" = "https://kristo-intelligence-api.onrender.com/.well-known/x402"
+"MCP endpoint" = "https://kristo-intelligence-api.onrender.com/mcp"
