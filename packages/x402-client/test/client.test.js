@@ -39,7 +39,7 @@ function installMockFetch({ saleTx }) {
           x402_chain_id: 8453,
           x402_token: "USDC",
           x402_token_contract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          x402_amount: "0.05",
+          x402_amount: "5000",   // atomic, as the live server sends it
           x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
           x402_accepts: ["tx_hash"],
         }),
@@ -56,7 +56,7 @@ function installMockFetch({ saleTx }) {
     }
     // Unknown/replayed proof → server keeps the paywall up.
     return new Response(
-      JSON.stringify({ error: "payment_required", x402_amount: "0.05",
+      JSON.stringify({ error: "payment_required", x402_amount: "5000",
                        x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f" }),
       { status: 402, headers: { "Content-Type": "application/json" } }
     );
@@ -80,21 +80,87 @@ test("buildPaymentProof produces base64url JSON with server field names", () => 
   assert.equal(decoded.amount_usdc, 0.05);
 });
 
-test("parsePaymentChallenge reads canonical x402_* fields", () => {
-  const challenge = parsePaymentChallenge({
+test("parsePaymentChallenge reads the 402 body and reports REAL USDC", () => {
+  // The live server sends ATOMIC units here. main.py annotates the change:
+  // "atomic units, as in accepts (was decimal)". The older fixture in this
+  // file used the decimal form, so the test agreed with itself while the code
+  // would have told a wallet to send 5000 USDC for a $0.005 call.
+  const live = parsePaymentChallenge({
     error: "payment_required",
-    x402_amount: "0.05",
+    x402_amount: "5000",
     x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
     x402_token_contract: "0x8335",
     x402_chain_id: 8453,
   });
-  assert.deepEqual(challenge, {
-    amount: 0.05,
+  assert.deepEqual(live, {
+    amount: 0.005,                     // human USDC, what a payer must send
+    amountAtomic: "5000",              // what the server put on the wire
     recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
     tokenContract: "0x8335",
     chainId: 8453,
   });
+
+  // The v2 header agrees with the body it mirrors: 3000 atomic = 0.003.
+  const cheaper = parsePaymentChallenge({
+    error: "payment_required",
+    payment: {
+      amount_usdc: 3000,
+      receiver_address: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
+      token_contract: "0x8335",
+      chain_id: 8453,
+    },
+  });
+  assert.equal(cheaper.amount, 0.003);
+  assert.equal(cheaper.amountAtomic, "3000");
+
   assert.equal(parsePaymentChallenge({ error: "other" }), null);
+  assert.equal(parsePaymentChallenge({
+    error: "payment_required", x402_amount: "0",
+    x402_recipient: "0xabc",
+  }), null);
+});
+
+test("a price is never OVERSTATED, whichever unit the server used", () => {
+  // Overstating the price is the direction that costs money: a wallet told to
+  // send 5000 USDC for a $0.005 call hands over 1000000x the price, and the
+  // server's `amount >= price` check ACCEPTS it. Where the two readings could
+  // disagree, the smaller must win.
+  const atomic = parsePaymentChallenge({
+    error: "payment_required", x402_amount: "5000",
+    x402_recipient: "0xabc",
+  });
+  assert.equal(atomic.amount, 0.005);
+
+  // A decimal from the older era is still read as the price it says.
+  const decimal = parsePaymentChallenge({
+    error: "payment_required", x402_amount: "0.005",
+    x402_recipient: "0xabc",
+  });
+  assert.equal(decimal.amount, 0.005);
+  assert.equal(decimal.amountAtomic, "5000");
+
+  // Never more than the honest price, for either spelling.
+  for (const value of ["5000", "0.005", 5000, 0.005]) {
+    const parsed = parsePaymentChallenge({
+      error: "payment_required", x402_amount: value,
+      x402_recipient: "0xabc",
+    });
+    assert.ok(parsed.amount <= 0.005,
+      `x402_amount=${JSON.stringify(value)} was read as ${parsed.amount}`);
+  }
+});
+
+test("the v2 challenge and the legacy body never disagree about the price", () => {
+  const header = parsePaymentRequiredHeader(v2ChallengeHeader());
+  const body = parsePaymentChallenge({
+    error: "payment_required",
+    x402_amount: header.amountAtomic,       // same atomic string, as on the wire
+    payment: { amount_usdc: Number(header.amountAtomic) },
+    x402_recipient: header.recipient,
+  });
+  assert.equal(header.amount, 0.005);
+  assert.equal(body.amount, header.amount);
+  assert.equal(body.amountAtomic, header.amountAtomic);
 });
 
 test("client completes the full payment handshake (402 -> pay -> retry -> 200)", async () => {
@@ -102,8 +168,10 @@ test("client completes the full payment handshake (402 -> pay -> retry -> 200)",
   const { calls, restore } = installMockFetch({ saleTx });
   try {
     const client = new KristoX402Client({
-      pay: async ({ amount, recipient }) => {
-        assert.equal(amount, 0.05);
+      pay: async ({ amount, amountAtomic, recipient }) => {
+        // The callback is handed a REAL USDC price, not the atomic wire value.
+        assert.equal(amount, 0.005);
+        assert.equal(amountAtomic, "5000");
         assert.ok(recipient.startsWith("0xd4cd"));
         return { payer: "0x" + "11".repeat(20), txHash: saleTx };
       },
@@ -131,7 +199,8 @@ test("dry-run mode returns the payment challenge without paying", async () => {
     const result = await inspector.get("/api/stats");
 
     assert.equal(result.status, 402);
-    assert.equal(result.paymentRequired.amount, 0.05);
+    assert.equal(result.paymentRequired.amount, 0.005);
+    assert.equal(result.paymentRequired.amountAtomic, "5000");
     assert.equal(result.paymentRequired.chainId, 8453);
     assert.equal(calls.length, 1); // no retry, no payment
   } finally {
@@ -309,7 +378,7 @@ test("client prefers the v2 rail but still drives a legacy-only signer", async (
       // A server offering BOTH rails: the v2 header and the legacy body.
       return new Response(JSON.stringify({
         error: "payment_required",
-        x402_amount: "0.005",
+        x402_amount: "5000",
         x402_recipient: "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
         x402_chain_id: 8453,
       }), {

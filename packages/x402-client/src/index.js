@@ -34,6 +34,7 @@ export const PAYMENT_REQUIRED_HEADER = "PAYMENT-REQUIRED";
 
 /** Atomic units per USDC (the token has 6 decimals). */
 const USDC_DECIMALS = 6;
+const ATOMIC_PER_USDC = 10 ** USDC_DECIMALS;
 
 function toBase64url(text) {
   return Buffer.from(text, "utf8")
@@ -62,22 +63,59 @@ export function buildPaymentProof({ payer, transactionHash, amountUsdc }) {
 }
 
 /**
+ * Interpret a price field from a 402 payload, in EITHER unit, safely.
+ *
+ * `x402_amount` and `payment.amount_usdc` are ATOMIC units on the live server:
+ * a $0.005 call arrives as `"5000"` and `5000` respectively. The field was a
+ * DECIMAL in an earlier release (`main.py` annotates the change: "atomic units,
+ * as in accepts (was decimal)"), and sample clients written against that era
+ * fed the raw number straight into `parseUnits(amount, 6)`, which instructs the
+ * wallet to transfer 5000 USDC for a $0.005 call. The server compares the
+ * decoded on-chain amount against the price with `>=`, so it would ACCEPT that
+ * transfer and keep the money.
+ *
+ * So: a value with a decimal point is taken as human USDC, a bare integer is
+ * taken as atomic. That is correct for both eras, and where the two readings
+ * could ever disagree the one chosen is the SMALLER — an understated price
+ * costs a rejected call (HTTP 401, no money moves), an overstated one costs
+ * the payer's balance.
+ */
+function toAtomicString(raw) {
+  const text = String(raw).trim();
+  if (text.includes(".")) {
+    const asNumber = Number(text);
+    if (!Number.isFinite(asNumber) || asNumber <= 0) return null;
+    return String(Math.round(asNumber * ATOMIC_PER_USDC));
+  }
+  return text;
+}
+
+/**
  * Parse a legacy 402 response body into a payment challenge object.
  *
- * Kept exactly as it was: the returned shape is part of this package's public
- * API. New code should prefer `parsePaymentRequiredHeader`, which reads the
- * standard x402 v2 challenge.
+ * `amount` is HUMAN USDC (0.005) and `amountAtomic` is the string of atomic
+ * units ("5000"). Prefer `parsePaymentRequiredHeader`, which reads the standard
+ * x402 v2 challenge.
  */
 export function parsePaymentChallenge(body) {
   if (!body || body.error !== "payment_required") return null;
-  const amount = Number(body.x402_amount ?? body.payment?.amount_usdc);
+  const amountAtomic = toAtomicString(
+    body.x402_amount ?? body.payment?.amount_usdc);
+  if (amountAtomic === null) return null;
+  const atomic = Number(amountAtomic);
   const recipient =
     body.x402_recipient ?? body.payment?.receiver_address;
   const tokenContract =
     body.x402_token_contract ?? body.payment?.token_contract;
   const chainId = Number(body.x402_chain_id ?? body.payment?.chain_id ?? 8453);
-  if (!recipient || !Number.isFinite(amount) || amount <= 0) return null;
-  return { amount, recipient, tokenContract, chainId };
+  if (!recipient || !Number.isFinite(atomic) || atomic <= 0) return null;
+  return {
+    amount: atomic / ATOMIC_PER_USDC,
+    amountAtomic,
+    recipient,
+    tokenContract,
+    chainId,
+  };
 }
 
 /**
@@ -105,7 +143,8 @@ export function parsePaymentRequiredHeader(headerValue) {
     ?? accepts[0];
   if (!accepted || !accepted.payTo || accepted.amount === undefined) return null;
 
-  const amountAtomic = String(accepted.amount);
+  const amountAtomic = toAtomicString(accepted.amount);
+  if (amountAtomic === null) return null;
   const atomic = Number(amountAtomic);
   if (!Number.isFinite(atomic) || atomic <= 0) return null;
 

@@ -171,8 +171,26 @@ Returns `{ok, status, data}` — or `{ok: false, status: 402, paymentRequired}` 
 ### Helpers
 - `parsePaymentRequiredHeader(headerValue)` — parse the standard x402 v2 `PAYMENT-REQUIRED` header into `{rail, amount, amountAtomic, recipient, tokenContract, chainId, network, extra, accepted, ...}`. Returns `null` when absent, so you can fall back.
 - `buildPaymentSignatureHeader({signature, authorization, accepted})` — build the `PAYMENT-SIGNATURE` header value yourself.
-- `parsePaymentChallenge(body)` — the legacy 402 body shape into `{amount, recipient, tokenContract, chainId}`.
-- `buildPaymentProof({payer, transactionHash, amountUsdc})` — build the `X-Payment-Proof` header value yourself.
+- `parsePaymentChallenge(body)` — the legacy 402 body shape into `{amount, amountAtomic, recipient, tokenContract, chainId}`.
+- `buildPaymentProof({payer, transactionHash, amountUsdc})` — build the `X-Payment-Proof` header value yourself. The server ignores `amount_usdc`; it decodes the Transfer event itself.
+
+## Units — read this before you move money
+
+`amount` is **human USDC** (`0.005`). `amountAtomic` is the **atomic-unit string**
+(`"5000"`). Never multiply `amountAtomic` by `1e6`.
+
+The server's own `x402_amount` and `payment.amount_usdc` fields are **atomic**,
+despite the second one's name — a $0.005 call arrives as `"5000"` and `5000`.
+That field used to be decimal and was changed; sample code written against the
+old behaviour fed it straight into `parseUnits(amount, 6)`, which tells a wallet
+to transfer **5000 USDC for a $0.005 call**. The server checks the decoded
+on-chain amount with `amount >= price`, so it would **accept** that transfer and
+keep the money.
+
+This package therefore reads a value with a decimal point as human USDC and a
+bare integer as atomic, and where the two readings could disagree it picks the
+**smaller**. Understating a price costs a rejected call (HTTP 401, nothing
+moves); overstating it costs the payer's balance.
 
 ## Pricing
 

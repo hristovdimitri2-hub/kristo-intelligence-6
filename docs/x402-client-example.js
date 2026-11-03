@@ -54,7 +54,6 @@ import {
   createWalletClient,
   http,
   isAddress,
-  parseUnits,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -186,13 +185,55 @@ async function payStandard(account, { accepted, decoded }, endpointUrl) {
 
 // ── LEGACY RAIL (plain ERC-20 transfer + X-Payment-Proof) ───────────────────
 
+/**
+ * Interpret `payment.amount_usdc` in EITHER unit, safely.
+ *
+ * THE FIELD NAME LIES. On the live server it is ATOMIC units: a $0.005 call
+ * arrives as `amount_usdc: 5000`. It was a DECIMAL in an earlier release
+ * (`main.py` annotates the change: "atomic units, as in accepts (was decimal)").
+ *
+ * The original version of this file did `parseUnits(String(amount_usdc), 6)`,
+ * which turns 5000 into 5,000,000,000 atomic units — a 5000 USDC transfer for a
+ * $0.005 call. The server compares the decoded on-chain amount against the price
+ * with `>=`, so it would have ACCEPTED that transfer and kept the money.
+ *
+ * A value with a decimal point is therefore taken as human USDC and a bare
+ * integer as atomic. Where the two readings could disagree, the smaller one
+ * wins: understating the price costs a rejected call (HTTP 401, nothing moves),
+ * overstating it costs the payer's balance.
+ */
+function toAtomicString(raw) {
+  const text = String(raw).trim();
+  if (text.includes(".")) {
+    const asNumber = Number(text);
+    if (!Number.isFinite(asNumber) || asNumber <= 0) return null;
+    return String(Math.round(asNumber * 10 ** USDC_DECIMALS));
+  }
+  return text;
+}
+
+/** True for Base, however the server spells it (CAIP-2 today, plain before). */
+function isBaseNetwork(network) {
+  const text = String(network ?? "").trim().toLowerCase();
+  return text === "base" || text === "base-mainnet" || text === "eip155:8453";
+}
+
 function assertLegacyRequirement(body) {
   const payment = body?.payment;
   if (body?.error !== "payment_required" || !payment) {
     throw new Error(`Expected an x402 payment requirement, received: ${JSON.stringify(body)}`);
   }
-  if (payment.chain_id !== BASE_CHAIN_ID || payment.network !== "base") {
-    throw new Error(`Refusing to pay on a non-Base network: ${JSON.stringify(payment)}`);
+  if (payment.chain_id !== BASE_CHAIN_ID) {
+    throw new Error(
+      `Refusing to pay on chain ${payment.chain_id}; expected Base ${BASE_CHAIN_ID}.`);
+  }
+  // The live challenge uses the canonical CAIP-2 string "eip155:8453". Older
+  // releases sent "base" / "base-mainnet", so accept those too — but do not
+  // reject CAIP-2, which is what an earlier version of THIS FILE did, making
+  // the legacy rail throw before it could ever pay.
+  if (payment.network !== undefined && payment.network !== null &&
+      !isBaseNetwork(payment.network)) {
+    throw new Error(`Refusing to pay on a non-Base network: ${payment.network}`);
   }
   for (const field of ["token_contract", "receiver_address", "amount_usdc"]) {
     if (payment[field] === undefined || payment[field] === null) {
@@ -202,13 +243,14 @@ function assertLegacyRequirement(body) {
   if (!isAddress(payment.token_contract) || !isAddress(payment.receiver_address)) {
     throw new Error(`Invalid token or receiver address: ${JSON.stringify(payment)}`);
   }
-  if (Number(payment.amount_usdc) <= 0) {
+  const amountAtomic = toAtomicString(payment.amount_usdc);
+  if (amountAtomic === null || !/^\d+$/.test(amountAtomic) || BigInt(amountAtomic) <= 0n) {
     throw new Error(`Refusing to send a non-positive amount: ${payment.amount_usdc}`);
   }
-  return payment;
+  return { payment, amountAtomic };
 }
 
-async function payLegacy(account, payment, rpcUrl) {
+async function payLegacy(account, payment, amountAtomic, rpcUrl) {
   const transport = http(rpcUrl);
   const publicClient = createPublicClient({ chain: base, transport });
   const walletClient = createWalletClient({ account, chain: base, transport });
@@ -216,12 +258,12 @@ async function payLegacy(account, payment, rpcUrl) {
   const chainId = await publicClient.getChainId();
   assertBaseNetwork(chainId, "eip155:8453");
 
-  const amountAtomic = parseUnits(String(payment.amount_usdc), USDC_DECIMALS);
+  // amountAtomic is already in atomic units — do NOT multiply it again.
   const transactionHash = await walletClient.writeContract({
     address: payment.token_contract,
     abi: ERC20_TRANSFER_ABI,
     functionName: "transfer",
-    args: [payment.receiver_address, amountAtomic],
+    args: [payment.receiver_address, BigInt(amountAtomic)],
   });
 
   const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
@@ -229,16 +271,21 @@ async function payLegacy(account, payment, rpcUrl) {
     throw new Error(`USDC transfer reverted: ${transactionHash}`);
   }
 
-  // The server reads these three fields; extra keys are ignored.
+  // The server reads payer/transaction_hash and IGNORES amount_usdc — it
+  // decodes the on-chain Transfer event itself and never trusts a claimed
+  // amount, so this field cannot be used to underpay. We send the human USDC
+  // value because the only remaining reader is a person looking at the header,
+  // and `amount_usdc: 0.005` is unambiguous where `5000` is not.
   const proof = {
     payer: account.address.toLowerCase(),
     transaction_hash: transactionHash.toLowerCase(),
-    amount_usdc: Number(payment.amount_usdc),
+    amount_usdc: Number(amountAtomic) / 10 ** USDC_DECIMALS,
   };
   return {
     header: LEGACY_HEADER,
     value: Buffer.from(JSON.stringify(proof), "utf8").toString("base64url"),
     transactionHash,
+    amountAtomic,
   };
 }
 
@@ -270,12 +317,13 @@ async function main() {
   let credential;
 
   if (rail === "legacy") {
-    const payment = assertLegacyRequirement(body);
+    const { payment, amountAtomic } = assertLegacyRequirement(body);
     console.log(
-      `402 received: legacy rail — paying ${payment.amount_usdc} USDC on Base ` +
+      `402 received: legacy rail — paying ${amountAtomic} atomic USDC ` +
+      `(${Number(amountAtomic) / 10 ** USDC_DECIMALS} USDC) on Base ` +
       `to ${payment.receiver_address} (this waits for 12 confirmations, ~24s)`
     );
-    credential = await payLegacy(account, payment, rpcUrl);
+    credential = await payLegacy(account, payment, amountAtomic, rpcUrl);
     console.log(`Payment confirmed in ${credential.transactionHash}`);
   } else {
     const challenge = readStandardChallenge(response, body);
@@ -289,7 +337,7 @@ async function main() {
     const { accepted } = challenge;
     console.log(
       `402 received: standard rail — authorising ${accepted.amount} atomic USDC ` +
-      `(0.${String(accepted.amount).padStart(6, "0")}) to ${accepted.payTo}`
+      `(${Number(accepted.amount) / 10 ** USDC_DECIMALS} USDC) to ${accepted.payTo}`
     );
     credential = {
       header: STANDARD_HEADER,

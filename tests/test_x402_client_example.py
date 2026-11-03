@@ -89,3 +89,71 @@ def test_the_example_runs_without_a_network_or_a_wallet():
         pytest.skip("node is not available here")
     assert result.returncode == 0, result.stderr or result.stdout
     del sys
+
+
+# ── The unit trap (F-18) ────────────────────────────────────────────────────
+#
+# `payment.amount_usdc` is ATOMIC on the live API: a $0.005 call arrives as
+# 5000. The field was decimal in an earlier release and main.py annotates the
+# change ("atomic units, as in accepts (was decimal)"). The original example
+# ran parseUnits(String(payment.amount_usdc), 6) on it, i.e. told the wallet to
+# transfer 5000 USDC for a $0.005 call. The server compares the decoded on-chain
+# amount with `>=`, so it would have ACCEPTED that transfer and kept the money.
+
+def _example_code() -> str:
+    """The example's CODE, with comment lines removed.
+
+    The file documents the old bug in its comments, so a plain substring check
+    over the whole file matches the WARNING rather than the mistake. Assertions
+    about behaviour have to look at code.
+    """
+    kept = []
+    for line in _example().splitlines():
+        if line.strip().startswith(("*", "//", "/*")):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def test_the_example_never_multiplies_an_already_atomic_amount():
+    code = _example_code()
+    for wrong in (
+        "parseUnits(String(payment.amount_usdc)",
+        "parseUnits(payment.amount_usdc",
+        "parseUnits(String(amount_usdc)",
+    ):
+        assert wrong not in code, (
+            f"the example re-scales an atomic amount again: {wrong!r} — that "
+            "instructs the wallet to send 1000000x the price")
+
+
+def test_the_example_carries_the_atomic_value_straight_to_the_chain():
+    example = _example()
+    assert "BigInt(amountAtomic)" in example, (
+        "the transfer must use the atomic value as-is")
+    assert "function toAtomicString" in example, (
+        "the unit decision must be explicit, not implicit")
+
+
+def test_the_example_refuses_to_overstate_a_price():
+    """Understating costs a rejected call; overstating costs the balance."""
+    example = _example()
+    assert "the smaller one" in example or "the smaller" in example, (
+        "the tie-break direction must be documented, not left to chance")
+
+
+def test_the_example_accepts_the_canonical_caip2_network():
+    """The live challenge says eip155:8453; an earlier version demanded "base"
+    and therefore threw before the legacy rail could ever pay."""
+    example = _example()
+    assert "isBaseNetwork" in example
+    assert "eip155:8453" in example
+    assert 'payment.network !== "base"' not in example, (
+        "the CAIP-2 spelling must not be rejected")
+
+
+def test_the_example_says_the_proof_amount_is_ignored():
+    example = _example()
+    assert "IGNORES amount_usdc" in example, (
+        "the reader must know the claimed amount is not what is verified")
+

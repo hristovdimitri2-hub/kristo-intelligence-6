@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 588
+SUITE_TESTS_PASSED = 593
 SUITE_LAST_RUN = "2026-11-03"
 
 
