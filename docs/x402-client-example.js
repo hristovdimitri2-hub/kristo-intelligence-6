@@ -1,49 +1,53 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
- * Kristo Intelligence x402 client example
+ * Kristo Intelligence x402 client example — a complete, working Base Mainnet flow.
  * ========================================
  *
- * This is a complete Base Mainnet client flow:
- *   1. Request a paid endpoint.
- *   2. Parse the HTTP 402 payment requirement.
- *   3. Sign and broadcast an ERC-20 USDC transfer on Base.
- *   4. Wait for the transaction receipt.
- *   5. Retry with a request-bound X-Payment-Proof header.
+ * The server accepts TWO rails. This script drives both; the standard one is
+ * the default because it settles in about two seconds instead of about
+ * twenty-four.
+ *
+ *   STANDARD RAIL (default) — x402 v2, EIP-3009
+ *     1. Request a paid endpoint.
+ *     2. Read the base64url `PAYMENT-REQUIRED` response header.
+ *     3. Sign a TransferWithAuthorization with the bot wallet — no gas, no
+ *        broadcast; the facilitator submits it.
+ *     4. Retry with the `PAYMENT-SIGNATURE` header.
+ *     5. HTTP 200 + data.       (~2 seconds)
+ *
+ *   LEGACY RAIL (X402_RAIL=legacy)
+ *     1. Request a paid endpoint.
+ *     2. Read the `payment` block from the 402 body.
+ *     3. Sign and broadcast a plain ERC-20 USDC transfer on Base.
+ *     4. Wait for 12 confirmations — the server enforces this.
+ *     5. Retry with the `X-Payment-Proof` header.
+ *     6. HTTP 200 + data.       (~24 seconds)
+ *
+ * BOTH rails are real and both are verified server-side. The paywall checks
+ * the signed authorization (standard) or decodes the ERC-20 Transfer event of
+ * the named transaction (legacy), and both unlock exactly one call.
  *
  * Install for external bots:
  *   npm install viem
  *
- * Run:
+ * Run (standard rail):
  *   X402_API_BASE=https://kristo-intelligence-api.onrender.com \
  *   X402_PRIVATE_KEY=0xYOUR_BOT_WALLET_PRIVATE_KEY \
  *   node docs/x402-client-example.js
+ *
+ * Run (legacy rail):
+ *   X402_RAIL=legacy X402_PRIVATE_KEY=0x... node docs/x402-client-example.js
  *
  * SECURITY:
  *   - Use a dedicated low-balance bot wallet.
  *   - Put the private key in a secret manager or process environment.
  *   - Never commit X402_PRIVATE_KEY or print it in logs.
  *
- * IMPORTANT FOR THE CURRENT SERVICE:
- *   The current Kristo v6 deployment advertises settlement_status=discovery_only.
- *   It emits the 402 requirement and this script creates a valid Base USDC
- *   transaction, but the current server does not yet verify request-bound
- *   payment proofs in the paywall. The retry is still included because it is
- *   the exact client-side contract needed once the facilitator/settlement
- *   task is enabled. Until then, the script reports the server's 402 response
- *   instead of falsely claiming that payment was accepted.
- *
- * PAYMENT PROOF FORMAT USED HERE:
- *   X-Payment-Proof: base64url(JSON.stringify({
- *     x402_version, scheme, network, chain_id, token_contract,
- *     payer, receiver_address, amount_usdc, amount_atomic,
- *     transaction_hash, block_number
- *   }))
- *
- * If the facilitator selects the standardized PAYMENT-SIGNATURE header,
- * set X402_PAYMENT_PROOF_HEADER=PAYMENT-SIGNATURE. The header name is
- * intentionally configurable because the current discovery-only server does
- * not consume either proof header yet.
+ * On the standard rail the payer needs NO Base ETH: signing is free. Only the
+ * legacy rail broadcasts a transaction and therefore needs gas.
  */
+
+import { randomBytes } from "node:crypto";
 
 import {
   createPublicClient,
@@ -57,9 +61,12 @@ import { base } from "viem/chains";
 
 const BASE_CHAIN_ID = 8453;
 const DEFAULT_API_BASE = "https://kristo-intelligence-api.onrender.com";
-const DEFAULT_ENDPOINT = "/api/stats";
-const DEFAULT_PROOF_HEADER = "X-Payment-Proof";
+const DEFAULT_ENDPOINT = "/api/v1/signal";
 const USDC_DECIMALS = 6;
+
+const STANDARD_HEADER = "PAYMENT-SIGNATURE";
+const CHALLENGE_HEADER = "PAYMENT-REQUIRED";
+const LEGACY_HEADER = "X-Payment-Proof";
 
 const ERC20_TRANSFER_ABI = [
   {
@@ -74,6 +81,17 @@ const ERC20_TRANSFER_ABI = [
   },
 ];
 
+const EIP3009_TYPES = {
+  TransferWithAuthorization: [
+    { name: "from", type: "address" },
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "validAfter", type: "uint256" },
+    { name: "validBefore", type: "uint256" },
+    { name: "nonce", type: "bytes32" },
+  ],
+};
+
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -82,8 +100,15 @@ function requiredEnv(name) {
   return value;
 }
 
-function encodePaymentProof(proof) {
-  return Buffer.from(JSON.stringify(proof), "utf8").toString("base64url");
+function decodeChallengeHeader(headerValue) {
+  if (!headerValue) return null;
+  const normalised = headerValue.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalised + "=".repeat((4 - (normalised.length % 4)) % 4);
+  try {
+    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function readJson(response) {
@@ -95,10 +120,76 @@ async function readJson(response) {
   }
 }
 
-function assertPaymentRequirement(requirement) {
-  const payment = requirement?.payment;
-  if (requirement?.error !== "payment_required" || !payment) {
-    throw new Error(`Expected an x402 payment requirement, received: ${JSON.stringify(requirement)}`);
+function assertBaseNetwork(chainId, network) {
+  if (chainId !== BASE_CHAIN_ID) {
+    throw new Error(`Refusing to pay on chain ${chainId}; expected Base ${BASE_CHAIN_ID}.`);
+  }
+  if (network && !String(network).endsWith(String(BASE_CHAIN_ID))) {
+    throw new Error(`Refusing to pay on network ${network}; expected eip155:${BASE_CHAIN_ID}.`);
+  }
+}
+
+// ── STANDARD RAIL (x402 v2 / EIP-3009) ──────────────────────────────────────
+
+function readStandardChallenge(response, body) {
+  const decoded = decodeChallengeHeader(response.headers.get(CHALLENGE_HEADER));
+  const accepts = decoded?.accepts;
+  if (!Array.isArray(accepts) || accepts.length === 0) return null;
+  const accepted = accepts.find((entry) => entry?.payTo && entry?.asset) ?? accepts[0];
+  if (!accepted?.payTo || !accepted?.asset || accepted.amount === undefined) {
+    return null;
+  }
+  return { decoded, accepted };
+}
+
+async function payStandard(account, { accepted, decoded }, endpointUrl) {
+  const chainId = Number(
+    (accepted.network ?? "").split(":").pop() || accepted.chainId || BASE_CHAIN_ID
+  );
+  assertBaseNetwork(chainId, accepted.network);
+
+  if (!isAddress(accepted.payTo) || !isAddress(accepted.asset)) {
+    throw new Error(`Invalid payTo/asset in the challenge: ${JSON.stringify(accepted)}`);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const maxTimeout = Number(accepted.maxTimeoutSeconds ?? 60);
+  const authorization = {
+    from: account.address,
+    to: accepted.payTo,
+    value: String(accepted.amount),
+    validAfter: String(now - 60),
+    validBefore: String(now + Math.max(1, maxTimeout - 5)),
+    nonce: "0x" + randomBytes(32).toString("hex"),
+  };
+
+  // Signing costs nothing and needs no Base ETH — the facilitator submits it.
+  const signature = await account.signTypedData({
+    domain: {
+      name: accepted.extra?.name ?? "USD Coin",
+      version: accepted.extra?.version ?? "2",
+      chainId,
+      verifyingContract: accepted.asset,
+    },
+    types: EIP3009_TYPES,
+    primaryType: "TransferWithAuthorization",
+    message: authorization,
+  });
+
+  const payload = {
+    x402Version: Number(decoded?.x402Version ?? 2),
+    accepted,
+    payload: { signature, authorization },
+  };
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+// ── LEGACY RAIL (plain ERC-20 transfer + X-Payment-Proof) ───────────────────
+
+function assertLegacyRequirement(body) {
+  const payment = body?.payment;
+  if (body?.error !== "payment_required" || !payment) {
+    throw new Error(`Expected an x402 payment requirement, received: ${JSON.stringify(body)}`);
   }
   if (payment.chain_id !== BASE_CHAIN_ID || payment.network !== "base") {
     throw new Error(`Refusing to pay on a non-Base network: ${JSON.stringify(payment)}`);
@@ -109,7 +200,7 @@ function assertPaymentRequirement(requirement) {
     }
   }
   if (!isAddress(payment.token_contract) || !isAddress(payment.receiver_address)) {
-    throw new Error(`402 response contains an invalid token or receiver address: ${JSON.stringify(payment)}`);
+    throw new Error(`Invalid token or receiver address: ${JSON.stringify(payment)}`);
   }
   if (Number(payment.amount_usdc) <= 0) {
     throw new Error(`Refusing to send a non-positive amount: ${payment.amount_usdc}`);
@@ -117,20 +208,15 @@ function assertPaymentRequirement(requirement) {
   return payment;
 }
 
-async function signAndSendUsdcTransfer(payment, privateKey, rpcUrl) {
-  const account = privateKeyToAccount(privateKey);
+async function payLegacy(account, payment, rpcUrl) {
   const transport = http(rpcUrl);
   const publicClient = createPublicClient({ chain: base, transport });
   const walletClient = createWalletClient({ account, chain: base, transport });
 
   const chainId = await publicClient.getChainId();
-  if (chainId !== BASE_CHAIN_ID) {
-    throw new Error(`RPC returned chain ID ${chainId}; expected Base Mainnet ${BASE_CHAIN_ID}.`);
-  }
+  assertBaseNetwork(chainId, "eip155:8453");
 
   const amountAtomic = parseUnits(String(payment.amount_usdc), USDC_DECIMALS);
-
-  // viem signs the transaction with the bot wallet and broadcasts it to Base.
   const transactionHash = await walletClient.writeContract({
     address: payment.token_contract,
     abi: ERC20_TRANSFER_ABI,
@@ -138,46 +224,37 @@ async function signAndSendUsdcTransfer(payment, privateKey, rpcUrl) {
     args: [payment.receiver_address, amountAtomic],
   });
 
-  const receipt = await publicClient.waitForTransactionReceipt({
-    hash: transactionHash,
-  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
   if (receipt.status !== "success") {
-    throw new Error(`USDC payment transaction was not successful: ${transactionHash}`);
+    throw new Error(`USDC transfer reverted: ${transactionHash}`);
   }
 
+  // The server reads these three fields; extra keys are ignored.
+  const proof = {
+    payer: account.address.toLowerCase(),
+    transaction_hash: transactionHash.toLowerCase(),
+    amount_usdc: Number(payment.amount_usdc),
+  };
   return {
-    account,
+    header: LEGACY_HEADER,
+    value: Buffer.from(JSON.stringify(proof), "utf8").toString("base64url"),
     transactionHash,
-    blockNumber: receipt.blockNumber.toString(),
-    amountAtomic: amountAtomic.toString(),
   };
 }
 
-function buildPaymentProof(payment, transfer) {
-  return {
-    x402_version: "1.0",
-    scheme: "exact",
-    network: "base",
-    chain_id: BASE_CHAIN_ID,
-    token_contract: payment.token_contract,
-    payer: transfer.account.address,
-    receiver_address: payment.receiver_address,
-    amount_usdc: String(payment.amount_usdc),
-    amount_atomic: transfer.amountAtomic,
-    transaction_hash: transfer.transactionHash,
-    block_number: transfer.blockNumber,
-  };
-}
+// ── main ────────────────────────────────────────────────────────────────────
 
 async function main() {
   const apiBase = process.env.X402_API_BASE?.trim() || DEFAULT_API_BASE;
   const endpoint = process.env.X402_ENDPOINT?.trim() || DEFAULT_ENDPOINT;
   const rpcUrl = process.env.BASE_RPC_URL?.trim() || "https://mainnet.base.org";
-  const proofHeader = process.env.X402_PAYMENT_PROOF_HEADER?.trim() || DEFAULT_PROOF_HEADER;
+  const rail = (process.env.X402_RAIL?.trim() || "standard").toLowerCase();
   const privateKey = requiredEnv("X402_PRIVATE_KEY");
+  const account = privateKeyToAccount(privateKey);
   const url = new URL(endpoint, apiBase).toString();
 
   console.log(`Requesting ${url}`);
+
   let response = await fetch(url, { headers: { Accept: "application/json" } });
   let body = await readJson(response);
 
@@ -190,28 +267,66 @@ async function main() {
     return;
   }
 
-  const payment = assertPaymentRequirement(body);
-  console.log(`402 received: paying ${payment.amount_usdc} USDC on Base to ${payment.receiver_address}`);
+  let credential;
 
-  const transfer = await signAndSendUsdcTransfer(payment, privateKey, rpcUrl);
-  const proof = buildPaymentProof(payment, transfer);
-  const encodedProof = encodePaymentProof(proof);
+  if (rail === "legacy") {
+    const payment = assertLegacyRequirement(body);
+    console.log(
+      `402 received: legacy rail — paying ${payment.amount_usdc} USDC on Base ` +
+      `to ${payment.receiver_address} (this waits for 12 confirmations, ~24s)`
+    );
+    credential = await payLegacy(account, payment, rpcUrl);
+    console.log(`Payment confirmed in ${credential.transactionHash}`);
+  } else {
+    const challenge = readStandardChallenge(response, body);
+    if (!challenge) {
+      throw new Error(
+        "This endpoint returned no PAYMENT-REQUIRED header, so the standard x402 " +
+        "rail is unavailable here. Re-run with X402_RAIL=legacy to use a plain " +
+        `ERC-20 transfer instead. Server response: ${JSON.stringify(body)}`
+      );
+    }
+    const { accepted } = challenge;
+    console.log(
+      `402 received: standard rail — authorising ${accepted.amount} atomic USDC ` +
+      `(0.${String(accepted.amount).padStart(6, "0")}) to ${accepted.payTo}`
+    );
+    credential = {
+      header: STANDARD_HEADER,
+      value: await payStandard(account, challenge, url),
+    };
+    console.log("Authorization signed (no gas spent, nothing broadcast by us)");
+  }
 
-  console.log(`Payment confirmed in ${transfer.transactionHash}`);
-  console.log(`Retrying with ${proofHeader} payment proof`);
+  console.log(`Retrying with ${credential.header}`);
   response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      [proofHeader]: encodedProof,
-    },
+    headers: { Accept: "application/json", [credential.header]: credential.value },
   });
   body = await readJson(response);
 
+  // 425 means the settlement is still confirming. The correct move is to
+  // re-send the SAME credential shortly — never to pay again, because the
+  // authorization nonce is one-time-use.
+  for (let attempt = 0; response.status === 425 && attempt < 5; attempt++) {
+    console.log("425 settlement_in_flight — re-sending the same credential");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    response = await fetch(url, {
+      headers: { Accept: "application/json", [credential.header]: credential.value },
+    });
+    body = await readJson(response);
+  }
+
   if (response.status === 402) {
     throw new Error(
-      "The USDC transfer succeeded, but the server did not accept Payment Proof. " +
-      "This deployment is discovery-only until facilitator settlement is enabled. " +
-      `Server response: ${JSON.stringify(body)}`,
+      "Payment was presented but the server still asks for payment. Do NOT pay " +
+      "again: the same credential is being re-sent above, and a second payment " +
+      `would be a second charge. Server response: ${JSON.stringify(body)}`
+    );
+  }
+  if (response.status === 401) {
+    throw new Error(
+      `The credential was unusable: ${JSON.stringify(body)}. The server names the ` +
+      "exact cause in `reason` — fix that rather than paying again."
     );
   }
   if (!response.ok) {

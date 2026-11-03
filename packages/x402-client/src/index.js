@@ -3,19 +3,53 @@
  *
  * Handles the full Kristo Intelligence payment handshake automatically:
  *   1. Call any paid endpoint.
- *   2. On HTTP 402, parse the canonical x402_* fields (amount, recipient,
- *      token contract, chain).
- *   3. Invoke YOUR payer callback (viem / ethers / anything) to send USDC
- *      on Base and obtain the transaction hash.
- *   4. Retry the original request with the X-Payment-Proof header.
+ *   2. On HTTP 402, read the canonical x402 v2 challenge from the
+ *      `PAYMENT-REQUIRED` response header (falling back to the legacy
+ *      `x402_*` fields in the body).
+ *   3. Invoke YOUR signer callback (viem / ethers / anything) to authorise
+ *      USDC on Base — either by signing an EIP-3009 authorization (v2, no gas,
+ *      no waiting) or by broadcasting a plain transfer (legacy).
+ *   4. Retry the original request with `PAYMENT-SIGNATURE` (v2) or
+ *      `X-Payment-Proof` (legacy).
  *   5. Return the paid response.
  *
  * Provider-agnostic by design: the core has ZERO dependencies. Bring your
  * own signer through the `pay` callback.
+ *
+ * THE TWO RAILS ARE NOT EQUALLY FAST. The v2 rail settles through a
+ * facilitator and unlocks in about two seconds. The legacy rail verifies a
+ * plain ERC-20 transfer on-chain and waits for 12 confirmations — roughly 24
+ * seconds on Base. Prefer the v2 rail; the legacy one is kept so existing
+ * callbacks keep working.
  */
 
 const DEFAULT_BASE_URL = "https://kristo-intelligence-api.onrender.com";
-const PROOF_HEADER = "X-Payment-Proof";
+
+/** Legacy rail: a self-describing proof of a plain ERC-20 transfer. */
+export const PROOF_HEADER = "X-Payment-Proof";
+/** Standard rail (x402 v2): the signed EIP-3009 payload. */
+export const PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE";
+/** Standard rail (x402 v2): the challenge the server sends on a 402. */
+export const PAYMENT_REQUIRED_HEADER = "PAYMENT-REQUIRED";
+
+/** Atomic units per USDC (the token has 6 decimals). */
+const USDC_DECIMALS = 6;
+
+function toBase64url(text) {
+  return Buffer.from(text, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function fromBase64url(value) {
+  const normalised = String(value).replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalised.length % 4
+    ? "=".repeat(4 - (normalised.length % 4))
+    : "";
+  return Buffer.from(normalised + padding, "base64").toString("utf8");
+}
 
 /** base64url-encode a JSON payment proof (no padding, no dependencies). */
 export function buildPaymentProof({ payer, transactionHash, amountUsdc }) {
@@ -24,14 +58,16 @@ export function buildPaymentProof({ payer, transactionHash, amountUsdc }) {
     transaction_hash: String(transactionHash).toLowerCase(),
     amount_usdc: Number(amountUsdc),
   });
-  return Buffer.from(payload, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return toBase64url(payload);
 }
 
-/** Parse a 402 response body into a payment challenge object. */
+/**
+ * Parse a legacy 402 response body into a payment challenge object.
+ *
+ * Kept exactly as it was: the returned shape is part of this package's public
+ * API. New code should prefer `parsePaymentRequiredHeader`, which reads the
+ * standard x402 v2 challenge.
+ */
 export function parsePaymentChallenge(body) {
   if (!body || body.error !== "payment_required") return null;
   const amount = Number(body.x402_amount ?? body.payment?.amount_usdc);
@@ -44,21 +80,112 @@ export function parsePaymentChallenge(body) {
   return { amount, recipient, tokenContract, chainId };
 }
 
+/**
+ * Parse the canonical x402 v2 challenge from a `PAYMENT-REQUIRED` header.
+ *
+ * The header is base64url-encoded JSON whose `accepts` array carries the terms.
+ * Returns `null` when the header is absent, undecodable, or carries no usable
+ * `exact`-scheme accept — so a caller can fall back to the legacy body shape
+ * instead of throwing.
+ *
+ * `amount` is exposed both as atomic units (the string the header uses) and as
+ * a human USDC number, so a legacy-only signer can still be driven from a v2
+ * challenge without doing the decimals itself.
+ */
+export function parsePaymentRequiredHeader(headerValue) {
+  if (!headerValue) return null;
+  let decoded;
+  try {
+    decoded = JSON.parse(fromBase64url(headerValue));
+  } catch {
+    return null;
+  }
+  const accepts = Array.isArray(decoded?.accepts) ? decoded.accepts : [];
+  const accepted = accepts.find((entry) => entry?.payTo && entry?.amount)
+    ?? accepts[0];
+  if (!accepted || !accepted.payTo || accepted.amount === undefined) return null;
+
+  const amountAtomic = String(accepted.amount);
+  const atomic = Number(amountAtomic);
+  if (!Number.isFinite(atomic) || atomic <= 0) return null;
+
+  const network = String(accepted.network ?? "");
+  const chainId = Number(
+    accepted.chainId ?? network.split(":").pop() ?? 8453
+  );
+
+  return {
+    rail: "v2",
+    x402Version: Number(decoded.x402Version ?? 2),
+    scheme: accepted.scheme ?? "exact",
+    network,
+    chainId: Number.isFinite(chainId) ? chainId : 8453,
+    amountAtomic,
+    amount: atomic / 10 ** USDC_DECIMALS,
+    recipient: accepted.payTo,
+    tokenContract: accepted.asset,
+    maxTimeoutSeconds: Number(accepted.maxTimeoutSeconds ?? 60),
+    extra: accepted.extra ?? null,
+    resourceUrl: decoded?.resource?.url ?? null,
+    /** The raw accept block, echoed back inside the signed payload. */
+    accepted,
+  };
+}
+
+/**
+ * Build the base64url `PAYMENT-SIGNATURE` header value for a v2 payment.
+ *
+ * `accepted` must be the accept block from the challenge the server issued —
+ * the server compares it with what the signature authorises.
+ */
+export function buildPaymentSignatureHeader({
+  signature,
+  authorization,
+  accepted,
+  x402Version = 2,
+}) {
+  if (!signature || !authorization || !accepted) {
+    throw new TypeError(
+      "buildPaymentSignatureHeader needs { signature, authorization, accepted }"
+    );
+  }
+  return toBase64url(JSON.stringify({
+    x402Version,
+    accepted,
+    payload: { signature, authorization },
+  }));
+}
+
 export class KristoX402Client {
   /**
    * @param {object} options
    * @param {string} [options.baseUrl] API base URL.
-   * @param {function} options.pay Payer callback invoked with the payment
-   *   challenge `{ amount, recipient, tokenContract, chainId, path }`.
-   *   Must resolve with `{ payer, txHash }` after broadcasting the USDC
-   *   transfer. Bring your own signer (viem, ethers, ...).
+   * @param {function} options.pay Signer callback invoked with the payment
+   *   challenge. Resolve with EITHER
+   *     `{ signature, authorization }` — an EIP-3009 authorization signed by
+   *     the payer (preferred: settles in ~2s through the facilitator), OR
+   *     `{ payer, txHash }` — a broadcast plain USDC transfer (legacy: the
+   *     server waits for 12 confirmations, ~24s).
+   *   The challenge carries `amountAtomic`, `recipient`, `tokenContract`,
+   *   `chainId`, `extra` and `accepted` when the standard rail is available.
    * @param {number} [options.maxPaymentRetries=3] How many payment rounds
    *   to attempt before giving up.
    * @param {boolean} [options.autoPay=true] When false, a 402 response is
    *   returned to the caller as `{ paymentRequired: challenge }` without
    *   paying (useful for inspection / dry runs).
+   * @param {number} [options.maxInFlightRetries=5] How many times to re-send
+   *   the SAME credential when the server answers 425 `settlement_in_flight`
+   *   (the payment is settling; a new payment must not be made).
+   * @param {number} [options.inFlightDelayMs=1500] Delay between those retries.
    */
-  constructor({ baseUrl = DEFAULT_BASE_URL, pay, maxPaymentRetries = 3, autoPay = true } = {}) {
+  constructor({
+    baseUrl = DEFAULT_BASE_URL,
+    pay,
+    maxPaymentRetries = 3,
+    autoPay = true,
+    maxInFlightRetries = 5,
+    inFlightDelayMs = 1500,
+  } = {}) {
     if (autoPay && typeof pay !== "function") {
       throw new TypeError(
         "KristoX402Client: a `pay` callback is required (or set autoPay: false)."
@@ -68,6 +195,8 @@ export class KristoX402Client {
     this.pay = pay;
     this.maxPaymentRetries = maxPaymentRetries;
     this.autoPay = autoPay;
+    this.maxInFlightRetries = maxInFlightRetries;
+    this.inFlightDelayMs = inFlightDelayMs;
   }
 
   /**
@@ -89,14 +218,19 @@ export class KristoX402Client {
 
   async _requestWithPayments(path, init = {}) {
     for (let round = 0; round <= this.maxPaymentRetries; round++) {
-      const response = await fetch(`${this.baseUrl}${path}`, init);
+      const response = await this._fetchSettling(path, init);
+
       if (response.status !== 402) {
         const data = await this._safeJson(response);
         return { ok: response.ok, status: response.status, data };
       }
 
       const body = await this._safeJson(response);
-      const challenge = parsePaymentChallenge(body);
+      // Prefer the standard v2 challenge; fall back to the legacy body shape so
+      // an older server (or an older proxy) still works.
+      const challenge = parsePaymentRequiredHeader(
+        response.headers?.get?.(PAYMENT_REQUIRED_HEADER)
+      ) ?? parsePaymentChallenge(body);
       if (!challenge) {
         // Malformed 402 — surface it instead of looping forever.
         return { ok: false, status: 402, data: body };
@@ -105,18 +239,50 @@ export class KristoX402Client {
         return { ok: false, status: 402, paymentRequired: { ...challenge, path } };
       }
 
-      const { payer, txHash } = await this.pay({ ...challenge, path });
-      const proof = buildPaymentProof({
-        payer,
-        transactionHash: txHash,
-        amountUsdc: challenge.amount,
-      });
-      // Merge the proof header into the retry request.
+      const payment = await this.pay({ ...challenge, path });
       const headers = new Headers(init.headers ?? {});
-      headers.set(PROOF_HEADER, proof);
+
+      if (payment?.signature && payment?.authorization && challenge.accepted) {
+        headers.set(PAYMENT_SIGNATURE_HEADER, buildPaymentSignatureHeader({
+          signature: payment.signature,
+          authorization: payment.authorization,
+          accepted: challenge.accepted,
+        }));
+      } else if (payment?.txHash) {
+        headers.set(PROOF_HEADER, buildPaymentProof({
+          payer: payment.payer,
+          transactionHash: payment.txHash,
+          amountUsdc: challenge.amount,
+        }));
+      } else {
+        throw new TypeError(
+          "KristoX402Client: `pay` must resolve with { signature, " +
+          "authorization } (x402 v2) or { payer, txHash } (legacy). " +
+          "Received: " + JSON.stringify(payment ?? null)
+        );
+      }
       init = { ...init, headers };
     }
     return { ok: false, status: 402, error: "max_payment_retries_exceeded" };
+  }
+
+  /**
+   * Fetch, absorbing HTTP 425 `settlement_in_flight`.
+   *
+   * The server answers 425 while a settlement is still being confirmed and the
+   * correct response is to re-send the SAME credential shortly. Making a second
+   * payment here would be wrong — and the server would reject it anyway, since
+   * the authorization nonce is one-time-use.
+   */
+  async _fetchSettling(path, init) {
+    let response = await fetch(`${this.baseUrl}${path}`, init);
+    for (let attempt = 0;
+      response.status === 425 && attempt < this.maxInFlightRetries;
+      attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, this.inFlightDelayMs));
+      response = await fetch(`${this.baseUrl}${path}`, init);
+    }
+    return response;
   }
 
   async _safeJson(response) {
