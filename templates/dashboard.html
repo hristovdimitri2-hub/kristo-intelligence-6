@@ -183,8 +183,8 @@
   <div class="cards" id="onchain-cards"></div>
   <div class="note" id="onchain-classes" style="margin-bottom:10px;"></div>
   <table id="sales-table">
-    <thead><tr><th>Време (UTC)</th><th>Сума</th><th>УСЛУГА</th><th>КЛИЕНТ</th><th>From</th><th>Tx (пълен хеш)</th><th>Блок</th></tr></thead>
-    <tbody id="sales-body"><tr><td colspan="7" class="empty">Изчакване на данни…</td></tr></tbody>
+    <thead><tr><th>Време (UTC)</th><th>Сума</th></tr></thead>
+    <tbody id="sales-body"><tr><td colspan="2" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
   <h2>⬢ Клиенти <span class="src">всеки external платец — базата за operator deals</span></h2>
   <div class="cards" id="client-cards"></div>
@@ -198,7 +198,7 @@
   <div class="cards" id="whale-cards"></div>
   <table style="margin-top:10px;">
     <thead><tr><th>Време (UTC)</th><th>Сума</th><th>Токен</th><th>От</th><th>До</th><th>Tx</th></tr></thead>
-    <tbody id="whales-body"><tr><td colspan="6" class="empty">Изчакване на данни…</td></tr></tbody>
+    <tbody id="whales-body"><tr><td colspan="6" class="empty">трансакциите са в платения /api/v1/whaleflow (F-01)</td></tr></tbody>
   </table>
   <div class="note" id="whales-note"></div>
 
@@ -206,8 +206,8 @@
   <div class="cards" id="guard-cards"></div>
   <div class="note" id="guard-note" style="margin:8px 0;"></div>
   <table>
-    <thead><tr><th>Време (UTC)</th><th>Гард</th><th>Път</th><th>Tx</th><th>Детайл</th></tr></thead>
-    <tbody id="guard-body"><tr><td colspan="5" class="empty">Изчакване на данни…</td></tr></tbody>
+    <thead><tr><th>Време (UTC)</th><th>Гард</th><th>Път</th><th>Детайл</th></tr></thead>
+    <tbody id="guard-body"><tr><td colspan="4" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
 
   <h2>⬢ Фънъл <span class="src">402 предизвикателства → платени заявки, по маршрути</span></h2>
@@ -376,23 +376,14 @@ function renderOnchain(o) {
     : '').join(' &nbsp; ') +
     (o.last_scanned_block ? ` &nbsp;<span style="color:var(--muted)">scan watermark: block ${o.last_scanned_block}</span>` : '');
   const rows = (o.history || []).map(h => {
-    const cls = h.payer_class || 'external';
-    const tx = (h.tx_hash || '');
-    const route = h.route || '';   // от payment_guards claim-а; без него "—"
-    const who = CLS_WORDS[cls] || cls;
-    const label = (o.class_labels || {})[cls] || cls;
+    // F-01: public history rows keep only {ts, amount} — no tx_hash/sender/payer
     return `<tr>
       <td class="num mono" data-v="${esc(h.ts || '')}">${esc(utc(h.ts))}</td>
-      <td class="num mono" data-v="${Number(h.amount_usdc) || 0}">${usd(h.amount_usdc)}</td>
-      <td class="mono" data-v="${esc(route)}">${esc(route || '—')}</td>
-      <td data-v="${esc(cls)}"><span class="tag ${cls}" title="${esc(label)}">${esc(who)}</span></td>
-      <td class="mono" data-v="${esc(h.sender || '')}">${esc(addr(h.sender))}</td>
-      <td class="hashline" data-v="${esc(tx)}"><a href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(tx)}</a></td>
-      <td class="num mono" data-v="${Number(h.block_number) || 0}">${h.block_number || '—'}</td>
+      <td class="num mono" data-v="${Number(h.amount) || 0}">${usd(h.amount)}</td>
     </tr>`;
   });
   $('sales-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="7" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
+    '<tr><td colspan="2" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
 }
 
 // ON-CHAIN SALES — сортиране по колона (клик върху header). data-v носи
@@ -482,8 +473,7 @@ function renderWhales(w) {
       <td class="mono">${esc(addr(x.to))} <span class="evi">${esc(x.to_label || 'unknown')}</span></td>
       <td class="mono"><a href="https://basescan.org/tx/${esc(x.tx_hash)}" target="_blank" rel="noopener">${esc(addr(x.tx_hash))}</a></td>
     </tr>`);
-  $('whales-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="6" class="empty">чакаме кит — сканът тече, няма трансфер ≥ прага в прозореца</td></tr>';
+  $('whales-body').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="6" class="empty">трансакциите са в платения /api/v1/whaleflow (F-01)</td></tr>';
   $('whales-note').textContent =
     'all-time записи: ' + (w.all_time_count || 0) +
     (w.last_event_at ? ' · последен: ' + utc(w.last_event_at) + ' (блок ' + w.last_event_block + ')' : '') +
@@ -543,11 +533,10 @@ function renderGuards(g) {
       <td class="num mono">${esc(utc(b.ts))}</td>
       <td><span class="tag ${cls}">${esc(kind)}</span></td>
       <td class="mono">${esc(b.endpoint || '—')}</td>
-      <td class="mono">${esc(addr(b.tx_hash))}</td>
       <td class="evi">${esc(b.detail || '')}</td></tr>`;
   });
   $('guard-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="5" class="empty">нула блокирани опита — всеки replay/подмяна ще се появи тук</td></tr>';
+    '<tr><td colspan="4" class="empty">нула блокирани опита — всеки replay/подмяна ще се появи тук</td></tr>';
 }
 
 function renderFunnel(r) {

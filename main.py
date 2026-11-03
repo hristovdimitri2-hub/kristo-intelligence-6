@@ -3799,7 +3799,13 @@ def _statistics_payload(include_recent_requests: bool) -> dict:
         "total_volume_usd": total_volume,
         "total_sales": total_sales,
         "by_token": sales_by_token,
-        "history": history,
+        # F-01: public history rows keep only {ts, amount} — no tx_hash/sender/payer_*.
+        "history": [
+            {"ts": _r.get("timestamp") or _r.get("ts"),
+             "amount": _r.get("amount_usdc",
+                              _r.get("amount_usd", _r.get("amount")))}
+            for _r in history
+        ],
         # Chart series (10.10) — ADDITIVE ONLY, no existing field touched.
         # `daily_sales` aggregates the exact `history` rows reported above (RAM
         # fallback or store rows, whichever is authoritative), so the 7-day chart
@@ -5451,7 +5457,12 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
                 "last_scanned_block": int(
                     dashboard_db.get_meta("last_scanned_block", "0") or 0
                 ),
-                "history": sales["history"][:100],
+                # F-01: free history is redacted to {ts, amount} only —
+                # full rows (tx_hash/sender) stay behind paid /api/sales.
+                "history": [
+                    {"ts": _row.get("ts"), "amount": _row.get("amount_usdc")}
+                    for _row in sales["history"][:100]
+                ],
             },
             "requests": {
                 "label": "постоянен лог (SQLite)",
@@ -5477,8 +5488,22 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
             "clients": {
                 "label": "Реални клиенти (external платци) — основа за operator deals",
                 "count": clients["count"],
-                "clients": clients["clients"],
-                "potentially_new": clients["potentially_new"],
+                # F-01: client rows may expose tx hashes / sender / class —
+                # strip them from the free payload (template uses none of them).
+                "clients": [
+                    ({k: v for k, v in dict(_cl).items()
+                      if k not in ("tx_hashes", "tx_hash", "sender",
+                                   "payer_class", "payer_label")}
+                     if isinstance(_cl, dict) else _cl)
+                    for _cl in clients["clients"]
+                ],
+                "potentially_new": [
+                    ({k: v for k, v in dict(_cl).items()
+                      if k not in ("tx_hashes", "tx_hash", "sender",
+                                   "payer_class", "payer_label")}
+                     if isinstance(_cl, dict) else _cl)
+                    for _cl in clients["potentially_new"]
+                ],
                 "route_price_map": clients["route_price_map"],
                 "route_evidence_legend": {
                     "payment_guard": "записан endpoint от C1/H2 гарда — ФАКТ",
@@ -5502,7 +5527,8 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
                 "window_hours": whales["window_hours"],
                 "threshold_usdc": whales["threshold_usdc"],
                 "scanned_until_block": whales["scanned_until_block"],
-                "whales": whales["whales"],
+                # F-01: the whales ARRAY mirrors paid /api/v1/whaleflow —
+                # removed from the free payload; aggregates above stay public.
                 "note": ("Празно е ЧЕСТНО състояние: watermark-ът се движи и "
                          "сканът работи — просто няма трансфер ≥ прага. "
                          "'scan_failed' значи счупен скан, не празна мрежа. "
@@ -5525,7 +5551,13 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
                 "lag_accepted_total": guards.get("lag_accepted_total", 0),
                 "lag_accepted_today": guards.get("lag_accepted_today", 0),
                 "by_kind": guards["by_kind"],
-                "recent_blocks": guards["recent_blocks"],
+                # F-01: guard rows may expose tx_hash — strip it (and sender)
+                # from the free payload; paid routes keep full data.
+                "recent_blocks": [
+                    {k: v for k, v in dict(_b).items()
+                     if k not in ("tx_hash", "sender")}
+                    for _b in guards["recent_blocks"]
+                ],
                 "consumed_total": guard_claims["consumed_total"],
                 "consumed_by_endpoint": guard_claims["by_endpoint"],
                 "last_claim_at": guard_claims["last_claim_at"],

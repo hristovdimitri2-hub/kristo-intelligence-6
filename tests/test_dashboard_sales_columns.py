@@ -36,9 +36,15 @@ def dash(monkeypatch):
 
 
 def test_onchain_history_carries_route_from_granted_claim(dash):
+    # F-01: the granted-claim route join no longer ships on the FREE payload —
+    # history rows are {ts, amount} only; route/tx_hash/sender live behind the
+    # paid /api/sales (invert: the mirror keys must be ABSENT).
     payload = dash._canonical_dashboard_payload()
     hist = payload["sections"]["onchain"]["history"]
-    assert [r["route"] for r in hist] == ["/api/v1/whaleflow", None]
+    assert len(hist) == 2
+    for r in hist:
+        assert set(r.keys()) <= {"ts", "amount"}
+        assert "route" not in r and "tx_hash" not in r and "sender" not in r
 
 
 def test_route_join_fails_open_when_store_unavailable(dash, monkeypatch):
@@ -57,8 +63,11 @@ def test_route_join_fails_open_when_store_unavailable(dash, monkeypatch):
 def test_dashboard_template_has_service_and_client_columns():
     from pathlib import Path
     html = Path("templates/dashboard.html").read_text(encoding="utf-8")
-    assert "<th>УСЛУГА</th>" in html
-    assert "<th>КЛИЕНТ</th>" in html
+    # F-01: the sales table dropped its paid-mirror columns (route/client/tx) —
+    # the free page now ships a 2-col sales table and a 4-col guard table.
+    assert "<thead><tr><th>Време (UTC)</th><th>Сума</th></tr></thead>" in html
+    assert "<th>УСЛУГА</th>" not in html and "<th>КЛИЕНТ</th>" not in html
+    assert "<th>Гард</th><th>Път</th><th>Детайл</th>" in html
     assert "CLS_WORDS" in html
     assert "човек / външен клиент" in html
     assert "бот — сондьор" in html

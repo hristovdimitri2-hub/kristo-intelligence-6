@@ -68,12 +68,13 @@ def test_onchain_section_carries_the_verified_chain_truth(client):
     # chain truth reads 2 humans / $0.008 and 2 heartbeats / $0.006.
     assert o["by_class"]["external"] == {"count": 2, "total_usdc": 0.008}
     assert o["by_class"]["sampler"] == {"count": 2, "total_usdc": 0.006}
-    # FULL 66-char hashes + the real block numbers (no truncation, no zeros).
+    # F-01: FREE rows are redacted to {ts, amount} — full 66-char hashes, block
+    # numbers and payer classes stay behind the paid /api/sales.
     assert len(o["history"]) == 9
     for row in o["history"]:
-        assert len(row["tx_hash"]) == 66 and row["tx_hash"].startswith("0x")
-        assert row["block_number"] > 50_000_000
-        assert row["payer_class"] in {"canary", "sampler", "external"}
+        assert set(row.keys()) <= {"ts", "amount"}
+        assert "tx_hash" not in row and "block_number" not in row
+        assert "payer_class" not in row and "sender" not in row
 
 
 # ── 2. КЛИЕНТИ: external payers, with route honesty ─────────────────────────
@@ -94,7 +95,10 @@ def test_clients_section_lists_every_external_payer(client):
     for row in by_wallet.values():
         assert row["payments"] == 1
         assert row["last_ts"]
-        assert len(row["tx_hashes"]) == 1
+        # F-01: tx hashes/sender stay in the store (paid /api/sales) — the FREE
+        # row must not carry them.
+        assert "tx_hashes" not in row and "tx_hash" not in row
+        assert "sender" not in row and "payer_class" not in row
 
 
 def test_clients_routes_are_never_invented(client):
@@ -1084,7 +1088,8 @@ def test_whales_section_is_honest_when_the_window_is_empty(client):
     assert w["count"] == 0
     assert w["state"] == "awaiting_whale"          # not "0", not "live"
     assert w["scanned_until_block"] == 51234567    # proof the scan IS running
-    assert w["whales"] == []
+    # F-01: free payload must not contain the whales array (paid mirror).
+    assert "whales" not in w
     assert w["all_time_count"] == 0
 
 
@@ -1113,10 +1118,9 @@ def test_whales_section_switches_to_live_data_with_a_real_event(client):
     assert w["state"] == "live_data"
     assert w["count"] == 1
     assert w["all_time_count"] == 1
-    whale = w["whales"][0]
-    assert whale["amount_usdc"] == 6_000_000.0
-    assert whale["from_label"] == "unknown" and whale["to_label"] == "unknown"
-    assert whale["block"] == 51234000
+    # F-01: live event still fills aggregates only — the whales ARRAY and its
+    # tx_hash/sender rows stay behind the paid /api/v1/whaleflow.
+    assert "whales" not in w
 
 
 # ── 4. СТАЖИ: the guards, proven alive on screen ────────────────────────────
@@ -1257,12 +1261,35 @@ def test_dashboard_stats_agrees_with_the_chain_backed_section(client):
     assert stats["total_volume_usd"] == onchain["total_usdc"] == 0.031
     assert stats["total_sales"] == onchain["total_count"] == 9
     assert stats["by_token"] == {"USDC": 0.031}
-    # Legacy RAM key names stay available on every history row.
+    # F-01: public history rows keep only {ts, amount} — no tx_hash/sender.
     assert len(stats["history"]) == 9
     for row in stats["history"]:
-        assert row["amount_usd"] == row["amount_usdc"]
-        assert row["timestamp"] == row["ts"]
-        assert len(row["tx_hash"]) == 66
+        assert set(row.keys()) <= {"ts", "amount"}
+        assert row["amount"] is not None and row["ts"] is not None
+
+
+def test_f01_free_payloads_do_not_mirror_paid(client):
+    # F-01: free responses must not contain whales/tx_hash/sender — the paid
+    # /api/v1/whaleflow and /api/sales keep the full data untouched.
+    test_client, _main, _dash = client
+
+    def deep_keys(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                yield k
+                yield from deep_keys(v)
+        elif isinstance(o, list):
+            for i in o:
+                yield from deep_keys(i)
+
+    stats = test_client.get("/api/dashboard-stats").get_json()
+    data = test_client.get("/api/dashboard/data").get_json()
+    skeys = set(deep_keys(stats))
+    dkeys = set(deep_keys(data))
+    assert not (skeys & {"tx_hash", "tx_hashes", "sender"})
+    assert not (dkeys & {"tx_hash", "tx_hashes", "sender"})
+    # the whales SECTION (aggregates) stays public; the ARRAY inside is gone
+    assert "whales" not in data["sections"]["whales"]
 
 
 def test_dashboard_stats_still_reports_zero_on_an_empty_store(client):
