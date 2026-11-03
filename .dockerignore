@@ -68,3 +68,6 @@ docs/
 Dockerfile
 docker-compose.yml
 .dockerignore
+secrets/
+*.mp4
+kristo_paid_demo_clip*

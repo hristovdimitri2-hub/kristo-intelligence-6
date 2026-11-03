@@ -41,6 +41,14 @@ from config import KRISTO_VIP_ANALYSIS_PRICE
 
 log = logging.getLogger("kristo.v6.telegram_sales")
 
+# Audit F-14: Telegram bot tokens live in request URLs — never let them hit logs.
+_TG_TOKEN_RE = re.compile(r"/bot[A-Za-z0-9_-]{20,}/")
+
+
+def _redact_tg(obj) -> str:
+    """Audit F-14: requests exceptions embed the full URL incl. bot token."""
+    return _TG_TOKEN_RE.sub("/bot<TOKEN>/", str(obj))
+
 # ── x402 Payment constants (mirrors main.py) ────────────────────────────────
 # Receiver address is bound via config.get_base_fee_receiver() (hard fallback)
 X402_RECEIVER_ADDRESS = get_base_fee_receiver()
@@ -78,7 +86,7 @@ def _api_call(method: str, token: str, payload: dict, timeout: int = 15) -> Opti
             return None
         return data.get("result")
     except Exception as exc:
-        log.warning("Telegram API %s failed: %s", method, exc)
+        log.warning("Telegram API %s failed: %s", method, _redact_tg(exc))
         return None
 
 
@@ -209,7 +217,7 @@ def register_webhook() -> Optional[dict]:
             )
             return None
     except Exception as exc:
-        log.warning("register_webhook request failed: %s", exc)
+        log.warning("register_webhook request failed: %s", _redact_tg(exc))
         return None
 
 
@@ -317,7 +325,7 @@ def _whale_reply(limit: int = 5) -> str:
 
         summary = main_module.dashboard_db.whaleflow_summary(limit=limit)
     except Exception as exc:
-        log.warning("Telegram /whale failed: %s", exc)
+        log.warning("Telegram /whale failed: %s", _redact_tg(exc))
         return _service_unavailable_reply()
 
     whales = summary.get("whales") or []
@@ -389,7 +397,7 @@ def _status_reply() -> str:
             f"USDC баланс: ${float(balance or 0):.4f}"
         )
     except Exception as exc:                         # pragma: no cover
-        log.warning("Telegram /status degraded: %s", exc)
+        log.warning("Telegram /status degraded: %s", _redact_tg(exc))
         return _service_unavailable_reply()
 
 

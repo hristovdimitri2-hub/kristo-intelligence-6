@@ -60,6 +60,7 @@ from config import (
 from services.market_data import get_coingecko_cache_status, get_market_snapshot
 
 # ── Telegram Sales Bot (x402 micro-transactions) ───────────────────────────
+import services.telegram_sales
 from services.telegram_sales import (
     send_market_bulletin,
     generate_payment_link,
@@ -539,7 +540,8 @@ def _send_telegram_vip_notification(wallet_address: str, invite_code: str, tx_ha
             _bot_status["messages_sent"] += 1
         log.info("Telegram VIP notification sent for invite %s", invite_code)
     except Exception as exc:
-        log.warning("Telegram VIP notification failed (non-fatal): %s", exc)
+        log.warning("Telegram VIP notification failed (non-fatal): %s",
+                    services.telegram_sales._redact_tg(exc))
 
 
 # ── Real wallet / blockchain initialization ──────────────────────────────
@@ -637,10 +639,10 @@ def _init_wallet() -> Optional[object]:
             return mock
 
         except Exception as exc:
-            log.error("Failed to initialize monitor-only Web3: %s", exc)
+            log.error("Failed to initialize monitor-only Web3: %s", redact_rpc(exc))
             with _lock:
                 _wallet_state["rpc_connected"] = False
-                _wallet_state["rpc_error"] = str(exc)
+                _wallet_state["rpc_error"] = redact_rpc(exc)
             return None
 
     log.warning("No WALLET_PRIVATE_KEY or BASE_FEE_RECEIVER set — wallet monitoring disabled.")

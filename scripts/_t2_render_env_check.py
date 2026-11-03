@@ -7,6 +7,13 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+def _mask(k, v):
+    s = str(v)
+    sensitive = any(t in k.upper() for t in
+                    ("RPC", "KEY", "TOKEN", "SECRET", "ADMIN", "PASSWORD"))
+    return f"<set, len={len(s)}>" if sensitive and s.strip() else v
+
 KEY = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "secrets", "render_api_key.txt"), encoding="utf-8").read().strip()
 H = {"Authorization": f"Bearer {KEY}", "Accept": "application/json"}
@@ -33,7 +40,7 @@ for item in env:
     e = item.get("envVar", item)
     k = e.get("key", "")
     if any(w in k.upper() for w in watch):
-        print(f"  {k} = {e.get('value')}")
+        print(f"  {k} = {_mask(k, e.get('value'))}")
 
 det = requests.get(f"https://api.render.com/v1/services/{sid}", headers=H,
                    timeout=60).json()
