@@ -256,6 +256,67 @@ def test_settle_c2_refusal_then_retry_delivers(env, monkeypatch):
     assert dash.payment_guard_stats()["consumed_total"] == 1
 
 
+def test_adoption_obeys_the_same_depth_gate_as_every_other_path(env, monkeypatch):
+    """F-06: the nonce-adoption path used to bypass the confirmation depth.
+
+    `_find_settlement_by_nonce` adopted any AuthorizationUsed log from the last
+    5000 blocks whose receipt carried the matching Transfer, checking only
+    `receipt.status == 1` — no depth check, no comparison with the chain head.
+    So a settlement at the tip (one Base block, ~2s, reorgable away) was adopted
+    and the product delivered on it, and if an operator raised
+    MIN_STANDARD_PAYMENT_CONFIRMATIONS the settlement path would honour the new
+    depth while THIS path silently ignored it. That last part is the real bug:
+    a setting that only some paths obey is not a setting.
+
+    At the default depth of 1 this changes nothing — a tx in `latest` is
+    (latest-latest+1) = 1 deep — so the test pins BOTH halves: the default still
+    adopts, and a raised depth is now respected instead of bypassed.
+    """
+    main = env.main
+    monkeypatch.delenv("MIN_STANDARD_PAYMENT_CONFIRMATIONS", raising=False)
+
+    receipt = _receipt(TX_SELF, 100, PAYER, 5000, main.X402_RECEIVER_ADDRESS)
+    eth = _FakeEth(block_number=105, receipts={TX_SELF: receipt},
+                   auth_logs=[_auth_log(TX_SELF, 100, PAYER, NONCE_A)])
+    _install_fake_web3(monkeypatch, eth)
+
+    # Default depth (1): this settlement is 6 blocks deep → adopted, unchanged.
+    found = main._find_settlement_by_nonce(PAYER, NONCE_A, 0.005)
+    assert found and found["tx_hash"] == TX_SELF
+
+    # Raise the required depth above those 6 blocks → must NOT adopt.
+    monkeypatch.setenv("MIN_STANDARD_PAYMENT_CONFIRMATIONS", "12")
+    assert main._find_settlement_by_nonce(PAYER, NONCE_A, 0.005) is None, (
+        "the adoption path still bypasses MIN_STANDARD_PAYMENT_CONFIRMATIONS")
+
+    # Exactly at the depth it is buried → adopted again, so it is the setting
+    # talking and not an accidental blanket refusal.
+    monkeypatch.setenv("MIN_STANDARD_PAYMENT_CONFIRMATIONS", "6")
+    found = main._find_settlement_by_nonce(PAYER, NONCE_A, 0.005)
+    assert found and found["tx_hash"] == TX_SELF
+
+
+def test_adoption_refuses_a_receipt_with_no_block_number(env, monkeypatch):
+    """`int(receipt.get("blockNumber") or 0)` used to turn "unknown" into "ok".
+
+    `_confirmations_ok` treats an unknown block number as UNCONFIRMED
+    (fail-closed) precisely because a depth that cannot be measured must never
+    read as deep enough. Before the depth gate, a receipt reporting no block
+    number was adopted and delivered anyway.
+    """
+    main = env.main
+    monkeypatch.delenv("MIN_STANDARD_PAYMENT_CONFIRMATIONS", raising=False)
+
+    # The log itself is well-formed and in range; only the RECEIPT cannot say
+    # which block it landed in.
+    receipt = _receipt(TX_SELF, 0, PAYER, 5000, main.X402_RECEIVER_ADDRESS)
+    eth = _FakeEth(block_number=105, receipts={TX_SELF: receipt},
+                   auth_logs=[_auth_log(TX_SELF, 100, PAYER, NONCE_A)])
+    _install_fake_web3(monkeypatch, eth)
+
+    assert main._find_settlement_by_nonce(PAYER, NONCE_A, 0.005) is None
+
+
 def test_same_price_signals_never_adopt_the_wrong_tx(env, monkeypatch):
     """Nonce, NOT payer+amount: fixed prices would collide two signals."""
     main = env.main

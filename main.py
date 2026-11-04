@@ -2350,6 +2350,12 @@ def _find_settlement_by_nonce(payer: str, nonce: str,
     Returns {tx_hash, block_number, block_hash} or None. Best-effort: any RPC
     failure returns None and the caller settles normally (the pre-fix path),
     so a failed search can never reject a payment.
+
+    The adopted transaction must also clear the SAME confirmation-depth gate
+    every other path enforces (`_required_standard_confirmations`). Not
+    adopting is never a refusal — the caller falls through to a normal
+    settlement — so this can only ever decline to grant on a payment the depth
+    setting says is not buried yet.
     """
     payer = (payer or "").strip().lower()
     nonce = (nonce or "").strip().lower()
@@ -2439,9 +2445,30 @@ def _find_settlement_by_nonce(payer: str, nonce: str,
                             "for %s USDC — NOT adopting",
                             nonce[:12], tx_hash[:18], price_usdc)
                 continue
+            block_number = int(receipt.get("blockNumber") or 0)
+            # C2 — the SAME depth gate every other path already enforces.
+            # Without it, adoption bypassed MIN_STANDARD_PAYMENT_CONFIRMATIONS
+            # entirely: a settlement sitting at the chain tip (one Base block,
+            # ~2s — reorgable away) was adopted and the product delivered on it,
+            # and if an operator ever raised the required depth this path would
+            # have silently ignored the setting. At the default depth of 1 this
+            # is a no-op by construction — a tx in `latest` is (latest-latest+1)
+            # = 1 deep, so nothing that settles today stops settling. It only
+            # refuses to adopt a payment the depth setting says is not buried
+            # yet, and `_confirmations_ok` fails closed on an unreadable block
+            # number, which the old `or 0` happily adopted.
+            if not _confirmations_ok(block_number, latest,
+                                     _required_standard_confirmations()):
+                log.warning(
+                    "nonce %s… consumed in %s but only %s block(s) deep "
+                    "(need %s) — NOT adopting; settling normally instead",
+                    nonce[:12], tx_hash[:18],
+                    max(0, latest - block_number + 1),
+                    _required_standard_confirmations())
+                continue
             return {
                 "tx_hash": tx_hash,
-                "block_number": int(receipt.get("blockNumber") or 0),
+                "block_number": block_number,
                 "block_hash": _to_hex0x(receipt.get("blockHash")),
             }
         except Exception as exc:
