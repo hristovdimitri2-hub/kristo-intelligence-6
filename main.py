@@ -4440,7 +4440,14 @@ def dashboard_stats():
 
 @app.route("/api/connectors")
 def api_connectors():
-    """Live integration-connector registry (dashboard integrations panel)."""
+    """Live integration-connector registry (dashboard integrations panel).
+
+    Public on purpose: this is evidence that the rails are working, and it is
+    advertised in the discovery block of /api/v1/quickstart. The gas wallet's
+    ADDRESS is not public - it was published here to anyone who asked, on an
+    unauthenticated crawlable URL, and it links the relayer to this service.
+    An authenticated operator (or the one-click operator view) still sees it.
+    """
     with _lock:
         wallet_info = dict(_wallet_state)
     # The fee receiver is ALWAYS bound (config hard fallback) — the receiver
@@ -4448,7 +4455,9 @@ def api_connectors():
     wallet_info["fee_receiver"] = wallet_info.get("fee_receiver") or X402_RECEIVER_ADDRESS
     from services.connectors import registry_status
 
-    entries = registry_status(wallet_info)
+    entries = registry_status(
+        wallet_info,
+        reveal_wallet=_is_admin_request() or _operator_view_enabled())
     return _safe_jsonify({
         "count": len(entries),
         "active": sum(1 for e in entries if e["status"] == "active"),
@@ -5712,22 +5721,38 @@ def sales_admin_research():
 
 @app.route("/api/launch/health", methods=["GET"])
 def launch_health():
-    """Launch health endpoint for sales ops and deployment checks."""
+    """Liveness for deploys and uptime checks - and nothing else.
+
+    It used to answer with the size of the sales pipeline, the number of leads,
+    which CRM backend is in use, and whether Stripe is live or running in mock
+    mode. All of that is business intelligence sitting on a free, unauthenticated,
+    crawlable URL - "mock" in particular tells a reader we are not actually
+    charging anyone. A health check answers one question: is it up.
+
+    The ops numbers still exist and still answer to the admin credential, so
+    production_verify.py can read them when it has a token, and the public
+    deploy check keeps working without one.
+    """
     crm_ready = crm_store.is_healthy()
-    lead_count = len(crm_store.get_all()) if crm_ready else 0
-    pipeline = crm_store.get_sales_pipeline() if crm_ready else {}
     payload = {
         "ok": True,
         "app": "kristo-intelligence-v6",
         "status": "live" if crm_ready else "degraded",
-        "payment_provider": "stripe" if os.getenv("STRIPE_API_KEY") else "mock",
-        "crm_backend": crm_store.backend,
         "crm_ready": crm_ready,
-        "lead_count": lead_count,
-        "pipeline": pipeline,
         "public_url": os.getenv("APP_PUBLIC_URL", "http://localhost:5000"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    if _is_admin_request():
+        payload.update({
+            "crm_backend": crm_store.backend,
+            "payment_provider": "stripe" if os.getenv("STRIPE_API_KEY") else "mock",
+            "lead_count": len(crm_store.get_all()) if crm_ready else 0,
+            "pipeline": crm_store.get_sales_pipeline() if crm_ready else {},
+        })
+    else:
+        payload["ops_detail"] = (
+            "crm_backend, payment_provider, lead_count and pipeline require the "
+            "admin credential (X-Admin-Token or an authenticated session).")
     return jsonify(payload), 200 if crm_ready else 503
 
 

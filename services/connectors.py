@@ -998,8 +998,20 @@ def _eip3009_detail() -> str:
     )
 
 
-def registry_status(wallet_state: dict) -> list:
-    """Build the live connector list for the dashboard / API."""
+def registry_status(wallet_state: dict, reveal_wallet: bool = False) -> list:
+    """Build the live connector list for the dashboard / API.
+
+    `reveal_wallet` (04.11): the gas-paying wallet's ADDRESS is operational
+    intelligence, not a status. On the free, unauthenticated, publicly
+    advertised /api/connectors it published which wallet we relay from and
+    tied it to this service. The registry itself is genuinely useful public
+    evidence that we are operational, so the endpoint stays open and only the
+    address is withheld - the entry still says whether a wallet is loaded,
+    which is the part that answers "is this rail working".
+
+    Passed in rather than decided here so the caller can grant it to an
+    authenticated operator, exactly like the sales columns on the dashboard.
+    """
     now_iso = datetime.now(timezone.utc).isoformat()
     wallet_addr = wallet_state.get("wallet_address")
     receiver = wallet_state.get("fee_receiver")
@@ -1036,7 +1048,9 @@ def registry_status(wallet_state: dict) -> list:
             "protocol": "x402 client (packages/x402-client)",
             "direction": "outbound",
             "status": "active" if wallet_addr else "inactive",
-            "detail": f"payer wallet={wallet_addr}" if wallet_addr else "no WALLET_PRIVATE_KEY loaded",
+            "detail": (f"payer wallet={wallet_addr}" if reveal_wallet
+                       else "payer wallet loaded") if wallet_addr
+            else "no WALLET_PRIVATE_KEY loaded",
         },
         {
             "id": "l402-lightning",

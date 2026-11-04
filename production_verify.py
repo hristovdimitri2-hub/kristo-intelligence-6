@@ -7,6 +7,7 @@ Verify production deployment endpoints and Stripe integration.
 
 import requests
 import json
+import os
 import sys
 
 BASE_URL = "https://kristo-intelligence-api.onrender.com"
@@ -62,17 +63,29 @@ def verify_health_details():
     print("=" * 70 + "\n")
     
     try:
-        resp = requests.get(f"{BASE_URL}/api/launch/health", timeout=10)
+        # The ops numbers (crm_backend, payment_provider, lead_count, pipeline)
+        # are behind the admin credential since 04.11 - they were published to
+        # anyone on a free, crawlable URL before that. Send the token when it is
+        # in the environment; without it the public answer still arrives and the
+        # script says which fields it could not read instead of printing "N/A".
+        _headers = {}
+        _token = (os.getenv("ADMIN_API_TOKEN") or "").strip()
+        if _token:
+            _headers["X-Admin-Token"] = _token
+        resp = requests.get(f"{BASE_URL}/api/launch/health", timeout=10,
+                            headers=_headers)
         if resp.status_code == 200:
             data = resp.json()
-            
+
             print("  Application Status:")
             print(f"    - App Name:          {data.get('app', 'N/A')}")
             print(f"    - Status:            {data.get('status', 'N/A').upper()}")
             print(f"    - CRM Backend:       {data.get('crm_backend', 'N/A')}")
             print(f"    - Payment Provider:  {data.get('payment_provider', 'N/A')}")
             print(f"    - Leads in System:   {data.get('lead_count', 0)}")
-            
+            if not _token and "ops_detail" in data:
+                print("      (set ADMIN_API_TOKEN to read the fields above)")
+
             pipeline = data.get('pipeline', {})
             if pipeline:
                 print(f"\n  Sales Pipeline:")
@@ -99,9 +112,21 @@ def verify_stripe_config():
     print("=" * 70 + "\n")
     
     try:
-        resp = requests.get(f"{BASE_URL}/api/launch/health", timeout=10)
+        # payment_provider is admin-gated since 04.11 (it used to tell any
+        # reader whether we were live or in mock mode). Without a token this
+        # check cannot answer, and saying so beats reporting a false failure.
+        _headers = {}
+        _token = (os.getenv("ADMIN_API_TOKEN") or "").strip()
+        if _token:
+            _headers["X-Admin-Token"] = _token
+        resp = requests.get(f"{BASE_URL}/api/launch/health", timeout=10,
+                            headers=_headers)
         if resp.status_code == 200:
             data = resp.json()
+            if "payment_provider" not in data:
+                print("  ? payment_provider is admin-gated now — set "
+                      "ADMIN_API_TOKEN to check it")
+                return True
             provider = data.get('payment_provider', 'unknown')
             
             if provider.lower() == 'stripe':
