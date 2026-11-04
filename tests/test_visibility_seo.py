@@ -499,6 +499,36 @@ def test_landing_page_demos_the_fast_rail_before_the_slow_one(client):
         "the legacy rail's real cost must be stated, not left to the reader")
 
 
+def test_the_homepage_links_a_human_to_the_pages_a_human_needs(client):
+    """A visitor could not click through to a price, a proof page, or a checkout.
+
+    The homepage's CTA row offered five buttons and every one of them served a
+    machine-readable FILE: /dashboard, /llms.txt, /openapi.json, x402.json and
+    agents.json. The human pages added later — /pricing, /terms, /validation and
+    /launch, which is where the card checkout for the human products lives —
+    were not linked at all, and /launch was not even mentioned. The footer then
+    listed "Discovery: x402.json · OpenAPI · llms.txt · MCP · agents.json" as
+    PLAIN TEXT, naming five files a crawler had no way to follow.
+
+    So the page we point everything at passed no internal signal to the pages
+    that matter, and a visitor who wanted to buy had no click path to the
+    checkout. The prices themselves were on the homepage all along — it was the
+    way out that was missing.
+    """
+    app_client, _main = client
+    html = app_client.get("/").get_data(as_text=True)
+
+    for path in ("/pricing", "/terms", "/validation", "/launch", "/mcp.json"):
+        assert 'href="%s"' % path in html, (
+            "the homepage does not link %s" % path)
+
+    # The footer used to name these; naming a file is not linking it.
+    for path in ("/.well-known/x402.json", "/openapi.json", "/llms.txt",
+                 "/agents.json"):
+        assert 'href="%s"' % path in html, (
+            "the homepage names %s without linking it" % path)
+
+
 def test_the_vip_threshold_says_it_applies_to_one_payment(client):
     """"Payments >= $0.1 USDC" read as a running total; the code means one transfer.
 
