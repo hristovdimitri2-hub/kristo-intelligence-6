@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 652
+SUITE_TESTS_PASSED = 655
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2124,6 +2124,41 @@ def indexnow_key_file():
     file. /robots.txt and /sitemap.xml are unaffected.
     """
     return Response(INDEXNOW_KEY + "\n", mimetype="text/plain")
+
+
+#: Google Search Console ownership proof.
+#:
+#: GSC is where search queries, impressions and crawl errors become visible, and it
+#: is the one search surface we cannot reach any other way. It verifies ownership by
+#: fetching this exact file from the site root.
+#:
+#: This is a URL-prefix property, never a Domain property, and that is forced rather
+#: than chosen: our host is an onrender.com subdomain, so the DNS TXT record a Domain
+#: property requires is one we can never publish. The URL-prefix method asks only for
+#: a file we can serve.
+#:
+#: The rule is the literal filename rather than a converter, for the same reason the
+#: IndexNow route above is: /google<string>.html would match any future root-level
+#: google*.html file and quietly shadow it.
+GOOGLE_SITE_VERIFICATION_TOKEN = "18e5c8e044f8ea37"
+GOOGLE_SITE_VERIFICATION_FILE = "google%s.html" % GOOGLE_SITE_VERIFICATION_TOKEN
+
+#: The exact bytes Google issued, with no trailing newline. Their downloaded file is
+#: 53 bytes and ends at the "l" of ".html". A newline would very likely still verify,
+#: but there is no reason to serve something other than what they handed us.
+GOOGLE_SITE_VERIFICATION_BODY = (
+    "google-site-verification: " + GOOGLE_SITE_VERIFICATION_FILE)
+
+
+@discovery_bp.route("/" + GOOGLE_SITE_VERIFICATION_FILE)
+def google_site_verification_file():
+    """Serve the Google Search Console ownership proof at its exact path.
+
+    Google re-fetches this file to keep the property verified, so removing it later
+    would eventually un-verify the site. It is not a secret: it grants nothing beyond
+    the ability to see this site's own search statistics.
+    """
+    return Response(GOOGLE_SITE_VERIFICATION_BODY, mimetype="text/html")
 
 
 #: One-time ownership token issued by x402-list.com on 2026-11-03 for the listing

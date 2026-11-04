@@ -175,6 +175,63 @@ def test_the_indexnow_route_does_not_shadow_the_other_root_files(client):
     assert "<urlset" in sitemap.get_data(as_text=True)
 
 
+def test_google_verification_file_is_served_byte_exact(client):
+    """Search Console fetches this file and compares it. Anything but 200 fails.
+
+    The property is added and waiting on exactly this file, so the checks are the
+    same ones Google makes: the path resolves, and the body is what they issued.
+    Their downloaded file is 53 bytes with no trailing newline, and this asserts the
+    length too - a newline would probably still verify, but "probably" is not what
+    an ownership proof should rest on.
+    """
+    app_client, _main = client
+    from app.blueprints.discovery import (GOOGLE_SITE_VERIFICATION_BODY,
+                                          GOOGLE_SITE_VERIFICATION_FILE)
+
+    response = app_client.get("/" + GOOGLE_SITE_VERIFICATION_FILE)
+    assert response.status_code == 200, (
+        "the Google verification file is not served at /%s: HTTP %s"
+        % (GOOGLE_SITE_VERIFICATION_FILE, response.status_code))
+
+    raw = response.get_data()
+    assert raw == GOOGLE_SITE_VERIFICATION_BODY.encode(), (
+        "the served bytes are not the bytes Google issued: %r" % raw)
+    assert len(raw) == 53, (
+        "the file is %d bytes, not the 53 Google issued - a stray newline would "
+        "change it" % len(raw))
+    assert not raw.endswith(b"\n"), "the served file has a trailing newline"
+
+
+def test_the_google_filename_and_body_cannot_disagree(client):
+    """The token lives in two places, so they are checked against each other.
+
+    A hand-edited token in one place and not the other produces a file that looks
+    right and verifies nothing, which is a failure mode with no error message.
+    """
+    from app.blueprints.discovery import (GOOGLE_SITE_VERIFICATION_BODY,
+                                          GOOGLE_SITE_VERIFICATION_FILE,
+                                          GOOGLE_SITE_VERIFICATION_TOKEN)
+
+    assert GOOGLE_SITE_VERIFICATION_FILE == "google%s.html" % GOOGLE_SITE_VERIFICATION_TOKEN
+    assert GOOGLE_SITE_VERIFICATION_BODY == (
+        "google-site-verification: " + GOOGLE_SITE_VERIFICATION_FILE), (
+        "the body does not name the file that is actually served")
+
+    token = GOOGLE_SITE_VERIFICATION_TOKEN
+    assert len(token) == 16, "a GSC token is 16 characters, got %d" % len(token)
+    assert all(c in "0123456789abcdef" for c in token), (
+        "a GSC token is lowercase hex, got %r" % token)
+
+
+def test_the_google_route_does_not_shadow_the_other_root_files(client):
+    """Literal filename, so /robots.txt, /sitemap.xml and IndexNow all survive."""
+    app_client, _main = client
+    from app.blueprints.discovery import INDEXNOW_KEY
+
+    for path in ("/robots.txt", "/sitemap.xml", "/%s.txt" % INDEXNOW_KEY):
+        assert app_client.get(path).status_code == 200, "%s disappeared" % path
+
+
 def test_llms_txt_advertises_the_free_sample_of_every_paid_route(client):
     """A new agent must be able to see our response shape without paying first.
 
