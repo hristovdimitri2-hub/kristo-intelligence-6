@@ -98,3 +98,60 @@ def test_get_mcp_info_unchanged_after_streamable_addition(client):
     r = client.get("/mcp")
     assert r.status_code == 200
     assert r.get_json()["mcp"]["sse_endpoint"].endswith("/mcp/sse")
+
+
+def test_mcp_json_lists_exactly_the_tools_the_protocol_serves(client):
+    """/mcp.json names a tool an agent will call, so it must name real ones.
+
+    It listed nine. One of them, "get_sales_history", was the old name of
+    "get_onchain_sales" - the protocol, agents.json and server.json had all moved
+    on and this document had not, so an agent that trusted it called a tool that
+    does not exist and never discovered the one that does. The other three,
+    get_mcp_manifest / get_x402_discovery / get_openapi_spec, are plain HTTP GETs;
+    tools/call on them fails. They are advertised under "free_endpoints" now.
+
+    Nothing caught it because no test compared this file to the protocol. The
+    names it got wrong appear in no assertion anywhere in the suite, while three
+    separate tests pinned the protocol's own names - so the suite was green on
+    both sides of a disagreement it never put side by side.
+    """
+    listing = _post(client, {"jsonrpc": "2.0", "id": 7, "method": "tools/list"})
+    served = {t["name"] for t in listing.get_json()["result"]["tools"]}
+
+    doc = client.get("/mcp.json").get_json()
+    listed = {t["name"] for t in doc["tools"]}
+
+    assert listed == served, (
+        "/mcp.json advertises %s but the protocol serves %s (it names %s that do "
+        "not exist, and omits %s)"
+        % (sorted(listed), sorted(served),
+           sorted(listed - served), sorted(served - listed)))
+
+    # The names are the right strings; now prove each one is actually callable, so
+    # a rename that keeps the two lists in step but breaks dispatch still fails.
+    for index, name in enumerate(sorted(listed)):
+        call = _post(client, {"jsonrpc": "2.0", "id": 200 + index,
+                              "method": "tools/call",
+                              "params": {"name": name, "arguments": {}}})
+        body = call.get_json()
+        assert "error" not in body, (
+            "%s is advertised in /mcp.json and served by tools/list but "
+            "tools/call rejects it: %s" % (name, body.get("error")))
+        endpoint = body["result"]["structuredContent"]["x402"]["endpoint"]
+        assert endpoint.startswith("http") and "/api/" in endpoint, (name, endpoint)
+
+
+def test_mcp_json_free_endpoints_are_not_advertised_as_tools(client):
+    """The three free HTTP endpoints must stay out of the callable tool list."""
+    doc = client.get("/mcp.json").get_json()
+    names = {t["name"] for t in doc["tools"]}
+
+    for removed in ("get_mcp_manifest", "get_x402_discovery", "get_openapi_spec"):
+        assert removed not in names, (
+            "%s is a plain GET endpoint; naming it as an MCP tool makes "
+            "tools/call fail" % removed)
+
+    # ...but they are still published, so nothing was lost in the move.
+    free = {entry["endpoint"] for entry in doc["free_endpoints"]}
+    for path in ("/api/mcp/manifest", "/.well-known/x402.json", "/openapi.json"):
+        assert any(entry.endswith(path) for entry in free), (path, sorted(free))

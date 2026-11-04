@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 612
+SUITE_TESTS_PASSED = 614
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1533,6 +1533,20 @@ def mcp_json():
     _cheapest = min(float(KRISTO_SIGNAL_PRICE), float(KRISTO_ARB_PRICE))
 
     base_url = request.host_url.rstrip("/")
+
+    # Route -> tool name, taken from the same list POST /mcp answers tools/list
+    # with, so this document cannot name a tool the protocol does not serve.
+    # Deliberately a plain dict with no .get default: if a paid route ever gains
+    # no tool, this raises here rather than quietly publishing a name that an
+    # agent will then fail to call.
+    _mcp_names = {}
+    for _tool_entry in _mcp_tools(base_url):
+        _mcp_names[_tool_entry["x402"]["endpoint"][len(base_url):]] = (
+            _tool_entry["name"])
+
+    def _mcp_name(route):
+        return _mcp_names[route]
+
     return jsonify({
         "schema_version": "1.0",
         "name": "Kristo Intelligence API",
@@ -1563,9 +1577,21 @@ def mcp_json():
         # "free_tier_eligible" is computed from the live limit instead of being
         # hardcoded True: production runs with FREE_TIER_LIMIT=0, so promising a
         # free call here was simply untrue.
+        #
+        # The NAMES now come from _mcp_tools, which is the list POST /mcp answers
+        # tools/list with. They had drifted: this file said "get_sales_history"
+        # while the protocol, agents.json and server.json all said
+        # "get_onchain_sales", so an agent that trusted this document called a
+        # tool that does not exist and never found the one that does. _mcp_tools
+        # already carried the rule in its docstring — "the names match
+        # agents_json() so one product is not two names" — and this copy broke it.
+        #
+        # The three free entries that used to sit in "tools" are plain HTTP GETs,
+        # not MCP tools, and tools/call on them fails. They are still advertised,
+        # under "free_endpoints" below, where nothing tries to call them as tools.
         "tools": [
             {
-                "name": "get_market_stats",
+                "name": _mcp_name("/api/stats"),
                 "description": "Get market activity, daily stats, the official eight-agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed)",
                 "endpoint": f"{base_url}/api/stats",
                 "method": "GET",
@@ -1574,7 +1600,7 @@ def mcp_json():
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
-                "name": "get_sales_history",
+                "name": _mcp_name("/api/sales"),
                 "description": "Get real on-chain sales history (USDC transfers) and live market snapshot",
                 "endpoint": f"{base_url}/api/sales",
                 "method": "GET",
@@ -1583,7 +1609,7 @@ def mcp_json():
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
-                "name": "get_bot_status",
+                "name": _mcp_name("/api/bot-status"),
                 "description": "Get Telegram bot integration status and wallet info",
                 "endpoint": f"{base_url}/api/bot-status",
                 "method": "GET",
@@ -1592,7 +1618,7 @@ def mcp_json():
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
-                "name": "get_arbitrage_opportunities",
+                "name": _mcp_name("/api/arb/opportunities"),
                 "description": "Live cross-DEX arbitrage spreads on Base, refreshed every 60 seconds",
                 "endpoint": f"{base_url}/api/arb/opportunities",
                 "method": "GET",
@@ -1601,7 +1627,7 @@ def mcp_json():
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
-                "name": "get_trading_signal",
+                "name": _mcp_name("/api/v1/signal"),
                 "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN",
                 "endpoint": f"{base_url}/api/v1/signal",
                 "method": "GET",
@@ -1610,7 +1636,7 @@ def mcp_json():
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
             {
-                "name": "get_whale_flow",
+                "name": _mcp_name("/api/v1/whaleflow"),
                 "description": "Large USDC transfers on Base with labeled counterparties",
                 "endpoint": f"{base_url}/api/v1/whaleflow",
                 "method": "GET",
@@ -1618,29 +1644,25 @@ def mcp_json():
                 "free_sample": f"{base_url}/api/v1/whaleflow/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
+        ],
+        "free_endpoints": [
             {
-                "name": "get_mcp_manifest",
-                "description": "Get the full MCP/x402 payment manifest (free)",
+                "name": "mcp_manifest",
+                "description": "The full MCP/x402 payment manifest (free)",
                 "endpoint": f"{base_url}/api/mcp/manifest",
                 "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
             },
             {
-                "name": "get_x402_discovery",
-                "description": "Get x402 payment discovery metadata (free)",
+                "name": "x402_discovery",
+                "description": "x402 payment discovery metadata (free)",
                 "endpoint": f"{base_url}/.well-known/x402.json",
                 "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
             },
             {
-                "name": "get_openapi_spec",
-                "description": "Get OpenAPI 3.0 specification (free)",
+                "name": "openapi_spec",
+                "description": "OpenAPI 3.0 specification (free)",
                 "endpoint": f"{base_url}/openapi.json",
                 "method": "GET",
-                "cost_usdc": 0.0,
-                "free_tier_eligible": False,
             },
         ],
         "data_sources": {
