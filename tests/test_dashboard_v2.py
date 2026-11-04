@@ -1325,9 +1325,23 @@ def test_dashboard_stats_agrees_with_the_chain_backed_section(client):
 
 
 def test_f01_free_payloads_do_not_mirror_paid(client):
-    # F-01: free responses must not contain whales/tx_hash/sender — the paid
-    # /api/v1/whaleflow and /api/sales keep the full data untouched.
-    test_client, _main, _dash = client
+    """F-01: free responses must not contain whales/tx_hash/sender — the paid
+    /api/v1/whaleflow and /api/sales keep the full data untouched.
+
+    04.11 — THIS TEST WAS BLIND AND THIS IS THE FIX. It ran against the fixture's
+    fresh, EMPTY store, where `track_record()['payers']` is `[]`. The key `sender`
+    therefore never appeared, the assertion passed, and the live payload was at
+    that moment serving ten full payer addresses AND ten transaction hashes under
+    `track_record` — the exact `{payer, transaction_hash, amount_usdc}` triple a
+    payment proof is built from. The rule was written; the data was not there to
+    test it against, so it proved nothing for weeks.
+
+    The seed is now part of the test and so is the PRECONDITION: if the store
+    ever stops producing payers, this test fails loudly instead of going quietly
+    vacuous again.
+    """
+    test_client, _main, dash = client
+    dash.seed_verified_sales()
 
     def deep_keys(o):
         if isinstance(o, dict):
@@ -1340,10 +1354,23 @@ def test_f01_free_payloads_do_not_mirror_paid(client):
 
     stats = test_client.get("/api/dashboard-stats").get_json()
     data = test_client.get("/api/dashboard/data").get_json()
+
+    # The precondition: there ARE payers and sales, so a leaking key would show.
+    track = data["sections"]["track_record"]
+    assert track["payers"], "no payers seeded — this test would prove nothing"
+    assert track["payers"][0]["short"].startswith("0x")
+    assert data["sections"]["onchain"]["history"], "no sales seeded"
+
     skeys = set(deep_keys(stats))
     dkeys = set(deep_keys(data))
     assert not (skeys & {"tx_hash", "tx_hashes", "sender"})
     assert not (dkeys & {"tx_hash", "tx_hashes", "sender"})
+    # A 66-character hex in the free payload is a transaction hash by shape, even
+    # under a key name this test does not know about.
+    import re
+    body = test_client.get("/api/dashboard/data").get_data(as_text=True)
+    leak = re.findall(r"0x[0-9a-fA-F]{64}", body)
+    assert not leak, leak[:2]
     # the whales SECTION (aggregates) stays public; the ARRAY inside is gone
     assert "whales" not in data["sections"]["whales"]
 

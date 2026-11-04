@@ -3755,12 +3755,17 @@ def api_sales():
     })
 
 
-def _daily_sales_series(history_rows) -> list:
-    """Last 7 UTC days of on-chain USDC volume — chart series (added 10.10).
+def _daily_sales_series(history_rows, days: int = 7) -> list:
+    """Last `days` UTC days of on-chain USDC volume — chart series (added 10.10).
 
     Aggregated from the SAME durable `onchain_sales` rows as the On-Chain Sales
     section (`sales_summary()['history']`), so the chart can never disagree with
     the totals on screen. Days without sales are 0, never missing.
+
+    `days` defaults to 7 so every existing caller and test keeps the series it
+    had. It is a parameter because a 7-day window cannot answer "is this week
+    better than last week" — that needs fourteen, and the comparison is the
+    question the owner actually asks.
     """
     buckets: Dict[str, Dict[str, float]] = {}
     for row in history_rows or []:
@@ -3776,7 +3781,7 @@ def _daily_sales_series(history_rows) -> list:
         bucket["count"] += 1
     today = datetime.now(timezone.utc).date()
     series = []
-    for offset in range(6, -1, -1):
+    for offset in range(days - 1, -1, -1):
         day = (today - timedelta(days=offset)).isoformat()
         bucket = buckets.get(day, {"usdc": 0.0, "count": 0})
         series.append({
@@ -3785,6 +3790,247 @@ def _daily_sales_series(history_rows) -> list:
             "count": int(bucket["count"]),
         })
     return series
+
+
+#: Fields the free track record must not hand out. `tests/test_dashboard_v2.py`
+#: has asserted since 10.10 that the free payload contains no `sender` key at
+#: all - and on 04.11 it was measured doing exactly that, ten times over, because
+#: that assertion ran against an EMPTY store where `payers` is `[]` and the key
+#: never appears. The rule was written; the code never obeyed it and the guard
+#: could not tell.
+_TRACK_RECORD_SECRET_KEYS = ("started_tx", "started_payer")
+_TRACK_RECORD_SECRET_PAYER_KEYS = ("first_tx", "sender")
+
+
+def _redact_track_record(track: dict) -> dict:
+    """Drop the transaction hashes and full payer addresses (F-01).
+
+    The track record answers "who has been paying us, since when, and did any of
+    them come back". It answers that with `short` (0xe50c…5763) and the dates; a
+    66-character transaction hash and a full 42-character address are the data
+    the PAID /api/sales sells, and together they are exactly the `{payer,
+    transaction_hash, amount_usdc}` triple a payment proof is made of.
+
+    Removed rather than blanked, so a reader cannot mistake a withheld value for
+    a missing one. The CLIENTS section keeps `wallet` deliberately: that section
+    exists to answer "who paid", and an address on Base is public anyway - the
+    hash is the half that is worth money, and it is gone from here.
+    """
+    if not isinstance(track, dict):
+        return track
+    clean = {k: v for k, v in track.items()
+             if k not in _TRACK_RECORD_SECRET_KEYS}
+    payers = clean.get("payers")
+    if isinstance(payers, list):
+        clean["payers"] = [
+            {k: v for k, v in payer.items()
+             if k not in _TRACK_RECORD_SECRET_PAYER_KEYS}
+            if isinstance(payer, dict) else payer
+            for payer in payers
+        ]
+    return clean
+
+
+#: Weekday names, Monday first, for the one thing a date alone does not say:
+#: "3 ноември" is a fact, "понеделник" is the answer to "when do people buy?".
+_WEEKDAYS_BG = ("понеделник", "вторник", "сряда", "четвъртък",
+                "петък", "събота", "неделя")
+
+#: User-agent fragments → what a person would call that caller. The dashboard is
+#: read by the owner, not by a crawler, and "user_agent: claude-code/2.1.310" is
+#: not an answer to "was it a human or a bot?". ORDER MATTERS: the first match
+#: wins, so the specific entries come before the general, and the browser entry
+#: comes last because almost every bot also claims to be Mozilla.
+_CALLER_KINDS: tuple = (
+    ("AI агент", ("claude-code", "anthropic", "openai", "gpt-", "oai/",
+                  "langchain", "crewai", "autogen", "llm", "cursor")),
+    ("Наш собствен монитор", ("render/1.0", "kristo-", "keep-alive",
+                              "uptimerobot", "pingdom", "healthcheck",
+                              "werkzeug")),
+    ("Търсачка или робот", ("bot", "crawler", "spider", "slurp", "bingpreview",
+                            "facebookexternalhit", "semrush", "ahrefs",
+                            "python-urllib", "scrapy",
+                            # A headless browser is a program driving a browser,
+                            # and it is measured here as a robot. Without this it
+                            # fell through to "Браузър (човек)" - the dashboard
+                            # would have counted automation as a human reader,
+                            # which is exactly the number the owner acts on.
+                            "headless", "phantomjs", "puppeteer", "playwright",
+                            "selenium")),
+    ("Програмен клиент", ("curl", "python-requests", "httpx", "aiohttp",
+                          "axios", "node-fetch", "okhttp", "go-http", "java/",
+                          "wget", "powershell", "undici", "libwww", "guzzle")),
+    ("Браузър (човек)", ("mozilla/", "chrome/", "safari/", "firefox/", "edg/",
+                         "opera/")),
+)
+
+
+def _caller_kind(user_agent: str) -> str:
+    """What a human would call the client behind one user-agent string."""
+    ua = (user_agent or "").strip().lower()
+    if not ua:
+        return "Неизвестен"
+    for kind, fragments in _CALLER_KINDS:
+        if any(fragment in ua for fragment in fragments):
+            return kind
+    return "Друго"
+
+
+def _human_or_bot(top_user_agents) -> list:
+    """Fold the top user agents into caller kinds, biggest first.
+
+    `top_user_agents` is real traffic, so the counts add up to real requests. The
+    summary does not claim to know whether a person is behind a browser - it says
+    what the caller IS, which is the part the evidence supports.
+    """
+    totals: Dict[str, int] = {}
+    examples: Dict[str, str] = {}
+    for row in top_user_agents or []:
+        agent = str(row.get("user_agent") or "")
+        try:
+            count = int(row.get("n") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        kind = _caller_kind(agent)
+        totals[kind] = totals.get(kind, 0) + count
+        if kind not in examples or agent:
+            examples.setdefault(kind, agent)
+    return sorted(
+        [{"kind": kind, "requests": count, "example": examples.get(kind, "")}
+         for kind, count in totals.items()],
+        key=lambda item: -item["requests"])
+
+
+def _ago_words(ts) -> str:
+    """'преди 3 часа' rather than '2026-11-04T02:46:17.369249+00:00'.
+
+    A timestamp is the rawest possible form of "when", and it was the only form
+    the dashboard offered. Both are shown side by side now; this is the half a
+    person reads first.
+    """
+    if not ts:
+        return "никога"
+    try:
+        moment = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return "неизвестно"
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    seconds = (datetime.now(timezone.utc) - moment).total_seconds()
+    if seconds < 0:
+        return "току-що"
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "току-що"
+    if minutes < 60:
+        return "преди %d мин" % minutes
+    hours = minutes // 60
+    if hours < 24:
+        return "преди %d ч" % hours if hours > 1 else "преди час"
+    days = hours // 24
+    if days == 1:
+        return "вчера"
+    if days < 30:
+        return "преди %d дни" % days
+    months = days // 30
+    return "преди %d месеца" % months if months > 1 else "преди месец"
+
+
+def _plain_summary(sales: dict, requests: dict, clients: dict) -> dict:
+    """The owner's four questions answered from the same rows as the sections.
+
+    Every figure is derived from `sales`, `requests` and `clients` - the exact
+    sources the tables below render - so this summary cannot disagree with them.
+    Nothing is invented and nothing is estimated.
+
+    Why it exists: the numbers were all present and none of them answered "when
+    was the last sale, on what day, who paid, and was it a person or a bot".
+    They were spread across eight sections under internal names.
+    """
+    history = list(sales.get("history") or [])
+    today = datetime.now(timezone.utc).date()
+
+    sales_by_day = _daily_sales_series(history, days=28)
+
+    def _between(first, last) -> Dict[str, object]:
+        count = 0
+        usdc = 0.0
+        for row in sales_by_day:
+            day = row["date"]
+            if first <= day <= last:
+                count += row["count"]
+                usdc += row["usdc"]
+        return {"from": first, "to": last,
+                "count": count, "usdc": round(usdc, 6)}
+
+    week_start = today - timedelta(days=today.weekday())          # Monday
+    last_week_start = week_start - timedelta(days=7)
+    this_week = _between(week_start.isoformat(), today.isoformat())
+    last_week = _between(last_week_start.isoformat(),
+                         (week_start - timedelta(days=1)).isoformat())
+
+    def _change(now_value, before_value) -> Dict[str, object]:
+        delta = now_value - before_value
+        if before_value == 0:
+            words = ("първите продажби" if now_value > 0 else "няма продажби")
+        elif delta > 0:
+            words = "с %d повече" % delta
+        elif delta < 0:
+            words = "с %d по-малко" % abs(delta)
+        else:
+            words = "същото"
+        percent = (round(delta / before_value * 100, 1)
+                   if before_value else None)
+        return {"delta": delta, "percent": percent, "words": words}
+
+    last_sale = None
+    if history:
+        newest = max(history, key=lambda row: str(row.get("ts") or ""))
+        last_sale = {
+            "at": newest.get("ts"),
+            "amount_usdc": round(float(newest.get("amount_usdc")
+                                       or newest.get("amount") or 0.0), 6),
+            "ago_words": _ago_words(newest.get("ts")),
+        }
+
+    best_day = max(sales_by_day, key=lambda row: row["usdc"], default=None)
+    if best_day and best_day["usdc"] <= 0:
+        best_day = None
+
+    hourly = list(requests.get("hourly") or [])
+    busiest = None
+    if hourly:
+        peak = max(hourly, key=lambda row: row.get("clean", row.get("n", 0)))
+        if (peak.get("clean", peak.get("n", 0)) or 0) > 0:
+            busiest = {"hour": int(peak["hour"]),
+                       "requests": int(peak.get("clean", peak.get("n", 0)))}
+
+    payers = list(clients.get("clients") or [])
+    first_ever = min((str(row.get("ts") or "") for row in history),
+                     default="")
+
+    return {
+        "last_sale": last_sale,
+        "today": _between(today.isoformat(), today.isoformat()),
+        "yesterday": _between((today - timedelta(days=1)).isoformat(),
+                              (today - timedelta(days=1)).isoformat()),
+        "this_week": this_week,
+        "last_week": last_week,
+        "week_change": _change(this_week["count"], last_week["count"]),
+        "week_change_usdc": _change(this_week["usdc"], last_week["usdc"]),
+        "all_time": {
+            "count": int(sales.get("total_count") or 0),
+            "usdc": round(float(sales.get("total_usdc") or 0.0), 6),
+            "payers": len(payers),
+            "first_sale": first_ever or None,
+            "days_live": (today - datetime.fromisoformat(first_ever[:10]).date()
+                          ).days if first_ever else 0,
+        },
+        "best_day": best_day,
+        "busiest_hour": busiest,
+        "sales_by_day": sales_by_day,
+        "human_or_bot": _human_or_bot(requests.get("top_user_agents")),
+    }
 
 
 def _hourly_requests_series(hourly_rows) -> list:
@@ -5445,9 +5691,15 @@ def funnel_track():
 #                         NEVER included in on-chain totals)
 
 PAYER_CLASS_LABELS_BG = {
-    "canary": "canary (Chet — верификация)",
-    "sampler": "sampler (пазарен crawler)",
-    "external": "EXTERNAL (реален платец)",
+    # These are READ BY THE OWNER, not by a machine. The old text said
+    # "canary (Chet — верификация)", "sampler (пазарен crawler)" and
+    # "EXTERNAL (реален платец)" - three internal names that require the rest of
+    # this file to decode. The keys stay the same because they are also CSS class
+    # names and test fixtures; only the words a person reads changed, and each one
+    # now says whether the money is a customer or our own noise.
+    "canary": "наш тест — не е клиент",
+    "sampler": "пазарна проверка, робот — не е клиент",
+    "external": "истински клиент",
 }
 
 
@@ -5623,7 +5875,24 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "receiver_address": X402_RECEIVER_ADDRESS,
         "sections": {
-            "track_record": dashboard_db.track_record(),
+            # The four questions the owner asks, answered in words and placed
+            # first: when was the last sale, on what day, who paid, and was the
+            # caller a person or a bot. Every figure is derived from the same
+            # sales/requests/clients objects the sections below render, so the
+            # summary and the tables cannot disagree.
+            "summary": _plain_summary(sales, requests, clients),
+            # F-01 residue: `track_record` was the section the earlier redaction
+            # missed. It shipped `started_tx` and every `payers[].first_tx` - the
+            # 66-character transaction hashes that the PAID /api/sales sells.
+            # Nothing reads them (no template, no client, no test asserted them),
+            # so on the free payload they were pure giveaway.
+            #
+            # The payer ADDRESSES stay and that is deliberate: the owner needs
+            # them to answer "who paid", and they are public on Base by
+            # construction - hiding one here would look like security while the
+            # chain still shows it. The honest fix for the replay window is the
+            # verifier, not this line (see F-05/F-09 in the audit).
+            "track_record": _redact_track_record(dashboard_db.track_record()),
             "onchain": {
                 "label": "ИСТИНА — веригата",
                 "total_usdc": onchain_total,
@@ -5780,6 +6049,10 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
         # `daily_sales` from the durable on-chain history, `hourly_requests`
         # from the durable request log (clean = without internal keep-alive).
         "daily_sales": _daily_sales_series(sales.get("history")),
+        # 28 days, alongside the 7: a week cannot be compared with the week
+        # before it from a 7-day window, and that comparison is the question.
+        # The 7-day key above is untouched so no existing reader changes.
+        "daily_sales_28": _daily_sales_series(sales.get("history"), days=28),
         "hourly_requests": _hourly_requests_series(requests.get("hourly")),
     }
 

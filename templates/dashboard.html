@@ -160,6 +160,38 @@
   #sales-table thead th:hover { color: var(--accent); }
   #sales-table thead th.sort-asc::after { content: ' ▲'; color: var(--accent); }
   #sales-table thead th.sort-desc::after { content: ' ▼'; color: var(--accent); }
+
+  /* ── Отговорите с думи (табло 2.1) ────────────────────────────────────────
+     The owner read this page and said "I cannot tell what most of it means".
+     Every number was correct and none of them answered "when was the last sale,
+     on what day, who paid, was it a person or a bot". The classes below only
+     shape those answers; the figures come from the same payload as the tables. */
+  .cards.big { grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); }
+  .cards.big .card { padding: 14px 16px; border-left: 3px solid var(--border); }
+  .cards.big .card.hero { border-left-color: var(--green); }
+  .cards.big .card.warn { border-left-color: var(--amber); }
+  .cards.big .card .v { font-size: 23px; }
+  .card .sub-line { font-size: 11.5px; color: var(--muted); margin-top: 4px;
+                    text-transform: none; letter-spacing: 0; }
+  .delta { font-size: 11px; font-weight: 700; }
+  .delta.up { color: var(--green); }
+  .delta.down { color: var(--red); }
+  .delta.flat { color: var(--muted); }
+  /* 28 дни на една линия: колоната липсва, ако денят няма продажби — така
+     „кога продаваме" се вижда с един поглед, без да се чете таблица. */
+  .daybars { display: flex; align-items: flex-end; gap: 3px; height: 52px;
+             margin: 12px 0 4px; }
+  .daybars .bar { flex: 1; min-width: 3px; height: 2px; background: var(--border);
+                  border-radius: 2px 2px 0 0; }
+  .daybars .bar.has { background: var(--green); }
+  .day-label { display: flex; justify-content: space-between; font-size: 10px;
+               color: var(--muted); }
+  .howto { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; padding: 14px 16px; }
+  .howto dt { font-weight: 700; font-size: 12.5px; margin-top: 10px; }
+  .howto dt:first-child { margin-top: 0; }
+  .howto dd { color: var(--muted); font-size: 12px; margin: 2px 0 0 0; }
+  .kind { font-weight: 700; font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -174,6 +206,33 @@
     (<code>data/dashboard_state.db</code>) — deploy/рестарт НЕ ги нулира.
     <span id="generated-at"></span>
   </div>
+
+  <!-- ── НАЙ-ВАЖНОТО ────────────────────────────────────────────────────────
+       Първото, което човек пита, и последното, което страницата отговаряше:
+       кога беше последната продажба, в кой ден, кой плати, човек или бот.
+       Числата идват от sections.summary, тоест от СЪЩИТЕ редове като
+       таблиците долу — обобщението не може да им противоречи. -->
+  <h2>🎯 Най-важното <span class="src">на човешки език · от същите данни като таблиците долу</span></h2>
+  <div class="cards big" id="answer-cards"></div>
+  <div class="note" id="answer-note" style="margin:10px 0;"></div>
+
+  <h2>📅 Продажби по дни <span class="src">последните 28 дни · тази седмица срещу миналата</span></h2>
+  <div class="cards" id="week-cards"></div>
+  <div class="daybars" id="daybars"></div>
+  <div class="day-label"><span id="daybar-first"></span><span id="daybar-last">днес</span></div>
+  <table style="margin-top:10px;">
+    <thead><tr><th>Ден</th><th>Дата</th><th>Продажби</th><th>Сума</th><th>Спрямо предишния ден</th></tr></thead>
+    <tbody id="days-body"><tr><td colspan="5" class="empty">Изчакване на данни…</td></tr></tbody>
+  </table>
+  <div class="note" id="days-note" style="margin-top:8px;"></div>
+
+  <h2>👤 Човек или бот <span class="src">кой ни вика — по user-agent на реалните заявки</span></h2>
+  <div class="cards" id="caller-cards"></div>
+  <table style="margin-top:10px;">
+    <thead><tr><th>Кой</th><th>Заявки</th><th>Пример (user-agent)</th></tr></thead>
+    <tbody id="callers-body"><tr><td colspan="3" class="empty">Изчакване на данни…</td></tr></tbody>
+  </table>
+  <div class="note" id="callers-note" style="margin-top:8px;"></div>
 
   <h2>⏱ Track record <span class="src">часовникът тръгва от първото ВЪНШНО плащане, не от днес</span></h2>
   <div class="cards" id="track-cards"></div>
@@ -216,7 +275,7 @@
   <h2>⬢ Трендове <span class="src">приход по дни · заявки по час (UTC)</span></h2>
   <div class="grid2" style="margin-top:10px;">
     <div class="chart-box">
-      <div class="chart-title">Приход (USDC) — последните 7 дни</div>
+      <div class="chart-title">Приход (USDC) — последните 28 дни</div>
       <div class="chart-canvas-box">
         <canvas id="chart-sales"></canvas>
         <div class="chart-empty" id="chart-sales-empty">Няма данни за периода</div>
@@ -288,19 +347,25 @@
   </div>
   </div>
 
-  <!-- Pricing Section — възстановено от 754b0ee^ (махнато в 754b0ee, 06.09.2026) -->
+  <!-- Pricing Section — възстановено от 754b0ee^ (махнато в 754b0ee, 06.09.2026).
+       04.11: тук пишеше $0.10 за микро-заявка, докато реалната цена е $0.003 —
+       33 пъти повече, на нашата собствена страница. Числото вече е най-ниската
+       реална цена, а авторитетът е таблицата „Реални маршрути" горе, която се
+       пълни от същия списък, който издава 402 предизвикателството. -->
   <h2 class="section-title">💎 Предлагани продукти и ценоразпис</h2>
   <div class="pricing-section">
     <div class="pricing-card">
       <div class="tier-name">🔧 Микро-заявка</div>
-      <div class="tier-price"><span class="currency">$</span>0.10<span class="currency"> USDC</span></div>
-      <div class="tier-desc">Pay-per-call — плащаш само за това, което използваш</div>
+      <div class="tier-price"><span class="currency">$</span>0.003<span class="currency"> USDC</span></div>
+      <div class="tier-desc">Най-ниската цена · pay-per-call, плащаш само за това, което използваш</div>
       <ul class="tier-features">
-        <li>✅ 1 API заявка (stats / sales / bot-status)</li>
+        <li>✅ 1 API заявка към който и да е маршрут</li>
         <li>✅ Real-time DeFi сигнали</li>
         <li>✅ On-chain продажби история</li>
         <li>✅ MCP/x402 съвместимост</li>
       </ul>
+      <div class="note" style="margin-top:8px;">Точната цена на всеки маршрут е в
+        таблицата „Реални маршрути" по-горе — тя е авторитетът.</div>
     </div>
     <div class="pricing-card featured">
       <span class="badge-popular">⭐ ПОПУЛЯРЕН</span>
@@ -316,6 +381,65 @@
         <li>✅ VIP поддръжка 24/7</li>
       </ul>
     </div>
+  </div>
+
+  <!-- ── КАК РАБОТИ СИСТЕМАТА ───────────────────────────────────────────────
+       Поискано изрично: „всичко, което виждаш, и системата, по която работи,
+       трябва да е отбелязано там". Всяко твърдение тук е проверимо на веригата
+       и нищо не е маркетинг — табло, което обяснява себе си невярно, е
+       по-лошо от табло без обяснения. -->
+  <h2>📖 Как работи системата <span class="src">какво гледате и откъде идват числата</span></h2>
+  <div class="howto">
+    <dl>
+      <dt>Истината е веригата, не този сървър</dt>
+      <dd>Всяка продажба е реален USDC трансфер към нашия адрес в мрежа Base.
+        Всеки ред може да се провери независимо на BaseScan. Сървърът само чете
+        веригата — не може да „напише" продажба, която не се е случила.</dd>
+
+      <dt>Как се плаща (x402)</dt>
+      <dd>Клиентът получава <b>402</b> с точната цена и адреса. Плаща с подпис
+        (EIP-3009), без предварителна регистрация и без API ключ. Има две релси:
+        <b>v2</b> — потвърждава за около 2 секунди, и <b>legacy</b> (X-Payment-Proof) —
+        чака 12 потвърждения, около 24 секунди. 402 значи „плати", 401 значи
+        „доказателството е неизползваемо", 200 значи „платено и обслужено".</dd>
+
+      <dt>Цените са микроскопични и това е нарочно</dt>
+      <dd>От $0.003 на обаждане. Затова сумите тук се показват с 6 знака —
+        „$0.00" за реално платени $0.003 би било лъжа. Точната цена на всеки
+        маршрут е в таблицата „Реални маршрути".</dd>
+
+      <dt>Кой е „истински клиент" и кой е шум</dt>
+      <dd>Плащанията се делят на три: <b>наш тест</b> (наша собствена проверка, че
+        системата приема пари), <b>пазарна проверка</b> (робот, който ни е обходил)
+        и <b>истински клиент</b> — външен портфейл. Само третото е бизнес.
+        Разделението е важно, за да не се брои собственият ни шум за приход.</dd>
+
+      <dt>Защо числата оцеляват при рестарт</dt>
+      <dd>Данните са в постоянна база (<code>data/dashboard_state.db</code>), не в
+        паметта. Deploy или рестарт не ги нулира — затова таблото не показва
+        „0 продажби" след всяко обновяване на сървъра.</dd>
+
+      <dt>Защо историята на продажбите няма име на платеца</dt>
+      <dd>Нарочно. Пълният запис с transaction hash и адрес е <b>платеният</b>
+        продукт (<code>/api/sales</code>) — ако беше и тук безплатно, никой нямаше
+        да има причина да плаща. Кой е платил се вижда в секция „Клиенти", със
+        съкратен адрес. Това е решение срещу раздаване на платеното съдържание
+        безплатно, не пропуск.</dd>
+
+      <dt>Какво не е на тази страница</dt>
+      <dd>Off-chain приходите (Stripe) и CRM данните са отделно и се виждат само
+        след админ вход — те не са на веригата и не бива да са публични.</dd>
+
+      <dt>Всеки ли може да я види</dt>
+      <dd>Да, таблото е публично — нарочно. Числата са от публичната верига, а
+        прозрачността е част от продукта. Страницата е <code>noindex</code>, за да
+        не влиза в търсачките.</dd>
+
+      <dt>Адресът, на който се плаща</dt>
+      <dd><span class="mono" id="howto-receiver">…</span> — провери го сам на
+        <a id="howto-basescan" href="https://basescan.org" target="_blank"
+           rel="noopener">BaseScan</a>.</dd>
+    </dl>
   </div>
 
   <footer id="invariant"></footer>
@@ -686,7 +810,8 @@ let _chartSales = null, _chartRequests = null;
 
 function renderCharts(dailySales, hourlyReq) {
   if (typeof Chart === 'undefined') return; // vendor файлът не е заредил — не чупим дашборда
-  // Line: приход по дни (последните 7)
+  // Line: приход по дни. 28 дни, не 7 — седмица не може да се сравни с
+  // предишната от 7-дневен прозорец, а точно това се пита.
   const days = (dailySales || []);
   const hasSales = days.some(d => Number(d.usdc) > 0);
   $('chart-sales-empty').style.display = hasSales ? 'none' : 'flex';
@@ -747,12 +872,152 @@ function renderCharts(dailySales, hourlyReq) {
   }
 }
 
+// ── ОТГОВОРИТЕ С ДУМИ (табло 2.1) ─────────────────────────────────────────
+// The owner read this page and said "I cannot tell what most of it means: when
+// were the sales, on what day, who paid, a person or a bot". Every figure here
+// comes from sections.summary, which the server derives from the SAME rows as
+// the tables further down — so these answers and those tables cannot disagree.
+const WEEKDAYS_BG = ['понеделник', 'вторник', 'сряда', 'четвъртък',
+                     'петък', 'събота', 'неделя'];
+
+function weekday(dateStr) {
+  const d = new Date((dateStr || '') + 'T00:00:00Z');
+  return isNaN(d.getTime()) ? '' : WEEKDAYS_BG[(d.getUTCDay() + 6) % 7];
+}
+
+function bigCard(v, k, sub, cls) {
+  return '<div class="card' + (cls ? ' ' + cls : '') + '">' +
+    '<div class="v">' + v + '</div>' +
+    '<div class="k">' + esc(k) + '</div>' +
+    (sub ? '<div class="sub-line">' + esc(sub) + '</div>' : '') + '</div>';
+}
+
+// Посоката се показва с дума И със цвят — цветът сам не се чете от всеки, а
+// „с 2 повече" не казва дали е добре. Затова и двете.
+function deltaTag(change, unit) {
+  const c = change || {};
+  const cls = c.delta > 0 ? 'up' : (c.delta < 0 ? 'down' : 'flat');
+  const arrow = c.delta > 0 ? '▲' : (c.delta < 0 ? '▼' : '=');
+  const tail = (c.percent === null || c.percent === undefined)
+    ? '' : ' (' + (c.percent > 0 ? '+' : '') + c.percent + '%)';
+  return '<span class="delta ' + cls + '">' + arrow + ' ' +
+    esc(c.words || '') + tail + (unit ? ' ' + esc(unit) : '') + '</span>';
+}
+
+function renderAnswers(s) {
+  s = s || {};
+  const sale = s.last_sale, t = s.today || {}, y = s.yesterday || {};
+  const tw = s.this_week || {}, lw = s.last_week || {}, at = s.all_time || {};
+  const busiest = s.busiest_hour;
+
+  $('answer-cards').innerHTML =
+    bigCard(sale ? usd(sale.amount_usdc) : '—',
+            'Последна продажба',
+            sale ? sale.ago_words + ' · ' + utc(sale.at) + ' UTC'
+                 : 'още няма нито едно плащане',
+            sale ? 'hero' : 'warn') +
+    bigCard(t.count, 'Днес',
+            (t.from || '') + ' · ' + usd(t.usdc) +
+            ' · вчера: ' + y.count + ' бр. / ' + usd(y.usdc)) +
+    bigCard(tw.count, 'Тази седмица, ' + (tw.from || '') + ' → ' + (tw.to || ''),
+            usd(tw.usdc) + ' · миналата: ' + lw.count + ' бр. / ' + usd(lw.usdc),
+            'hero') +
+    bigCard('x' + at.count, 'Общо продажби от началото',
+            usd(at.usdc) + ' от ' + at.payers + ' платеца · ' +
+            (at.days_live || 0) + ' дни на пазара') +
+    bigCard(busiest ? ('#' + busiest.hour + ':00') : '—',
+            'Най-натоварен час (UTC)',
+            busiest ? busiest.requests.toLocaleString('bg-BG') + ' заявки днес'
+                    : 'още няма заявки днес');
+
+  $('answer-note').innerHTML =
+    'Промяна спрямо миналата седмица: ' + deltaTag(s.week_change, 'продажби') +
+    ' · ' + deltaTag(s.week_change_usdc, 'USDC') +
+    (s.best_day ? ' · най-силен ден: ' + s.best_day.date + ' (' +
+      weekday(s.best_day.date) + ', ' + usd(s.best_day.usdc) + ')' : '') +
+    (at.first_sale ? ' · първо плащане: ' + utc(at.first_sale).slice(0, 10) : '');
+}
+
+function renderDays(s) {
+  s = s || {};
+  const days = s.sales_by_day || [];
+  const tw = s.this_week || {}, lw = s.last_week || {};
+  $('week-cards').innerHTML =
+    card(tw.count, 'Тази седмица (' + (tw.from || '') + ' → ' + (tw.to || '') + ')') +
+    card(usd(tw.usdc), 'Приход тази седмица') +
+    card(lw.count, 'Миналата седмица') +
+    card(usd(lw.usdc), 'Приход миналата седмица') +
+    card(tw.count - lw.count, 'Разлика в брой') +
+    card(usd(tw.usdc - lw.usdc), 'Разлика в пари');
+
+  // 28 колони: ден без продажби е тънка черта, ден с продажби — зелена с височина
+  // според сумата. Така „кога продаваме" се вижда с един поглед.
+  const peak = Math.max.apply(null, days.map(d => d.usdc).concat([0])) || 1;
+  $('daybars').innerHTML = days.map(d => {
+    const h = d.usdc > 0 ? Math.max(6, Math.round(d.usdc / peak * 52)) : 2;
+    return '<div class="bar' + (d.usdc > 0 ? ' has' : '') +
+      '" style="height:' + h + 'px" title="' + esc(d.date) + ' — ' +
+      d.count + ' продажби, ' + usd(d.usdc) + '"></div>';
+  }).join('');
+  $('daybar-first').textContent = days.length ? days[0].date : '';
+  $('daybar-last').textContent = days.length ? 'днес (' + days[days.length - 1].date + ')' : '';
+
+  const withSales = days.filter(d => d.count > 0).reverse();
+  const rows = withSales.map((d, i) => {
+    const prev = withSales[i + 1];
+    let cmp = '<span class="delta flat">—</span>';
+    if (prev) {
+      const diff = d.count - prev.count;
+      const cls = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'flat');
+      const arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '=');
+      cmp = '<span class="delta ' + cls + '">' + arrow + ' ' +
+        (diff === 0 ? 'същото' : Math.abs(diff) + (diff > 0 ? ' повече' : ' по-малко')) +
+        '</span>';
+    }
+    return '<tr><td>' + esc(weekday(d.date)) + '</td>' +
+      '<td class="num mono">' + esc(d.date) + '</td>' +
+      '<td class="num">' + d.count + '</td>' +
+      '<td class="num">' + usd(d.usdc) + '</td>' +
+      '<td>' + cmp + '</td></tr>';
+  });
+  $('days-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="5" class="empty">няма нито една продажба в последните 28 дни</td></tr>';
+  $('days-note').textContent =
+    withSales.length + ' от последните ' + days.length + ' дни имат продажби. ' +
+    'Показани са само дните с продажби — празните дни се виждат на лентата отгоре.';
+}
+
+function renderCallers(s) {
+  s = s || {};
+  const split = s.human_or_bot || [];
+  const total = split.reduce((a, x) => a + (x.requests || 0), 0);
+  $('caller-cards').innerHTML =
+    bigCard(total.toLocaleString('bg-BG'), 'Заявки в извадката',
+            'по ' + split.length + ' вида клиент') +
+    split.slice(0, 3).map(x => bigCard(
+      x.requests.toLocaleString('bg-BG'), x.kind,
+      total ? Math.round(x.requests / total * 100) + '% от заявките' : '')).join('');
+  const rows = split.map(x => '<tr><td class="kind">' + esc(x.kind) + '</td>' +
+    '<td class="num">' + (x.requests || 0).toLocaleString('bg-BG') + '</td>' +
+    '<td class="mono">' + esc(short(x.example, 60)) + '</td></tr>');
+  $('callers-body').innerHTML = rows.length ? rows.join('') :
+    '<tr><td colspan="3" class="empty">още няма записани заявки</td></tr>';
+  $('callers-note').textContent =
+    'Това брои реалните заявки към API-я, групирани по user-agent. ' +
+    '„Браузър (човек)" значи, че клиентът Е браузър — не че зад него със ' +
+    'сигурност стои човек; автоматизиран браузър се отчита като робот.';
+}
+
 async function load() {
   try {
     const r = await fetch('/api/dashboard/data', {cache: 'no-store'});
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     const s = d.sections || {};
+    // Отговорите първи — това е, което човек търси, и е най-отгоре на страницата.
+    renderAnswers(s.summary || {});
+    renderDays(s.summary || {});
+    renderCallers(s.summary || {});
     renderTrack(s.track_record || {});
     renderOnchain(s.onchain || {});
     renderClients(s.clients || {});
@@ -762,7 +1027,12 @@ async function load() {
     renderRequests(s.requests || {});
     renderFunnel(s.requests || {});
     renderPayapi(s.payapi || {});
-    renderCharts(d.daily_sales || [], d.hourly_requests || []);
+    renderCharts(d.daily_sales_28 || d.daily_sales || [], d.hourly_requests || []);
+    // Адресът идва от payload-а, не от този файл: ако някога се смени, таблото
+    // не бива да продължава да сочи старото място за плащане.
+    $('howto-receiver').textContent = d.receiver_address || '—';
+    $('howto-basescan').href =
+      'https://basescan.org/address/' + (d.receiver_address || '');
     // А4: ясно обозначена свежест на данните (освен техническото „обновено:").
     $('generated-at').textContent =
       ' · обновено: ' + utc(d.generated_at) + ' UTC · Данните са актуални към ' +
