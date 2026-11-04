@@ -41,8 +41,18 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 611
+SUITE_TESTS_PASSED = 612
 SUITE_LAST_RUN = "2026-11-04"
+
+#: The uptime window this page publishes, as a dated measurement — not a live
+#: counter. It lives here, next to the suite figures and for the same reason: the
+#: page used to type "23 of 23 days green" into the HTML as well as into the JSON
+#: facts, so the two could disagree, and the number never said when those 23 days
+#: ended. Both read these now, and a test moves them to prove the HTML follows the
+#: data rather than coincidentally matching it.
+UPTIME_DAYS_GREEN = 23
+UPTIME_DAYS_TOTAL = 23
+UPTIME_MEASURED_TO = "2026-10-19"
 
 #: The version this service reports about ITSELF — in the OpenAPI document, in
 #: the MCP `initialize` handshake, and, through the generator, in the published
@@ -194,7 +204,9 @@ def validation():
     }
     facts = {
         "status": "operational" if status == "ok" else status,
-        "uptime": {"days_green": 23, "days_total": 23},
+        "uptime": {"days_green": UPTIME_DAYS_GREEN,
+                   "days_total": UPTIME_DAYS_TOTAL,
+                   "measured_to": UPTIME_MEASURED_TO},
         "price_usd_per_call_min": price_floor,
         "price_usd_per_call_max": price_ceiling,
         "price_note": ("six routes across two tiers; the exact atomic amount is "
@@ -215,7 +227,8 @@ def validation():
                 '<a href="https://x402-trust.com/endpoint/139372">'
                 '<img src="https://x402-trust.com/badge.svg?resource='
                 'https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi'
-                '%2Fstats" alt="x402 Trust: grade B, recommendation proceed">'
+                '%2Fstats" alt="x402 Trust — independent reliability grade, '
+                'see the linked profile for the current value">'
                 "</a>"
             ),
             "claim": "4/4 complete (Claim, Email confirmed, Domain file "
@@ -223,24 +236,26 @@ def validation():
             "scoring_note": (
                 "Weighted scoring across technical fit, transparency, "
                 "ecosystem presence and operational confidence; letter "
-                "grades per endpoint (ours: A–B). Current weights: see the "
-                "leaderboard. Free snapshots refresh at least every 24 h."
+                "grades per endpoint, listed with the score each carries "
+                "below. Current weights: see the leaderboard. Free snapshots "
+                "refresh at least every 24 h, so the linked pages — not this "
+                "dated copy — are authoritative."
             ),
             "leaderboard": "https://x402-trust.com/trust/leaderboard",
-            "last_checked": "2026-10-19",
+            "last_checked": "2026-11-04",
             "paid_endpoints": [
-                {"path": "/api/v1/signal", "grade": "A", "score": 81.2,
+                {"path": "/api/v1/signal", "grade": "A", "score": 82.2,
                  "page": "https://x402-trust.com/endpoint/122932"},
-                {"path": "/api/v1/whaleflow", "grade": "B", "score": 79.9,
+                {"path": "/api/v1/whaleflow", "grade": "A", "score": 81.0,
                  "page": "https://x402-trust.com/endpoint/139367"},
-                {"path": "/api/stats", "grade": "B", "score": 79.9,
+                {"path": "/api/stats", "grade": "A", "score": 81.0,
                  "page": "https://x402-trust.com/endpoint/139372"},
-                {"path": "/api/arb/opportunities", "grade": "B",
-                 "score": 79.9,
+                {"path": "/api/arb/opportunities", "grade": "A",
+                 "score": 81.0,
                  "page": "https://x402-trust.com/endpoint/139339"},
-                {"path": "/api/sales", "grade": "B", "score": 79.9,
+                {"path": "/api/sales", "grade": "A", "score": 81.0,
                  "page": "https://x402-trust.com/endpoint/139342"},
-                {"path": "/api/bot-status", "grade": "B", "score": 79.9,
+                {"path": "/api/bot-status", "grade": "A", "score": 80.9,
                  "page": "https://x402-trust.com/endpoint/139366"},
             ],
         },
@@ -392,7 +407,8 @@ def validation():
       <dt>Service status</dt>
       <dd class="{ok_cls}">{facts["status"]}</dd>
       <dt>Uptime</dt>
-      <dd>23 of 23 days green</dd>
+      <dd>{facts["uptime"]["days_green"]} of {facts["uptime"]["days_total"]} days
+        green, to {facts["uptime"]["measured_to"]}</dd>
       <dt>Price</dt>
       <dd>${price_floor:.3f}–${price_ceiling:.3f} per call, depending on the
         route — the 402 challenge states the exact amount before you pay
