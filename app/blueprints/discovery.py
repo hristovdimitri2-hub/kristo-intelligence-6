@@ -41,8 +41,21 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 604
+SUITE_TESTS_PASSED = 605
 SUITE_LAST_RUN = "2026-11-04"
+
+#: The version this service reports about ITSELF — in the OpenAPI document, in
+#: the MCP `initialize` handshake, and, through the generator, in the published
+#: `server.json`. It used to be three different numbers at once: the OpenAPI
+#: document said 6.0.0, the MCP handshake said 1.0.0, and `server.json` — the
+#: artifact a registry actually publishes — said 6.2.0. A registry, an MCP
+#: client or an agent that compares versions therefore saw us as OLDER than we
+#: are and had no reason to re-read anything we had changed. That is a
+#: visibility bug, not a cosmetic one.
+#:
+#: The x402 protocol version lives beside it in the manifest and is a different
+#: thing; it is not this.
+SERVICE_VERSION = "6.2.0"
 
 
 def _sample_disclaimer(endpoint: str) -> str:
@@ -1031,7 +1044,9 @@ def _mcp_dispatch(body):
             "capabilities": {"tools": {}},
             "serverInfo": {
                 "name": "kristo-intelligence",
-                "version": "1.0.0",
+                # Was hardcoded "1.0.0" while server.json published 6.2.0 — an
+                # MCP client comparing the two concluded we were ancient.
+                "version": SERVICE_VERSION,
                 "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
             },
             "instructions": (
@@ -1767,7 +1782,9 @@ def openapi_spec():
         "openapi": "3.0.3",
         "info": {
             "title": "Kristo Intelligence API",
-            "version": "6.0.0",
+            # Was "6.0.0" while server.json published 6.2.0: the API document and
+            # the registry artifact disagreed about which release this is.
+            "version": SERVICE_VERSION,
             "description": "AI-powered DeFi trading signals and crypto market "
                            "intelligence — pay-per-call USDC on Base (x402 v2, "
                            "no API keys). Example: curl -i "

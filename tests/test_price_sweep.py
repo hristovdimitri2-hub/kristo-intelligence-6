@@ -521,6 +521,52 @@ def test_the_registry_generator_takes_a_version_and_refuses_ranges(client):
         assert any("version" in p for p in problems), (bad, problems)
 
 
+def test_every_version_we_report_about_ourselves_is_the_same_one(client):
+    """Three surfaces used to disagree: openapi said 6.0.0, the MCP `initialize`
+    handshake said 1.0.0, and the published server.json said 6.2.0.
+
+    A registry, an MCP client or an agent that compares versions therefore saw
+    us as OLDER than we are, and had no reason to re-read anything we had
+    changed. That is a visibility bug, not cosmetics — a version string is one
+    of the few signals a directory uses to decide whether to look again.
+
+    The x402 PROTOCOL version ("1.0" in the manifest, right beside
+    "protocol": "x402") is a different thing and is deliberately not tied to
+    this, which is why the assertion is about these five numbers and not about
+    "every string that looks like a version".
+    """
+    import importlib.util
+
+    from app.blueprints import discovery
+
+    test_client, _main = client
+    spec = importlib.util.spec_from_file_location(
+        "build_registry_server_json",
+        os.path.join(REPO_ROOT, "scripts", "build_registry_server_json.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    handshake = test_client.post(
+        "/mcp",
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                         "params": {"protocolVersion": "2025-03-26"}}),
+        content_type="application/json").get_json()
+
+    reported = {
+        "app.blueprints.discovery.SERVICE_VERSION": discovery.SERVICE_VERSION,
+        "scripts/build_registry_server_json.VERSION": module.VERSION,
+        "generated server.json": module.build()["version"],
+        "openapi info.version": test_client.get("/openapi.json")
+        .get_json()["info"]["version"],
+        "mcp initialize serverInfo.version":
+            handshake["result"]["serverInfo"]["version"],
+    }
+
+    assert len(set(reported.values())) == 1, (
+        "we report %d different versions of ourselves: %s"
+        % (len(set(reported.values())), reported))
+
+
 # ── VIP flow: the button a REAL buyer taps (18.09) ──────────────────────────
 
 def test_the_vip_payment_payload_has_no_fabricated_link():
