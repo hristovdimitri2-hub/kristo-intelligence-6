@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 601
+SUITE_TESTS_PASSED = 604
 SUITE_LAST_RUN = "2026-11-04"
 
 
@@ -66,6 +66,37 @@ def _dearest_route_price() -> float:
     from main import REAL_X402_ROUTES
 
     return max(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
+
+
+def _cheapest_route_price() -> float:
+    """The cheapest paid route — generated, never typed into prose.
+
+    A single flat "price per call" cannot be true for six routes with two
+    different prices. When one has to be quoted anyway (an older field kept for
+    compatibility, a headline, a tier), it must be the CHEAPEST, because the two
+    ways of being wrong are not symmetrical: understating makes a payer send too
+    little and get an honest 401 with their money untouched, while overstating
+    makes them send too much and it is NOT refunded. The 402 response always
+    states the exact amount, so the headline only ever needs to not overstate.
+    """
+    from main import REAL_X402_ROUTES
+
+    return min(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
+
+
+def _route_price(endpoint: str) -> float:
+    """The paywall's price for ONE paid route, from the paywall's own map.
+
+    `X402_FEE_USDC` / `MICRO_FEE_USDC` are flat aliases. Quoting one of them for
+    a route the paywall prices differently advertises a number we do not charge,
+    and both are environment-overridable, so the only safe source is
+    `X402_PRICE_MAP` — the same dict `_x402_paywall` reads to build the 402.
+    This is the rule `_mcp_tools` already followed; it is shared now so a new
+    surface cannot quietly go back to the alias.
+    """
+    from main import X402_FEE_USDC, X402_PRICE_MAP
+
+    return float(X402_PRICE_MAP.get(endpoint, X402_FEE_USDC))
 
 
 @discovery_bp.route("/health")
@@ -1219,7 +1250,6 @@ def api_mcp_manifest():
     """MCP (Model Context Protocol) manifest for AI agent M2M payments."""
     from main import (
         _record_request,
-        MICRO_FEE_USDC,
         VIP_MONTHLY_USDC,
         VIP_THRESHOLD_USDC,
     )
@@ -1245,8 +1275,19 @@ def api_mcp_manifest():
                 {
                     "id": "micro_request",
                     "name": "Micro Request",
-                    "price_usdc": MICRO_FEE_USDC,
-                    "description": f"Pay-per-call: from {KRISTO_SIGNAL_PRICE} USDC per API request (per-endpoint pricing in 'endpoints.available')",
+                    # This tier used to carry TWO different numbers in one
+                    # object: price_usdc: MICRO_FEE_USDC (the dearest route,
+                    # 0.005) while its own description said "from
+                    # KRISTO_SIGNAL_PRICE" (0.003). An agent reading the field
+                    # budgeted for the wrong one. Both now derive from the live
+                    # price map, and the single-price field quotes the cheapest
+                    # route so it can never overstate.
+                    "price_usdc": _cheapest_route_price(),
+                    "price_max_usdc": _dearest_route_price(),
+                    "description": (
+                        "Pay-per-call: from %s USDC per API request, up to %s "
+                        "(per-endpoint pricing in 'endpoints.available')"
+                        % (_cheapest_route_price(), _dearest_route_price())),
                     "access": "single API call",
                     "endpoints": ["/api/stats", "/api/sales", "/api/bot-status",
                                   "/api/arb/opportunities", "/api/v1/signal",
@@ -1277,17 +1318,28 @@ def api_mcp_manifest():
         "endpoints": {
             "base_url": base_url,
             "available": [
-                {"path": "/api/stats", "method": "GET", "cost_usdc": MICRO_FEE_USDC,
+                # Every one of these reads the paywall's own map. Three used the
+                # flat MICRO_FEE_USDC alias and three the per-product constants;
+                # both are overridable separately from the map the paywall
+                # actually charges from, so any of them could advertise a number
+                # we do not charge.
+                {"path": "/api/stats", "method": "GET",
+                 "cost_usdc": _route_price("/api/stats"),
                  "description": "Market activity and daily stats"},
-                {"path": "/api/sales", "method": "GET", "cost_usdc": MICRO_FEE_USDC,
+                {"path": "/api/sales", "method": "GET",
+                 "cost_usdc": _route_price("/api/sales"),
                  "description": "Real on-chain sales history"},
-                {"path": "/api/bot-status", "method": "GET", "cost_usdc": MICRO_FEE_USDC,
+                {"path": "/api/bot-status", "method": "GET",
+                 "cost_usdc": _route_price("/api/bot-status"),
                  "description": "Telegram bot status"},
-                {"path": "/api/arb/opportunities", "method": "GET", "cost_usdc": KRISTO_ARB_PRICE,
+                {"path": "/api/arb/opportunities", "method": "GET",
+                 "cost_usdc": _route_price("/api/arb/opportunities"),
                  "description": "Live cross-DEX arbitrage spreads on Base (60s refresh)"},
-                {"path": "/api/v1/signal", "method": "GET", "cost_usdc": KRISTO_SIGNAL_PRICE,
+                {"path": "/api/v1/signal", "method": "GET",
+                 "cost_usdc": _route_price("/api/v1/signal"),
                  "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN"},
-                {"path": "/api/v1/whaleflow", "method": "GET", "cost_usdc": KRISTO_WHALEFLOW_PRICE,
+                {"path": "/api/v1/whaleflow", "method": "GET",
+                 "cost_usdc": _route_price("/api/v1/whaleflow"),
                  "description": "Network-wide whale flow: USDC transfers >= $5M on Base with labeled counterparties (60s refresh)"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
                  "description": "This manifest (free)"},
@@ -1462,7 +1514,12 @@ def mcp_json():
             "currency": "USDC",
             "token_contract": X402_USDC_CONTRACT,
             "receiver_address": X402_RECEIVER_ADDRESS,
-            "price_per_call_usdc": X402_FEE_USDC,
+            # One flat "per call" number cannot be true for six routes at two
+            # prices. The single-price field quotes the CHEAPEST so it can never
+            # overstate (see _cheapest_route_price), the range bounds it, and the
+            # 402 always states the exact amount.
+            "price_per_call_usdc": _cheapest_route_price(),
+            "price_max_usdc": _dearest_route_price(),
             "free_tier_limit": FREE_TIER_LIMIT,
             # No "monthly_vip_usdc" field: $29 is a human product sold through
             # Stripe. It issues a Telegram invite code and does NOT unlock API
@@ -1481,7 +1538,7 @@ def mcp_json():
                 "description": "Get market activity, daily stats, the official eight-agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed)",
                 "endpoint": f"{base_url}/api/stats",
                 "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
+                "cost_usdc": _route_price("/api/stats"),
                 "free_sample": f"{base_url}/api/stats/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
@@ -1490,7 +1547,7 @@ def mcp_json():
                 "description": "Get real on-chain sales history (USDC transfers) and live market snapshot",
                 "endpoint": f"{base_url}/api/sales",
                 "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
+                "cost_usdc": _route_price("/api/sales"),
                 "free_sample": f"{base_url}/api/sales/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
@@ -1499,7 +1556,7 @@ def mcp_json():
                 "description": "Get Telegram bot integration status and wallet info",
                 "endpoint": f"{base_url}/api/bot-status",
                 "method": "GET",
-                "cost_usdc": X402_FEE_USDC,
+                "cost_usdc": _route_price("/api/bot-status"),
                 "free_sample": f"{base_url}/api/bot-status/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
@@ -1508,7 +1565,7 @@ def mcp_json():
                 "description": "Live cross-DEX arbitrage spreads on Base, refreshed every 60 seconds",
                 "endpoint": f"{base_url}/api/arb/opportunities",
                 "method": "GET",
-                "cost_usdc": KRISTO_ARB_PRICE,
+                "cost_usdc": _route_price("/api/arb/opportunities"),
                 "free_sample": f"{base_url}/api/arb/opportunities/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
@@ -1517,7 +1574,7 @@ def mcp_json():
                 "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN",
                 "endpoint": f"{base_url}/api/v1/signal",
                 "method": "GET",
-                "cost_usdc": KRISTO_SIGNAL_PRICE,
+                "cost_usdc": _route_price("/api/v1/signal"),
                 "free_sample": f"{base_url}/api/v1/signal/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
@@ -1526,7 +1583,7 @@ def mcp_json():
                 "description": "Large USDC transfers on Base with labeled counterparties",
                 "endpoint": f"{base_url}/api/v1/whaleflow",
                 "method": "GET",
-                "cost_usdc": KRISTO_WHALEFLOW_PRICE,
+                "cost_usdc": _route_price("/api/v1/whaleflow"),
                 "free_sample": f"{base_url}/api/v1/whaleflow/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
@@ -1603,8 +1660,11 @@ def openapi_spec():
     # while the routes cost 0.003-0.005 — a buyer could overpay or misread the
     # product. It now points at the only authoritative number, the route's own 402
     # challenge, and quotes the cheapest route as a floor (derived, never typed).
-    _cheapest = min(float(KRISTO_ARB_PRICE), float(KRISTO_SIGNAL_PRICE),
-                    float(KRISTO_WHALEFLOW_PRICE))
+    # It used to average only THREE of the six routes by naming their constants;
+    # it now reads the paywall's own map, so a route added or repriced later
+    # cannot leave this number behind.
+    _cheapest = _cheapest_route_price()
+    _dearest = _dearest_route_price()
 
     base_url = request.host_url.rstrip("/")
     # x-payment-info shared block for all paid operations.
@@ -1621,7 +1681,11 @@ def openapi_spec():
         "price": {
             "mode": "fixed",
             "currency": "USD",
-            "amount": str(X402_FEE_USDC),
+            # `mode: fixed` is kept for schema compatibility, but the amount must
+            # not overstate: it is the CHEAPEST paid route. Every operation below
+            # carries its own exact price, and the 402 is authoritative.
+            "amount": str(_cheapest),
+            "amount_max": str(_dearest),
         },
         "protocols": [{"x402": {}}],
     }
@@ -1638,12 +1702,14 @@ def openapi_spec():
     def _paid_op(summary, description, cost_usdc=None):
         """Paid operation entry.
 
-        `cost_usdc` overrides the flat per-call price advertised in
-        x-payment-info/x402. Omitting it keeps the historical X402_FEE_USDC
-        behaviour, so the original operations stay byte-identical.
+        `cost_usdc` overrides the per-call price advertised in
+        x-payment-info/x402. Omitting it falls back to the shared block, which
+        states the CHEAPEST route — the old fallback was the flat
+        X402_FEE_USDC, the dearest one, so an operation that forgot to declare
+        its own price advertised more than the paywall charges.
         """
-        cost = X402_FEE_USDC if cost_usdc is None else cost_usdc
-        if cost == X402_FEE_USDC:
+        cost = _cheapest if cost_usdc is None else cost_usdc
+        if cost == _cheapest:
             op_payment_info = payment_info
         else:
             op_payment_info = dict(payment_info)
@@ -1720,7 +1786,8 @@ def openapi_spec():
                 "chain": X402_CHAIN,
                 "chain_id": X402_CHAIN_ID,
                 "token_contract": X402_USDC_CONTRACT,
-                "price_per_call_usdc": X402_FEE_USDC,
+                "price_per_call_usdc": _cheapest,
+                "price_max_usdc": _dearest,
                 "free_tier_limit": FREE_TIER_LIMIT,
             },
             # Ownership verification + contact channel for agents/operators
@@ -1735,29 +1802,32 @@ def openapi_spec():
             "/api/stats": {"get": _paid_op(
                 "Market activity and daily stats",
                 "Returns real-time market activity, daily stats, and aggregated metrics for the Base DeFi ecosystem.",
+                _route_price("/api/stats"),
             )},
             "/api/sales": {"get": _paid_op(
                 "Real on-chain sales history",
                 "Returns verified on-chain sales transactions from the Base ecosystem, including amounts, token pairs, and timestamps.",
+                _route_price("/api/sales"),
             )},
             "/api/bot-status": {"get": _paid_op(
                 "Telegram bot integration status",
                 "Returns the current status of the Telegram sales bot, including last bulletin time, subscriber count, and operational metrics.",
+                _route_price("/api/bot-status"),
             )},
             "/api/arb/opportunities": {"get": _paid_op(
                 "Cross-DEX arbitrage radar",
                 "Live cross-DEX arbitrage spreads on Base (DEXScreener), refreshed every 60 seconds.",
-                KRISTO_ARB_PRICE,
+                _route_price("/api/arb/opportunities"),
             )},
             "/api/v1/signal": {"get": _paid_op(
                 "Live DeFi trading signal",
                 "Live DeFi trading signal: action, confidence and one-line reasoning for ETH/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live market data.",
-                KRISTO_SIGNAL_PRICE,
+                _route_price("/api/v1/signal"),
             )},
             "/api/v1/whaleflow": {"get": _paid_op(
                 "Live whale flow",
                 "Live whale flow: USDC transfers >= $5M on Base with labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the response always states the block scanned to).",
-                KRISTO_WHALEFLOW_PRICE,
+                _route_price("/api/v1/whaleflow"),
             )},
             "/api/v1/agents": {"get": _free_op(
                 "Agent catalog (free)",
@@ -1965,7 +2035,11 @@ def agents_json():
             "currency": "USDC",
             "token_contract": X402_USDC_CONTRACT,
             "receiver_address": X402_RECEIVER_ADDRESS,
-            "price_per_call_usdc": X402_FEE_USDC,
+            # Never one flat number for routes at two prices: the single-price
+            # field quotes the cheapest so it cannot overstate, and the range
+            # bounds it (see _cheapest_route_price).
+            "price_per_call_usdc": _cheapest_route_price(),
+            "price_max_usdc": _dearest_route_price(),
             "free_tier_limit": FREE_TIER_LIMIT,
             # There is deliberately NO "monthly_vip_usdc" field here any more.
             # $29 is a HUMAN product sold through Stripe: paying it issues a
@@ -2067,7 +2141,11 @@ def ai_plugin_json():
             # exact amount; these two bound it.
             "price_min_usdc": _floor,
             "price_max_usdc": _ceiling,
-            "price_per_call_usdc": X402_FEE_USDC,
+            # This one contradicted the two fields directly above it: the prose
+            # in this same response says "between _floor and _ceiling", while
+            # this field still quoted the flat X402_FEE_USDC — the dearest route.
+            # An agent reading the machine field overpaid for four of six routes.
+            "price_per_call_usdc": _floor,
             "free_tier_limit": FREE_TIER_LIMIT,
             # Standard rail first. This block advertised only the legacy proof
             # header, so a spec client reading it was pointed at the slow path.

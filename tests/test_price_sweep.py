@@ -150,6 +150,161 @@ def test_every_paid_route_appears_with_its_exact_price(client):
             "%s: x402scan needs protocols == [{'x402': {}}]" % endpoint
 
 
+# ── The OTHER half of the sweep: JSON price FIELDS, not prose ───────────────
+#
+# Everything above reads money-LIKE text ("$0.05", "0.05 USDC"). That regex
+# cannot see `"price_per_call_usdc": 0.005` — a bare JSON number with no $ and no
+# unit — and that blind spot is exactly how a flat price survived on four
+# machine-readable surfaces while this sweep reported green. F-19: /mcp.json,
+# /openapi.json, /agents.json and /.well-known/ai-plugin.json all quoted the
+# DEAREST route's price for six routes at two prices, and one tier carried two
+# different numbers inside a single object.
+
+JSON_PRICE_SURFACES = [
+    "/api/mcp/manifest",
+    "/mcp.json",
+    "/openapi.json",
+    "/agents.json",
+    "/.well-known/ai-plugin.json",
+]
+
+
+def _prices_in(node, key):
+    """Every value stored under `key`, at any depth."""
+    found = []
+    if isinstance(node, dict):
+        for k, value in node.items():
+            if k == key:
+                found.append(value)
+            found.extend(_prices_in(value, key))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_prices_in(item, key))
+    return found
+
+
+def _endpoint_costs(node):
+    """(endpoint, advertised cost) pairs, however the surface declares them."""
+    pairs = []
+
+    def walk(n):
+        if isinstance(n, dict):
+            cost = n.get("cost_usdc")
+            endpoint = n.get("endpoint") or n.get("path")
+            if cost is not None and endpoint:
+                pairs.append((str(endpoint), float(cost)))
+            for value in n.values():
+                walk(value)
+        elif isinstance(n, list):
+            for item in n:
+                walk(item)
+
+    walk(node)
+    return pairs
+
+
+def test_every_json_price_field_matches_the_paywall(client):
+    """F-19, the machine-readable half — cross-checked, not string-matched.
+
+    The question is not "does the number appear" but "does it equal what the
+    paywall charges", compared against X402_PRICE_MAP: the dict _x402_paywall
+    itself reads to build the 402. A surface that stops declaring per-route
+    prices would make this test go quiet, so the count is asserted too.
+    """
+    test_client, main = client
+    checked = 0
+
+    for path in JSON_PRICE_SURFACES:
+        response = test_client.get(path)
+        assert response.status_code == 200, (path, response.status_code)
+        payload = response.get_json()
+        assert payload, "%s served nothing parseable" % path
+
+        for endpoint, advertised in _endpoint_costs(payload):
+            route = endpoint
+            for prefix in ("https://", "http://"):
+                if route.startswith(prefix):
+                    route = "/" + route.split("/", 3)[3]
+                    break
+            route = route.split("?")[0].rstrip("/") or "/"
+            expected = main.X402_PRICE_MAP.get(route)
+            if expected is None:
+                assert advertised == 0.0, (
+                    "%s advertises %s for %s, which is neither a priced route "
+                    "nor free" % (path, advertised, route))
+                continue
+            assert advertised == round(float(expected), 6), (
+                "%s advertises %s for %s but the paywall charges %s"
+                % (path, advertised, route, expected))
+            checked += 1
+
+    assert checked >= 18, (
+        "only %d endpoint prices were cross-checked — a surface stopped "
+        "declaring per-route prices and this guard went quiet" % checked)
+
+
+def test_a_single_price_field_never_overstates_the_routes(client):
+    """One flat number cannot be true for six routes at two prices.
+
+    Every surface quoting one headline for all routes must quote the CHEAPEST,
+    because the two ways of being wrong are not symmetrical: understating earns
+    an honest 401 with the buyer's money untouched, while overstating leaves them
+    having sent too much — which is NOT refunded.
+    """
+    test_client, main = client
+    floor = min(float(p) for p in main.X402_PRICE_MAP.values())
+    ceiling = max(float(p) for p in main.X402_PRICE_MAP.values())
+    assert floor < ceiling, "this test only means something while prices differ"
+
+    seen = 0
+    for path in JSON_PRICE_SURFACES:
+        payload = test_client.get(path).get_json()
+
+        for value in _prices_in(payload, "price_per_call_usdc"):
+            if value is None:
+                continue
+            assert round(float(value), 6) == round(floor, 6), (
+                "%s quotes price_per_call_usdc=%s for all routes; it must be "
+                "the cheapest (%s), never the dearest (%s)"
+                % (path, value, floor, ceiling))
+            seen += 1
+
+        for key, expected in (("price_min_usdc", floor),
+                              ("price_max_usdc", ceiling),
+                              ("amount_max", ceiling)):
+            for value in _prices_in(payload, key):
+                if value is None:
+                    continue
+                assert round(float(value), 6) == round(expected, 6), (
+                    "%s declares %s=%s but the real bound is %s"
+                    % (path, key, value, expected))
+
+    assert seen >= 4, (
+        "only %d single-price headlines were found — a surface stopped "
+        "declaring one and this guard went quiet" % seen)
+
+
+def test_the_micro_tier_does_not_contradict_itself(client):
+    """The tier that carried two different numbers inside ONE object.
+
+    `price_usdc: MICRO_FEE_USDC` (0.005, the dearest route) sat beside a
+    description reading "from KRISTO_SIGNAL_PRICE" (0.003). An agent reading the
+    machine field budgeted for the wrong one, and the field was the dearer.
+    """
+    test_client, main = client
+    payload = test_client.get("/api/mcp/manifest").get_json()
+    micro = next(t for t in payload["payment"]["tiers"]
+                 if t["id"] == "micro_request")
+
+    floor = min(float(p) for p in main.X402_PRICE_MAP.values())
+    ceiling = max(float(p) for p in main.X402_PRICE_MAP.values())
+    assert micro["price_usdc"] == floor
+    assert micro["price_max_usdc"] == ceiling
+    # The prose must agree with the fields in the same object.
+    assert str(floor) in micro["description"]
+    assert str(ceiling) in micro["description"]
+
+
 def test_the_live_402_challenge_matches_the_price_map(client):
     """The challenge IS the price a paying agent sees — atomic units included."""
     _test_client, main = client
