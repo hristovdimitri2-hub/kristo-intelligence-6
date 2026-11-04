@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 633
+SUITE_TESTS_PASSED = 642
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2320,7 +2320,14 @@ def ai_plugin_json():
             "preferred_header": "PAYMENT-SIGNATURE",
             "legacy_headers": ["X-PAYMENT", "X-Payment-Proof"],
             "proof_header": "X-Payment-Proof",
-            "client_package": "kristo-x402-client (npm)",
+            # The published npm release is still 1.0.0, which speaks only the
+            # legacy rail and quotes the old price list. A machine reading this
+            # field would install it and wait ~24s a call, so the version is part
+            # of the value: 1.1.0 lives in the repository until it is published.
+            "client_package": (
+                "kristo-x402-client@1.1.0 (from the repository; the npm release is "
+                "still 1.0.0, legacy rail only, ~24s per call)"
+            ),
         },
         # What an agent scanner reading this file can actually buy. It used to
         # name no route at all.
