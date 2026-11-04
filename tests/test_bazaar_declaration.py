@@ -88,6 +88,23 @@ def _validate_bazaar_declaration(d: dict):
                 problems.append(f"info.input.type={inp.get('type')!r} != 'http'")
             if inp.get("method") not in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
                 problems.append(f"info.input.method={inp.get('method')!r} invalid")
+        # info.output is OPTIONAL, but when declared its `type` is REQUIRED —
+        # bazaar.md "Discovery Info Structure":
+        #   | type | string | Yes | Response content type (e.g. "json", "text") |
+        # 04.11.2026: this check did not exist, and three of the six paid
+        # routes declared `output` as {"example": ...} with no type at all.
+        # The old guard only looked for `example` on the SCHEMA side, so it
+        # passed while the published declaration failed the canonical
+        # contract. A guard that inspects the neighbouring property is not a
+        # guard for the required one.
+        if "output" in info:
+            out_info = info["output"]
+            if not isinstance(out_info, dict):
+                problems.append("info.output must be an object when present")
+            elif not (isinstance(out_info.get("type"), str) and out_info["type"].strip()):
+                problems.append(
+                    "info.output present but info.output.type missing — the "
+                    "spec marks output.type as required")
 
     schema = bz.get("schema")
     if not isinstance(schema, dict):
@@ -104,9 +121,18 @@ def _validate_bazaar_declaration(d: dict):
     in_props = (props.get("input") or {}).get("properties") or {}
     if not isinstance(in_props.get("queryParams"), dict) and not isinstance(in_props.get("body"), dict):
         problems.append("input schema must expose queryParams OR body")
-    out_props = (props.get("output") or {}).get("properties") or {}
+    out_block = props.get("output") or {}
+    out_props = out_block.get("properties") or {}
     if not isinstance(out_props.get("example"), dict):
         problems.append("output schema must expose an example property")
+    # Mirror the canonical schema exactly: it declares a `type` property and
+    # lists "type" in `required`. Our copy used to omit both, so the schema we
+    # published described a looser contract than the one the facilitator
+    # validates against — our info passed our own schema while failing theirs.
+    if "output" in out_props and not isinstance(out_props.get("type"), dict):
+        problems.append("output schema declares example but not type")
+    if "type" not in (out_block.get("required") or []):
+        problems.append("output schema must list 'type' in required")
     return problems
 
 

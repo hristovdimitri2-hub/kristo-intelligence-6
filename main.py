@@ -1642,6 +1642,61 @@ _BAZAAR_OUTPUT_EXAMPLES = {
             {"path": "/api/v1/whaleflow", "count": 30},
         ],
     },
+    # The three routes below carried NO output block at all, so the Bazaar had
+    # nothing to describe them with. `info.output` is optional, but when it is
+    # present its `type` is REQUIRED (bazaar.md "Discovery Info Structure":
+    # | type | string | Yes |), so a route that declares an output exercises
+    # more of the contract than one that declares none.
+    "/api/arb/opportunities": {
+        "opportunities": [
+            {
+                "pair": "WETH/USDC",
+                "buy_dex": "uniswap_v3",
+                "sell_dex": "aerodrome",
+                "spread_pct": 0.4213,
+                "buy_price_usd": 2425.11,
+                "sell_price_usd": 2435.33,
+                "est_profit_usd": 0.38,
+                "gas_cost_usdc": 0.03,
+                "block_number": 52_610_105,
+                "scanned_at": "2026-10-19T09:15:00+00:00",
+            },
+        ],
+        "count": 1,
+        "scan_info": {"scanned_until_block": 52_610_105, "gas_cost_usdc": 0.03},
+        "source": "dexscreener_cross_dex",
+        "network": "base",
+    },
+    "/api/sales": {
+        "total_volume_usd": 0.164,
+        "total_sales": 50,
+        "by_token": {"USDC": 0.164},
+        "history": [
+            {
+                "amount_usd": 0.003,
+                "timestamp": "2026-10-30T09:00:00+00:00",
+                "tx_hash": "0x9f2c…",
+            },
+        ],
+        "source": "real_blockchain",
+        # wallet_address / usdc_balance are deliberately absent: this example is
+        # PUBLIC (it rides in every unpaid 402), and the receiver address is
+        # already published as accepts[0].payTo — repeating it here would widen
+        # the public surface for no discovery benefit (F-26/F-27 rule).
+        "market_data": {"fear_greed": 54, "eth_price_usd": 2426.55},
+    },
+    "/api/bot-status": {
+        "telegram_bot_running": True,
+        "telegram_token_configured": True,
+        "last_heartbeat": "2026-10-19T09:20:00+00:00",
+        "uptime_started": "2026-10-19T06:00:00+00:00",
+        "messages_sent": 12,
+        "active_users": 4,
+        "commands_processed": 37,
+        "vip_invites_sent": 1,
+        # The live handler also attaches `wallet` (internal wallet state). It is
+        # omitted here on purpose: same public-surface rule as /api/sales.
+    },
 }
 
 
@@ -1705,7 +1760,12 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     info = {"input": {"type": "http", "method": "GET", "queryParams": {}}}
     example = _BAZAAR_OUTPUT_EXAMPLES.get(endpoint)
     if example is not None:
-        info["output"] = {"example": example}
+        # `type` is REQUIRED whenever info.output is present — bazaar.md
+        # "Discovery Info Structure": | type | string | Yes | Response content
+        # type (e.g. "json", "text"). Publishing output without it made the
+        # declaration non-conformant, and every canonical example in the spec
+        # schema carries "required": ["type"] on the output object.
+        info["output"] = {"type": "json", "example": example}
     extensions = {
         "bazaar": {
             "info": info,
@@ -1741,11 +1801,25 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
                     "output": {
                         "type": "object",
                         "properties": {
+                            # Mirrors the canonical bazaar.md schema, which is
+                            # `properties: {type, example}, required: ["type"]`.
+                            # Our copy omitted `type` AND omitted `required`,
+                            # so it described a looser contract than the one the
+                            # facilitator validates against — the published
+                            # info passed our own schema while failing theirs.
+                            "type": {
+                                "type": "string",
+                                "description": (
+                                    'Response content type; "json" for every '
+                                    "paid route here, which all return JSON."
+                                ),
+                            },
                             "example": {
                                 "type": "object",
                                 "description": "Paid JSON response payload",
-                            }
+                            },
                         },
+                        "required": ["type"],
                     },
                 },
             },
