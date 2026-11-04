@@ -374,10 +374,15 @@ def test_the_registry_server_json_is_generated_from_the_price_map(client):
     assert remotes["sse"] == LIVE_BASE + "/mcp/sse"
     assert "vercel" not in raw.lower(), "the dead legacy endpoint must not return"
 
-    # EVERY price comes from the map
+    # EVERY price comes from the map. The tools carry endpoint and price_usd, which
+    # is where these numbers are read now: the block used to repeat them a second
+    # time in a `paid_endpoints` list, and that repetition is what took the extension
+    # past the registry's 4KB limit and silently blocked publishing (test_server_json_
+    # registry_limits.py). The comparison below is unchanged - still every advertised
+    # endpoint against the whole map - so a dropped or repriced tool still fails.
     meta = doc["_meta"][PUBLISHER_KEY]
     published = {row["endpoint"]: round(float(row["price_usd"]), 6)
-                 for row in meta["paid_endpoints"]}
+                 for row in meta["tools"]}
     expected = {endpoint: round(float(price), 6)
                 for endpoint, price in main.X402_PRICE_MAP.items()}
     assert published == expected, "server.json prices drifted from X402_PRICE_MAP"

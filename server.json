@@ -43,71 +43,39 @@
       "tools": [
         {
           "name": "get_market_stats",
-          "description": "Read-only operation — no side effects, no parameters. Returns the live Base market snapshot: aggregated activity, daily request/sales counters, the official agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed). Use it for market context and price/indicator lookups; use get_onchain_sales for paid-call revenue and get_bot_status for integration health. Paid via x402 (HTTP 402 challenge with the exact USDC amount and receiver on Base).",
+          "description": "Read-only operation — no side effects, no parameters. Returns the live Base market snapshot: aggregated activity, daily request/sales counters, the official agent catalog, and real-time market data (CoinGecko, DEXScreener, Fear & Greed). Use it for market context and price/indicator lookups; use get_onchain_sales for paid-call revenue and get_bot_status for integration health..",
           "endpoint": "/api/stats",
           "price_usd": 0.005
         },
         {
           "name": "get_onchain_sales",
-          "description": "Read-only operation — no side effects, no parameters. Returns the real on-chain payment history to this service's fee receiver on Base: total_volume_usd, total_sales, by_token, up to 100 history rows (tx hash, payer, amount, block, timestamp), source=\"real_blockchain\", plus the wallet state and a market snapshot. Use it when you need provable revenue or settlement evidence; use get_market_stats for prices and get_bot_status for integration health. Paid via x402 (HTTP 402 challenge with the exact USDC amount and receiver on Base).",
+          "description": "Read-only operation — no side effects, no parameters. Returns the real on-chain payment history to this service's fee receiver on Base: total_volume_usd, total_sales, by_token, up to 100 history rows (tx hash, payer, amount, block, timestamp), source=\"real_blockchain\", plus the wallet state and a market snapshot. Use it when you need provable revenue or settlement evidence; use get_market_stats for prices and get_bot_status for integration health..",
           "endpoint": "/api/sales",
           "price_usd": 0.005
         },
         {
           "name": "get_bot_status",
-          "description": "Read-only operation — no side effects, no parameters. Returns the service's Telegram integration status as JSON: telegram_bot_running, telegram_token_configured, last_heartbeat, uptime_started, messages_sent, active_users, commands_processed, vip_invites_sent, plus the wallet state. Use it to confirm this service's own monitoring is alive (and its heartbeat recent) before trusting other outputs; use get_market_stats for market data or get_onchain_sales for provable revenue. Paid via x402 (HTTP 402 challenge with the exact USDC amount and receiver on Base).",
+          "description": "Read-only operation — no side effects, no parameters. Returns the service's Telegram integration status as JSON: telegram_bot_running, telegram_token_configured, last_heartbeat, uptime_started, messages_sent, active_users, commands_processed, vip_invites_sent, plus the wallet state. Use it to confirm this service's own monitoring is alive (and its heartbeat recent) before trusting other outputs; use get_market_stats for market data or get_onchain_sales for provable revenue..",
           "endpoint": "/api/bot-status",
           "price_usd": 0.005
         },
         {
           "name": "get_trading_signal",
-          "description": "Read-only operation — no side effects, no parameters. Returns this service's flagship trading-agent signals for ETH, ONDO, KAITO and DEGEN: action, confidence, price_usd and the model's reasoning. Use it when you need a directional call rather than raw market data; use get_whale_flow for large-transfer flow and get_arbitrage_opportunities for cross-DEX spreads. Paid via x402 (HTTP 402 challenge with the exact USDC amount and receiver on Base).",
+          "description": "Read-only operation — no side effects, no parameters. Returns this service's flagship trading-agent signals for ETH, ONDO, KAITO and DEGEN: action, confidence, price_usd and the model's reasoning. Use it when you need a directional call rather than raw market data; use get_whale_flow for large-transfer flow and get_arbitrage_opportunities for cross-DEX spreads..",
           "endpoint": "/api/v1/signal",
           "price_usd": 0.003
         },
         {
           "name": "get_whale_flow",
-          "description": "Read-only operation — no side effects, no parameters. Returns network-wide USDC whale flow on Base: transfers of $5M or more, refreshed every 60 seconds, with labelled counterparties. Use it to see where size is moving; use get_trading_signal for directional calls or get_market_stats for broad context. Paid via x402 (HTTP 402 challenge with the exact USDC amount and receiver on Base).",
+          "description": "Read-only operation — no side effects, no parameters. Returns network-wide USDC whale flow on Base: transfers of $5M or more, refreshed every 60 seconds, with labelled counterparties. Use it to see where size is moving; use get_trading_signal for directional calls or get_market_stats for broad context..",
           "endpoint": "/api/v1/whaleflow",
           "price_usd": 0.003
         },
         {
           "name": "get_arbitrage_opportunities",
-          "description": "Read-only operation — no side effects, no parameters. Returns live cross-DEX arbitrage spreads on Base, refreshed every 60 seconds. Use it for executable price gaps between venues; use get_market_stats for aggregate prices or get_trading_signal for directional calls. Paid via x402 (HTTP 402 challenge with the exact USDC amount and receiver on Base).",
+          "description": "Read-only operation — no side effects, no parameters. Returns live cross-DEX arbitrage spreads on Base, refreshed every 60 seconds. Use it for executable price gaps between venues; use get_market_stats for aggregate prices or get_trading_signal for directional calls..",
           "endpoint": "/api/arb/opportunities",
           "price_usd": 0.005
-        }
-      ],
-      "paid_endpoints": [
-        {
-          "endpoint": "/api/arb/opportunities",
-          "price_usd": 0.005,
-          "name": "Cross-DEX Arbitrage Radar"
-        },
-        {
-          "endpoint": "/api/bot-status",
-          "price_usd": 0.005,
-          "name": "Bot & Service Status"
-        },
-        {
-          "endpoint": "/api/sales",
-          "price_usd": 0.005,
-          "name": "On-Chain Sales History"
-        },
-        {
-          "endpoint": "/api/stats",
-          "price_usd": 0.005,
-          "name": "Market Activity & Daily Stats"
-        },
-        {
-          "endpoint": "/api/v1/signal",
-          "price_usd": 0.003,
-          "name": "Trading-Agent Signals"
-        },
-        {
-          "endpoint": "/api/v1/whaleflow",
-          "price_usd": 0.003,
-          "name": "Whale Flow (Live Base Feed)"
         }
       ],
       "discovery": {
