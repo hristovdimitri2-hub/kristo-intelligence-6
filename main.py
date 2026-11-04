@@ -149,6 +149,12 @@ X402_FREE_ENDPOINTS = {
     "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
     "/.well-known/x402-trust.txt",
+    # The MCP transport itself. /mcp.json was listed here but the three routes
+    # that actually speak the protocol were in neither this set nor the paid set,
+    # so they fell through the allow-list unclassified — the same gap F-21 records.
+    # They cost nothing to call and are free in fact; this makes them free on
+    # paper too, and puts them where a future scope can see them.
+    "/mcp", "/mcp/sse", "/mcp/message",
     "/api/v1/signal/sample",
     "/api/stats/sample",
     "/api/v1/whaleflow/sample",

@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 621
+SUITE_TESTS_PASSED = 625
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1129,6 +1129,28 @@ _SSE_SESSIONS: "dict[str, queue.Queue]" = {}
 _SSE_SESSIONS_LOCK = threading.Lock()
 _SSE_IDLE_CLOSE_SECONDS = 15   # stray/probe GETs never pin a worker thread
 
+#: How many SSE sessions may be open at once.
+#:
+#: The comment above was wrong, and this is the fix. A stray or probe GET does pin
+#: a worker thread — for the whole idle window — and this is the OLD HTTP+SSE
+#: transport, open to anyone, unauthenticated and unclassified: it was in neither
+#: X402_FREE_ENDPOINTS nor X402_PAID_ENDPOINTS, so nothing rate-limited it either.
+#: Procfile runs one worker with eight threads, so eight concurrent SSE clients left
+#: none for anything else, /health included, for fifteen seconds at a time — and a
+#: repeated curl loop is a total outage. Eight requests. F-21 in
+#: docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md describes exactly this and was never
+#: fixed; it also compounds F-10, because a service that stops answering /health
+#: gets restarted into a cold start and cannot serve the health check either.
+#:
+#: Capping concurrency is the right lever rather than a rate limit: the resource
+#: being exhausted is threads, not request rate, and a rate limit would still let
+#: eight connections through if they arrived spaced apart. Four leaves half the
+#: pool for everything else. Over the cap the answer is 503 with Retry-After, which
+#: is honest and retryable — and, because this transport is free, no paying customer
+#: can ever be refused by it. The streamable POST /mcp transport has no such limit
+#: and is the one modern clients use.
+_SSE_MAX_SESSIONS = 4
+
 
 @discovery_bp.route("/mcp/sse")
 def mcp_sse():
@@ -1148,6 +1170,25 @@ def mcp_sse():
     session_id = secrets.token_urlsafe(18)
     inbox: queue.Queue = queue.Queue()
     with _SSE_SESSIONS_LOCK:
+        # Counted and claimed under the same lock: two clients arriving together
+        # must not both see room for the last slot.
+        if len(_SSE_SESSIONS) >= _SSE_MAX_SESSIONS:
+            resp = jsonify({
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32000,
+                    "message": (
+                        "Too many concurrent SSE sessions (%d). This transport "
+                        "holds one worker thread per open stream, so the number "
+                        "is capped. Retry, or use POST /mcp — the streamable "
+                        "transport, which has no such limit and is what modern "
+                        "MCP clients speak." % _SSE_MAX_SESSIONS),
+                },
+            })
+            resp.status_code = 503
+            resp.headers["Retry-After"] = "5"
+            return resp
         _SSE_SESSIONS[session_id] = inbox
     base_url = request.host_url.rstrip("/")
     post_url = f"{base_url}/mcp/message?sessionId={session_id}"
