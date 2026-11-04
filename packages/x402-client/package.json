@@ -1,6 +1,6 @@
 {
   "name": "kristo-x402-client",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Zero-dependency x402 client for the Kristo Intelligence API — speaks the standard PAYMENT-SIGNATURE rail (EIP-3009, settles in ~2s) and falls back to the legacy X-Payment-Proof rail. Includes a LangChain tool factory.",
   "type": "module",
   "main": "src/index.js",
@@ -33,7 +33,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hristovdimitri2-hub/kristo-intelligence-6",
+    "url": "git+https://github.com/hristovdimitri2-hub/kristo-intelligence-6.git",
     "directory": "packages/x402-client"
   },
   "homepage": "https://kristo-intelligence-api.onrender.com",

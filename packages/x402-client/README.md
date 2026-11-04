@@ -13,12 +13,11 @@ Both are accepted by the API. This package uses the standard rail whenever your
 signer can produce an EIP-3009 signature, and the legacy rail otherwise — so
 existing integrations keep working unchanged.
 
-> **Version note — read this before installing.** The standard-rail support
-> described above lands in **1.1.0**, which is **not published yet**. If
-> `npm install kristo-x402-client` gives you the older **1.0.0**, that release
-> speaks only the legacy rail: it still works and still pays the same price, but
-> every call waits the full ~24 seconds, and the `PAYMENT-SIGNATURE` example
-> below will not match it. Check what you got with
+> **Version note.** `npm install kristo-x402-client` gives you **1.1.0 or later**,
+> which speaks the standard rail described above. If you have pinned the older
+> **1.0.0**, that release speaks only the legacy rail: it still works and still
+> pays the same price, but every call waits the full ~24 seconds, and the
+> `PAYMENT-SIGNATURE` example below will not match it. Check what you have with
 > `node -p "require('kristo-x402-client/package.json').version"`.
 
 AI agents pay for DeFi market intelligence with **two lines of code**. No API keys. No signup.

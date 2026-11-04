@@ -2320,14 +2320,14 @@ def ai_plugin_json():
             "preferred_header": "PAYMENT-SIGNATURE",
             "legacy_headers": ["X-PAYMENT", "X-Payment-Proof"],
             "proof_header": "X-Payment-Proof",
-            # The published npm release is still 1.0.0, which speaks only the
-            # legacy rail and quotes the old price list. A machine reading this
-            # field would install it and wait ~24s a call, so the version is part
-            # of the value: 1.1.0 lives in the repository until it is published.
-            "client_package": (
-                "kristo-x402-client@1.1.0 (from the repository; the npm release is "
-                "still 1.0.0, legacy rail only, ~24s per call)"
-            ),
+            # Published on npm, so the field names the package and stops there.
+            # It used to pin "@1.1.0 (from the repository; the npm release is still
+            # 1.0.0, legacy rail only, ~24s per call)" - true while the registry
+            # served 1.0.0, and a lie the moment 1.1.0 was published, which it now
+            # is. A version string in a manifest is a claim with an expiry date. The
+            # machines that read this field install whatever `latest` is, and that
+            # is now the release we want them to have.
+            "client_package": "kristo-x402-client",
         },
         # What an agent scanner reading this file can actually buy. It used to
         # name no route at all.
