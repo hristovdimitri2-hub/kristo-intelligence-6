@@ -863,3 +863,62 @@ def test_llms_txt_documents_the_units_before_either_rail(client):
     assert units_at != -1 and rail1_at != -1
     assert units_at < rail1_at, (
         "the units warning must come before an agent starts paying")
+
+
+def test_llms_txt_states_the_legacy_proof_field_is_atomic(client):
+    """The legacy proof's `amount_usdc` is ATOMIC, like every other amount.
+
+    llms.txt called it "the decimal amount you sent, e.g. 0.005" until
+    04.11.2026 — contradicting our own 402 body, which fills that very field
+    with `int(atomic_amount)`, i.e. 5000 for a $0.005 call. Our README, our
+    distribution manifest and our own client all put the atomic integer there
+    too. An agent following llms.txt sent a value a millionth of the right size
+    into a field the server never reads, so nothing broke on-chain; it just made
+    the agent's own records wrong, which is the kind of error that is invisible
+    until someone reconciles a ledger.
+
+    The two llms.txt unit tests above pass with that bug present — they check
+    that the file says "atomic" and "5000" SOMEWHERE, and it did, in the units
+    table near the top. This one reads the sentence that documents the field.
+    """
+    text = client.get("/llms.txt").get_data(as_text=True)
+
+    assert "the decimal amount you sent" not in text, (
+        "llms.txt again calls the legacy proof's atomic `amount_usdc` decimal")
+    assert "the ATOMIC amount you sent" in text, (
+        "llms.txt must state the unit of the legacy proof's `amount_usdc`")
+    assert '"amount_usdc": 5000' in text, (
+        "llms.txt must show the field's real value, not only name its unit")
+
+
+def test_quickstart_units_table_covers_the_legacy_proof_field(client):
+    """The units table must name every field that carries an amount.
+
+    `/api/v1/quickstart` is the first document an integrating agent fetches, and
+    it carries a `units` table precisely so nobody has to infer a unit. That
+    table listed five fields and omitted `X-Payment-Proof`'s `amount_usdc` — a
+    DIFFERENT field that reuses the name of `payment.amount_usdc` and is also
+    atomic. Its snippets then told the agent to send
+    `base64url(JSON({payer, transaction_hash, amount_usdc}))` with no unit at
+    all, which is exactly the llms.txt bug, on the most-read page we publish.
+    """
+    body = client.get("/api/v1/quickstart").get_json()
+    units = body["units"]
+
+    # every field that carries an amount must be in the table
+    for field in ("accepts[0].amount", "x402_amount", "payment.amount_usdc",
+                  "X-Payment-Amount-USDC", "cheapest_call.amount_usdc",
+                  "X-Payment-Proof.amount_usdc"):
+        assert field in units, "the units table does not cover %s" % field
+
+    assert "atomic" in units["X-Payment-Proof.amount_usdc"], (
+        "the legacy proof's amount_usdc is atomic")
+    assert "5000" in units["X-Payment-Proof.amount_usdc"], (
+        "the table must give the concrete value, not only the word 'atomic'")
+
+    # and the code snippets must not name the field bare again
+    for snippet_name in ("python", "node"):
+        snippet = body[snippet_name]
+        assert "amount_usdc" in snippet, "%s lost the field" % snippet_name
+        assert "ATOMIC" in snippet, (
+            "the %s snippet names amount_usdc without its unit" % snippet_name)

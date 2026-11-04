@@ -4095,6 +4095,10 @@ def api_quickstart():
             ),
             "X-Payment-Amount-USDC": "decimal USDC — 0.005",
             "cheapest_call.amount_usdc": "decimal USDC — 0.003 (display only)",
+            "X-Payment-Proof.amount_usdc": (
+                "atomic — a different field that reuses the name, so send 5000 "
+                "for a $0.005 call, never 0.005"
+            ),
             "rule": (
                 "Pass atomic values to the ERC-20 transfer unchanged; divide by "
                 "1e6 only if your wallet API wants a decimal amount."
@@ -4115,7 +4119,9 @@ def api_quickstart():
             "facilitator settles it, so nothing waits on block confirmations",
             "alternative: send the same amount as a plain USDC transfer to "
             "accepts[0].payTo, wait 12 confirmations (~24s), then retry with "
-            "X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
+            "X-Payment-Proof: base64url(JSON({payer, transaction_hash, "
+            "amount_usdc})) — that amount_usdc is ATOMIC too: send 5000 for a "
+            "$0.005 call, never 0.005",
         ],
         "curl": f"curl -i {base_url}/api/stats   # 402 -> read accepts[0].amount / payTo",
         "python": (
@@ -4130,6 +4136,7 @@ def api_quickstart():
             "# alternative (legacy, slower): send the same amount as a plain "
             "USDC transfer, wait 12 confirmations, then retry with\n"
             "#   X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
+            "  # amount_usdc is ATOMIC: 5000, not 0.005"
         ),
         "node": (
             "const r = await fetch('" + base_url + "/api/stats');\n"
@@ -4142,7 +4149,8 @@ def api_quickstart():
             "  // alternative (legacy, slower): plain USDC transfer, wait 12 "
             "confirmations, then retry with\n"
             "  //   { 'X-Payment-Proof': base64url(JSON.stringify({payer, "
-            "transaction_hash, amount_usdc})) }\n"
+            "transaction_hash, amount_usdc})) }  // amount_usdc is ATOMIC: "
+            "5000, not 0.005\n"
             "}"
         ),
         "standard_client": (

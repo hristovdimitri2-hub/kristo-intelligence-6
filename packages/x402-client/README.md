@@ -172,7 +172,7 @@ Returns `{ok, status, data}` — or `{ok: false, status: 402, paymentRequired}` 
 - `parsePaymentRequiredHeader(headerValue)` — parse the standard x402 v2 `PAYMENT-REQUIRED` header into `{rail, amount, amountAtomic, recipient, tokenContract, chainId, network, extra, accepted, ...}`. Returns `null` when absent, so you can fall back.
 - `buildPaymentSignatureHeader({signature, authorization, accepted})` — build the `PAYMENT-SIGNATURE` header value yourself.
 - `parsePaymentChallenge(body)` — the legacy 402 body shape into `{amount, amountAtomic, recipient, tokenContract, chainId}`.
-- `buildPaymentProof({payer, transactionHash, amountUsdc})` — build the `X-Payment-Proof` header value yourself. The server ignores `amount_usdc`; it decodes the Transfer event itself.
+- `buildPaymentProof({payer, transactionHash, amountUsdc})` — build the `X-Payment-Proof` header value yourself. `amountUsdc` is **atomic** (pass `5000`, not `0.005`), the same unit the server puts in `payment.amount_usdc`. The server ignores this field when verifying — it decodes the Transfer event itself — so the wrong unit there costs you nothing on-chain; it just makes your own logs claim you paid a 5000th of what you did.
 
 ## Units — read this before you move money
 

@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 607
+SUITE_TESTS_PASSED = 609
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The version this service reports about ITSELF — in the OpenAPI document, in
@@ -2294,10 +2294,14 @@ on-chain check (`amount >= price`) and the excess is NOT refunded.
    0.005 USDC — on Base to `accepts[0].payTo`.
 2. Wait for 12 confirmations (~24 seconds on Base) — this rail requires them.
 3. Repeat the request with the `X-Payment-Proof` header:
-   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the decimal amount you sent, e.g. 0.005>}}))`.
-   We ignore this field and decode the real amount from the transaction's
-   Transfer event, so it cannot be used to underpay — but sending a truthful
-   value keeps your logs readable.
+   `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the ATOMIC amount you sent, e.g. 5000>}}))`.
+   ATOMIC, exactly like `accepts[0].amount` — and it is the same field the 402
+   body already fills in for you (`"amount_usdc": 5000` for a $0.005 call), so
+   use that value verbatim rather than the decimal price.
+   We do not read this field when verifying: the real amount is decoded from the
+   transaction's Transfer event, so it cannot be used to underpay. The wrong unit
+   therefore costs you nothing on-chain — it just makes your own logs claim you
+   paid a 5000th of what you did.
 4. The server verifies the transfer on-chain and grants access. Each proof is
    single-use.
 
