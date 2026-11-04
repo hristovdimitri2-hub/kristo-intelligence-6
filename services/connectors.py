@@ -388,11 +388,40 @@ def _self_broadcast_settlement(payload: dict):
                            else auth["nonce"]),
              v, r, s],
         )
+        to_address = Web3.to_checksum_address(os.getenv(
+            "BASE_USDC_CONTRACT",
+            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"))
+
+        # ── Free pre-flight: would this authorization actually succeed? ──────
+        # Broadcasting costs OUR gas and nobody reimburses a transaction that
+        # reverts. Every way this can fail is knowable BEFORE spending anything:
+        # a nonce already spent, a `validBefore` already past, a `validAfter`
+        # still in the future, or a payer who simply holds no USDC. An anonymous
+        # client controls all four, so without this check anyone can make our gas
+        # wallet pay for a doomed transaction, repeatedly and for free.
+        #
+        # This cannot refuse a paying customer. A payer who really holds the
+        # funds inside a live window simulates clean and we broadcast exactly as
+        # before. If it does NOT simulate clean we merely decline to spend OUR
+        # gas — the caller falls through to the facilitator chain, which pays its
+        # own, so a funded payer is still settled through them.
+        try:
+            w3.eth.call(
+                {"from": acct.address, "to": to_address, "data": data,
+                 "value": 0},
+                block_identifier="latest",
+            )
+        except Exception as exc:                      # noqa: BLE001 — any revert
+            reason = " ".join(str(exc).split())[:160]
+            log.info("self-broadcast declined: authorization would revert (%s)",
+                     reason)
+            return None, (
+                "self_broadcast: authorization would revert (%s) — not "
+                "spending gas on it" % reason)
+
         tx = {
             "from": acct.address,
-            "to": Web3.to_checksum_address(os.getenv(
-                "BASE_USDC_CONTRACT",
-                "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")),
+            "to": to_address,
             "data": data,
             "value": 0,
             "nonce": w3.eth.get_transaction_count(acct.address),

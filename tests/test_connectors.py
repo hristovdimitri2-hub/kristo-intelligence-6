@@ -452,6 +452,120 @@ def test_settle_prefers_self_broadcast(monkeypatch):
     assert receipt is None   # self-broadcast → без фасилитаторска разписка
 
 
+def _fake_broadcast_world(monkeypatch, revert=None):
+    """Fake web3 + eth_account for the REAL `_self_broadcast_settlement`.
+
+    `revert` is what the free pre-flight (`eth_call`) answers: None means the
+    authorization simulates clean, an exception means it would revert on-chain.
+    Returns the list that collects anything actually broadcast.
+    """
+    import sys
+    import types
+
+    sent = []
+
+    class _Eth:
+        gas_price = 1_000_000_000          # 1 gwei
+
+        def get_balance(self, addr):
+            return 10 ** 18                # a full ETH of gas — never the blocker
+
+        def call(self, tx, block_identifier=None):
+            if revert is not None:
+                raise revert
+            return b""
+
+        def get_transaction_count(self, addr):
+            return 7
+
+        def send_raw_transaction(self, raw):
+            sent.append(raw)
+            return types.SimpleNamespace(hex=lambda: "0x" + "ab" * 32)
+
+        def get_transaction_receipt(self, tx):
+            return {"status": 1, "blockNumber": 100,
+                    "blockHash": "0x" + "cd" * 32}
+
+    class _W3:
+        HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("f", url))
+
+        def __init__(self, provider=None, *a, **kw):
+            self.eth = _Eth()
+
+        def is_connected(self):
+            return True
+
+        @staticmethod
+        def to_checksum_address(addr):
+            return addr
+
+        @staticmethod
+        def to_wei(value, unit):
+            return int(value * 10 ** 9)
+
+    class _Account:
+        @staticmethod
+        def from_key(key):
+            return types.SimpleNamespace(
+                address="0x" + "11" * 20,
+                sign_transaction=lambda tx: types.SimpleNamespace(
+                    raw_transaction=b"\x01\x02"))
+
+    fake_web3 = types.ModuleType("web3")
+    fake_web3.Web3 = _W3
+    fake_account = types.ModuleType("eth_account")
+    fake_account.Account = _Account
+    monkeypatch.setitem(sys.modules, "web3", fake_web3)
+    monkeypatch.setitem(sys.modules, "eth_account", fake_account)
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "22" * 32)
+    return sent
+
+
+def test_a_doomed_authorization_is_never_broadcast(monkeypatch):
+    """F-07: an anonymous client must not be able to spend OUR gas.
+
+    Every way this can fail is knowable before spending anything, and the payer
+    controls all of them: a nonce already spent, a `validBefore` already past, a
+    `validAfter` still in the future, or simply no USDC. Without a pre-flight our
+    gas wallet pays for a transaction that reverts — repeatedly, and for free.
+    """
+    from services import connectors
+
+    # Build the payload with the REAL eth_account first: _build_signed_payload
+    # signs typed data, so it must run before the fake module is installed.
+    _payload = _build_signed_payload()[1]
+    sent = _fake_broadcast_world(
+        monkeypatch,
+        revert=Exception("execution reverted: ERC20: transfer amount exceeds "
+                         "balance"))
+
+    tx, detail = connectors._self_broadcast_settlement(_payload)
+
+    assert tx is None
+    assert sent == [], "we broadcast a transaction we already knew would revert"
+    assert "would revert" in detail
+    assert "not spending gas" in detail
+
+
+def test_a_funded_authorization_is_still_broadcast(monkeypatch):
+    """The pre-flight must not be able to refuse a paying customer.
+
+    A payer who really holds the funds inside a live window simulates clean, so
+    this path is exactly what it was before the check existed.
+    """
+    from services import connectors
+
+    # Real crypto first — see the note in the previous test.
+    _payload = _build_signed_payload()[1]
+    sent = _fake_broadcast_world(monkeypatch)
+
+    tx, detail = connectors._self_broadcast_settlement(_payload)
+
+    assert detail == "settled_self_broadcast", detail
+    assert tx == "0x" + "ab" * 32
+    assert len(sent) == 1, "a clean authorization must still be broadcast"
+
+
 def test_settle_falls_back_to_facilitator_when_no_wallet(monkeypatch):
     """Without WALLET_PRIVATE_KEY the settle chain falls through to PayAI."""
     from services import connectors
