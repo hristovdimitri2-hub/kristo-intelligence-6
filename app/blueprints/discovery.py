@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 610
+SUITE_TESTS_PASSED = 611
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The version this service reports about ITSELF — in the OpenAPI document, in
@@ -2318,6 +2318,9 @@ on-chain check (`amount >= price`) and the excess is NOT refunded.
 - GET /llms.txt — This file (LLM-friendly API description)
 - GET /api/mcp/manifest — MCP/x402 machine-readable manifest
 - GET /agents.json — agent and service discovery manifest
+- GET /api/v1/agents — the same six paid routes as a compact, PRICED catalogue
+  (id, category, endpoint, price, description) — the fastest way for an agent to
+  decide which route to buy. Free, no payment, no key.
 - GET /api/v1/quickstart — step-by-step first-call walkthrough
 - GET /validation — checkable facts: status, uptime, on-chain payment history
 - GET /pricing — every paid route and its exact price, and both payment rails

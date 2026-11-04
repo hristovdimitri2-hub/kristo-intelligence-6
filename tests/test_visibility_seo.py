@@ -191,6 +191,54 @@ def test_llms_txt_advertises_the_free_sample_of_every_paid_route(client):
             "llms.txt does not advertise the free sample for %s" % endpoint)
 
 
+def test_llms_txt_advertises_the_priced_catalogue_agents_can_actually_read(
+        client):
+    """The catalogue is only useful if it is advertised AND it is true.
+
+    /api/v1/agents has always answered with the six paid routes and their prices,
+    and it is in openapi.json - but llms.txt, the file we publish for AI agents to
+    read first, never mentioned it. x402-trust.com found the endpoint by probing
+    us; nothing we wrote told anyone it existed.
+
+    Advertising it is only half the fix. The catalogue is a SECOND copy of the
+    price list, so this test holds it against main.REAL_X402_ROUTES: a route added
+    or a price changed without updating the catalogue fails here rather than
+    quietly quoting a stale number to an agent that is about to spend money.
+    """
+    app_client, main = client
+    body = app_client.get("/llms.txt").get_data(as_text=True)
+    assert "/api/v1/agents" in body, (
+        "llms.txt does not tell an agent that the priced catalogue exists")
+
+    payload = app_client.get("/api/v1/agents").get_json()
+    assert payload["ok"] is True
+
+    # The catalogue publishes `price_usdc`; check the field is really there rather
+    # than defaulting it, so a rename fails loudly instead of comparing Nones.
+    for entry in payload["agents"]:
+        assert "price_usdc" in entry, (
+            "catalogue entry does not carry price_usdc: %r" % (entry,))
+
+    served = {entry["endpoint"]: round(float(entry["price_usdc"]), 6)
+              for entry in payload["agents"]}
+    expected = {route["endpoint"]: round(float(route["price_usdc"]), 6)
+                for route in main.REAL_X402_ROUTES}
+    disagreements = sorted(
+        "%s: catalogue=%s map=%s" % (endpoint, served.get(endpoint),
+                                     expected.get(endpoint))
+        for endpoint in set(served) | set(expected)
+        if served.get(endpoint) != expected.get(endpoint))
+    assert not disagreements, (
+        "the agent catalogue disagrees with the price map: %s"
+        % "; ".join(disagreements))
+
+    # Every entry must be readable enough to choose on: a name and a description.
+    for entry in payload["agents"]:
+        assert entry.get("name"), "catalogue entry has no name: %r" % (entry,)
+        assert entry.get("description"), (
+            "catalogue entry has no description: %r" % (entry,))
+
+
 def test_readme_prices_match_the_live_price_map(client):
     """The storefront must not quote a price the 402 challenges do not demand.
 
