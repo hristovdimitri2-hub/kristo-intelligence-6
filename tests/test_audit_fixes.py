@@ -10,6 +10,7 @@
 import base64
 import json
 import sys
+import threading
 import time
 import types
 
@@ -98,7 +99,19 @@ def test_a5_reverted_receipt_polls_then_overrides_to_delivery(
     monkeypatch.setattr(main.dashboard_db, "record_guard_event",
                         lambda kind, **kw: events.append(kind))
     sleeps = []
-    monkeypatch.setattr(main.time, "sleep", lambda s: sleeps.append(s))
+    request_thread = threading.get_ident()
+
+    def _record_sleep(seconds):
+        # `main.time` IS the shared `time` module, so patching its `sleep`
+        # catches EVERY thread in the process — including background loops that
+        # another test left running. That is what made this test flaky: an
+        # unrelated thread's sleep landed in `sleeps` and the assertion then
+        # compared it against [2, 2, 2, 2]. The route runs in THIS thread, and
+        # the route is what the test is about, so record only this thread.
+        if threading.get_ident() == request_thread:
+            sleeps.append(seconds)
+
+    monkeypatch.setattr(main.time, "sleep", _record_sleep)
     _install_web3(monkeypatch, receipt={"status": 0, "blockNumber": 100,
                                         "blockHash": "0x" + "cd" * 32})
     with caplog.at_level("WARNING"):
