@@ -86,3 +86,42 @@ def test_health_reads_starting_module_wallet_state(client, monkeypatch):
     assert body["blockchain"]["ready"] is False
     assert body["blockchain"]["chain_id"] is None
     assert body["blockchain"]["fee_receiver"] is None
+
+
+def test_health_publishes_how_far_the_payment_monitor_has_scanned(client,
+                                                                 monkeypatch):
+    """The monitor's progress must be visible without paying for /api/stats.
+
+    It lived only in the paid wallet block, so there was no way - from outside or
+    from here - to tell whether the thing that detects incoming payments was
+    keeping up or had silently stopped. F-39 made that worse: the monitor started
+    at the chain head on every restart, and nothing showed it.
+    """
+    flask_client, main_mod = client
+    import config
+
+    ready = dict(
+        _DEFAULTS,
+        rpc_connected=True,
+        chain_id=config.BASE_CHAIN_ID,
+        receiver_valid=True,
+        fee_receiver=main_mod.X402_RECEIVER_ADDRESS,
+        last_block_checked=53_499_123,
+        last_check_time="2026-11-04T10:20:30+00:00",
+    )
+    monkeypatch.setitem(
+        sys.modules, "__main__", _startup_module(main_mod, ready))
+
+    monitor = flask_client.get("/health").get_json()["blockchain"]["monitor"]
+    assert monitor["last_block_checked"] == 53_499_123, (
+        "the health check reports %r, not the monitor's real position"
+        % monitor.get("last_block_checked"))
+    assert monitor["last_check_time"] == "2026-11-04T10:20:30+00:00"
+
+
+def test_health_is_free_so_the_monitor_signal_needs_no_payment(client):
+    """A liveness signal behind a paywall is not a liveness signal."""
+    flask_client, main_mod = client
+
+    assert "/health" in main_mod.X402_FREE_ENDPOINTS
+    assert flask_client.get("/health").status_code in (200, 503)

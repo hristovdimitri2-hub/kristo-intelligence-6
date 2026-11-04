@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 619
+SUITE_TESTS_PASSED = 621
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -133,6 +133,12 @@ def health():
     never take the whole API offline. The background monitor keeps retrying
     and resumes scanning from the last checked block, so no incoming
     payment is ever missed during an RPC hiccup.
+
+    That "resumes from the last checked block" claim was only true within one
+    process run until F-39 was fixed: the monitor started at the chain head, so a
+    restart skipped everything that landed while it was down, and Render restarts
+    the worker on every deploy. It now resumes from the durable watermark that
+    dashboard_store keeps, which is what the sentence always promised.
     """
     import sys as _sys
 
@@ -165,6 +171,19 @@ def health():
             "network": wallet.get("network", "Base Mainnet"),
             "chain_id": wallet.get("chain_id"),
             "fee_receiver": wallet.get("fee_receiver"),
+            # Where the payment monitor has scanned up to, and when it last
+            # looked. Added because there was no way to see this from outside at
+            # all: the figure lives in the paid /api/stats wallet block, so nobody
+            # - including us - could tell whether the thing that detects incoming
+            # payments was keeping up or had silently stopped.
+            #
+            # This is read from memory, deliberately: /health is what the platform
+            # restarts us on, so it must not gain an RPC call. last_check_time is
+            # what makes the block number interpretable without one.
+            "monitor": {
+                "last_block_checked": wallet.get("last_block_checked") or 0,
+                "last_check_time": wallet.get("last_check_time"),
+            },
         },
     ), 200 if crm_ready else 503
 
