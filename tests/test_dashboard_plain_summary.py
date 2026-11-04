@@ -433,11 +433,67 @@ def test_every_sales_cell_carries_the_value_its_column_sorts_on():
         assert "data-v=" in cell, "a cell would sort as empty: %s" % cell
 
 
-def test_the_operator_columns_require_a_real_token(monkeypatch):
-    """The columns come back for the operator - and for nobody who guesses.
+def _fields(payload):
+    rows = payload["sections"]["onchain"]["history"]
+    return set().union(*[set(r) for r in rows]) if rows else set()
 
-    F-01 is not weakened by putting them behind auth; it is the audit's own
-    recommendation ("the dashboard payload behind an admin/session scope").
+
+def test_the_button_grants_the_sales_columns_to_anyone_who_presses_it():
+    """The owner asked not to keep a token to hand: "натискам и влизам".
+
+    It is a speed bump, not access control, and `_operator_view_enabled` says so
+    in as many words. This test pins the behaviour he asked for.
+    """
+    client = main.app.test_client()
+    assert _fields(client.get("/api/dashboard/data").get_json()) <= {"ts", "amount"}
+
+    assert client.post("/api/dashboard/operator-view",
+                       json={"on": True}).get_json()["operator_view"] is True
+    granted = client.get("/api/dashboard/data").get_json()
+    assert "sender" in _fields(granted)
+    assert "tx_hash" in _fields(granted)
+
+
+def test_the_button_never_grants_the_off_chain_stripe_section():
+    """The one thing it must not do.
+
+    Pressing a button to see who paid must not also publish the off-chain
+    revenue. The two grants travel as separate arguments for exactly this
+    reason, and this test asserts the button DID work - otherwise the absence of
+    the Stripe key would prove nothing, which is how a guard passes for the
+    wrong reason.
+    """
+    client = main.app.test_client()
+    client.post("/api/dashboard/operator-view", json={"on": True})
+    doc = client.get("/api/dashboard/data").get_json()
+    assert "crm_stripe" not in doc["sections"]      # absent, never null
+    assert "sender" in _fields(doc)                 # and it did take effect
+
+
+def test_the_button_turns_off_again():
+    client = main.app.test_client()
+    client.post("/api/dashboard/operator-view", json={"on": True})
+    assert "sender" in _fields(client.get("/api/dashboard/data").get_json())
+    client.post("/api/dashboard/operator-view", json={"on": False})
+    assert _fields(client.get("/api/dashboard/data").get_json()) <= {"ts", "amount"}
+
+
+def test_the_page_ships_the_button_its_handler_and_its_style():
+    html = _page()
+    assert "operator-on" in html and "operator-off" in html
+    assert "/api/dashboard/operator-view" in html
+    assert ".btnlink" in html
+    # Delegated on document: the note is re-rendered on every load, so a listener
+    # on the button itself would vanish at the first refresh and the button would
+    # quietly stop working.
+    assert "document.addEventListener('click'" in html
+
+
+def test_the_operator_columns_require_a_real_token(monkeypatch):
+    """The token still works, and still reaches the Stripe section with it.
+
+    The button is the convenience path; this is the one that also opens the
+    off-chain numbers, and it is unchanged by the button's arrival.
     """
     monkeypatch.setenv("ADMIN_API_TOKEN", "unit-test-admin-token")
     client = main.app.test_client()

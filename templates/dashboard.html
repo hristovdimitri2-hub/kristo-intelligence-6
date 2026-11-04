@@ -65,6 +65,10 @@
   .toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
   .hidden { display: none; }
   .note { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  /* Бутон, който изглежда като връзка — действието е едно и не иска форма. */
+  .btnlink { background: none; border: 0; padding: 0; cursor: pointer;
+             color: var(--accent); font: inherit; text-decoration: underline; }
+  .btnlink:hover { opacity: .8; }
   /* А5: при грешка в API-то данните се обозначават като НЕАКТУАЛНИ (по-ниска
          прозрачност), вместо да изглеждат „live", докато badge-ът свети. */
   .stale-data .cards, .stale-data table, .stale-data .chart-box,
@@ -554,12 +558,35 @@ function renderOnchain(o) {
 
   $('sales-note').innerHTML = isAdmin
     ? 'Операторски изглед: платец, услуга и хеш за всеки ред. Хешът се отваря ' +
-      'в BaseScan за независима проверка. Публичният изглед показва само ' +
-      'време и сума — пълният ред е платеният <span class="mono">/api/sales</span> (F-01).'
-    : 'Публичен изглед: време и сума. Платецът, услугата и transaction hash-ът ' +
-      'са платеното <span class="mono">/api/sales</span> — затова не са тук. ' +
-      'За операторския изглед: <a href="/admin/login">вход за оператор</a>.';
+      'в BaseScan за независима проверка. Публичният изглед показва само време ' +
+      'и сума. <button type="button" class="btnlink" id="operator-off">' +
+      'Скрий детайлите</button>'
+    : 'Публичен изглед: време и сума. ' +
+      '<button type="button" class="btnlink" id="operator-on">' +
+      'Покажи кой е платил</button> — платецът, услугата и transaction hash-ът. ' +
+      'Всеки може да ги види и това е нарочно: адресът и хешът са публични в Base ' +
+      'и без нас, а плащането се пази от гарда на claim-а, не от тайна. ' +
+      'Автоматичният четец обаче не натиска бутони, затова JSON-ът остава ' +
+      'съкратен, докато човек не го поиска.';
 }
+
+// Бутонът на операторския изглед. Делегиран на document, защото бележката се
+// пре-рендира при всяко зареждане — слушател върху самия бутон щеше да изчезне
+// при първия refresh и бутонът щеше да спре да работи без нищо да гръмне.
+document.addEventListener('click', async (e) => {
+  const on = e.target.closest && e.target.closest('#operator-on');
+  const off = e.target.closest && e.target.closest('#operator-off');
+  if (!on && !off) return;
+  e.preventDefault();
+  try {
+    await fetch('/api/dashboard/operator-view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: !!on }),
+    });
+  } catch (_) { /* мрежата е долу — следващото зареждане пак ще опита */ }
+  load();
+});
 
 // ON-CHAIN SALES — сортиране по колона (клик върху header). data-v носи
 // стойността за сравнение (ISO дата / число / низ); без библиотеки.

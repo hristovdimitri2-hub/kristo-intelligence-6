@@ -1941,6 +1941,35 @@ def _is_admin_request() -> bool:
     return bool(configured and supplied and hmac.compare_digest(supplied, configured))
 
 
+#: Session key for the one-click operator view of the sales table.
+_OPERATOR_VIEW_KEY = "operator_view"
+
+
+def _operator_view_enabled() -> bool:
+    """True once the visitor has pressed "покажи кой е платил" on the dashboard.
+
+    THIS IS NOT A CREDENTIAL AND IS NOT TREATED AS ONE. It is a speed bump.
+
+    The owner asked for the sales columns back without having to keep a token to
+    hand ("натискам и влизам"), and he is right that holding a secret to read his
+    own ledger is friction with no payoff: the payer address and the transaction
+    hash in those columns are already public on Base, and the thing that actually
+    stops somebody free-riding on a payment proof is the claim guard in
+    `payment_guards`, not the obscurity of a hash.
+
+    What it does buy is that the free JSON surface cannot be *harvested*. A
+    scraper calling /api/dashboard/data gets the redacted rows, because a scraper
+    does not press a button; a person reading the page gets everything. Stated
+    plainly so the next reader does not mistake this for access control: anyone
+    who sends this cookie gets the columns, and that is the intended design.
+
+    It deliberately does NOT enable the CRM/Stripe section - that stays behind
+    `_is_admin_request()`. See `_canonical_dashboard_payload`: the two grants are
+    separate arguments for exactly this reason.
+    """
+    return session.get(_OPERATOR_VIEW_KEY) is True
+
+
 def _require_research_ingest_access():
     """Authenticate an external research source without exposing admin credentials."""
     configured = (os.getenv("RESEARCH_INGEST_TOKEN", "") or "").strip()
@@ -5889,13 +5918,20 @@ def _crm_stripe_section() -> dict:
     }
 
 
-def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
+def _canonical_dashboard_payload(include_crm: bool = False,
+                                 include_sales_detail: bool = False) -> dict:
     """Build the whole read model from persistent sources only.
 
     `include_crm` (10.10): the OFF-CHAIN CRM/Stripe section is generated ONLY
     for admin-authenticated reads. Public callers get the key ABSENT (never
     null) — off-chain sums must not be reachable with curl by anyone who knows
     the URL. See `_crm_stripe_section`.
+
+    `include_sales_detail` (04.11): the payer / transaction hash / consumed route
+    on each sales row, which the owner asked for back without a token. Kept as a
+    SEPARATE argument from `include_crm` on purpose: pressing the button on the
+    page must never also reveal the off-chain Stripe revenue, and two grants
+    travelling on one flag is how that happens by accident.
     """
     sales = dashboard_db.sales_summary()
     # ON-CHAIN SALES · УСЛУГА (14.10): the route each payment was CONSUMED on.
@@ -5971,7 +6007,7 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
                 # recommendation for F-01 ("the dashboard payload behind an
                 # admin/session scope"), not a weakening of it.
                 "history": _onchain_history(sales["history"],
-                                            include_private=include_crm),
+                                            include_private=include_sales_detail),
             },
             "requests": {
                 "label": "постоянен лог (SQLite)",
@@ -6124,9 +6160,36 @@ def api_dashboard_data():
     include_crm (10.10): the OFF-CHAIN CRM/Stripe section is served ONLY to an
     admin-authenticated caller (session or X-Admin-Token). For the public the
     key is ABSENT from the response — off-chain sums are not curl-able.
+
+    include_sales_detail (04.11): the payer and the hash on each sales row, for
+    an admin OR for a visitor who pressed the one-click operator view on the
+    page. The two grants are passed separately so that a button press can never
+    reveal the Stripe section. See `_operator_view_enabled` for what the button
+    is and is not worth.
     """
-    return _safe_jsonify(
-        _canonical_dashboard_payload(include_crm=_is_admin_request()))
+    return _safe_jsonify(_canonical_dashboard_payload(
+        include_crm=_is_admin_request(),
+        include_sales_detail=(
+            _is_admin_request() or _operator_view_enabled())))
+
+
+@app.route("/api/dashboard/operator-view", methods=["POST"])
+def api_dashboard_operator_view():
+    """Turn the operator columns on or off for this browser session.
+
+    Deliberately unauthenticated - see `_operator_view_enabled` for the whole
+    reasoning. It grants the sales columns and NOTHING else; the CRM/Stripe
+    section is still gated on `_is_admin_request()`.
+    """
+    enabled = False
+    body = request.get_json(silent=True) or {}
+    if isinstance(body, dict):
+        enabled = bool(body.get("on", True))
+    if enabled:
+        session[_OPERATOR_VIEW_KEY] = True
+    else:
+        session.pop(_OPERATOR_VIEW_KEY, None)
+    return _safe_jsonify({"ok": True, "operator_view": enabled})
 
 
 @app.route("/api/v1/whaleflow")
