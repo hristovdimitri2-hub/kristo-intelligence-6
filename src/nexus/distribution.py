@@ -85,6 +85,11 @@ def _build_agent_manifest() -> Dict[str, Any]:
             "accepts[0].amount": 'atomic (6 decimals) — "5000" means 0.005 USDC',
             "price_raw": "atomic",
             "price_usdc": "decimal USDC",
+            # The legacy proof's own amount field, stated because it is the one a
+            # reader is most likely to fill with the display price: the server
+            # never reads it for the price check, so a wrong unit there is not
+            # rejected — it simply records a wrong number.
+            "legacy_proof.amount_usdc": "atomic (same value as accepts[0].amount)",
             "rule": (
                 "Pass atomic values to the ERC-20 transfer unchanged; divide by "
                 "1e6 only if your wallet API wants a decimal amount."

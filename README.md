@@ -48,9 +48,16 @@ facilitators) speaks.
   header. Settlement runs through the facilitator automatically. Clients still
   on x402 v1 send the same payload in `X-PAYMENT`; both are accepted, and
   `PAYMENT-SIGNATURE` wins when both are present.
-- **Rail 2 — manual fallback.** Transfer the USDC yourself, wait for 12
-  confirmations (~24s on Base), then retry with `X-Payment-Proof:
-  base64url(JSON({payer, transaction_hash, amount_usdc}))`.
+- **Rail 2 — manual fallback.** Send the **atomic** amount yourself: take
+  `accepts[0].amount` from the 402 body verbatim — `"5000"` means 0.005 USDC —
+  transfer that many base units of USDC on Base (chain 8453), wait for 12
+  confirmations (~24s), then retry with `X-Payment-Proof:
+  base64url(JSON({payer, transaction_hash, amount_usdc}))`, whose `amount_usdc`
+  is the same atomic value. If your wallet API wants a decimal amount, divide by
+  `1e6` first. Do **not** send the decimal display price as if it were base
+  units: the on-chain check is `amount >= price`, so a 1,000,000× overpayment is
+  accepted rather than rejected. The 402 is the only authoritative amount, and
+  the [`kristo-x402-client`](packages/x402-client) does this conversion for you.
 
 A signed payload is single-use. **HTTP 425** means your payment already settled
 on-chain but our node has not reached the confirming block yet — retry the same
