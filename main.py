@@ -678,6 +678,50 @@ def _fetch_receiver_usdc_balance():
 
 
 # ── Blockchain monitor: detect incoming USDC transfers ───────────────────
+def _monitor_resume_block(head: int, watermark: int, lookback: int) -> tuple:
+    """Where the blockchain monitor should start scanning, and why.
+
+    Extracted from the loop so the decision can be tested without a chain, a
+    wallet or a thread.
+
+    This used to be a single line in _blockchain_monitor_loop:
+    `last_block = wallet.w3.eth.block_number`. Whatever landed while the worker
+    was down was skipped for good - and Render restarts the worker on every
+    deploy, so that was every deploy, not an unlucky crash. The dashboard scan had
+    already solved this (dashboard_store.scan_increment, "deploy-safe"): it keeps
+    last_scanned_block durably and, with no watermark, refuses to mark the head as
+    scanned, because that would skip the history permanently. The monitor scans
+    the same receiver and the same topic, so the same watermark is a truthful
+    resume point for it too.
+
+    Re-scanning an overlap is harmless, which is what makes resuming from an older
+    block safe rather than a double-count risk: _record_real_sale dedups on tx
+    hash case-insensitively before appending, and the store dedups again with
+    INSERT OR IGNORE.
+
+    Returns (from_block, reason).
+    """
+    head = max(0, int(head or 0))
+    watermark = int(watermark or 0)
+
+    if watermark > 0:
+        if watermark > head:
+            # A watermark ahead of the head means the chain view moved backwards
+            # (reorg, or an RPC far behind another). Never scan the future; the
+            # safe non-skipping choice is to start at the head and say so.
+            return head, "watermark %d is ahead of head %d" % (watermark, head)
+        return watermark, "durable watermark %d (%d blocks behind head)" % (
+            watermark, head - watermark)
+
+    # No watermark at all: do NOT claim the head as scanned. That is the bug this
+    # replaces. Scan a bounded window instead, wide enough to cover a restart and
+    # a deploy, and log that the range is bounded rather than complete.
+    lookback = max(1, int(lookback or 0))
+    return max(1, head - lookback), (
+        "no durable watermark; bounded %d-block lookback from head %d"
+        % (lookback, head))
+
+
 def _blockchain_monitor_loop():
     """
     Background thread that monitors the Base blockchain for real incoming
@@ -713,7 +757,28 @@ def _blockchain_monitor_loop():
     # The 'to' address is padded to 32 bytes in the log topic
     receiver_topic = "0x000000000000000000000000" + fee_receiver[2:] if fee_receiver.startswith("0x") else "0x000000000000000000000000" + fee_receiver
 
-    last_block = wallet.w3.eth.block_number
+    # Resume from the durable watermark rather than the current head: see
+    # _monitor_resume_block for why starting at the head loses payments across
+    # every deploy, and why an overlap is safe to re-scan.
+    _head = wallet.w3.eth.block_number
+    try:
+        _watermark = int(dashboard_db.get_meta("last_scanned_block", "0") or 0)
+    except Exception as exc:
+        _watermark = 0
+        log.warning("Blockchain monitor: watermark unreadable (%s)", exc)
+
+    last_block, _resume_reason = _monitor_resume_block(
+        _head, _watermark, int(os.getenv("BLOCKCHAIN_RESUME_LOOKBACK", "1800")))
+    if last_block < _head:
+        log.warning(
+            "Blockchain monitor: starting at block %d, not the head %d — %s. "
+            "Transfers in that range are not lost; they are scanned now and "
+            "deduplicated by tx hash.",
+            last_block, _head, _resume_reason)
+    else:
+        log.info("Blockchain monitor: starting at head %d (%s)",
+                 last_block, _resume_reason)
+
     with _lock:
         _wallet_state["last_block_checked"] = last_block
         _wallet_state["last_check_time"] = datetime.now(timezone.utc).isoformat()
