@@ -124,4 +124,140 @@ def test_health_is_free_so_the_monitor_signal_needs_no_payment(client):
     flask_client, main_mod = client
 
     assert "/health" in main_mod.X402_FREE_ENDPOINTS
-    assert flask_client.get("/health").status_code in (200, 503)
+    assert "/ready" in main_mod.X402_FREE_ENDPOINTS
+    assert flask_client.get("/health").status_code == 200
+
+
+# ── F-10: liveness and readiness are different questions ──────────────────────
+
+
+class _DeadStore:
+    """A store whose database cannot be reached, or even asked about."""
+
+    backend = "postgres"
+
+    def __init__(self, raises=False):
+        self._raises = raises
+
+    def is_healthy(self):
+        if self._raises:
+            raise RuntimeError("database is unreachable")
+        return False
+
+
+@pytest.mark.parametrize("raises", [False, True],
+                         ids=["answers-not-ready", "raises-on-asking"])
+def test_health_stays_200_when_the_database_is_unreachable(client, monkeypatch,
+                                                           raises):
+    """F-10: a restart cannot repair a database.
+
+    /health used to answer 503 when the store was unhealthy, which is what the
+    platform acts on, so a database blip restarted the only worker into a cold start
+    that could not answer /health either. Measured with the store unreachable, /health
+    was the only endpoint of eighteen that changed - /validation, /llms.txt,
+    /mcp.json, /sitemap.xml, /robots.txt, /agents.json, /openapi.json and /mcp all
+    still answered 200, because none of them needs a database. The surface that has
+    to stay up for anyone to find us was being taken down for nothing.
+    """
+    flask_client, main_mod = client
+    monkeypatch.setattr(main_mod, "crm_store", _DeadStore(raises=raises))
+
+    response = flask_client.get("/health")
+
+    assert response.status_code == 200, (
+        "/health answered %s with the database down; nothing a restart can fix, and "
+        "the free discovery surface does not need a database"
+        % response.status_code)
+    body = response.get_json()
+    assert body["service"] == "up"
+
+
+@pytest.mark.parametrize("raises", [False, True],
+                         ids=["answers-not-ready", "raises-on-asking"])
+def test_health_still_reports_the_truth_so_the_sentinel_can_alert(client,
+                                                                  monkeypatch,
+                                                                  raises):
+    """Liveness must not become silence.
+
+    sentinel.py reads `status` out of the body at 200 and sends a Telegram alert when
+    it changes, so keeping the code at 200 is only safe while the body goes on saying
+    "degraded". This is the half that must not regress.
+    """
+    flask_client, main_mod = client
+    monkeypatch.setattr(main_mod, "crm_store", _DeadStore(raises=raises))
+
+    body = flask_client.get("/health").get_json()
+
+    assert body["status"] == "degraded", (
+        "the body says %r while the database is down, so the sentinel would never "
+        "alert" % body["status"])
+    assert body["database"]["ready"] is False
+
+
+@pytest.mark.parametrize("raises", [False, True],
+                         ids=["answers-not-ready", "raises-on-asking"])
+def test_ready_is_where_the_503_belongs(client, monkeypatch, raises):
+    """The honest half: readiness is genuinely false when a dependency is down."""
+    flask_client, main_mod = client
+    monkeypatch.setattr(main_mod, "crm_store", _DeadStore(raises=raises))
+
+    response = flask_client.get("/ready")
+
+    assert response.status_code == 503, (
+        "/ready answered %s with the database down" % response.status_code)
+    body = response.get_json()
+    assert body["ready"] is False
+    assert body["status"] == "not_ready"
+
+
+def test_ready_is_200_only_when_both_dependencies_are_usable(client, monkeypatch):
+    """Readiness is the conjunction, and each half is genuinely required."""
+    flask_client, main_mod = client
+    import config
+
+    ready_wallet = dict(
+        _DEFAULTS,
+        rpc_connected=True,
+        chain_id=config.BASE_CHAIN_ID,
+        receiver_valid=True,
+        fee_receiver=main_mod.X402_RECEIVER_ADDRESS,
+    )
+
+    # a healthy store that reports readiness, so the store is not the blocker
+    class _LiveStore:
+        backend = "sqlite"
+
+        def is_healthy(self):
+            return True
+
+    monkeypatch.setattr(main_mod, "crm_store", _LiveStore())
+
+    monkeypatch.setitem(
+        sys.modules, "__main__", _startup_module(main_mod, ready_wallet))
+    assert flask_client.get("/ready").status_code == 200
+
+    monkeypatch.setitem(
+        sys.modules, "__main__", _startup_module(main_mod, dict(_DEFAULTS)))
+    assert flask_client.get("/ready").status_code == 503, (
+        "readiness must not be granted while the chain connection is unusable")
+
+
+def test_the_readiness_route_is_not_a_restart_trigger(client):
+    """The docstring warns against pointing a restarter here; keep the warning true.
+
+    /health is the route a platform health check may act on and it is liveness only.
+    If someone repointed the restarter at /ready, a database blip would restart an
+    otherwise healthy worker - F-10 under a new name. The two must stay distinct.
+    """
+    flask_client, main_mod = client
+    import inspect
+
+    from app.blueprints import discovery
+
+    health_source = inspect.getsource(discovery.health)
+    ready_source = inspect.getsource(discovery.ready)
+
+    assert "F-10" in health_source, (
+        "/health no longer records why it must stay liveness-only")
+    assert "/ready" in health_source
+    assert "Do NOT point the platform health check at this route" in ready_source

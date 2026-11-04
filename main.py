@@ -142,6 +142,9 @@ X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
     "/", "/health", "/validation", "/dashboard", "/nexus",
+    # /ready is the readiness half of the liveness pair; see F-10. Ops-facing and
+    # free, like /health.
+    "/ready",
     "/api/mcp/manifest",
     "/.well-known/x402.json", "/.well-known/ai-plugin.json", "/openapi.json",
     "/llms.txt", "/agents.json", "/robots.txt", "/sitemap.xml",

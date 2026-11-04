@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 625
+SUITE_TESTS_PASSED = 633
 SUITE_LAST_RUN = "2026-11-04"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -122,30 +122,21 @@ def _route_price(endpoint: str) -> float:
     return float(X402_PRICE_MAP.get(endpoint, X402_FEE_USDC))
 
 
-@discovery_bp.route("/health")
-def health():
-    """Service health check (free, no paywall).
+def _dependency_state():
+    """Read the two dependencies of this service, and say how they are.
 
-    Liveness semantics: returns 200 whenever the web service and its
-    database are up — this is what platform health checks (Render, Docker)
-    and the keep-alive loop rely on. Blockchain connectivity is reported
-    informationally: the public Base RPC is rate-limited (429s) and must
-    never take the whole API offline. The background monitor keeps retrying
-    and resumes scanning from the last checked block, so no incoming
-    payment is ever missed during an RPC hiccup.
+    Returns (crm_ready, blockchain_ready, wallet, backend). The `__main__` dance is
+    here so /health and /ready cannot drift apart in how they find the live state —
+    the lazy `import main` copy keeps its defaults because the env guard skips its
+    threads, and reading it reports a false "degraded".
 
-    That "resumes from the last checked block" claim was only true within one
-    process run until F-39 was fixed: the monitor started at the chain head, so a
-    restart skipped everything that landed while it was down, and Render restarts
-    the worker on every deploy. It now resumes from the durable watermark that
-    dashboard_store keeps, which is what the sentence always promised.
+    Every read is defensive: this is the pair of endpoints that has to keep
+    answering while the thing being read is broken, so a store that cannot report
+    its own backend must not turn into an exception here.
     """
     import sys as _sys
 
     _entry = _sys.modules.get("__main__")
-    # `python main.py`: the real initialized state lives in __main__; the lazy
-    # `import main` copy never starts its threads (env guard) and keeps the
-    # defaults — reading it reported a false "degraded".
     if str(getattr(_entry, "__file__", "") or "").replace("\\", "/").rsplit("/", 1)[-1] == "main.py":
         _lock = _entry._lock
         _wallet_state = _entry._wallet_state
@@ -154,7 +145,11 @@ def health():
         from main import _lock, _wallet_state, crm_store
     from config import BASE_CHAIN_ID
 
-    crm_ready = crm_store.is_healthy()
+    try:
+        crm_ready = bool(crm_store.is_healthy())
+    except Exception:
+        # An unreachable store answers "not ready", it does not take /health down.
+        crm_ready = False
     with _lock:
         wallet = dict(_wallet_state)
     blockchain_ready = bool(
@@ -162,10 +157,37 @@ def health():
         and wallet.get("chain_id") == BASE_CHAIN_ID
         and wallet.get("receiver_valid")
     )
+    return crm_ready, blockchain_ready, wallet, getattr(crm_store, "backend", "unknown")
+
+
+@discovery_bp.route("/health")
+def health():
+    """Service liveness check (free, no paywall).
+
+    Liveness, and only liveness: this answers 200 whenever the process is alive to
+    answer it, which is what platform health checks (Render, Docker) and the
+    keep-alive loop act on. The state of the two dependencies is reported in the
+    body — `status` is "degraded", and `database`/`blockchain` say which one — so
+    the sentinel still raises its Telegram alert on a change. Readiness, the thing
+    that is genuinely false when a dependency is down, is /ready.
+
+    Why the code changed (F-10 in docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md, and
+    the audit's own recommendation 9): this used to answer 503 when the database
+    was unreachable. A restart cannot repair a database, so the only things a 503
+    bought were a cold start and this service being marked down. Measured with the
+    store unreachable: /health was the only endpoint of eighteen that changed —
+    /validation, /llms.txt, /mcp.json, /sitemap.xml, /robots.txt, /agents.json,
+    /openapi.json and /mcp all still answered 200, because none of them needs a
+    database. Discovery is the surface that has to stay up for anyone to find us at
+    all, and it was being taken down to no purpose. Blockchain connectivity was
+    already reported informationally for exactly this reason; the database is now
+    treated the same way.
+    """
+    crm_ready, blockchain_ready, wallet, backend = _dependency_state()
     return jsonify(
         status="ok" if crm_ready and blockchain_ready else "degraded",
         service="up",
-        database={"backend": crm_store.backend, "ready": crm_ready},
+        database={"backend": backend, "ready": crm_ready},
         blockchain={
             "ready": blockchain_ready,
             "network": wallet.get("network", "Base Mainnet"),
@@ -185,7 +207,37 @@ def health():
                 "last_check_time": wallet.get("last_check_time"),
             },
         },
-    ), 200 if crm_ready else 503
+    ), 200
+
+
+@discovery_bp.route("/ready")
+def ready():
+    """Readiness (free, no paywall): 200 only when both dependencies are usable.
+
+    This is the honest half of the pair that /health used to conflate. 503 here
+    means "do not send me traffic" and is the correct answer while the database or
+    the chain connection is unusable; it is separate from liveness precisely so a
+    database blip cannot trigger a restart that cannot fix it.
+
+    Kept separate rather than deleted because something should still be able to ask
+    the question, and because a monitor that wants to alert on readiness now has a
+    status code to read instead of parsing prose.
+
+    Do NOT point the platform health check at this route. Its 503 is addressed to a
+    load balancer deciding whether to send traffic, and a restart cannot repair a
+    database or a rate-limited public RPC any more than it could before - pointing a
+    restarter here would recreate F-10 under a new name. /health is the route for
+    that, and it is liveness only on purpose.
+    """
+    crm_ready, blockchain_ready, wallet, backend = _dependency_state()
+    ready_now = bool(crm_ready and blockchain_ready)
+    return jsonify(
+        ready=ready_now,
+        status="ready" if ready_now else "not_ready",
+        service="up",
+        database={"backend": backend, "ready": crm_ready},
+        blockchain={"ready": blockchain_ready, "chain_id": wallet.get("chain_id")},
+    ), 200 if ready_now else 503
 
 
 @discovery_bp.route("/validation")
