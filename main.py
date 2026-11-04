@@ -3831,6 +3831,45 @@ def _redact_track_record(track: dict) -> dict:
     return clean
 
 
+#: The public sales row: what happened and how much. Everything else in the store
+#: row - the payer, the hash, the consumed route - is what /api/sales charges for.
+_PUBLIC_SALE_KEYS = ("ts", "amount")
+
+
+def _onchain_history(rows, include_private: bool = False) -> list:
+    """The on-chain sales rows, complete for an admin and redacted for the public.
+
+    The operator's version restores the columns the table had until 10.10:
+    the payer (so "who paid" is answerable per sale, not just in aggregate), the
+    client class behind the colour, the route the payment was consumed on, and
+    the hash so any single row can be opened on BaseScan and checked.
+
+    The public version is unchanged: `{ts, amount}`. F-01 is a business-model
+    finding - the free surface must not hand over what /api/sales sells - and the
+    answer is scope, not deletion, because deleting it also deleted the owner's
+    ability to read his own ledger.
+    """
+    if include_private:
+        return [
+            {
+                "ts": row.get("ts"),
+                "amount": row.get("amount_usdc"),
+                "tx_hash": row.get("tx_hash"),
+                "sender": row.get("sender"),
+                "payer_class": row.get("payer_class"),
+                "payer_label": row.get("payer_label"),
+                "route": row.get("route"),
+                "block_number": row.get("block_number"),
+                "source": row.get("source"),
+            }
+            for row in (rows or [])[:100]
+        ]
+    return [
+        {"ts": row.get("ts"), "amount": row.get("amount_usdc")}
+        for row in (rows or [])[:100]
+    ]
+
+
 #: Weekday names, Monday first, for the one thing a date alone does not say:
 #: "3 ноември" is a fact, "понеделник" is the answer to "when do people buy?".
 _WEEKDAYS_BG = ("понеделник", "вторник", "сряда", "четвъртък",
@@ -5919,12 +5958,20 @@ def _canonical_dashboard_payload(include_crm: bool = False) -> dict:
                 "last_scanned_block": int(
                     dashboard_db.get_meta("last_scanned_block", "0") or 0
                 ),
-                # F-01: free history is redacted to {ts, amount} only —
-                # full rows (tx_hash/sender) stay behind paid /api/sales.
-                "history": [
-                    {"ts": _row.get("ts"), "amount": _row.get("amount_usdc")}
-                    for _row in sales["history"][:100]
-                ],
+                # F-01 vs the operator: the owner asked for these columns BACK.
+                # They existed until 10.10 (Време · Сума · УСЛУГА · КЛИЕНТ) and
+                # were dropped because the full row - payer address plus
+                # transaction hash - is the paid /api/sales product and half of a
+                # payment proof. But he is the operator, and "is this our own
+                # test, a crawler, or a real customer, and who exactly paid" is
+                # the question he runs the business on.
+                #
+                # So the row is complete for an authenticated admin and stays
+                # {ts, amount} for everyone else. That is the audit's own
+                # recommendation for F-01 ("the dashboard payload behind an
+                # admin/session scope"), not a weakening of it.
+                "history": _onchain_history(sales["history"],
+                                            include_private=include_crm),
             },
             "requests": {
                 "label": "постоянен лог (SQLite)",

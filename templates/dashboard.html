@@ -245,6 +245,7 @@
     <thead><tr><th>Време (UTC)</th><th>Сума</th></tr></thead>
     <tbody id="sales-body"><tr><td colspan="2" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
+  <div class="note" id="sales-note" style="margin-top:8px;"></div>
   <h2>⬢ Клиенти <span class="src">всеки external платец — базата за operator deals</span></h2>
   <div class="cards" id="client-cards"></div>
   <table style="margin-top:10px;">
@@ -487,6 +488,16 @@ function card(v, k, hero) {
   return `<div class="card${hero ? ' hero' : ''}"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`;
 }
 
+// КОЙ ПЛАЩА ПО ВСЕКИ РЕД. Таблицата има два вида: публичен ({ts, amount} само,
+// защото пълният ред е платеният /api/sales — F-01) и операторски, който носи
+// платеца, хеша, класа и услугата. Операторският се разпознава по `sender` в
+// реда, тоест сървърът решава — страницата само не измисля колони, които ги няма.
+const SALES_HEAD_PUBLIC =
+  '<tr><th>Време (UTC)</th><th>Сума</th></tr>';
+const SALES_HEAD_ADMIN =
+  '<tr><th>Време (UTC)</th><th>Сума</th><th>Клиент</th>' +
+  '<th>Услуга</th><th>Платец</th><th>Tx</th></tr>';
+
 function renderOnchain(o) {
   $('onchain-cards').innerHTML =
     card(usd(o.total_usdc) + ' USDC', 'Общо верифицирано on-chain', true) +
@@ -499,15 +510,55 @@ function renderOnchain(o) {
     ? `<span class="tag ${k}">${esc(lb[k] || k)}: ${cl[k].count} tx · ${usd(cl[k].total_usdc)}</span>`
     : '').join(' &nbsp; ') +
     (o.last_scanned_block ? ` &nbsp;<span style="color:var(--muted)">scan watermark: block ${o.last_scanned_block}</span>` : '');
-  const rows = (o.history || []).map(h => {
-    // F-01: public history rows keep only {ts, amount} — no tx_hash/sender/payer
-    return `<tr>
-      <td class="num mono" data-v="${esc(h.ts || '')}">${esc(utc(h.ts))}</td>
-      <td class="num mono" data-v="${Number(h.amount) || 0}">${usd(h.amount)}</td>
-    </tr>`;
+
+  const rows = (o.history || []);
+  // Операторският изглед идва от самите редове, не от флаг в URL-а: ако
+  // сървърът не е пратил платеца, страницата не бива да рисува празна колона.
+  const isAdmin = rows.length > 0 && rows[0].sender !== undefined
+    && rows[0].sender !== null;
+  const head = document.querySelector('#sales-table thead');
+  if (head) head.innerHTML = isAdmin ? SALES_HEAD_ADMIN : SALES_HEAD_PUBLIC;
+
+  const body = rows.map(h => {
+    const cells =
+      `<td class="num mono" data-v="${esc(h.ts || '')}">${esc(utc(h.ts))}</td>` +
+      `<td class="num mono" data-v="${Number(h.amount) || 0}">${usd(h.amount)}</td>`;
+    if (!isAdmin) return '<tr>' + cells + '</tr>';
+    const cls = h.payer_class || '';
+    const words = lb[cls] || CLS_WORDS[cls] || cls || '—';
+    // Кой точно плати: класът (разцветката) плюс собственото име на клиента,
+    // когато го има. „То си пише" — при сондьор store-ът пази
+    // `market_crawler_54e1`, при нашия тест `canary (Chet — верификация)`, и
+    // точно това различава един бот от друг, а не етикетът „бот".
+    const who = (h.payer_label && h.payer_label !== cls)
+      ? ` <span class="evi" title="как се представя клиентът">${esc(h.payer_label)}</span>`
+      : '';
+    // Всяка клетка носи data-v: сортирането по колона чете точно него и без
+    // него новите колони щяха да се подреждат като празни низове (тихо счупено,
+    // не гръмко). Думите идват от сървъра (`class_labels`), не от втора
+    // дефиниция тук — иначе легендата и таблицата биха казали различни неща за
+    // един и същ клас; CLS_WORDS остава резерва, ако payload-ът е без етикети.
+    return '<tr>' + cells +
+      `<td data-v="${esc(cls)}"><span class="tag ${esc(cls)}">${esc(words)}</span>${who}</td>` +
+      `<td class="mono" data-v="${esc(h.route || '')}">${h.route ? esc(h.route) : '<span class="evi">—</span>'}</td>` +
+      `<td class="mono" data-v="${esc(h.sender || '')}" title="${esc(h.sender || '')}">` +
+        `${h.sender ? esc(addr(h.sender)) : '<span class="evi">неизвестен</span>'}</td>` +
+      `<td class="mono" data-v="${esc(h.tx_hash || '')}">${h.tx_hash
+        ? `<a href="https://basescan.org/tx/${esc(h.tx_hash)}" target="_blank" ` +
+          `rel="noopener" title="${esc(h.tx_hash)}">${esc(addr(h.tx_hash))}</a>`
+        : '<span class="evi">—</span>'}</td>` +
+      '</tr>';
   });
-  $('sales-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="2" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>';
+  $('sales-body').innerHTML = body.length ? body.join('') :
+    `<tr><td colspan="${isAdmin ? 6 : 2}" class="empty">още няма регистрирани трансфери — сканът тече</td></tr>`;
+
+  $('sales-note').innerHTML = isAdmin
+    ? 'Операторски изглед: платец, услуга и хеш за всеки ред. Хешът се отваря ' +
+      'в BaseScan за независима проверка. Публичният изглед показва само ' +
+      'време и сума — пълният ред е платеният <span class="mono">/api/sales</span> (F-01).'
+    : 'Публичен изглед: време и сума. Платецът, услугата и transaction hash-ът ' +
+      'са платеното <span class="mono">/api/sales</span> — затова не са тук. ' +
+      'За операторския изглед: <a href="/admin/login">вход за оператор</a>.';
 }
 
 // ON-CHAIN SALES — сортиране по колона (клик върху header). data-v носи

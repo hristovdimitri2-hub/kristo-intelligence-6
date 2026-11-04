@@ -11,6 +11,7 @@ can never disagree with the tables it summarises. A summary that drifts from its
 own tables is worse than no summary, because it is the part that gets read.
 """
 import datetime as dt
+import re
 
 import main
 
@@ -364,3 +365,98 @@ def test_the_page_explains_itself():
     for claim in ("Истината е веригата", "EIP-3009", "402",
                   "data/dashboard_state.db", "платения"):
         assert claim in html, claim
+
+
+# ── the operator's columns: back for him, still gone for everyone else ───────
+
+def _store_row():
+    return {
+        "ts": "2026-11-04T02:46:17+00:00", "amount_usdc": 0.003,
+        "tx_hash": "0x" + "ab" * 32, "sender": "0x" + "cd" * 20,
+        "payer_class": "external", "payer_label": "external",
+        "route": "/api/v1/signal", "block_number": 53505059, "source": "live",
+    }
+
+
+def test_the_public_row_keeps_only_time_and_amount():
+    row, = main._onchain_history([_store_row()])
+    assert set(row) <= {"ts", "amount"}
+    assert row["amount"] == 0.003 and row["ts"].startswith("2026-11-04")
+
+
+def test_the_operator_row_carries_the_columns_he_asked_for():
+    """The sales table had Време · Сума · УСЛУГА · КЛИЕНТ until 10.10.
+
+    They were dropped for F-01 (the full row is the paid /api/sales product) and
+    the owner asked for them back, because "is this our own test, a crawler or a
+    real customer, and which account paid" is how he reads the business.
+    """
+    row, = main._onchain_history([_store_row()], include_private=True)
+    assert row["sender"] == "0x" + "cd" * 20       # the account that paid
+    assert row["tx_hash"] == "0x" + "ab" * 32      # openable on BaseScan
+    assert row["payer_class"] == "external"        # the colour / the words
+    assert row["route"] == "/api/v1/signal"        # УСЛУГА
+    assert row["amount"] == 0.003                  # and the public half survives
+
+
+def test_both_views_keep_the_same_rows_in_the_same_order():
+    """The operator must not be looking at a different ledger from the public."""
+    rows = [_store_row(), dict(_store_row(), ts="2026-11-03T07:45:09+00:00")]
+    public = main._onchain_history(rows)
+    private = main._onchain_history(rows, include_private=True)
+    assert [r["ts"] for r in public] == [r["ts"] for r in private]
+    assert [r["amount"] for r in public] == [r["amount"] for r in private]
+
+
+def test_the_history_helper_survives_an_empty_or_broken_source():
+    assert main._onchain_history([]) == []
+    assert main._onchain_history(None) == []
+    assert main._onchain_history(None, include_private=True) == []
+    # A row missing everything must still produce a row, not an exception.
+    assert main._onchain_history([{}]) == [{"ts": None, "amount": None}]
+
+
+def test_every_sales_cell_carries_the_value_its_column_sorts_on():
+    """The table sorts by reading each cell's `data-v` (no libraries).
+
+    A cell rendered without `data-v` does not fail loudly - it sorts as the empty
+    string and that column quietly stops working. I did exactly that to the four
+    new operator columns, and caught it only because the commit message I had
+    already written claimed they carried it. So the claim is now a test.
+    """
+    source = re.search(r"function renderOnchain\(.*?\n\}", _page(), re.S)
+    assert source, "renderOnchain moved or was renamed"
+    cells = [c for c in re.findall(r"<td\b[^>]*>", source.group(0))
+             if "colspan" not in c]          # the empty-state row holds no value
+    assert len(cells) >= 6, cells            # 2 public + 4 operator columns
+    for cell in cells:
+        assert "data-v=" in cell, "a cell would sort as empty: %s" % cell
+
+
+def test_the_operator_columns_require_a_real_token(monkeypatch):
+    """The columns come back for the operator - and for nobody who guesses.
+
+    F-01 is not weakened by putting them behind auth; it is the audit's own
+    recommendation ("the dashboard payload behind an admin/session scope").
+    """
+    monkeypatch.setenv("ADMIN_API_TOKEN", "unit-test-admin-token")
+    client = main.app.test_client()
+
+    with_token = client.get(
+        "/api/dashboard/data",
+        headers={"X-Admin-Token": "unit-test-admin-token"}).get_json()
+    without = client.get("/api/dashboard/data").get_json()
+    with_wrong = client.get(
+        "/api/dashboard/data",
+        headers={"X-Admin-Token": "not-the-token"}).get_json()
+
+    def fields(payload):
+        rows = payload["sections"]["onchain"]["history"]
+        return set().union(*[set(r) for r in rows]) if rows else set()
+
+    assert "sender" in fields(with_token)
+    assert "tx_hash" in fields(with_token)
+    assert not (fields(without) & {"sender", "tx_hash", "route", "payer_class"})
+    assert not (fields(with_wrong) & {"sender", "tx_hash", "route", "payer_class"})
+    # The account the owner reads must not be spoilable by a near-miss token.
+    assert fields(without) <= {"ts", "amount"}
