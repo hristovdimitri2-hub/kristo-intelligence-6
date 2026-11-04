@@ -3844,9 +3844,18 @@ _WEEKDAYS_BG = ("понеделник", "вторник", "сряда", "чет�
 _CALLER_KINDS: tuple = (
     ("AI агент", ("claude-code", "anthropic", "openai", "gpt-", "oai/",
                   "langchain", "crewai", "autogen", "llm", "cursor")),
-    ("Наш собствен монитор", ("render/1.0", "kristo-", "keep-alive",
-                              "uptimerobot", "pingdom", "healthcheck",
-                              "werkzeug")),
+    # OURS, and only ours. This list said "healthcheck" until the live page
+    # showed CarbonMonitor/0.1 from carbon-cashmere.de sitting in it - someone
+    # else's uptime pinger counted as our own traffic. Render/1.0 is our host,
+    # kristo-* is us, werkzeug is the Flask test client.
+    ("Наш собствен монитор", ("render/1.0", "kristo-", "werkzeug")),
+    # Third parties checking that we are alive. They are not customers and not
+    # indexers, and on the live page they were 59k requests filed under "Друго"
+    # - SentinelOracle, mako-pulse-prober and mcp-health-probe all say what they
+    # are in their own user-agent and none of them was being read.
+    ("Външен монитор", ("monitor", "prober", "probe", "liveness", "uptime",
+                        "pingdom", "uptimerobot", "sentinel", "statuscake",
+                        "betteruptime", "freshping")),
     ("Търсачка или робот", ("bot", "crawler", "spider", "slurp", "bingpreview",
                             "facebookexternalhit", "semrush", "ahrefs",
                             "python-urllib", "scrapy",

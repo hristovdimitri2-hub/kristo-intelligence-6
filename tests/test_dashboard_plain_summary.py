@@ -42,6 +42,16 @@ def test_every_caller_kind_is_recognised_from_a_real_user_agent():
         "claude-code/2.1.310 (cli)": "AI агент",
         "Render/1.0": "Наш собствен монитор",
         "Werkzeug/3.1.8": "Наш собствен монитор",
+        # Third-party liveness checkers, exactly as they appeared on the live
+        # page: 59k requests that were filed under "Друго" and CarbonMonitor
+        # that was wrongly filed as ours.
+        "SentinelOracle/0.1 (+https://glimind.com/opt-out; liveness-only, "
+        "never invokes tools)": "Външен монитор",
+        "mako-pulse-prober/0.1": "Външен монитор",
+        "mcp-health-probe/0.1 (read-only; initialize+tools/list only)":
+            "Външен монитор",
+        "CarbonMonitor/0.1 healthcheck (+https://carbon-cashmere.de)":
+            "Външен монитор",
         "Googlebot/2.1 (+http://www.google.com/bot.html)": "Търсачка или робот",
         "curl/8.4.0": "Програмен клиент",
         "python-requests/2.31.0": "Програмен клиент",
