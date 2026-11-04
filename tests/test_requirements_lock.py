@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+"""The two dependency files must describe the same environment.
+
+F-35 in docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md. requirements.txt said "for full
+reproducible builds, install from requirements.lock instead" - and requirements.lock
+was missing `cryptography`, which requirements.txt declares directly. Installing only
+the lock therefore produced a different environment from the one the suite passes in,
+which is the one property a lock file exists to provide.
+
+On top of that the lock has no --hash lines, so it was never the hash-pinned
+reproducible build it was described as, and the deploy does not install it at all:
+Dockerfile:25, DEPLOYMENT.md and DEPLOYMENT_CHECKLIST.md all install requirements.txt.
+
+These tests hold the structural half - every direct dependency present, every exact
+pin agreeing - because that is the half that silently rots.
+"""
+import io
+import re
+
+REQUIREMENTS = "requirements.txt"
+LOCK = "requirements.lock"
+DOCKERFILE = "Dockerfile"
+
+#: name, optional extras, optional operator, version
+_ENTRY = re.compile(
+    r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(==|>=|~=|<=|>|<)?\s*([^\s;#]*)?")
+
+
+def _parse(path):
+    """Yield {normalised name: operator+version} for every requirement line."""
+    found = {}
+    for raw in io.open(path, encoding="utf-8", errors="replace").read().splitlines():
+        line = raw.split("#")[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        match = _ENTRY.match(line)
+        if not match:
+            continue
+        found[match.group(1).lower().replace("_", "-")] = (
+            (match.group(2) or "") + (match.group(3) or ""))
+    return found
+
+
+def _has_real_hashes(text):
+    """True only for actual --hash pins, not the word appearing in prose.
+
+    This distinction is the whole reason the first version of this guard was
+    worthless: the lock's own explanation says "there are no --hash lines", so a
+    plain `"--hash" in text` was true, the conditional was skipped, and the
+    assertion it protected never ran once. It passed because it did nothing.
+    """
+    for line in text.splitlines():
+        stripped = line.split("#")[0]
+        if "--hash=" in stripped or "--hash " in stripped:
+            return True
+    return False
+
+
+def test_every_direct_dependency_is_in_the_lock():
+    """The defect itself: `cryptography` was absent from the lock."""
+    direct = _parse(REQUIREMENTS)
+    locked = _parse(LOCK)
+
+    assert direct, "requirements.txt lists no dependencies - has it moved?"
+
+    missing = sorted(set(direct) - set(locked))
+    assert not missing, (
+        "installing %s alone would not install %s, which %s declares directly; the "
+        "lock is supposed to be the same environment"
+        % (LOCK, ", ".join("%s (%s)" % (n, direct[n]) for n in missing),
+           REQUIREMENTS))
+
+
+def test_every_exact_pin_agrees_between_the_two_files():
+    """A direct pin the lock disagrees with is a different environment, silently."""
+    direct = _parse(REQUIREMENTS)
+    locked = _parse(LOCK)
+
+    disagreements = []
+    for name, want in sorted(direct.items()):
+        have = locked.get(name)
+        if have and want.startswith("==") and have.startswith("==") and want != have:
+            disagreements.append("%s: %s says %s, %s says %s"
+                                 % (name, REQUIREMENTS, want, LOCK, have))
+
+    assert not disagreements, (
+        "the two files pin the same package differently:\n  "
+        + "\n  ".join(disagreements))
+
+
+def test_the_lock_does_not_claim_to_be_something_it_is_not():
+    """The hashes and the sentence about hashes must agree.
+
+    Written as an agreement rather than as "if there are no hashes, require the
+    sentence", because the conditional version could be silenced by adding a single
+    bogus --hash line: the guard would stop demanding the sentence without the file
+    having become any more verifiable. Now the file must either carry real hash pins
+    and say so, or carry none and say that too - and a half-measure fails both ways.
+    """
+    lock = io.open(LOCK, encoding="utf-8", errors="replace").read()
+    hashed = _has_real_hashes(lock)
+    admits_no_hashes = "not a hash-pinned reproducible build" in lock
+
+    if hashed:
+        assert not admits_no_hashes, (
+            "the lock now carries --hash pins, so the sentence saying it is not "
+            "hash-pinned is false and must be replaced")
+    else:
+        assert admits_no_hashes, (
+            "the lock carries no --hash pins, so it must say so; nothing else in "
+            "the file records that it constrains versions without verifying "
+            "downloads")
+
+    assert "the deploy does NOT install it" in lock or "deploy does not" in lock, (
+        "the lock must say that the deploy installs requirements.txt, because that "
+        "is the question a reader of a lock file is asking")
+
+
+def test_requirements_txt_no_longer_promises_reproducibility_it_cannot_give():
+    """The sentence that was wrong: "for full reproducible builds, install ..."."""
+    direct = io.open(REQUIREMENTS, encoding="utf-8", errors="replace").read()
+    lock = io.open(LOCK, encoding="utf-8", errors="replace").read()
+
+    assert "For full reproducible builds" not in direct, (
+        "requirements.txt still promises a full reproducible build from the lock, "
+        "which has no hashes and was missing a direct dependency")
+    assert "requirements.lock" in direct, (
+        "requirements.txt should still tell a reader the lock exists")
+    if not _has_real_hashes(lock):
+        assert "point-in-time snapshot" in direct or "point-in-time" in lock, (
+            "the lock is a snapshot without hashes and must be described as one")
+
+
+def test_the_deploy_installs_the_file_that_is_complete():
+    """Dockerfile installs requirements.txt, so that is the file that must be right.
+
+    If this ever flips to the lock, the completeness tests above stop covering the
+    deployed environment - which is exactly the kind of change that should make a
+    reader stop and look.
+    """
+    dockerfile = io.open(DOCKERFILE, encoding="utf-8", errors="replace").read()
+
+    assert "requirements.txt" in dockerfile, (
+        "the Dockerfile no longer installs requirements.txt; the lock is declared "
+        "complete by the tests above, but nothing has checked that it is")
+    assert "requirements.lock" not in dockerfile, (
+        "the Dockerfile now installs the lock; make sure it is genuinely complete "
+        "and hash-pinned before relying on it for deploys")

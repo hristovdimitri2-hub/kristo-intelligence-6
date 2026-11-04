@@ -1,6 +1,14 @@
 # Kristo Intelligence 6 — direct dependencies (pinned)
-# For full reproducible builds, install from requirements.lock instead:
-#   pip install -r requirements.lock
+#
+# This is the file the deploy installs: Dockerfile:25, DEPLOYMENT.md and
+# DEPLOYMENT_CHECKLIST.md all run `pip install -r requirements.txt`, and
+# pyproject.toml calls this the single source of truth.
+#
+# requirements.lock is a point-in-time snapshot of the transitive closure, for a
+# hermetic or audited install by hand. It is NOT a hash-pinned reproducible build
+# (no --hash lines) and the deploy does not use it. It used to say "for full
+# reproducible builds, install from requirements.lock instead", which was wrong on
+# both counts - see F-35.
 #
 # This file lists only direct dependencies with pinned minor versions.
 # Transitive dependencies are resolved by pip and pinned in requirements.lock.
