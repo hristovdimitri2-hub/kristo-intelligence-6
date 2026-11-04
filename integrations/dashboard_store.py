@@ -33,6 +33,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -312,6 +313,25 @@ class HistoryStore:
         # cap it is cleared, which is safe precisely because it only denies.
         self._claimed_cache: set = set()
         self._claimed_cache_cap = 20000
+        # Cached result of the C1 replay-lock liveness probe (F-04).
+        #
+        # The probe writes a sentinel row into `payment_guards` — the SAME table
+        # and the SAME `_pg_lock` that `claim_payment_tx` uses to refuse replays.
+        # It used to run on every call, and `/api/dashboard/data` is free and
+        # unbounded, so an anonymous poller could drive unlimited INSERT/DELETE
+        # churn and contend with a paying customer's replay claim. Worse, a
+        # failed probe is exactly the fail-closed condition under which payments
+        # start being refused — so the read path could help cause it.
+        #
+        # The probe is now TIME-driven, not request-driven: at most one probe per
+        # `probe_ttl_seconds`, however many times the endpoint is polled. A
+        # request can no longer amplify it, and the background dashboard loop
+        # (main._dashboard_scan_loop) refreshes it so the route normally reads a
+        # warm cache and writes nothing at all.
+        self._probe_lock = threading.Lock()
+        self._probe_at = 0.0
+        self._probe_alive = None
+        self._probe_error = ""
         # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
         # EXISTS, so the schema cannot drift between the two backends either.
         self._ensure_schema()
@@ -1525,36 +1545,69 @@ class HistoryStore:
         except Exception as exc:  # pragma: no cover - telemetry only
             log.debug("guard event not recorded (%s): %s", kind, exc)
 
+    def probe_replay_lock(self, force: bool = False,
+                          probe_ttl_seconds: float = 600.0) -> bool:
+        """Prove the C1 replay lock can still write. Returns whether it can.
+
+        Writes a sentinel row into `payment_guards`, reads it back and removes
+        it, so a broken / locked / read-only lock reports red instead of silently
+        letting every replay through. A failure here is also exactly the
+        condition under which `claim_payment_tx` starts refusing payments
+        (fail-closed), so the dashboard shows that state instead of hiding it.
+
+        The probe is deliberately TIME-driven, not request-driven (F-04): at most
+        one probe per `probe_ttl_seconds`, no matter how often the caller asks.
+        `/api/dashboard/data` is free and unbounded, so a probe that ran per call
+        let an anonymous poller churn INSERT/DELETE on the replay table and
+        contend for the very lock a paying customer needs. With a TTL, more
+        polling cannot produce more writing.
+
+        `force=True` is for the background loop and for scripts that want a fresh
+        answer; the read path never forces one.
+        """
+        now = time.monotonic()
+        with self._probe_lock:
+            fresh = (self._probe_alive is not None
+                     and (now - self._probe_at) < probe_ttl_seconds)
+            if fresh and not force:
+                return bool(self._probe_alive)
+
+            alive = False
+            error = ""
+            sentinel = "__lock_probe__"
+            try:
+                self._run("DELETE FROM payment_guards WHERE tx_hash = ?",
+                          (sentinel,))
+                self._run(
+                    """INSERT INTO payment_guards
+                           (tx_hash, endpoint, payer, amount_usdc, consumed_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (sentinel, "", "", 0.0,
+                     datetime.now(timezone.utc).isoformat()),
+                )
+                row = self._run(
+                    "SELECT COUNT(*) AS n FROM payment_guards WHERE tx_hash = ?",
+                    (sentinel,), "one")[0]
+                alive = bool(row and row["n"] == 1)
+                self._run("DELETE FROM payment_guards WHERE tx_hash = ?",
+                          (sentinel,))
+            except Exception as exc:
+                error = str(exc)[:200]
+
+            self._probe_at = now
+            self._probe_alive = alive
+            self._probe_error = error
+            return alive
+
     def guard_stats(self, recent_limit: int = 5) -> Dict[str, Any]:
         """Live health of the C1 replay lock + the blocked attempts it made.
 
-        `lock_alive` is a REAL probe: it writes, reads and removes a sentinel row
-        in `payment_guards`, so a broken/locked/read-only lock reports red instead
-        of silently letting every replay through. Since the lock lives in the
-        durable store, a probe failure here is also exactly the condition under
-        which `claim_payment_tx` starts refusing payments (fail-closed) — the
-        dashboard shows that state instead of hiding it.
+        `lock_alive` comes from `probe_replay_lock()`, which is real but cached
+        for a TTL — see that method for why the probe must not run per request.
+        The rest of this method is read-only.
         """
-        alive = False
-        probe_error = ""
-        sentinel = "__lock_probe__"
-        try:
-            self._run("DELETE FROM payment_guards WHERE tx_hash = ?",
-                      (sentinel,))
-            self._run(
-                """INSERT INTO payment_guards
-                       (tx_hash, endpoint, payer, amount_usdc, consumed_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (sentinel, "", "", 0.0, datetime.now(timezone.utc).isoformat()),
-            )
-            row = self._run(
-                "SELECT COUNT(*) AS n FROM payment_guards WHERE tx_hash = ?",
-                (sentinel,), "one")[0]
-            alive = bool(row and row["n"] == 1)
-            self._run("DELETE FROM payment_guards WHERE tx_hash = ?",
-                      (sentinel,))
-        except Exception as exc:
-            probe_error = str(exc)[:200]
+        alive = self.probe_replay_lock()
+        probe_error = self._probe_error
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         try:
@@ -1832,6 +1885,15 @@ HYBRID since 14.09:
         """
         return self.history.record_guard_event(kind, endpoint=endpoint,
                                                tx_hash=tx_hash, detail=detail)
+
+    def probe_replay_lock(self, force: bool = False,
+                          probe_ttl_seconds: float = 600.0) -> bool:
+        """Prove the replay lock can still write — see HistoryStore.
+
+        TTL-gated on purpose (F-04): the read path must not be able to turn
+        polling into writes on the table it shares with `claim_payment_tx`.
+        """
+        return self.history.probe_replay_lock(force, probe_ttl_seconds)
 
     def guard_stats(self, recent_limit: int = 5) -> Dict[str, Any]:
         """Lock health + blocked attempts — see HistoryStore.guard_stats.

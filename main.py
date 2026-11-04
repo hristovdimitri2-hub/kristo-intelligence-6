@@ -1152,6 +1152,19 @@ def _dashboard_scan_loop():
     next_payapi = time.time()
     while True:
         time.sleep(scan_interval)
+
+        # F-04: warm the C1 replay-lock probe here, off the request path. The
+        # probe writes a sentinel row into `payment_guards` — the same table and
+        # the same lock `claim_payment_tx` uses — and `/api/dashboard/data` is
+        # free and unbounded, so running it per request let an anonymous poller
+        # churn the replay table and contend with a paying customer's claim.
+        # The probe is TTL-gated (10 min) so calling it every cycle costs one
+        # write per TTL, and the route then reads a warm cache and writes nothing.
+        try:
+            dashboard_db.probe_replay_lock()
+        except Exception as exc:
+            log.debug("Replay-lock probe refresh failed (non-fatal): %s", exc)
+
         try:
             added = dashboard_db.scan_increment()
             if added:

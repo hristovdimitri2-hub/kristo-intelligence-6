@@ -1143,6 +1143,62 @@ def test_guards_section_probes_a_live_lock_and_shows_the_config(client):
     assert g["stats_error"] is None
 
 
+def test_a_free_poll_cannot_amplify_into_replay_lock_writes(tmp_path, monkeypatch):
+    """F-04: the C1 replay-lock probe used to run on every dashboard request.
+
+    `/api/dashboard/data` is free, unbounded, and the open dashboard tab polls it
+    every 45s with `cache: 'no-store'`. The probe writes a sentinel row into
+    `payment_guards` — the SAME table, through the SAME `_pg_lock`, that
+    `claim_payment_tx` uses to refuse replays. So an anonymous poller could drive
+    unlimited INSERT/DELETE churn on the replay table and contend for the very
+    lock a paying customer needs. A failed probe is also exactly the fail-closed
+    condition under which payments start being refused, so the read path could
+    help cause the state it was only supposed to display.
+
+    The probe is now time-driven, not request-driven: however often it is asked,
+    it writes at most once per TTL. The assertion below counts writes, not calls,
+    because counting calls would pass even if each call still wrote.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "probe.db")
+    seen = []
+    # The statements run on the HistoryStore the dashboard delegates to.
+    real_run = store.history._run
+
+    def counting_run(sql, params=(), fetch=""):
+        if params and params[0] == "__lock_probe__":
+            seen.append(sql.split()[0])
+        return real_run(sql, params, fetch)
+
+    monkeypatch.setattr(store.history, "_run", counting_run)
+
+    def writes():
+        return [s for s in seen if s in ("DELETE", "INSERT")]
+
+    # 25 polls = what the old code turned into 75 sentinel writes.
+    stats = None
+    for _ in range(25):
+        stats = store.guard_stats()
+        assert stats["lock_alive"] is True
+    assert stats["lock_probe_error"] is None
+    assert len(writes()) <= 3, (
+        f"the read path still writes per request: {len(writes())} sentinel "
+        f"writes for 25 dashboard polls")
+
+    # Forcing is still available — that is what the background loop and the
+    # audit scripts use when they want a fresh answer.
+    before = len(writes())
+    assert store.probe_replay_lock(force=True) is True
+    assert len(writes()) > before, "force=True must really re-probe"
+
+    # And the TTL genuinely expires rather than caching forever: a lock that
+    # dies later must still show up as dead.
+    before = len(writes())
+    assert store.probe_replay_lock(probe_ttl_seconds=0.0) is True
+    assert len(writes()) > before, "an expired TTL must re-probe"
+
+
 def test_lock_probe_row_does_not_pollute_the_claim_count(client):
     test_client, _main, dash = client
     dash.claim_payment_tx("0x" + "aa" * 32, endpoint="/api/stats")
