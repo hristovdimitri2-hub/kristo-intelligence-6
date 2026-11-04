@@ -3859,7 +3859,11 @@ _CALLER_KINDS: tuple = (
                             "selenium")),
     ("Програмен клиент", ("curl", "python-requests", "httpx", "aiohttp",
                           "axios", "node-fetch", "okhttp", "go-http", "java/",
-                          "wget", "powershell", "undici", "libwww", "guzzle")),
+                          "wget", "powershell", "undici", "libwww", "guzzle",
+                          # Node's own fetch sends exactly "node", which landed in
+                          # "Друго" while it was 112k of the traffic - a label that
+                          # tells the owner nothing about a fifth of his callers.
+                          "node")),
     ("Браузър (човек)", ("mozilla/", "chrome/", "safari/", "firefox/", "edg/",
                          "opera/")),
 )
