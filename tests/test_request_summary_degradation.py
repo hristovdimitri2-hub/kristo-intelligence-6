@@ -130,30 +130,64 @@ def test_the_section_still_has_every_key_when_degraded(store, monkeypatch):
 
 # ── 2. the budget stops the read instead of overrunning ────────────────────
 def test_an_exhausted_budget_stops_issuing_queries(store, monkeypatch):
-    """Ten queries at 8s each is 80 seconds on a request path."""
+    """Ten queries at 8s each is 80 seconds on a request path.
+
+    Driven by a FAKE clock rather than real elapsed time. The first version of
+    this test set the budget to 0.0 and asserted everything degraded — and it
+    passed on a machine whose monotonic clock is fine-grained, then failed here,
+    where `time.monotonic()` only advances about every 15 ms: the first few
+    queries ran inside the same clock tick and were therefore "within budget".
+    The assertion was measuring clock granularity, not the budget.
+
+    A clock that advances a fixed amount per query tests the rule itself.
+    """
     from integrations import dashboard_store as ds
 
-    monkeypatch.setattr(ds, "REQUEST_SUMMARY_BUDGET_SECONDS", 0.0)
-    seen = _break(monkeypatch, lambda sql: False)   # nothing fails
+    ticks = {"t": 1000.0}
+    monkeypatch.setattr(ds.time, "monotonic", lambda: ticks["t"])
+    monkeypatch.setattr(ds, "REQUEST_SUMMARY_BUDGET_SECONDS", 5.0)
+
+    real = ds.HistoryStore._run
+    issued = []
+
+    def slow(self, sql, params=(), fetch=""):
+        issued.append(sql)
+        ticks["t"] += 3.0            # each query costs 3 of the 5 seconds
+        return real(self, sql, params, fetch)
+
+    monkeypatch.setattr(ds.HistoryStore, "_run", slow)
 
     out = store.requests_summary()
 
-    assert any("out_of_budget" in name for name in out["degraded"]), (
-        "a zero budget still ran queries instead of reporting them as "
-        "unreached")
-    assert out["degraded"], "nothing was reported as unreached"
+    assert out["degraded"], "the budget never fired at all"
+    assert all("out_of_budget" in name for name in out["degraded"]), (
+        "a panel was reported as FAILED when it was merely not reached: %r"
+        % out["degraded"])
+    assert len(issued) <= 3, (
+        "the budget did not stop the read — %d queries were still issued"
+        % len(issued))
 
 
 def test_the_budget_does_not_skip_the_cheap_and_load_bearing_panels(
         store, monkeypatch):
     """Today, the funnel and the recent log come first on purpose.
 
-    They are what the owner looks at, and they are cheap — so they must survive
-    a budget that is already tight.
+    They are what the owner looks at, and they are cheap — so a budget that is
+    merely tight must still reach them.
     """
     from integrations import dashboard_store as ds
 
+    ticks = {"t": 1000.0}
+    monkeypatch.setattr(ds.time, "monotonic", lambda: ticks["t"])
     monkeypatch.setattr(ds, "REQUEST_SUMMARY_BUDGET_SECONDS", 6.0)
+
+    real = ds.HistoryStore._run
+
+    def cheap(self, sql, params=(), fetch=""):
+        ticks["t"] += 0.1            # every query is fast
+        return real(self, sql, params, fetch)
+
+    monkeypatch.setattr(ds.HistoryStore, "_run", cheap)
 
     out = store.requests_summary()
 
@@ -234,3 +268,28 @@ def test_the_page_does_not_print_a_dashless_zero_for_an_unread_funnel():
         "renderFunnel does not check for a missing reading, so an unread route "
         "still renders as a confident 0 → 0 (0%)")
     assert "DASH" in fn, "renderFunnel has no placeholder for a missing reading"
+
+
+# ── 5. the honest markers must survive the payload whitelist ───────────────
+def test_the_degraded_list_survives_into_the_served_payload(monkeypatch):
+    """`sections.requests` is an explicit whitelist, and it silently dropped it.
+
+    The store marked missing panels honestly and the page knew how to print
+    them — but `main.py` rebuilt the section key by key and never copied
+    `degraded` across, so the page could not tell "not read" from "no traffic".
+    A marker that is computed and then discarded is not a safeguard.
+    """
+    import os
+
+    os.environ.setdefault("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
+    import main
+
+    body = main.app.test_client().get("/api/dashboard/data").get_json()
+    rq = body["sections"]["requests"]
+
+    assert "degraded" in rq, (
+        "the served payload drops the degraded list, so an unread panel is "
+        "presented as an empty one")
+    assert "available" in rq, "the served payload drops the available flag"
+    assert isinstance(rq["degraded"], list), (
+        "degraded must always be a list — the page iterates it unconditionally")

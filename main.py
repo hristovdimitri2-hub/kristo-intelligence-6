@@ -6166,6 +6166,14 @@ def _canonical_dashboard_payload(include_crm: bool = False,
                 "hourly": requests.get("hourly"),
                 "funnel": requests.get("funnel"),
                 "recent": requests["recent"],
+                # WHICH PANELS COULD NOT BE READ. This whitelist used to drop it,
+                # so the store's honest None/degraded markers never reached the
+                # page — and a panel that timed out rendered exactly like a panel
+                # with no traffic, on a board whose whole job is to be believed.
+                # The traffic aggregates are full scans over a table with no
+                # retention, so this is not a hypothetical state.
+                "degraded": requests.get("degraded") or [],
+                "available": requests.get("available", True),
             },
             "payapi": {
                 "label": "PayAPI Market listing",
