@@ -38,12 +38,32 @@ def _reset_dashboard_stats_cache():
     Without a per-test reset, a payload built by one test (e.g. with a seeded
     sale of 0.031) leaks into later tests that expect a fresh empty-store
     build — observed 11.10 in test_dashboard_v2 and test_integration.
+
+    The same applies to `_DASHBOARD_LAST_GOOD`, and MORE so: since 05.11 the
+    request path serves /api/dashboard/data from that cache and rebuilds only
+    in the background, so a payload built under one test's seeded database
+    would otherwise be replayed to every later test in the session. That is
+    correct in production and poison under pytest. Cleared here rather than in
+    each test, so a test added later cannot forget to do it.
     """
     import main
     if hasattr(main, "_reset_stats_cache"):
         main._reset_stats_cache()
+    _clear = getattr(main, "_DASHBOARD_LAST_GOOD", None)
+    _lock = getattr(main, "_DASHBOARD_LAST_GOOD_LOCK", None)
+    _inflight = getattr(main, "_DASHBOARD_REFRESHING", None)
+    if _clear is not None and _lock is not None:
+        with _lock:
+            _clear.clear()
+            if _inflight is not None:
+                _inflight.clear()
     yield
     if hasattr(main, "_reset_stats_cache"):
         main._reset_stats_cache()
+    if _clear is not None and _lock is not None:
+        with _lock:
+            _clear.clear()
+            if _inflight is not None:
+                _inflight.clear()
 
 os.environ.setdefault("VALUE_CHECK_ENABLED", "0")

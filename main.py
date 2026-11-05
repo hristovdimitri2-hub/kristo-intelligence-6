@@ -6032,33 +6032,62 @@ def _canonical_dashboard_payload(include_crm: bool = False,
     page must never also reveal the off-chain Stripe revenue, and two grants
     travelling on one flag is how that happens by accident.
     """
-    sales = dashboard_db.sales_summary()
+    # ── per-step cost, measured rather than guessed ────────────────────────
+    # On 05.11 this function took over 40s and the board went blank. Bounding
+    # the Postgres waits stopped it taking the service down, but nobody could
+    # say WHICH read was slow — the payload had no clocks in it. Now it does.
+    # The breakdown ships only on the admin variant (see the return below):
+    # the public response keeps revealing nothing about our internals.
+    _t_start = time.perf_counter()
+    _timings: Dict[str, float] = {}
+
+    def _step(name: str, fn):
+        _t = time.perf_counter()
+        try:
+            return fn()
+        finally:
+            _timings[name] = round((time.perf_counter() - _t) * 1000.0, 1)
+
+    sales = _step("sales_summary", dashboard_db.sales_summary)
     # ON-CHAIN SALES · УСЛУГА (14.10): the route each payment was CONSUMED on.
     # The granted claim in payment_guards is the ONLY honest evidence (the same
     # join the CLIENTS section uses) — rows without a claim get route: None and
     # the table renders "—". Never guess a route from the amount here.
     try:
-        _route_map = dashboard_db.guard_endpoint_map()
+        _route_map = _step("guard_endpoint_map",
+                           dashboard_db.guard_endpoint_map)
     except Exception as exc:
         log.debug("dashboard: guard endpoint map unavailable (%s)", exc)
         _route_map = {}
     for _row in sales["history"]:
         _row["route"] = _route_map.get(
             (_row.get("tx_hash") or "").lower()) or None
-    requests = dashboard_db.requests_summary()
-    payapi = dashboard_db.get_payapi_state()
+    requests = _step("requests_summary", dashboard_db.requests_summary)
+    payapi = _step("get_payapi_state", dashboard_db.get_payapi_state)
     price_map = _published_price_map()
-    clients = dashboard_db.clients_summary(price_map=price_map)
-    whales = dashboard_db.whaleflow_summary(window_hours=24, limit=25)
-    guards = dashboard_db.guard_stats()
-    guard_claims = dashboard_db.payment_guard_stats()
+    clients = _step(
+        "clients_summary",
+        lambda: dashboard_db.clients_summary(price_map=price_map))
+    whales = _step(
+        "whaleflow_summary",
+        lambda: dashboard_db.whaleflow_summary(window_hours=24, limit=25))
+    guards = _step("guard_stats", dashboard_db.guard_stats)
+    guard_claims = _step("payment_guard_stats", dashboard_db.payment_guard_stats)
 
     onchain_total = sales["total_usdc"]
     # Priority-0 guard: the on-chain total must NEVER contain off-chain money.
     assert isinstance(onchain_total, (int, float))
 
+    _timings["total_ms"] = round((time.perf_counter() - _t_start) * 1000.0, 1)
     return {
         "ok": True,
+        # ADMIN-ONLY. The per-step cost of building this payload, so a slow
+        # board can be diagnosed from the payload itself instead of guessed at.
+        # Gated on `include_crm` (an admin-authenticated read) because the
+        # public response should keep revealing nothing about our internals —
+        # and because "which read is slow" is exactly the kind of map an
+        # attacker would like to have for free.
+        **({"build_timings_ms": _timings} if include_crm else {}),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "receiver_address": X402_RECEIVER_ADDRESS,
         "sections": {
@@ -6262,56 +6291,149 @@ def _canonical_dashboard_payload(include_crm: bool = False,
 _DASHBOARD_LAST_GOOD: Dict[Tuple[bool, bool], Tuple[dict, float]] = {}
 _DASHBOARD_LAST_GOOD_LOCK = threading.Lock()
 
+#: Variants with a background rebuild already in flight. Prevents a burst of
+#: visitors from each starting their own rebuild.
+_DASHBOARD_REFRESHING: set = set()
 
-def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) -> dict:
-    """Build the dashboard payload; on failure serve the last good one, LABELLED.
+#: Age at which a served payload triggers a BACKGROUND refresh. Below this the
+#: cached read is simply returned.
+_DASHBOARD_REVALIDATE_SECONDS = max(
+    5.0, float(os.getenv("KRISTO_DASHBOARD_REVALIDATE_SECONDS", "30")))
 
-    The owner's requirement is that the board stays operational ("искам таблото
-    постоянно да е оперативно"). Bounding the Postgres waits stops a slow read
-    from taking the service down, but it does not stop the board from showing
-    "НЕАКТУАЛНИ" — a fast failure is still a blank dashboard.
+#: Age past which the payload is LABELLED stale to the reader. Set well above
+#: the revalidate interval so a normal refresh never flashes a warning, but a
+#: genuinely wedged build does.
+_DASHBOARD_FRESH_SECONDS = max(
+    _DASHBOARD_REVALIDATE_SECONDS * 2.0,
+    float(os.getenv("KRISTO_DASHBOARD_FRESH_SECONDS", "180")))
 
-    So a failed build falls back to the last payload that DID build, with its
-    age attached. Three honesty rules, because a stale number presented as live
-    is worse than no number at all:
 
-      * the fallback is marked — `stale: true`, `stale_since` and
-        `stale_age_seconds` — so the page can say how old it is;
-      * nothing is invented. This replays bytes that were real once, never a
-        guess, never a zero, never an extrapolation;
-      * the FIRST failure with no cached payload still raises, so the error is
-        reported rather than hidden behind an empty success.
-    """
-    key = (bool(include_crm), bool(include_sales_detail))
-    try:
-        payload = _canonical_dashboard_payload(
-            include_crm=include_crm,
-            include_sales_detail=include_sales_detail)
-    except Exception as exc:
-        with _DASHBOARD_LAST_GOOD_LOCK:
-            cached = _DASHBOARD_LAST_GOOD.get(key)
-        if cached is None:
-            raise
-        previous, built_at = cached
-        age = max(0.0, time.time() - built_at)
-        log.warning(
-            "Dashboard payload failed to build (variant %s) — serving the last "
-            "good read, %.0fs old: %s", key, age, redact_rpc(exc))
-        stale = dict(previous)
-        stale["stale"] = True
-        stale["stale_since"] = datetime.fromtimestamp(
-            built_at, timezone.utc).isoformat()
-        stale["stale_age_seconds"] = round(age, 1)
-        stale["stale_reason"] = (
-            "the live read failed; these are the last figures that read "
-            "cleanly, not current ones")
-        return stale
-
+def _dashboard_build(key, include_crm: bool, include_sales_detail: bool) -> dict:
+    """Build a payload and publish it into the cache under its exact grant key."""
+    payload = _canonical_dashboard_payload(
+        include_crm=include_crm,
+        include_sales_detail=include_sales_detail)
     with _DASHBOARD_LAST_GOOD_LOCK:
         # A SHALLOW copy on purpose: this dict is the cache, and only its
         # top-level keys are ever touched, so the nested sections are shared
         # and never rewritten after the fact.
         _DASHBOARD_LAST_GOOD[key] = (dict(payload), time.time())
+    return payload
+
+
+def _dashboard_refresh_in_background(key, include_crm: bool,
+                                     include_sales_detail: bool) -> bool:
+    """Rebuild a variant off the request path. True if a refresh was started.
+
+    A failure here is LOGGED, never raised: the caller already has a payload to
+    serve, and the point of this path is that no visitor ever waits on the
+    database again.
+    """
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        if key in _DASHBOARD_REFRESHING:
+            return False
+        _DASHBOARD_REFRESHING.add(key)
+
+    def _work():
+        try:
+            _dashboard_build(key, include_crm, include_sales_detail)
+        except Exception as exc:
+            log.warning(
+                "dashboard: background refresh failed (variant %s): %s",
+                key, redact_rpc(exc))
+        finally:
+            with _DASHBOARD_LAST_GOOD_LOCK:
+                _DASHBOARD_REFRESHING.discard(key)
+
+    threading.Thread(target=_work, name="dashboard-refresh",
+                     daemon=True).start()
+    return True
+
+
+def _dashboard_warmer_loop():
+    """Keep the PUBLIC dashboard variant warm, off the request path.
+
+    The request path serves from cache, so whoever asks first is the one who
+    pays for the build. On a cold boot — which is every deploy — that would be
+    the first visitor, and a board that is slow exactly when it was just
+    deployed is the complaint this whole change answers.
+
+    A short initial delay so warm-up is not competing with boot, then the same
+    interval the request path revalidates on.
+    """
+    time.sleep(5.0)
+    interval = max(15.0, _DASHBOARD_REVALIDATE_SECONDS)
+    while True:
+        try:
+            _dashboard_refresh_in_background(
+                (False, False), include_crm=False, include_sales_detail=False)
+        except Exception as exc:
+            log.warning("dashboard warmer: %s", redact_rpc(exc))
+        time.sleep(interval)
+
+
+def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) -> dict:
+    """Serve the board IMMEDIATELY from cache, refreshing off the request path.
+
+    WHY THIS IS NOT A CACHE IN FRONT OF A BUILD. Bounding the Postgres waits
+    (eafdacf) stopped a slow read from taking the whole service down; serving
+    the last good read (a8d717e) stopped the board from blanking. Neither made
+    the board FAST: on 05.11 /api/dashboard/data still spent 40+ seconds inside
+    the build, and a 40-second request is a board nobody can use. Bounding a
+    bad number is not the same as fixing it.
+
+    The owner's requirement is that the board is permanently operational, so
+    the request path now does no database work at all once a variant has been
+    built once:
+
+      * a cached payload is returned at once — no locks held across a query,
+        no waiting on any read;
+      * if it is older than `_DASHBOARD_REVALIDATE_SECONDS`, a rebuild is
+        started on a daemon thread and the CURRENT call still returns now;
+      * only the very first request for a variant builds synchronously, and
+        only that one can raise.
+
+    Three honesty rules, because a stale number presented as live is worse than
+    no number at all:
+
+      * past `_DASHBOARD_FRESH_SECONDS` the payload is marked — `stale: true`,
+        `stale_since`, `stale_age_seconds`, `stale_reason` — so the page says
+        how old it is instead of claiming to be live;
+      * nothing is invented. This replays bytes that were real once, never a
+        guess, never a zero, never an extrapolation;
+      * the first build with no cached payload still raises, so a genuinely
+        broken service reports an error rather than an empty success.
+
+    The cache is keyed by the EXACT GRANT PAIR, never by anything about the
+    caller, so a public request can never be answered from an admin variant.
+    """
+    key = (bool(include_crm), bool(include_sales_detail))
+
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        cached = _DASHBOARD_LAST_GOOD.get(key)
+
+    if cached is not None:
+        previous, built_at = cached
+        age = max(0.0, time.time() - built_at)
+        if age >= _DASHBOARD_REVALIDATE_SECONDS:
+            _dashboard_refresh_in_background(
+                key, include_crm, include_sales_detail)
+        payload = dict(previous)
+        if age >= _DASHBOARD_FRESH_SECONDS:
+            payload["stale"] = True
+            payload["stale_since"] = datetime.fromtimestamp(
+                built_at, timezone.utc).isoformat()
+            payload["stale_age_seconds"] = round(age, 1)
+            payload["stale_reason"] = (
+                "the live read has not completed for a while; these are the "
+                "last figures that read cleanly, not current ones")
+        else:
+            payload["stale"] = False
+        return payload
+
+    # Cold: nothing has ever been built for this variant, so this call has to
+    # do it. It is the only path that can raise.
+    payload = _dashboard_build(key, include_crm, include_sales_detail)
     payload["stale"] = False
     return payload
 
@@ -6533,6 +6655,12 @@ def _start_background_threads():
     # Start blockchain monitor (real wallet)
     t_chain = threading.Thread(target=_blockchain_monitor_loop, daemon=True, name="blockchain-monitor")
     t_chain.start()
+
+    # Warm the public dashboard payload so the first visitor after a deploy
+    # gets a fast board instead of paying for the build themselves.
+    t_dash = threading.Thread(target=_dashboard_warmer_loop, daemon=True,
+                              name="dashboard-warmer")
+    t_dash.start()
 
     # Start agent thread
     t_agent = threading.Thread(target=_background_agent_loop, daemon=True, name="agent-loop")

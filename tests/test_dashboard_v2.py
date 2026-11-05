@@ -1436,6 +1436,24 @@ def _set_stripe_snapshot(main, monkeypatch, **snapshot):
     monkeypatch.setattr(main, "_stripe_snapshot", base)
 
 
+def _fresh_dashboard(main):
+    """Drop the dashboard payload cache so the next read rebuilds.
+
+    Since 05.11 /api/dashboard/data is served from `_DASHBOARD_LAST_GOOD` and
+    revalidated on a background thread, because the underlying reads took 40+
+    seconds and made the board unusable. A test that changes the state behind
+    the payload and then reads again must therefore say so explicitly — it
+    would otherwise be served the previous payload, which is correct in
+    production and wrong for an assertion about the current state.
+
+    tests/conftest.py clears this cache between tests; this is for the reads
+    WITHIN one test.
+    """
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_LAST_GOOD.clear()
+        main._DASHBOARD_REFRESHING.clear()
+
+
 def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
     """`source` must name the feed that produced the ROWS (the CRM), and the Stripe
     feed must be presented as a SECOND OPINION: its own list of paid sessions has
@@ -1467,6 +1485,7 @@ def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
         {"amount_usd": i["amount_usd"], "plan": i["plan"],
          "checkout_id": "cs_live_aligned", "provider": "stripe"}
         for i in crm["items"]])
+    _fresh_dashboard(main)
     link = _admin_sections(test_client)["crm_stripe"]["stripe_link"]
     assert link["status"] == "in_sync", link
     assert "съвпадат" in link["detail"]
@@ -1475,6 +1494,7 @@ def test_the_stripe_link_cross_checks_the_numbers(client, monkeypatch):
     _set_stripe_snapshot(main, monkeypatch, payments=[
         {"amount_usd": 99.0, "plan": "pro", "checkout_id": "cs_live_ghost",
          "provider": "stripe"}])
+    _fresh_dashboard(main)
     link = _admin_sections(test_client)["crm_stripe"]["stripe_link"]
     assert link["status"] == "mismatch", link
     assert "РАЗЛИКА" in link["detail"]

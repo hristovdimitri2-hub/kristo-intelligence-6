@@ -1,22 +1,33 @@
 """The dashboard must stay operational — and must stay HONEST while it does.
 
 The owner's requirement is that the board is always up ("искам таблото
-постоянно да е оперативно"). Bounding the Postgres waits (see
-tests/test_shared_pg_link_bounds.py) stops a slow read from taking the whole
-service down, but a fast failure still leaves the board blank.
+постоянно да е оперативно").
 
-`_dashboard_payload_resilient` closes that gap: when the live build fails it
-replays the last payload that DID build, with its age attached.
+Three fixes got here, and the difference between them matters:
 
-The risk this file exists to police is that the fallback becomes a way to show
-something that is not true. A stale number presented as live is worse than no
-number at all, and a cache keyed more loosely than the grant would hand a
-public caller an ADMIN payload — the one thing `include_crm` and
-`include_sales_detail` exist to prevent. Both are asserted here.
+  * `eafdacf` bounded the Postgres waits, so one slow read could no longer
+    take the whole service down — /health came back to ~420ms from 502.
+  * `a8d717e` stopped the board from blanking when a read failed.
+  * the current design stops the request path from touching the database at
+    all. That last one is the actual requirement: on 05.11 the endpoint still
+    spent 40+ seconds INSIDE the build. Bounding a bad number is not the same
+    as fixing it, and a 40-second request is a board nobody can use.
+
+So the load-bearing assertions here are:
+
+  * a cached variant is served WITHOUT rebuilding — measured as builder
+    invocations, which is the whole point and the easiest thing to regress;
+  * an ageing payload triggers a refresh BEHIND the request, so the reader
+    never waits;
+  * only one refresh per variant runs at a time, so a burst of visitors does
+    not start one rebuild each;
+  * and the honesty rules still hold: an old payload is LABELLED, nothing is
+    invented, and a public caller is never served an admin variant.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -38,17 +49,41 @@ def _clean_cache(main_module):
     """Every test starts with an empty cache and leaves one behind."""
     with main_module._DASHBOARD_LAST_GOOD_LOCK:
         main_module._DASHBOARD_LAST_GOOD.clear()
+        main_module._DASHBOARD_REFRESHING.clear()
     yield
     with main_module._DASHBOARD_LAST_GOOD_LOCK:
         main_module._DASHBOARD_LAST_GOOD.clear()
+        main_module._DASHBOARD_REFRESHING.clear()
 
 
-def _fake_payload(monkeypatch, main, value=1.23):
+@pytest.fixture()
+def refreshes(monkeypatch, main_module):
+    """Record background refreshes instead of racing real threads.
+
+    The scheduling decision is what most of these tests are about; running an
+    actual thread would make them timing-dependent for no gain. The real
+    thread is exercised separately, in the two tests that end this file.
+    """
+    started = []
+
+    def fake(key, include_crm, include_sales_detail):
+        started.append(key)
+        return True
+
+    monkeypatch.setattr(main_module, "_dashboard_refresh_in_background", fake)
+    return started
+
+
+def _fake_payload(monkeypatch, main, value=1.23, delay=0.0, gate=None):
     """Replace the real builder with a controllable stand-in."""
     calls = {"n": 0}
 
     def builder(include_crm=False, include_sales_detail=False):
         calls["n"] += 1
+        if gate is not None:
+            gate.wait(5.0)
+        if delay:
+            time.sleep(delay)
         return {
             "ok": True,
             "generated_at": "2026-11-05T00:00:00+00:00",
@@ -62,199 +97,310 @@ def _fake_payload(monkeypatch, main, value=1.23):
     return calls
 
 
-# ── 1. the happy path is unchanged, and it is marked live ──────────────────
-def test_a_successful_build_is_marked_not_stale(main_module, monkeypatch):
+def _wait_for(predicate, timeout=5.0):
+    """Poll until `predicate()` is true. Returns whether it became true."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+# ── 1. the happy path, and the guarantee that actually matters ─────────────
+def test_a_fresh_build_is_marked_not_stale(main_module, monkeypatch):
     main = main_module
-    _fake_payload(monkeypatch, main)
+    calls = _fake_payload(monkeypatch, main)
 
     payload = main._dashboard_payload_resilient(False, False)
 
-    assert payload["ok"] is True
-    assert payload["stale"] is False, (
-        "a live payload must say so; the page keys its 'stale' banner off this")
+    assert payload["stale"] is False
+    assert payload["sections"]["onchain"]["total_usdc"] == 1.23
+    assert calls["n"] == 1
 
 
-# ── 2. the fallback preserves the last real numbers, clearly labelled ──────
-def test_a_failed_build_serves_the_last_good_read_marked_stale(
-        main_module, monkeypatch):
+def test_a_cached_variant_is_served_without_rebuilding(main_module, monkeypatch,
+                                                       refreshes):
+    """THE POINT OF THE WHOLE CHANGE.
+
+    If this regresses, every 45-second poll is back to doing the full build on
+    the request path — which is what made the board take 40 seconds and the
+    service fall over.
+    """
+    main = main_module
+    calls = _fake_payload(monkeypatch, main)
+
+    main._dashboard_payload_resilient(False, False)      # cold: builds once
+    assert calls["n"] == 1
+
+    for _ in range(5):
+        payload = main._dashboard_payload_resilient(False, False)
+
+    assert calls["n"] == 1, (
+        "a served-from-cache read rebuilt the payload %d extra time(s) — the "
+        "request path is doing database work again" % (calls["n"] - 1))
+    assert payload["stale"] is False
+
+
+def test_a_cached_read_inside_the_window_starts_no_refresh(main_module,
+                                                           monkeypatch,
+                                                           refreshes):
     main = main_module
     _fake_payload(monkeypatch, main)
 
-    live = main._dashboard_payload_resilient(False, False)
-    real_total = live["sections"]["onchain"]["total_usdc"]
+    main._dashboard_payload_resilient(False, False)
+    refreshes.clear()
+    main._dashboard_payload_resilient(False, False)
 
-    def explode(include_crm=False, include_sales_detail=False):
-        raise TimeoutError("shared Postgres link busy")
-
-    monkeypatch.setattr(main, "_canonical_dashboard_payload", explode)
-
-    fallback = main._dashboard_payload_resilient(False, False)
-
-    assert fallback["stale"] is True
-    assert "stale_since" in fallback and "stale_age_seconds" in fallback
-    assert fallback["stale_age_seconds"] >= 0
-    assert "last figures" in fallback["stale_reason"]
-    # THE POINT: the real numbers survive the outage rather than blanking.
-    assert fallback["sections"]["onchain"]["total_usdc"] == real_total, (
-        "the fallback must replay the last real read, not invent a zero")
+    assert refreshes == [], (
+        "a payload inside the revalidate window still triggered a refresh")
 
 
-def test_the_stale_marker_reports_how_old_the_data_is(main_module, monkeypatch):
+# ── 2. ageing triggers a refresh BEHIND the reader ─────────────────────────
+def test_an_ageing_payload_starts_a_background_refresh(main_module, monkeypatch,
+                                                       refreshes):
+    from main import _DASHBOARD_REVALIDATE_SECONDS
+
     main = main_module
     _fake_payload(monkeypatch, main)
     main._dashboard_payload_resilient(False, False)
 
-    def explode(include_crm=False, include_sales_detail=False):
-        raise TimeoutError("down")
+    # Backdate the cache entry past the revalidate interval.
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
+        main._DASHBOARD_LAST_GOOD[(False, False)] = (
+            payload, time.time() - (_DASHBOARD_REVALIDATE_SECONDS + 5))
 
-    monkeypatch.setattr(main, "_canonical_dashboard_payload", explode)
-    time.sleep(0.05)
-    fallback = main._dashboard_payload_resilient(False, False)
+    refreshes.clear()
+    main._dashboard_payload_resilient(False, False)
 
-    assert fallback["stale_age_seconds"] > 0, (
-        "an age of zero would claim the stale data is current")
+    assert (False, False) in refreshes, (
+        "an ageing payload did not schedule a refresh, so it would never "
+        "become current again")
 
 
-# ── 3. with nothing cached, the error must surface ─────────────────────────
-def test_the_first_failure_with_no_cache_still_raises(main_module, monkeypatch):
-    """A blank success would hide that the database is unreachable."""
+def test_the_reader_does_not_wait_for_the_refresh(main_module, monkeypatch,
+                                                  refreshes):
+    """The refresh is scheduled, not performed — the call returns at once."""
+    from main import _DASHBOARD_REVALIDATE_SECONDS
+
+    main = main_module
+    gate = threading.Event()
+    calls = _fake_payload(monkeypatch, main, gate=gate)
+    main._dashboard_payload_resilient(False, False)
+
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
+        main._DASHBOARD_LAST_GOOD[(False, False)] = (
+            payload, time.time() - (_DASHBOARD_REVALIDATE_SECONDS + 5))
+
+    t0 = time.time()
+    out = main._dashboard_payload_resilient(False, False)
+    elapsed = time.time() - t0
+    gate.set()
+
+    assert elapsed < 1.0, (
+        "the read blocked for %.2fs waiting on the rebuild" % elapsed)
+    assert out["ok"] is True
+    assert calls["n"] == 1, "the refresh ran on the request path"
+
+
+# ── 3. honesty: an old payload says so ─────────────────────────────────────
+def test_a_payload_older_than_the_fresh_window_is_labelled_stale(
+        main_module, monkeypatch, refreshes):
+    from main import _DASHBOARD_FRESH_SECONDS
+
+    main = main_module
+    _fake_payload(monkeypatch, main)
+    main._dashboard_payload_resilient(False, False)
+
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
+        main._DASHBOARD_LAST_GOOD[(False, False)] = (
+            payload, time.time() - (_DASHBOARD_FRESH_SECONDS + 30))
+
+    out = main._dashboard_payload_resilient(False, False)
+
+    assert out["stale"] is True, (
+        "a payload well past the fresh window was still presented as live")
+    assert out["stale_age_seconds"] >= _DASHBOARD_FRESH_SECONDS
+    assert out["stale_since"]
+    assert out["stale_reason"]
+    # Still the real numbers, not blanks and not a zero.
+    assert out["sections"]["onchain"]["total_usdc"] == 1.23
+
+
+def test_the_stale_marker_reports_the_real_age(main_module, monkeypatch,
+                                               refreshes):
+    from main import _DASHBOARD_FRESH_SECONDS
+
+    main = main_module
+    _fake_payload(monkeypatch, main)
+    main._dashboard_payload_resilient(False, False)
+
+    age = _DASHBOARD_FRESH_SECONDS + 42
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
+        main._DASHBOARD_LAST_GOOD[(False, False)] = (
+            payload, time.time() - age)
+
+    out = main._dashboard_payload_resilient(False, False)
+
+    assert abs(out["stale_age_seconds"] - age) < 5, (
+        "the reported age (%.0fs) is not the real one (%.0fs)"
+        % (out["stale_age_seconds"], age))
+
+
+# ── 4. the cold path is the only one that may raise ────────────────────────
+def test_the_first_build_with_no_cache_still_raises(main_module, monkeypatch):
+    """A genuinely broken service must report an error, not an empty success."""
     main = main_module
 
-    def explode(include_crm=False, include_sales_detail=False):
-        raise TimeoutError("shared Postgres link busy")
+    def boom(include_crm=False, include_sales_detail=False):
+        raise RuntimeError("the database is unreachable")
 
-    monkeypatch.setattr(main, "_canonical_dashboard_payload", explode)
+    monkeypatch.setattr(main, "_canonical_dashboard_payload", boom)
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(RuntimeError):
         main._dashboard_payload_resilient(False, False)
 
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        assert main._DASHBOARD_LAST_GOOD == {}, (
+            "a failed cold build published something to the cache")
 
-# ── 4. THE SECURITY TEST: the cache must never cross a grant boundary ──────
+
+# ── 5. the security boundary: the key is the GRANT, never the caller ───────
 def test_a_public_caller_can_never_be_served_the_admin_payload(
         main_module, monkeypatch):
-    """A cache keyed by anything but the grant pair would leak the CRM.
+    """The defect this would be: serving an admin variant to an anonymous GET.
 
-    Prime BOTH variants, then fail the builder and ask as the PUBLIC. If the
-    two variants ever shared a slot, the public caller would be handed the
-    admin payload — off-chain Stripe and CRM data that is deliberately not
-    curl-able, and the exact reason the two grants are passed separately.
+    Both variants are primed, so the only thing that can keep them apart is the
+    key. A single shared slot — the obvious "optimisation" — fails here.
     """
     main = main_module
     _fake_payload(monkeypatch, main)
 
-    admin_live = main._dashboard_payload_resilient(True, True)
-    public_live = main._dashboard_payload_resilient(False, False)
-    assert admin_live["crm"] == {"leads": 7}, "precondition: admin saw the CRM"
-    assert public_live.get("crm") is None, "precondition: public did not"
-
-    def explode(include_crm=False, include_sales_detail=False):
-        raise TimeoutError("down")
-
-    monkeypatch.setattr(main, "_canonical_dashboard_payload", explode)
+    main._dashboard_payload_resilient(True, True)     # admin variant primed
+    main._dashboard_payload_resilient(False, False)   # public variant primed
 
     public = main._dashboard_payload_resilient(False, False)
-
-    assert public["stale"] is True
-    assert public.get("crm") is None, (
-        "a public fallback returned the admin CRM section — the cache is "
-        "keyed too loosely and is leaking off-chain data")
-
-    # And the admin's own fallback still carries what the admin is allowed.
     admin = main._dashboard_payload_resilient(True, True)
-    assert admin["stale"] is True
+
+    assert public.get("crm") is None, (
+        "an anonymous caller was served the admin payload")
     assert admin["crm"] == {"leads": 7}
 
 
-def test_the_two_grants_use_separate_cache_slots(main_module, monkeypatch):
+def test_the_two_grants_use_separate_cache_slots(main_module, monkeypatch,
+                                                 refreshes):
     main = main_module
-    _fake_payload(monkeypatch, main)
+    calls = _fake_payload(monkeypatch, main)
 
-    main._dashboard_payload_resilient(False, False)
-    main._dashboard_payload_resilient(True, True)
+    main._dashboard_payload_resilient(True, False)
+    main._dashboard_payload_resilient(False, True)
 
-    with main._DASHBOARD_LAST_GOOD_LOCK:
-        keys = set(main._DASHBOARD_LAST_GOOD)
-
-    assert (False, False) in keys
-    assert (True, True) in keys
-    assert len(keys) >= 2, "the grant variants share a cache slot"
+    assert calls["n"] == 2, (
+        "the two grant pairs shared one cache slot")
+    assert main._dashboard_payload_resilient(True, False)["crm"] == {"leads": 7}
+    assert main._dashboard_payload_resilient(False, True).get("crm") is None
 
 
-# ── 5. a fallback must not corrupt what is cached for later callers ────────
-def test_serving_a_fallback_does_not_overwrite_the_cached_payload(
+# ── 6. the REAL background thread ──────────────────────────────────────────
+def test_a_failing_background_refresh_neither_raises_nor_wipes_the_cache(
         main_module, monkeypatch):
-    """The fallback ADDS markers; it must not store its own output back.
+    main = main_module
+    calls = _fake_payload(monkeypatch, main)
+    main._dashboard_payload_resilient(False, False)
 
-    If it did, every later request would inherit `stale: true` and an ever
-    growing age, and the board could never report live again.
-    """
+    def boom(include_crm=False, include_sales_detail=False):
+        calls["n"] += 1
+        raise RuntimeError("transient read failure")
+
+    monkeypatch.setattr(main, "_canonical_dashboard_payload", boom)
+
+    # Force a refresh through the real path; it must swallow the failure.
+    main._dashboard_refresh_in_background((False, False), False, False)
+
+    assert _wait_for(lambda: (False, False) not in main._DASHBOARD_REFRESHING), (
+        "the refresh thread never cleared its in-flight marker, so this "
+        "variant could never be refreshed again")
+
+    out = main._dashboard_payload_resilient(False, False)
+    assert out["sections"]["onchain"]["total_usdc"] == 1.23, (
+        "a failed background refresh destroyed the good cached payload")
+
+
+def test_only_one_background_refresh_per_variant_runs_at_a_time(
+        main_module, monkeypatch):
+    """A burst of visitors must not start one rebuild each."""
+    main = main_module
+    gate = threading.Event()
+    calls = _fake_payload(monkeypatch, main, gate=gate)
+    main._dashboard_payload_resilient(False, False)
+
+    main._dashboard_refresh_in_background((False, False), False, False)
+    assert _wait_for(lambda: (False, False) in main._DASHBOARD_REFRESHING)
+
+    # While one is in flight, further requests must not start another.
+    for _ in range(5):
+        started = main._dashboard_refresh_in_background(
+            (False, False), False, False)
+        assert started is False, "a second refresh was started concurrently"
+
+    gate.set()
+    assert _wait_for(lambda: (False, False) not in main._DASHBOARD_REFRESHING)
+    assert calls["n"] == 2, (
+        "expected the cold build plus exactly one refresh, got %d builds"
+        % calls["n"])
+
+
+def test_the_refresh_thread_is_a_daemon(main_module, monkeypatch):
+    """A non-daemon thread would hold the process open on shutdown."""
     main = main_module
     _fake_payload(monkeypatch, main)
-
     main._dashboard_payload_resilient(False, False)
 
-    def explode(include_crm=False, include_sales_detail=False):
-        raise TimeoutError("down")
+    seen = []
+    real_thread = threading.Thread
 
-    monkeypatch.setattr(main, "_canonical_dashboard_payload", explode)
-    main._dashboard_payload_resilient(False, False)
-    main._dashboard_payload_resilient(False, False)
+    class _Spy(real_thread):
+        def __init__(self, *a, **kw):
+            seen.append(kw)
+            super().__init__(*a, **kw)
 
-    with main._DASHBOARD_LAST_GOOD_LOCK:
-        cached, _at = main._DASHBOARD_LAST_GOOD[(False, False)]
+    monkeypatch.setattr(main.threading, "Thread", _Spy)
+    main._dashboard_refresh_in_background((False, False), False, False)
+    monkeypatch.undo()
 
-    assert "stale" not in cached, (
-        "the fallback wrote its markers into the cache; the board can now "
-        "never report live data again")
-    assert "stale_age_seconds" not in cached
-
-
-def test_a_recovered_build_reports_live_again(main_module, monkeypatch):
-    main = main_module
-    _fake_payload(monkeypatch, main)
-    main._dashboard_payload_resilient(False, False)
-
-    def explode(include_crm=False, include_sales_detail=False):
-        raise TimeoutError("down")
-
-    monkeypatch.setattr(main, "_canonical_dashboard_payload", explode)
-    assert main._dashboard_payload_resilient(False, False)["stale"] is True
-
-    _fake_payload(monkeypatch, main)          # the database answers again
-    assert main._dashboard_payload_resilient(False, False)["stale"] is False, (
-        "the board stayed stuck on stale after the database recovered")
+    assert seen, "no thread was started"
+    assert all(kw.get("daemon") is True for kw in seen)
+    assert _wait_for(lambda: (False, False) not in main._DASHBOARD_REFRESHING)
 
 
-# ── 6. the page must not paint LIVE over a fallback payload ────────────────
+# ── 7. the page must not paint LIVE over a stale payload ───────────────────
 def test_the_page_checks_stale_before_it_declares_live():
-    """A 200 carrying a fallback must not be rendered as LIVE.
+    """Structural: the template must handle `d.stale` BEFORE the LIVE path.
 
-    The server marks staleness with `stale: true`, but the page only ever
-    checked `r.ok` — and a fallback response IS 200. Without an explicit
-    check, the board would print LIVE over figures that are hours old, which
-    is the one lie the whole mechanism exists to prevent.
-
-    Asserted structurally, and on the ORDER: the stale branch has to come
-    before the line that sets the live badge, and it has to stop there.
+    A fallback response is still HTTP 200, so a page that only checks `r.ok`
+    prints a confident "LIVE" over numbers it was just told are old.
     """
     from pathlib import Path
 
     html = Path("templates/dashboard.html").read_text(encoding="utf-8")
 
-    stale_at = html.find("d.stale === true")
     live_at = html.find("b.className = 'badge live'")
+    assert live_at != -1, "the LIVE badge assignment moved"
 
+    stale_at = html.find("d.stale === true")
     assert stale_at != -1, (
-        "the page never checks d.stale — a fallback payload renders as LIVE")
-    assert live_at != -1, "precondition: the live badge assignment moved"
+        "the page no longer branches on d.stale, so it will paint LIVE over a "
+        "stale payload")
     assert stale_at < live_at, (
-        "the stale check runs AFTER the page declares LIVE, so stale data "
-        "is shown as current")
+        "the stale branch comes after the LIVE badge, so a stale payload is "
+        "still painted LIVE first")
 
-    # The branch must actually stop, not fall through into the live path.
     branch = html[stale_at:live_at]
     assert "return;" in branch, (
-        "the stale branch does not return, so execution continues into the "
-        "success path and overwrites the marker with LIVE")
-    assert "ЗАСТАРЕЛИ" in branch, (
-        "the stale branch does not label the data for the reader")
+        "the stale branch does not return, so execution falls through into "
+        "the LIVE path")
+    assert "ЗАСТАРЕЛИ" in branch
