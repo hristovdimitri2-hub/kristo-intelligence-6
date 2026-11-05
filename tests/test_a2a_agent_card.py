@@ -317,3 +317,34 @@ def test_the_card_is_reachable_without_a_trailing_extension_guess(client):
         assert client.get(wrong).status_code == 404, (
             "%s answered; an agent fetching the wrong path must not be handed "
             "something that looks right" % wrong)
+
+
+# ── 8. published where agents read, not only at its conventional path ──────
+def test_the_card_is_published_in_the_two_surfaces_agents_actually_read(client):
+    """A card at its conventional path is correct and easy to miss.
+
+    `/agents.json` and `/llms.txt` are the manifests an agent reads to learn what
+    a service sells. Both listed our six HTTP routes and said nothing about A2A,
+    so an agent could read either one in full and still not know we speak it.
+    This checks the pointer is in both AND that what it names answers — a
+    manifest advertising a dead URL is worse than a silent one.
+    """
+    agents = client.get("/agents.json").get_json()
+    docs = agents["docs"]
+    assert docs["a2a_agent_card"].endswith("/.well-known/agent-card.json")
+    assert docs["a2a_endpoint"].endswith("/a2a")
+
+    llms = client.get("/llms.txt").get_data(as_text=True)
+    assert "/.well-known/agent-card.json" in llms
+    assert "/a2a" in llms
+
+    # The honesty claim is part of the publication, not decoration: without it
+    # an agent asks the A2A surface for the paid payload, is correctly refused,
+    # and reads that refusal as a broken agent rather than a boundary.
+    assert "does not return the live payload" in llms
+
+    # Not taken on faith — fetch what the manifest names.
+    for url in (docs["a2a_agent_card"], docs["a2a_endpoint"]):
+        path = _path_of(url)
+        assert path in ("/.well-known/agent-card.json", "/a2a"), path
+        assert client.get(path).status_code == 200

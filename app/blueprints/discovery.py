@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 793
+SUITE_TESTS_PASSED = 794
 SUITE_LAST_RUN = "2026-11-05"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2667,6 +2667,15 @@ def agents_json():
             "openapi": f"{base_url}/openapi.json",
             "x402_discovery": f"{base_url}/.well-known/x402.json",
             "mcp_manifest": f"{base_url}/api/mcp/manifest",
+            # A2A (protocol 0.3.0). Published here and in llms.txt because the
+            # card otherwise existed only at its conventional path: an agent
+            # reading this manifest — which is exactly the agent that buys —
+            # learned our six HTTP routes and nothing about the A2A surface.
+            # The card answers the same six products with their free sample and
+            # their terms; it does not hand out the paid payload, and its own
+            # capabilities block says so.
+            "a2a_agent_card": f"{base_url}/.well-known/agent-card.json",
+            "a2a_endpoint": f"{base_url}/a2a",
         },
         "payment_verification": "On-chain ERC-20 Transfer event monitoring",
     })
@@ -2906,6 +2915,9 @@ on-chain check (`amount >= price`) and the excess is NOT refunded.
 - GET /llms.txt — This file (LLM-friendly API description)
 - GET /api/mcp/manifest — MCP/x402 machine-readable manifest
 - GET /agents.json — agent and service discovery manifest
+- GET /.well-known/agent-card.json — A2A Agent Card (protocol 0.3.0)
+- POST /a2a — A2A JSON-RPC (message/send, tasks/get): name a product and it
+  answers with that product's free sample and its exact terms. Free.
 - GET /api/v1/agents — the same six paid routes as a compact, PRICED catalogue
   (id, category, endpoint, price, description) — the fastest way for an agent to
   decide which route to buy. Free, no payment, no key.
@@ -2922,6 +2934,25 @@ Each one returns the real response shape with example data, and costs nothing.
 Use them to build and test a client before spending anything.
 
 {sample_lines}
+
+## Agent-to-Agent (A2A)
+
+We speak A2A, protocol 0.3.0. The card is at
+{base_url}/.well-known/agent-card.json and the endpoint is {base_url}/a2a.
+
+- `message/send` — name a product in plain text; it answers with that product's
+  free sample and its exact paid terms.
+- `tasks/get` — fetch a task you sent earlier and we are still holding.
+
+Be clear about what this buys you: the A2A surface returns the SAMPLE and the
+TERMS. It does not return the live payload. That is what the HTTP route's
+paywall sells, and asking here differently will not change it — this is a
+discovery and negotiation surface, not a way round the 402. We set it up that
+way on purpose: an A2A endpoint that handed out the paid data would be selling
+the same product twice at two prices.
+
+The card advertises no capability we do not have: no streaming, no push
+notifications, no state-transition history.
 
 ## Base URL
 
@@ -2955,5 +2986,7 @@ When payment is required, the API returns HTTP 402 with:
 - OpenAPI: {base_url}/openapi.json
 - LLMs: {base_url}/llms.txt
 - MCP Manifest: {base_url}/api/mcp/manifest
+- A2A Agent Card: {base_url}/.well-known/agent-card.json
+- A2A endpoint: {base_url}/a2a
 """
     return Response(content, mimetype="text/plain")
