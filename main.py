@@ -2440,8 +2440,17 @@ def x402_trust_verification_file():
 def funnel_redirect(channel):
     """Marketing attribution hop: /f/<channel> 302s to the storefront.
 
-    The after_request hook records the channel, so every later request
-    from a client acquired through it traces back to the channel.
+    The after_request hook records THIS request as arriving from `channel`,
+    which is why /f/ hits show up in the board's `by_channel` breakdown.
+
+    It does NOT record the client's later requests, and the earlier wording here
+    claimed it did. `g` is request-scoped: Flask tears it down with the 302
+    response, so the storefront request that follows carries no channel at all.
+    Measured on 05.11 — four hops through /f/verify-f42 produced exactly one
+    `by_channel` row, n=4, and none of the follow-up requests were attributed to
+    it. Making the attribution actually work needs a cookie or the Referer
+    header, which is a privacy decision rather than a bug to patch quietly.
+    Tracked as F-42.
     """
     if len(channel) > 32 or not all(c.isalnum() or c in "-_" for c in channel):
         return jsonify({"error": "invalid channel"}), 404

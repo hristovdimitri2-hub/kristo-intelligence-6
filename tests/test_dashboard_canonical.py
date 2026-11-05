@@ -293,6 +293,70 @@ def test_dashboard_data_sections_and_crm_never_in_onchain(client):
     assert "invariant" in payload
 
 
+# The seven all-time panels the 05.11 objective named by hand. They are listed
+# here because NOTHING asserted that they arrive. A panel that drops out of the
+# parked set does not fail — it goes EMPTY, and an empty list is pixel-identical
+# to "we have no traffic". That is the defect this tuple exists to catch.
+OBJECTIVE_ALL_TIME_PANELS = (
+    "total", "total_clean", "by_source", "by_channel",
+    "top_user_agents", "internal_noise", "funnel",
+)
+
+
+def test_every_all_time_panel_the_objective_named_carries_a_real_value(tmp_path):
+    """All seven named panels, from one seeded board, none of them a placeholder.
+
+    `by_channel` is the interesting one: it was empty on the live board, and the
+    honest reading — nobody has ever used an /f/<channel> link — is also exactly
+    what a broken panel would look like. This pins the panel to real data, and
+    the live probe pinned the /f/<channel> route to the panel.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "d.db")
+    # One attribution hop: /f/<channel> is what labels a request with a channel.
+    store.record_request("GET", "/f/partner", "web", 302,
+                         user_agent="Mozilla/5.0", funnel="partner")
+    # Ordinary traffic: two sources, a real client, and a paid follow-up.
+    store.record_request("GET", "/api/v1/signal", "api", 402,
+                         user_agent="x402-agent/1.0")
+    store.record_request("GET", "/api/v1/signal", "api", 200,
+                         user_agent="x402-agent/1.0")
+    store.record_request("GET", "/", "web", 200, user_agent="Mozilla/5.0")
+    # Our own keep-alive, so `internal_noise` has something real to count.
+    store.record_request("GET", "/health", "web", 200, user_agent="Render/1.0")
+
+    summary = _served(store)
+
+    for panel in OBJECTIVE_ALL_TIME_PANELS:
+        assert panel in summary, "%r vanished from the served payload" % panel
+
+    assert summary["total"] == 5
+    assert summary["total_clean"] == 4                  # the keep-alive is noise
+    assert summary["by_source"], "by_source came back empty"
+    assert summary["by_channel"] == [{"channel": "partner", "n": 1}]
+    assert summary["top_user_agents"], "top_user_agents came back empty"
+    assert summary["internal_noise"]["total"] == 1
+    assert summary["funnel"], "the funnel named no route at all"
+    assert summary["funnel"]["/api/v1/signal"]["challenges_total"] == 1
+    assert summary["funnel"]["/api/v1/signal"]["paid_total"] == 1
+
+    # `degraded` must not name any of the seven. Checking the names rather than
+    # the whole list keeps the failure aimed at the objective, and catches the
+    # case where a panel answers nothing while a neighbour fails too.
+    offenders = [entry for entry in (summary.get("degraded") or [])
+                 if any(panel in str(entry)
+                        for panel in OBJECTIVE_ALL_TIME_PANELS)]
+    assert offenders == [], "named panels did not answer: %s" % offenders
+
+    # `served_from_snapshot` is deliberately NOT asserted. The served payload
+    # carries it only when a panel was actually BORROWED from the parked read,
+    # and nothing needed borrowing with this seed. Asserting its presence would
+    # pin a property the code does not have — the same defect class as a
+    # docstring that promises a behaviour the function never had. Live, where
+    # the funnel does fall back, it reads `['funnel']`.
+
+
 def test_dashboard_page_renders_and_nexus_redirects(client):
     test_client, main, _ = client
     resp = test_client.get("/dashboard")
