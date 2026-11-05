@@ -758,6 +758,33 @@ def test_the_parked_funnel_is_never_used_to_invent_zero(store, monkeypatch):
         "the board does not say the funnel could not be read")
 
 
+def test_a_parked_absence_never_overwrites_a_live_reading(store, monkeypatch):
+    """The other half of the merge, and the worst shape of wrong.
+
+    `internal_noise.today` is read LIVE, from the indexed day window; the
+    snapshot does not read that half at all, so its `today` is None. A plain
+    `dict.update()` copied that absence over the live count — and measured on the
+    live board that produced `today` a real 22277, `today_clean` a dash, and
+    `degraded` EMPTY, because the panel had in fact been read. Two numbers about
+    the same traffic, one right and one missing, with nothing to say which.
+    """
+    _snapshot_with(store, monkeypatch,
+                   {"internal_noise": {"today": None, "total": 1075724}})
+
+    out = store.requests_summary()
+
+    assert out["today"] is not None, "the live day count went missing"
+    assert out["internal_noise"]["today"] is not None, (
+        "the snapshot's absence for the day half overwrote the live reading")
+    assert out["internal_noise"]["total"] == 1075724, (
+        "the snapshot's real all-time count was not used")
+    assert out["today_clean"] == max(0, out["today"]
+                                     - out["internal_noise"]["today"]), (
+        "today_clean is not the difference of the two numbers shown beside it: "
+        "%r vs today=%r noise_today=%r"
+        % (out["today_clean"], out["today"], out["internal_noise"]["today"]))
+
+
 # ── 8. a pass that keeps failing must say so ───────────────────────────────
 def test_a_failing_snapshot_pass_is_reported_by_class(store, monkeypatch):
     """'Still coming' and 'has been failing' both look like a dash.

@@ -179,6 +179,15 @@ REQUEST_SNAPSHOT_PANELS = (
 #: instead of a dash. Neither is ever invented.
 REQUEST_SNAPSHOT_FALLBACK_KEYS = ("funnel",)
 
+#: Keys the snapshot contributes to but that must be MERGED into the live result
+#: instead of copied over it, because the request path already read part of them.
+#: The override loop skips exactly these. Getting this wrong is not theoretical:
+#: `internal_noise` was in the override loop, so the parked object — whose `today`
+#: is None because the snapshot never reads the day half — replaced the live one
+#: wholesale, and the board showed a real `today` beside a `today_clean` of „—"
+#: with nothing marked degraded.
+REQUEST_SNAPSHOT_MERGED_KEYS = REQUEST_SNAPSHOT_FALLBACK_KEYS + ("internal_noise",)
+
 #: The served-summary keys that those panels produce. The serve path overlays
 #: these from the snapshot; anything here that the snapshot has not read is
 #: reported as unreadable rather than dropped or zeroed.
@@ -1010,9 +1019,10 @@ class HistoryStore:
         snap_skipped = set(snapshot.get("skipped", ()))
 
         for key in REQUEST_SNAPSHOT_KEYS:
-            # Live-first keys are excluded here and handled below: overriding
-            # them would replace a fresh reading with an older one.
-            if key in REQUEST_SNAPSHOT_FALLBACK_KEYS:
+            # MERGED keys are excluded here and handled below. `internal_noise`
+            # is one of them, and leaving it in this loop was a real defect: the
+            # parked object replaced the live one, taking the day half with it.
+            if key in REQUEST_SNAPSHOT_MERGED_KEYS:
                 continue
             if key in parked:
                 live[key] = parked[key]
@@ -1020,11 +1030,20 @@ class HistoryStore:
         # `internal_noise` is HALF live: today's keep-alive count is bounded by
         # the indexed day window and is read on the request path, while the
         # all-time count scans the table and comes from the snapshot. Replacing
-        # the object wholesale would put a stale number where a fresh one was.
+        # the object wholesale would put a stale number where a fresh one was —
+        # and so would a plain `update()`, which is what this did first. The
+        # snapshot does not read the day half at all, so its `today` is None, and
+        # `update()` copied that absence straight over the live reading. Measured
+        # on the live board: `internal_noise.today` was None and `today_clean`
+        # rendered „—" WHILE `today` was a real 22277 and `degraded` was empty,
+        # because the panel HAD been read. An absence must never overwrite a
+        # number we hold.
         parked_noise = parked.get("internal_noise")
         if isinstance(parked_noise, dict):
             noise = dict(live.get("internal_noise") or {})
-            noise.update(parked_noise)
+            for key, value in parked_noise.items():
+                if value is not None:
+                    noise[key] = value
             live["internal_noise"] = noise
 
         # Live-first keys. A dash next to a value we actually hold is its own
