@@ -78,6 +78,16 @@ PG_STATEMENT_TIMEOUT_MS = max(
 PG_LOCK_WAIT_SECONDS = max(
     1.0, float(os.getenv("KRISTO_PG_LOCK_WAIT_SECONDS", "15")))
 
+#: How long a computed `request_log` summary may be replayed (seconds).
+#:
+#: The dashboard polls every 45s, so a value below that would recompute on
+#: every single poll — the cost this exists to remove. The aggregates it
+#: covers are all-time and day-grain, so a minute of age cannot make a number
+#: wrong; it can only make `today` lag by up to a minute, which is invisible
+#: on a 45-second refresh.
+REQUEST_SUMMARY_TTL_SECONDS = max(
+    5.0, float(os.getenv("KRISTO_REQUEST_SUMMARY_TTL_SECONDS", "60")))
+
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
 PAYER_CLASSES = {
     "chet_payapi_verification": "canary",
@@ -357,6 +367,17 @@ class HistoryStore:
         self._probe_at = 0.0
         self._probe_alive = None
         self._probe_error = ""
+        # TTL cache for the all-time request aggregates (see requests_summary).
+        # These eight unbounded counts and GROUP BYs are the most expensive
+        # thing the dashboard does, they ran on every 45s poll, and they ran
+        # behind the single shared Postgres lock — which is how one slow read
+        # became a service-wide outage on 05.11. Guarded by its own lock so a
+        # slow compute never blocks a warm read.
+        self._summary_lock = threading.Lock()
+        self._summary_value: Optional[Dict[str, Any]] = None
+        self._summary_json = "{}"
+        self._summary_at = 0.0
+        self._summary_limit: Optional[int] = None
         # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
         # EXISTS, so the schema cannot drift between the two backends either.
         self._ensure_schema()
@@ -717,6 +738,47 @@ class HistoryStore:
         self._run(ddl)
 
     def requests_summary(self, recent_limit: int = 25) -> Dict[str, Any]:
+        """TTL-cached wrapper around the all-time request aggregates.
+
+        WHY THIS EXISTS. `_requests_summary_compute` below issues EIGHT
+        unbounded aggregates — `COUNT(*)` with no WHERE, plus `GROUP BY
+        source / funnel / path / user_agent` — over `request_log`. That table
+        has no retention (nothing ever deletes from it), so it only grows; the
+        same file already records a fix for two full scans when it held
+        "~783K rows". A `COUNT(*)` with no predicate cannot use an index, and a
+        `GROUP BY` over the whole table is a full scan plus a hash aggregate.
+
+        Measured on 05.11: /api/dashboard/data hung past 90s and the whole
+        service went down with it, because every one of those scans ran behind
+        the single shared Postgres link on EVERY poll — and the page polls
+        every 45 seconds.
+
+        The numbers here are all-time or day-grain. None of them becomes more
+        correct when recomputed on every request, so they are computed at most
+        once per `REQUEST_SUMMARY_TTL_SECONDS` and replayed in between. This
+        changes NO displayed value: it is the same query, asked less often.
+        """
+        limit = int(recent_limit)
+        now = time.time()
+        ttl = REQUEST_SUMMARY_TTL_SECONDS
+        with self._summary_lock:
+            fresh = (self._summary_value is not None
+                     and self._summary_limit == limit
+                     and (now - self._summary_at) < ttl)
+            if fresh:
+                # A deep copy through JSON: the caller gets its own lists, so
+                # nothing it does downstream can reach back into the cache.
+                return json.loads(self._summary_json)
+        value = self._requests_summary_compute(recent_limit=limit)
+        blob = json.dumps(value, default=str)
+        with self._summary_lock:
+            self._summary_value = value
+            self._summary_json = blob
+            self._summary_at = now
+            self._summary_limit = limit
+        return json.loads(blob)
+
+    def _requests_summary_compute(self, recent_limit: int = 25) -> Dict[str, Any]:
         """today/total + channel (/f/<name>) + source breakdown.
 
         The internal keep-alive traffic (UA 'Render/1.0' — our own /health pings
