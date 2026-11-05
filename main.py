@@ -6017,6 +6017,13 @@ def _crm_stripe_section() -> dict:
     }
 
 
+#: Per-step cost of the MOST RECENT build attempt, successful or not. Written
+#: by `_step` after every step so a build that dies halfway still reports the
+#: steps that ran and the name of the one that hung. Read by
+#: /api/dashboard/build-status.
+_DASHBOARD_LAST_BUILD_TIMINGS: Dict[str, float] = {}
+
+
 def _canonical_dashboard_payload(include_crm: bool = False,
                                  include_sales_detail: bool = False) -> dict:
     """Build the whole read model from persistent sources only.
@@ -6047,6 +6054,12 @@ def _canonical_dashboard_payload(include_crm: bool = False,
             return fn()
         finally:
             _timings[name] = round((time.perf_counter() - _t) * 1000.0, 1)
+            # Publish after EVERY step, not at the end. A build that dies on
+            # step 5 must still say what steps 1-4 cost and which one hung —
+            # "the dashboard is slow" is not a diagnosis, and the build that
+            # fails is precisely the one worth measuring.
+            _DASHBOARD_LAST_BUILD_TIMINGS.clear()
+            _DASHBOARD_LAST_BUILD_TIMINGS.update(_timings)
 
     sales = _step("sales_summary", dashboard_db.sales_summary)
     # ON-CHAIN SALES · УСЛУГА (14.10): the route each payment was CONSUMED on.
@@ -6306,7 +6319,7 @@ _DASHBOARD_REFRESHING: set = set()
 #: Why the last build for a variant FAILED, if it did. Kept so the cold path
 #: can tell "still building" apart from "this is broken" and raise the real
 #: error instead of reporting an endless warm-up.
-_DASHBOARD_LAST_ERROR: Dict[Tuple[bool, bool], str] = {}
+_DASHBOARD_LAST_ERROR: Dict[Tuple[bool, bool], dict] = {}
 
 #: Age at which a served payload triggers a BACKGROUND refresh. Below this the
 #: cached read is simply returned.
@@ -6341,7 +6354,12 @@ def _dashboard_build(key, include_crm: bool, include_sales_detail: bool) -> dict
             include_sales_detail=include_sales_detail)
     except Exception as exc:
         with _DASHBOARD_LAST_GOOD_LOCK:
-            _DASHBOARD_LAST_ERROR[key] = redact_rpc(exc)
+            # The TYPE is safe to publish; the message is not, because a
+            # psycopg error can carry the host and the user name.
+            _DASHBOARD_LAST_ERROR[key] = {
+                "type": type(exc).__name__,
+                "message": redact_rpc(exc),
+            }
         raise
     with _DASHBOARD_LAST_GOOD_LOCK:
         # A SHALLOW copy on purpose: this dict is the cache, and only its
@@ -6485,7 +6503,8 @@ def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) 
         if failed is not None and not busy:
             # Not "warming up" — broken. The caller gets the real reason
             # rather than an endless, dishonest warm-up message.
-            raise RuntimeError("dashboard build failed: %s" % failed)
+            raise RuntimeError("dashboard build failed: %s"
+                               % failed.get("message", failed))
         if time.time() >= deadline:
             raise DashboardWarming(
                 "no dashboard figures have been built yet and the first build "
@@ -6526,6 +6545,50 @@ def api_dashboard_data():
         return _safe_jsonify({"ok": False, "warming": True,
                               "error": str(exc)}), 503
     return _safe_jsonify(payload)
+
+
+@app.route("/api/dashboard/build-status")
+def api_dashboard_build_status():
+    """Why the board is slow or blank — measured by the service itself.
+
+    Deliberately narrow. It publishes counts, ages, the per-step cost of the
+    most recent build ATTEMPT, and the exception CLASS of the last failure. It
+    does NOT publish the failure MESSAGE to the public — a psycopg error can
+    name the host and the user — while an admin read gets that too, because the
+    operator is the one who has to act on it.
+
+    This exists because diagnosing the 05.11 outage meant guessing. Nobody could
+    say which of the eight reads cost the 40 seconds, or why the build raised:
+    the payload carried no clocks and the failure text only went to a log. A
+    dashboard that cannot say why it is slow is a dashboard that gets fixed by
+    guessing, and guessing is what produced the wrong "Render billing problem"
+    diagnosis earlier in this same incident.
+    """
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        cached = {str(k): round(time.time() - v[1], 1)
+                  for k, v in _DASHBOARD_LAST_GOOD.items()}
+        inflight = sorted(str(k) for k in _DASHBOARD_REFRESHING)
+        error_types = {str(k): v.get("type")
+                       for k, v in _DASHBOARD_LAST_ERROR.items()}
+        error_msgs = {str(k): v.get("message")
+                      for k, v in _DASHBOARD_LAST_ERROR.items()}
+        timings = dict(_DASHBOARD_LAST_BUILD_TIMINGS)
+
+    body = {
+        "ok": True,
+        "cache_age_seconds": cached,
+        "refreshing": inflight,
+        "last_error_type": error_types,
+        "last_build_timings_ms": timings,
+        "slowest_step": (max(timings.items(), key=lambda kv: kv[1])[0]
+                         if timings else None),
+        "revalidate_seconds": _DASHBOARD_REVALIDATE_SECONDS,
+        "fresh_seconds": _DASHBOARD_FRESH_SECONDS,
+        "cold_wait_seconds": _DASHBOARD_COLD_WAIT_SECONDS,
+    }
+    if _is_admin_request():
+        body["last_error_message"] = error_msgs
+    return _safe_jsonify(body)
 
 
 @app.route("/api/dashboard/operator-view", methods=["POST"])

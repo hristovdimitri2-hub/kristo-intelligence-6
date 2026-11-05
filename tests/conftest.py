@@ -53,6 +53,7 @@ def _reset_dashboard_stats_cache():
     _lock = getattr(main, "_DASHBOARD_LAST_GOOD_LOCK", None)
     _inflight = getattr(main, "_DASHBOARD_REFRESHING", None)
     _errors = getattr(main, "_DASHBOARD_LAST_ERROR", None)
+    _timings = getattr(main, "_DASHBOARD_LAST_BUILD_TIMINGS", None)
 
     def _reset():
         if _clear is None or _lock is None:
@@ -63,6 +64,8 @@ def _reset_dashboard_stats_cache():
                 _inflight.clear()
             if _errors is not None:
                 _errors.clear()
+        if _timings is not None:
+            _timings.clear()
 
     _reset()
     yield

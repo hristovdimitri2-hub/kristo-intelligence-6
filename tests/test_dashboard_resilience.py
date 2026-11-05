@@ -43,6 +43,7 @@ The assertions that carry the weight, therefore:
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -480,7 +481,93 @@ def test_the_refresh_thread_is_a_daemon(main_module, monkeypatch):
     assert all(kw.get("daemon") is True for kw in seen)
 
 
-# ── 8. the page must not paint LIVE over a stale payload ───────────────────
+# ── 8. the diagnosis must be readable AND not a leak ───────────────────────
+def _status(main, monkeypatch, admin=False):
+    monkeypatch.setattr(main, "_is_admin_request", lambda: admin)
+    return main.app.test_client().get("/api/dashboard/build-status")
+
+
+def test_build_status_says_which_step_is_slow(main_module, monkeypatch):
+    """The whole point: stop guessing which read costs the time.
+
+    Diagnosing 05.11 meant guessing, and the first guess — "Render billing" —
+    was wrong. This is the payload saying it itself.
+    """
+    main = main_module
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_LAST_BUILD_TIMINGS.clear()
+        main._DASHBOARD_LAST_BUILD_TIMINGS.update(
+            {"sales_summary": 120.0, "whaleflow_summary": 9000.0})
+
+    d = _status(main, monkeypatch).get_json()
+
+    assert d["slowest_step"] == "whaleflow_summary"
+    assert d["last_build_timings_ms"]["whaleflow_summary"] == 9000.0
+
+
+def test_build_status_reports_the_failure_type_but_never_the_message(
+        main_module, monkeypatch):
+    """A psycopg message can name the host and the user; a type name cannot."""
+    main = main_module
+    secret = "connection to server at 10.0.0.5, port 5432 failed: FATAL"
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_LAST_ERROR[(False, False)] = {
+            "type": "OperationalError", "message": secret}
+
+    d = _status(main, monkeypatch, admin=False).get_json()
+
+    assert d["last_error_type"] == {"(False, False)": "OperationalError"}, (
+        "the failure CLASS is the diagnosis and must be published")
+    assert "last_error_message" not in d, (
+        "the public status exposed the raw failure message")
+    assert "10.0.0.5" not in json.dumps(d), (
+        "the public status leaked the database host")
+
+
+def test_build_status_gives_an_admin_the_message_too(main_module, monkeypatch):
+    """The operator is the one who has to act on it."""
+    main = main_module
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_LAST_ERROR[(False, False)] = {
+            "type": "OperationalError", "message": "relation does not exist"}
+
+    d = _status(main, monkeypatch, admin=True).get_json()
+
+    assert d["last_error_message"] == {
+        "(False, False)": "relation does not exist"}
+
+
+def test_build_status_reports_cache_age_and_tunables(main_module, monkeypatch):
+    main = main_module
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_LAST_GOOD[(False, False)] = ({"ok": True},
+                                                     time.time() - 42)
+
+    d = _status(main, monkeypatch).get_json()
+
+    assert abs(d["cache_age_seconds"]["(False, False)"] - 42) < 5
+    assert d["revalidate_seconds"] > 0
+    assert d["cold_wait_seconds"] > 0
+
+
+def test_the_data_route_answers_503_warming_not_500(main_module, monkeypatch):
+    """503 says "not ready yet"; 500 would claim the service is broken."""
+    main = main_module
+
+    def warming(include_crm, include_sales_detail):
+        raise main.DashboardWarming("still building")
+
+    monkeypatch.setattr(main, "_dashboard_payload_resilient", warming)
+    monkeypatch.setattr(main, "_is_admin_request", lambda: False)
+    monkeypatch.setattr(main, "_operator_view_enabled", lambda: False)
+
+    r = main.app.test_client().get("/api/dashboard/data")
+
+    assert r.status_code == 503
+    assert r.get_json()["warming"] is True
+
+
+# ── 9. the page must not paint LIVE over a stale payload ───────────────────
 def test_the_page_checks_stale_before_it_declares_live():
     """Structural: the template must handle `d.stale` BEFORE the LIVE path.
 
