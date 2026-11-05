@@ -488,8 +488,13 @@ const CLS_WORDS = {
   canary: 'наш тест',
 };
 
+// Липсващо число се показва като „—", НИКОГА като 0. Нулата тук е твърдение за
+// трафик, а ние ще го измислим — различно е от „не можа да се прочете".
+const DASH = '—';
+function num(v) { return (v === null || v === undefined || v === '') ? DASH : v; }
+
 function card(v, k, hero) {
-  return `<div class="card${hero ? ' hero' : ''}"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`;
+  return `<div class="card${hero ? ' hero' : ''}"><div class="v">${num(v)}</div><div class="k">${esc(k)}</div></div>`;
 }
 
 // КОЙ ПЛАЩА ПО ВСЕКИ РЕД. Таблицата има два вида: публичен ({ts, amount} само,
@@ -769,11 +774,18 @@ function renderRoutes(rt) {
 
 function renderRequests(r) {
   const noise = (r.internal_noise || {});
+  const missing = (r.degraded || []);
   $('req-cards').innerHTML =
     card(r.today_clean ?? r.today, `ДНЕС ЧИСТИ (без keep-alive) — ${esc(r.today_date)} UTC`, true) +
     card(r.total_clean ?? r.total, 'Общо чисти (от лог-а)') +
     card(r.today, 'Днес общо (raw)') +
-    card(`${noise.today ?? 0} · ${noise.total ?? 0}`, 'Вътрешен шум (Render/1.0)');
+    card(`${num(noise.today)} · ${num(noise.total)}`, 'Вътрешен шум (Render/1.0)') +
+    // Кажи го с думи, вместо да оставиш празнина, която изглежда като „няма трафик".
+    (missing.length
+      ? `<div class="empty" style="grid-column:1/-1">Част от числата по-горе не можаха
+         да се прочетат от базата (${esc(missing.slice(0, 4).join(', '))}${missing.length > 4 ? '…' : ''}).
+         Показано е само реално прочетеното — липсващо число е „—", не се измисля нула.</div>`
+      : '');
   // The payment funnel moved to its own always-visible section (renderFunnel)
   // so "402 → платени" is on screen permanently, not behind a hidden box.
   const ch = (r.by_channel || []);

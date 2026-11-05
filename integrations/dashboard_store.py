@@ -88,6 +88,18 @@ PG_LOCK_WAIT_SECONDS = max(
 REQUEST_SUMMARY_TTL_SECONDS = max(
     5.0, float(os.getenv("KRISTO_REQUEST_SUMMARY_TTL_SECONDS", "60")))
 
+#: How long the traffic summary may spend READING before the panels it has not
+#: reached yet are reported as unreadable (seconds).
+#:
+#: The ten queries behind this summary are mostly full scans of `request_log`
+#: (~783K rows, no retention). Measured live on 05.11 they took 10-21 SECONDS
+#: each on this Postgres plan, and the first to hit the 8s statement timeout
+#: raised QueryCanceled and failed the ENTIRE dashboard build — so the cache
+#: never filled and every request built again. Bounding the TTL was not enough;
+#: the read itself has to be survivable.
+REQUEST_SUMMARY_BUDGET_SECONDS = max(
+    1.0, float(os.getenv("KRISTO_REQUEST_SUMMARY_BUDGET_SECONDS", "6")))
+
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
 PAYER_CLASSES = {
     "chet_payapi_verification": "canary",
@@ -853,44 +865,107 @@ class HistoryStore:
         day_params = (today, tomorrow)
         internal_sql = "user_agent LIKE 'Render/%'"
 
-        total = self._run(
-            "SELECT COUNT(*) AS n FROM request_log", (), one)[0]["n"]
-        today_row = self._run(
-            "SELECT COUNT(*) AS n FROM request_log "
-            "WHERE ts >= ? AND ts < ?", day_params, one)[0]["n"]
-        noise_total = self._run(
-            f"SELECT COUNT(*) AS n FROM request_log WHERE {internal_sql}",
-            (), one)[0]["n"]
-        noise_today = self._run(
-            f"SELECT COUNT(*) AS n FROM request_log "
-            f"WHERE ts >= ? AND ts < ? AND {internal_sql}",
-            day_params, one)[0]["n"]
-        by_source = self._run(
-            """SELECT source, COUNT(*) AS n FROM request_log
-               GROUP BY source ORDER BY n DESC""", (), all_)[0]
-        by_source_clean = self._run(
-            f"""SELECT source, COUNT(*) AS n FROM request_log
-                WHERE NOT ({internal_sql})
-                GROUP BY source ORDER BY n DESC""", (), all_)[0]
-        by_channel = self._run(
-            """SELECT funnel AS channel, COUNT(*) AS n FROM request_log
-               WHERE funnel IS NOT NULL AND funnel <> ''
-               GROUP BY funnel ORDER BY n DESC""", (), all_)[0]
-        by_path = self._run(
-            """SELECT path, COUNT(*) AS n FROM request_log
-               GROUP BY path ORDER BY n DESC LIMIT 10""", (), all_)[0]
-        top_user_agents = self._run(
-            f"""SELECT user_agent, COUNT(*) AS n FROM request_log
-                WHERE user_agent <> '' AND NOT ({internal_sql})
-                GROUP BY user_agent ORDER BY n DESC LIMIT 10""", (), all_)[0]
-        hourly = self._run(
-            """SELECT substr(ts, 12, 2) AS hour, COUNT(*) AS n,
-                      SUM(CASE WHEN user_agent LIKE 'Render/%' THEN 1 ELSE 0 END)
-                          AS noise
-               FROM request_log
-               WHERE ts >= ? AND ts < ?
-               GROUP BY substr(ts, 12, 2) ORDER BY hour""",
-            day_params, all_)[0]
+        degraded: List[str] = []
+        deadline = time.monotonic() + REQUEST_SUMMARY_BUDGET_SECONDS
+
+        def q(name, sql, params=(), fetch=one, default=None, budgeted=True):
+            """Read ONE panel of the traffic summary, tolerantly.
+
+            WHY THIS IS NOT A PLAIN `_run`. On 05.11 this method issued ten
+            queries over `request_log` (~783K rows, and no retention anywhere).
+            Several — `COUNT(*)` with no WHERE, and every GROUP BY — are full
+            scans, and on this Postgres plan they ran for 10-21 SECONDS each.
+            The first one to hit the 8s statement_timeout raised QueryCanceled,
+            which failed the ENTIRE dashboard build, which meant the cache never
+            filled, which meant every single request built again. That is how one
+            slow panel took the whole board — and, for a while, the whole
+            service — down.
+
+            So a panel that cannot be read is REPORTED as unreadable. The rest of
+            the board renders from real numbers and the payload names what is
+            missing. `None` means "we could not read this"; it is NEVER a
+            stand-in zero, because a zero here is a factual claim about traffic
+            that we would be inventing.
+            """
+            if budgeted and time.monotonic() > deadline:
+                degraded.append(name + ":out_of_budget")
+                return default
+            try:
+                return self._run(sql, params, fetch)[0]
+            except Exception as exc:
+                degraded.append(name)
+                log.warning(
+                    "requests_summary[%s] unavailable (%s) — reported as "
+                    "missing rather than taking the board down",
+                    name, type(exc).__name__)
+                return default
+
+        def count(name, sql, params=(), default=None):
+            """One COUNT(*) panel. Returns None when it could not be read.
+
+            Subscripted rather than `.get()`-ed because the SQLite backend hands
+            back `sqlite3.Row`, which has no `.get`.
+            """
+            row = q(name, sql, params, one)
+            if row is None:
+                return default
+            try:
+                return row["n"]
+            except Exception:
+                return default
+
+        # Cheap and load-bearing first, so the board always has today's traffic,
+        # the funnel and the recent log even if the all-time aggregates timeout.
+        today_row = count("today", "SELECT COUNT(*) AS n FROM request_log "
+                                   "WHERE ts >= ? AND ts < ?", day_params)
+        recent = q("recent",
+                   """SELECT ts, method, path, source, status_code, user_agent,
+                             funnel
+                      FROM request_log ORDER BY id DESC LIMIT ?""",
+                   (recent_limit,), all_, []) or []
+        hourly = q("hourly",
+                   """SELECT substr(ts, 12, 2) AS hour, COUNT(*) AS n,
+                             SUM(CASE WHEN user_agent LIKE 'Render/%'
+                                      THEN 1 ELSE 0 END) AS noise
+                      FROM request_log
+                      WHERE ts >= ? AND ts < ?
+                      GROUP BY substr(ts, 12, 2) ORDER BY hour""",
+                   day_params, all_, []) or []
+        by_path = q("by_path",
+                    """SELECT path, COUNT(*) AS n FROM request_log
+                       GROUP BY path ORDER BY n DESC LIMIT 10""",
+                    (), all_, []) or []
+        by_channel = q("by_channel",
+                       """SELECT funnel AS channel, COUNT(*) AS n
+                          FROM request_log
+                          WHERE funnel IS NOT NULL AND funnel <> ''
+                          GROUP BY funnel ORDER BY n DESC""",
+                       (), all_, []) or []
+        by_source = q("by_source",
+                      """SELECT source, COUNT(*) AS n FROM request_log
+                         GROUP BY source ORDER BY n DESC""",
+                      (), all_, []) or []
+        by_source_clean = q("by_source_clean",
+                            f"""SELECT source, COUNT(*) AS n FROM request_log
+                                WHERE NOT ({internal_sql})
+                                GROUP BY source ORDER BY n DESC""",
+                            (), all_, []) or []
+        top_user_agents = q("top_user_agents",
+                            f"""SELECT user_agent, COUNT(*) AS n
+                                FROM request_log
+                                WHERE user_agent <> '' AND NOT ({internal_sql})
+                                GROUP BY user_agent ORDER BY n DESC LIMIT 10""",
+                            (), all_, []) or []
+        noise_today = count("noise_today",
+                            f"SELECT COUNT(*) AS n FROM request_log "
+                            f"WHERE ts >= ? AND ts < ? AND {internal_sql}",
+                            day_params)
+        # The two unconditional counts are the worst offenders: COUNT(*) with no
+        # WHERE cannot use any index, on any Postgres, ever. They go last.
+        noise_total = count("noise_total",
+                            f"SELECT COUNT(*) AS n FROM request_log "
+                            f"WHERE {internal_sql}")
+        total = count("total", "SELECT COUNT(*) AS n FROM request_log")
 
         # ── payment funnel per paid route: 402 challenges vs paid retries ──
         # One grouped scan instead of two full scans per route (option B,
@@ -899,7 +974,8 @@ class HistoryStore:
         # including the 13.09 bugfix where "today" must come from the TODAY
         # predicate, not from the all-time totals.
         placeholders = ", ".join("?" for _ in FUNNEL_ROUTES)
-        funnel_rows = self._run(
+        funnel_rows = q(
+            "funnel",
             f"""SELECT path,
                        SUM(CASE WHEN status_code = 402 THEN 1 ELSE 0 END)
                            AS challenges,
@@ -912,7 +988,7 @@ class HistoryStore:
                 FROM request_log
                 WHERE path IN ({placeholders})
                 GROUP BY path""",
-            (*day_params, *day_params, *FUNNEL_ROUTES), all_)[0]
+            (*day_params, *day_params, *FUNNEL_ROUTES), all_, []) or []
         funnel_by_path = {r["path"]: r for r in funnel_rows}
         funnel = {}
         for path in FUNNEL_ROUTES:
@@ -924,16 +1000,27 @@ class HistoryStore:
                     (cur["challenges_today"] or 0) if cur else 0,
                 "paid_today": (cur["paid_today"] or 0) if cur else 0,
             }
-        recent = self._run(
-            """SELECT ts, method, path, source, status_code, user_agent, funnel
-               FROM request_log ORDER BY id DESC LIMIT ?""",
-            (recent_limit,), all_)[0]
+
+        def diff(a, b):
+            """`a - b`, or None when either side could not be read.
+
+            Deliberately not clamped to zero on missing input: `max(0, None - 3)`
+            is not a number, and a zero here would be an invented claim about
+            traffic rather than a missing one.
+            """
+            if a is None or b is None:
+                return None
+            return max(0, a - b)
+
         return {
             "today_date": today,
             "today": today_row,
             "total": total,
-            "today_clean": max(0, today_row - noise_today),
-            "total_clean": max(0, total - noise_total),
+            "today_clean": diff(today_row, noise_today),
+            "total_clean": diff(total, noise_total),
+            # Named so the page can say "not read" instead of "no traffic".
+            "degraded": degraded,
+            "available": not degraded,
             "internal_noise": {
                 "today": noise_today,
                 "total": noise_total,
