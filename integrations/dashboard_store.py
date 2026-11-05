@@ -532,23 +532,46 @@ class HistoryStore:
         `connect_timeout`, and a session-level `statement_timeout` so that no
         statement issued on this link can outlive the waiters.
         """
-        import psycopg
-        from psycopg.rows import dict_row
         conn = self._pg_conn
         if conn is None or conn.closed or getattr(conn, "broken", False):
-            conn = psycopg.connect(
-                self.database_url,
-                row_factory=dict_row,
-                connect_timeout=PG_CONNECT_TIMEOUT_SECONDS,
-            )
-            # `set_config` rather than `SET`: the extended protocol cannot bind
-            # a parameter into a SET, and interpolating the value would be the
-            # one place this module built SQL by string formatting.
-            with conn.cursor() as cur:
-                cur.execute("SELECT set_config('statement_timeout', %s, false)",
-                            (str(PG_STATEMENT_TIMEOUT_MS),))
-            conn.commit()
+            conn = self._pg_open(PG_STATEMENT_TIMEOUT_MS)
             self._pg_conn = conn
+        return conn
+
+    def _pg_open(self, statement_timeout_ms: int):
+        """Open a Postgres link with the row factory and timeout this module needs.
+
+        THE ONE PLACE a Postgres connection is created, because the two callers
+        must agree and did not. Both facts below are dialect rules that a fake
+        cursor cannot exercise, so each one has bitten exactly once:
+
+          * `row_factory=dict_row`. Panel readers index rows by column name —
+            `row["n"]` — because `sqlite3.Row` allows it too and this module
+            serves both backends. psycopg's default factory returns plain
+            tuples, so a connection opened without this raises
+            `TypeError: tuple indices must be integers or slices, not str` on
+            the first aggregate it reads. That killed the whole snapshot pass.
+
+          * `set_config` rather than `SET`. The extended protocol cannot bind a
+            parameter into a `SET`: psycopg sends `$1` and the server answers
+            42601 syntax error at or near "$1". Interpolating the value instead
+            would make this the one place the module built SQL by formatting.
+
+        A private connection that forgot either would fail the same way the
+        shared one did, silently, and the board would keep saying "awaiting the
+        snapshot" for ever while nothing anywhere said why.
+        """
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(
+            self.database_url,
+            row_factory=dict_row,
+            connect_timeout=PG_CONNECT_TIMEOUT_SECONDS,
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT set_config('statement_timeout', %s, false)",
+                        (str(int(statement_timeout_ms)),))
+        conn.commit()
         return conn
 
     def _run(self, sql: str, params: tuple = (), fetch: str = ""):
@@ -1090,22 +1113,13 @@ class HistoryStore:
             return
         conn = None
         try:
-            import psycopg
-            conn = psycopg.connect(
-                self.database_url, connect_timeout=PG_CONNECT_TIMEOUT_SECONDS)
-            with conn.cursor() as cur:
-                # `set_config`, NOT `SET statement_timeout = %s`. PostgreSQL does
-                # not accept a bind parameter on the right of `SET` — psycopg
-                # sends $1 and the server answers 42601 syntax error at or near
-                # "$1". That failed the whole pass before it read anything, so
-                # the board kept saying "awaiting the snapshot" for ever, with
-                # no error anywhere a reader could see. The shared connection
-                # twenty lines up already does it this way; a fake cursor in a
-                # unit test cannot catch a dialect rule, which is why the test
-                # for it asserts on the STATEMENT rather than on the outcome.
-                cur.execute("SELECT set_config('statement_timeout', %s, false)",
-                            (str(REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS),))
-            conn.commit()
+            # Through `_pg_open`, the one place a Postgres link is made, so this
+            # connection cannot drift from the shared one on the two dialect
+            # rules that must hold for both: the dict row factory the panel
+            # readers index by name, and the `set_config` form of the statement
+            # timeout. Opening it by hand here is what let it drift once already
+            # and killed the pass with a TypeError before it read a row.
+            conn = self._pg_open(REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS)
 
             def runner(sql, params=(), fetch=""):
                 with conn.cursor() as cur:

@@ -395,6 +395,50 @@ def test_the_snapshot_supplies_the_heavy_panels_to_the_request_path(
     assert "awaiting_snapshot" not in " ".join(out["degraded"])
 
 
+def _fake_psycopg(monkeypatch, on_connect=None, statements=None):
+    """A stand-in for psycopg that is a PACKAGE.
+
+    `_pg_open` does `from psycopg.rows import dict_row`, so the fake must be
+    importable AS a package: a bare module object raises `ModuleNotFoundError:
+    No module named 'psycopg.rows'; 'psycopg' is not a package`. One shared fake
+    also means these tests cannot disagree about what a connection looks like.
+    """
+    import sys
+    import types
+
+    class _Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params=None):
+            if statements is not None:
+                statements.append((sql, params))
+        def fetchall(self): return []
+        def fetchone(self): return None
+        @property
+        def rowcount(self): return 0
+
+    class _Conn:
+        def cursor(self): return _Cursor()
+        def commit(self): pass
+        def close(self): pass
+
+    rows = types.ModuleType("psycopg.rows")
+    rows.dict_row = object()
+    pkg = types.ModuleType("psycopg")
+    pkg.__path__ = []                      # makes `psycopg.rows` importable
+    pkg.rows = rows
+
+    def _connect(dsn, **kw):
+        if on_connect is not None:
+            on_connect(dsn, kw)
+        return _Conn()
+
+    pkg.connect = _connect
+    monkeypatch.setitem(sys.modules, "psycopg", pkg)
+    monkeypatch.setitem(sys.modules, "psycopg.rows", rows)
+    return pkg
+
+
 def test_the_snapshot_runs_on_its_own_connection_with_a_longer_timeout(
         store, monkeypatch):
     """Both halves of the fix, asserted on the SQL actually sent.
@@ -405,32 +449,9 @@ def test_the_snapshot_runs_on_its_own_connection_with_a_longer_timeout(
     20-second read through it would queue every fast panel behind it.
     """
     from integrations import dashboard_store as ds
-    import sys
-    import types
 
-    seen = {"sql": []}
-
-    class FakeCursor:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def execute(self, sql, params=None): seen["sql"].append((sql, params))
-        def fetchall(self): return []
-        def fetchone(self): return None
-        @property
-        def rowcount(self): return 0
-
-    class FakeConn:
-        def cursor(self): return FakeCursor()
-        def commit(self): pass
-        def close(self): pass
-
-    def fake_connect(dsn, **kw):
-        seen["dsn"] = dsn
-        return FakeConn()
-
-    fake = types.ModuleType("psycopg")
-    fake.connect = fake_connect
-    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    opened = []
+    _fake_psycopg(monkeypatch, on_connect=lambda dsn, kw: opened.append(dsn))
     target = getattr(store, "history", store)
     monkeypatch.setattr(target, "backend", "postgresql")
     monkeypatch.setattr(target, "database_url", "postgres://x/y")
@@ -438,7 +459,7 @@ def test_the_snapshot_runs_on_its_own_connection_with_a_longer_timeout(
     with target._private_runner() as runner:
         assert runner is not None
 
-    assert seen.get("dsn") == "postgres://x/y", (
+    assert opened == ["postgres://x/y"], (
         "the snapshot did not open its own connection — it would contend for "
         "the shared lock and re-create the outage")
     assert ds.REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS > ds.PG_STATEMENT_TIMEOUT_MS, (
@@ -459,29 +480,10 @@ def test_the_statement_timeout_is_set_with_set_config_not_set(store, monkeypatch
     the SQL we send, and the correct idiom is `set_config`, which is what the
     shared connection twenty lines up already used.
     """
-    import sys
-    import types
     from integrations import dashboard_store as ds
 
-    seen = {"sql": []}
-
-    class FakeCursor:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def execute(self, sql, params=None): seen["sql"].append((sql, params))
-        def fetchall(self): return []
-        def fetchone(self): return None
-        @property
-        def rowcount(self): return 0
-
-    class FakeConn:
-        def cursor(self): return FakeCursor()
-        def commit(self): pass
-        def close(self): pass
-
-    fake = types.ModuleType("psycopg")
-    fake.connect = lambda dsn, **kw: FakeConn()
-    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    seen = []
+    _fake_psycopg(monkeypatch, statements=seen)
     target = getattr(store, "history", store)
     monkeypatch.setattr(target, "backend", "postgresql")
     monkeypatch.setattr(target, "database_url", "postgres://x/y")
@@ -489,7 +491,7 @@ def test_the_statement_timeout_is_set_with_set_config_not_set(store, monkeypatch
     with target._private_runner():
         pass
 
-    timeouts = [(sql, params) for sql, params in seen["sql"]
+    timeouts = [(sql, params) for sql, params in seen
                 if "statement_timeout" in sql]
     assert timeouts, "the private connection never set its own statement timeout"
 
@@ -504,6 +506,103 @@ def test_the_statement_timeout_is_set_with_set_config_not_set(store, monkeypatch
         assert str(ds.REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS) in str(params), (
             "the private connection's timeout is not the snapshot's own: %r"
             % (params,))
+
+
+def test_the_private_connection_hands_back_rows_by_name(store, monkeypatch):
+    """The SECOND dialect rule a fake cursor cannot catch, and it bit next.
+
+    Panel readers index rows by column name — `row["n"]` — because `sqlite3.Row`
+    allows it and this module serves both backends. psycopg's default factory
+    returns plain tuples, so the private connection raised
+
+        TypeError: tuple indices must be integers or slices, not str
+
+    on the first aggregate it read. Measured live after the `set_config` fix
+    landed: `snapshot_error='TypeError'`, and the board still showed dashes.
+    A fake connection has no row factory to get wrong, so this asserts on the
+    arguments passed to `connect()`.
+    """
+    import sys
+    import types
+
+    sentinel = object()
+    calls = []
+
+    class FakeCursor:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params=None): pass
+        def fetchall(self): return []
+        def fetchone(self): return None
+        @property
+        def rowcount(self): return 0
+
+    class FakeConn:
+        def cursor(self): return FakeCursor()
+        def commit(self): pass
+        def close(self): pass
+
+    rows_module = types.ModuleType("psycopg.rows")
+    rows_module.dict_row = sentinel
+    fake = types.ModuleType("psycopg")
+    fake.rows = rows_module
+    fake.connect = lambda dsn, **kw: (calls.append(kw), FakeConn())[1]
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    monkeypatch.setitem(sys.modules, "psycopg.rows", rows_module)
+
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(target, "backend", "postgresql")
+    monkeypatch.setattr(target, "database_url", "postgres://x/y")
+
+    with target._private_runner():
+        pass
+
+    assert calls, "the private connection was never opened"
+    for kwargs in calls:
+        assert "row_factory" in kwargs, (
+            "the private Postgres connection was opened without a row factory, "
+            "so every panel that indexes a row by name will raise TypeError "
+            "and the snapshot pass will die before it reads anything. "
+            "Arguments: %r" % (kwargs,))
+        assert kwargs["row_factory"] is sentinel, (
+            "the private connection does not use the same row factory as the "
+            "shared one, so the two disagree about what a row IS: %r"
+            % (kwargs["row_factory"],))
+
+
+def test_both_postgres_links_are_made_in_one_place(store, monkeypatch):
+    """If two connections must agree, they must not be built in two places.
+
+    They were, and they drifted on BOTH dialect rules — first the statement
+    timeout, then the row factory — each costing a deploy to find, because each
+    failure was silent. Asserting the FACTORY rather than the arguments is what
+    makes that drift impossible to reintroduce without deleting this test.
+    """
+    from integrations import dashboard_store as ds
+
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(target, "backend", "postgresql")
+    monkeypatch.setattr(target, "database_url", "postgres://x/y")
+
+    opened = []
+
+    def fake_open(statement_timeout_ms):
+        opened.append(statement_timeout_ms)
+        raise RuntimeError("reached _pg_open, which is the assertion")
+
+    monkeypatch.setattr(target, "_pg_open", fake_open)
+
+    target._pg_conn = None
+    with pytest.raises(RuntimeError, match="reached _pg_open"):
+        target._run("SELECT 1")
+    with pytest.raises(RuntimeError, match="reached _pg_open"):
+        with target._private_runner():
+            pass
+
+    assert opened == [ds.PG_STATEMENT_TIMEOUT_MS,
+                      ds.REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS], (
+        "the shared and private Postgres links are not both made through "
+        "_pg_open, so they can drift apart again: %r" % (opened,))
 
 
 def test_a_snapshot_pass_that_fails_keeps_the_previous_numbers(
