@@ -164,7 +164,20 @@ REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS = max(
 REQUEST_SNAPSHOT_PANELS = (
     "by_path", "by_channel", "by_source", "by_source_clean",
     "top_user_agents", "noise_total", "total",
+    # Parked as INSURANCE rather than as the only source: the funnel is bounded
+    # by `idx_request_log_path` and is normally fast, but a
+    # `CREATE INDEX CONCURRENTLY` that failed leaves an INVALID index behind and
+    # `IF NOT EXISTS` then skips it for ever — after which the "fast" read is a
+    # full scan that postgres cancels at 8s. Measured live on 05.11: the funnel
+    # was in `degraded` on the request path while everything else answered.
+    "funnel",
 )
+
+#: Keys read live FIRST and taken from the snapshot only when the live read
+#: produced nothing. The live reading is the fresher one and wins when it exists;
+#: the parked one exists so that a missing index costs a stale-but-real number
+#: instead of a dash. Neither is ever invented.
+REQUEST_SNAPSHOT_FALLBACK_KEYS = ("funnel",)
 
 #: The served-summary keys that those panels produce. The serve path overlays
 #: these from the snapshot; anything here that the snapshot has not read is
@@ -178,6 +191,9 @@ REQUEST_SNAPSHOT_PANELS = (
 REQUEST_SNAPSHOT_KEYS = (
     "total", "total_clean", "internal_noise", "by_source",
     "by_source_clean", "by_channel", "top_paths", "top_user_agents",
+    # Parked so the fallback below can find it. It is deliberately SKIPPED by
+    # the override loop, because for this key the live reading wins.
+    "funnel",
 )
 
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
@@ -477,6 +493,13 @@ class HistoryStore:
         self._snapshot_lock = threading.Lock()
         self._snapshot_value: Optional[Dict[str, Any]] = None
         self._snapshot_refreshing = False
+        #: The EXCEPTION CLASS of the last pass that failed, or None. The class
+        #: only: a driver message can carry the DSN. This exists because a pass
+        #: that fails silently leaves the board saying "awaiting the snapshot"
+        #: for ever while nothing anywhere says it is never going to arrive —
+        #: which is exactly what happened when the pass died on `SET
+        #: statement_timeout = %s` before reading a single row.
+        self._snapshot_last_error: Optional[str] = None
         # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
         # EXISTS, so the schema cannot drift between the two backends either.
         self._ensure_schema()
@@ -964,6 +987,10 @@ class HistoryStore:
         snap_skipped = set(snapshot.get("skipped", ()))
 
         for key in REQUEST_SNAPSHOT_KEYS:
+            # Live-first keys are excluded here and handled below: overriding
+            # them would replace a fresh reading with an older one.
+            if key in REQUEST_SNAPSHOT_FALLBACK_KEYS:
+                continue
             if key in parked:
                 live[key] = parked[key]
 
@@ -977,11 +1004,33 @@ class HistoryStore:
             noise.update(parked_noise)
             live["internal_noise"] = noise
 
+        # Live-first keys. A dash next to a value we actually hold is its own
+        # kind of lie, so when the live read produced nothing and the snapshot
+        # has a real number, use it — and drop the live failure marker with it,
+        # since the panel is no longer unreadable. Its age is published
+        # alongside.
+        #
+        # The test is the DEGRADED marker, not `is None`: the funnel is a map of
+        # routes, so a failed read leaves a dict whose four values are all None
+        # rather than a bare None. Testing `is None` therefore never fired, and
+        # a real parked reading stayed invisible — which is the exact shape of
+        # the defect this fallback exists to close.
+        live_failed = {d.split(":")[0] for d in live.get("degraded", [])}
+        borrowed = set()
+        for key in REQUEST_SNAPSHOT_FALLBACK_KEYS:
+            if not (key in live_failed or live.get(key) is None):
+                continue
+            if parked.get(key) is None:
+                continue
+            live[key] = parked[key]
+            borrowed.add(key)
+
         # A panel the background pass has not read yet is not "empty" and not
         # "zero" — it is unreadable, and the payload says which one it was. A
         # panel that FAILED there is reported as a failure, not as "waiting":
         # those are different states with different remedies.
-        degraded = list(live.get("degraded", []))
+        degraded = [d for d in live.get("degraded", [])
+                    if d.split(":")[0] not in borrowed]
         for panel in live.get("skipped", ()):
             if panel not in REQUEST_SNAPSHOT_PANELS:
                 continue
@@ -991,6 +1040,8 @@ class HistoryStore:
                 degraded.append(panel + ":awaiting_snapshot")
         live["degraded"] = sorted(set(degraded))
         live["available"] = not live["degraded"]
+        if borrowed:
+            live["served_from_snapshot"] = sorted(borrowed)
 
         # Recomputed rather than copied: both halves are live now, and the
         # snapshot's own difference was taken against the day-count as it stood
@@ -1004,6 +1055,11 @@ class HistoryStore:
             None if computed_at is None
             else max(0, int(time.time() - float(computed_at))))
         live["snapshot_computed_at"] = computed_at
+        # The CLASS of the last failed pass, never its message: a reader who sees
+        # "awaiting" for ever deserves to know whether it is still coming or has
+        # been failing, and an operator needs something to grep for. The text of
+        # a driver error can carry a DSN, so it stays in the log.
+        live["snapshot_error"] = self._snapshot_last_error
         live.pop("skipped", None)
         return live
 
@@ -1038,8 +1094,17 @@ class HistoryStore:
             conn = psycopg.connect(
                 self.database_url, connect_timeout=PG_CONNECT_TIMEOUT_SECONDS)
             with conn.cursor() as cur:
-                cur.execute("SET statement_timeout = %s",
-                            (REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS,))
+                # `set_config`, NOT `SET statement_timeout = %s`. PostgreSQL does
+                # not accept a bind parameter on the right of `SET` — psycopg
+                # sends $1 and the server answers 42601 syntax error at or near
+                # "$1". That failed the whole pass before it read anything, so
+                # the board kept saying "awaiting the snapshot" for ever, with
+                # no error anywhere a reader could see. The shared connection
+                # twenty lines up already does it this way; a fake cursor in a
+                # unit test cannot catch a dialect rule, which is why the test
+                # for it asserts on the STATEMENT rather than on the outcome.
+                cur.execute("SELECT set_config('statement_timeout', %s, false)",
+                            (str(REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS),))
             conn.commit()
 
             def runner(sql, params=(), fetch=""):
@@ -1126,10 +1191,16 @@ class HistoryStore:
                             panels=REQUEST_SNAPSHOT_PANELS,
                             runner=private)
             except Exception as exc:
+                # Remembered as a CLASS so the board can say "this has been
+                # failing" instead of "this is still coming". Both look like a
+                # dash, and only one of them is worth waiting for.
+                self._snapshot_last_error = type(exc).__name__
                 log.warning(
                     "requests snapshot pass failed (%s) — keeping the previous "
                     "one rather than blanking the board", type(exc).__name__)
                 return self.snapshot_state()
+
+            self._snapshot_last_error = None
 
             parked = {k: full.get(k) for k in REQUEST_SNAPSHOT_KEYS if k in full}
             # Panels this pass could not read are recorded BESIDE the values, so

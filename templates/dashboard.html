@@ -797,16 +797,27 @@ function renderRequests(r) {
   };
   const ageMin = (r.snapshot_age_seconds == null
                   ? null : Math.round(r.snapshot_age_seconds / 60));
+  // „Още идва" и „проваля се" изглеждат еднакво като тире, а искат различни
+  // неща: търпение срещу човек да погледне логовете. Затова провалът се казва.
+  const failed = r.snapshot_error
+    ? ` Фоновият прочит СЕ ПРОВАЛЯ (${esc(r.snapshot_error)}) — числата няма да
+       се появят сами.` : '';
+  const parkedUsed = (r.served_from_snapshot || []);
+  const parkedNote = parkedUsed.length
+    ? ` Числата за ${esc(parkedUsed.join(', '))} са от фоновия прочит, не от току-що.`
+    : '';
   $('req-cards').innerHTML =
     card(r.today_clean ?? r.today, `ДНЕС ЧИСТИ (без keep-alive) — ${esc(r.today_date)} UTC`, true) +
     card(r.total_clean ?? r.total, 'Общо чисти (от лог-а)') +
     card(r.today, 'Днес общо (raw)') +
     card(`${num(noise.today)} · ${num(noise.total)}`, 'Вътрешен шум (Render/1.0)') +
     // Кажи го с думи, вместо да оставиш празнина, която изглежда като „няма трафик".
-    (missing.length
-      ? `<div class="empty" style="grid-column:1/-1">Част от числата по-горе не можаха
-         да се прочетат от базата (${esc(missing.slice(0, 4).map(whyLabel).join(', '))}${missing.length > 4 ? '…' : ''}).
-         Показано е само реално прочетеното — липсващо число е „—", не се измисля нула${ageMin != null ? `; фоновият прочит е отпреди ${ageMin} мин` : ''}.</div>`
+    ((missing.length || failed || parkedNote)
+      ? `<div class="empty" style="grid-column:1/-1">${missing.length
+          ? `Част от числата по-горе не можаха да се прочетат от базата
+             (${esc(missing.slice(0, 4).map(whyLabel).join(', '))}${missing.length > 4 ? '…' : ''}).
+             Показано е само реално прочетеното — липсващо число е „—", не се измисля нула${ageMin != null ? `; фоновият прочит е отпреди ${ageMin} мин` : ''}.`
+          : ''}${failed}${parkedNote}</div>`
       : '');
   // The payment funnel moved to its own always-visible section (renderFunnel)
   // so "402 → платени" is on screen permanently, not behind a hidden box.

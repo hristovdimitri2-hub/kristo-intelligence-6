@@ -152,6 +152,10 @@ X402_FREE_ENDPOINTS = {
     "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
     "/.well-known/x402-trust.txt",
+    # A2A discovery. Classified explicitly rather than left to fall through the
+    # allow-list, which is the gap F-21 records: a route in NEITHER set is
+    # unclassified, and "unclassified" is not the same as "free".
+    "/.well-known/agent-card.json", "/a2a",
     # The MCP transport itself. /mcp.json was listed here but the three routes
     # that actually speak the protocol were in neither this set nor the paid set,
     # so they fell through the allow-list unclassified — the same gap F-21 records.
@@ -6175,6 +6179,14 @@ def _canonical_dashboard_payload(include_crm: bool = False,
                 # retention, so this is not a hypothetical state.
                 "degraded": requests.get("degraded") or [],
                 "available": requests.get("available", True),
+                # WHEN the parked all-time numbers were read and WHETHER the last
+                # read failed. A dash alone cannot tell a reader whether the
+                # number is still coming or has stopped coming, and the two call
+                # for different things: patience, versus somebody looking.
+                # The error is a class name only — never a driver message.
+                "snapshot_age_seconds": requests.get("snapshot_age_seconds"),
+                "snapshot_error": requests.get("snapshot_error"),
+                "served_from_snapshot": requests.get("served_from_snapshot") or [],
             },
             "payapi": {
                 "label": "PayAPI Market listing",

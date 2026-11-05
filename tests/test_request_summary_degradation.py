@@ -408,13 +408,12 @@ def test_the_snapshot_runs_on_its_own_connection_with_a_longer_timeout(
     import sys
     import types
 
-    seen = {}
+    seen = {"sql": []}
 
     class FakeCursor:
-        def __init__(self): self.sql = None
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def execute(self, sql, params=None): self.sql = (sql, params)
+        def execute(self, sql, params=None): seen["sql"].append((sql, params))
         def fetchall(self): return []
         def fetchone(self): return None
         @property
@@ -445,6 +444,66 @@ def test_the_snapshot_runs_on_its_own_connection_with_a_longer_timeout(
     assert ds.REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS > ds.PG_STATEMENT_TIMEOUT_MS, (
         "the snapshot's statement timeout is not longer than the shared one, "
         "so postgres will cancel the very reads it exists to perform")
+
+
+def test_the_statement_timeout_is_set_with_set_config_not_set(store, monkeypatch):
+    """A dialect rule that a fake cursor CANNOT catch, so assert on the statement.
+
+    PostgreSQL does not accept a bind parameter on the right of `SET`. psycopg
+    sends `$1`, the server answers 42601 syntax error at or near "$1", and the
+    pass died there — BEFORE reading a single row. The board then said "awaiting
+    the snapshot" for ever, which is exactly what it looked like: waiting.
+
+    Every unit test above passed while this was broken, because a fake connection
+    does not have PostgreSQL's grammar. The assertion therefore has to be about
+    the SQL we send, and the correct idiom is `set_config`, which is what the
+    shared connection twenty lines up already used.
+    """
+    import sys
+    import types
+    from integrations import dashboard_store as ds
+
+    seen = {"sql": []}
+
+    class FakeCursor:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params=None): seen["sql"].append((sql, params))
+        def fetchall(self): return []
+        def fetchone(self): return None
+        @property
+        def rowcount(self): return 0
+
+    class FakeConn:
+        def cursor(self): return FakeCursor()
+        def commit(self): pass
+        def close(self): pass
+
+    fake = types.ModuleType("psycopg")
+    fake.connect = lambda dsn, **kw: FakeConn()
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(target, "backend", "postgresql")
+    monkeypatch.setattr(target, "database_url", "postgres://x/y")
+
+    with target._private_runner():
+        pass
+
+    timeouts = [(sql, params) for sql, params in seen["sql"]
+                if "statement_timeout" in sql]
+    assert timeouts, "the private connection never set its own statement timeout"
+
+    for sql, params in timeouts:
+        assert not sql.lstrip().upper().startswith("SET "), (
+            "`SET statement_timeout = %%s` is a syntax error in PostgreSQL: it "
+            "takes no bind parameter, and this is the statement that silently "
+            "stopped the snapshot pass from ever running. Sent: %r" % sql)
+        assert "set_config" in sql, (
+            "the timeout must be set with set_config(...), the parameterisable "
+            "form. Sent: %r" % sql)
+        assert str(ds.REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS) in str(params), (
+            "the private connection's timeout is not the snapshot's own: %r"
+            % (params,))
 
 
 def test_a_snapshot_pass_that_fails_keeps_the_previous_numbers(
@@ -522,4 +581,113 @@ def test_a_panel_the_snapshot_failed_is_reported_as_a_failure(
         "a FAILED read was reported as a pending one — the page would sit "
         "waiting for a pass that has already run and already failed")
     assert out["total"] is None, "a failed read was reported as a number"
+
+
+# ── 7. a live panel that fails falls back to the parked one ────────────────
+def _snapshot_with(store, monkeypatch, value, degraded=(), skipped=()):
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(
+        target, "snapshot_state",
+        lambda: {"value": value, "degraded": list(degraded),
+                 "skipped": list(skipped), "computed_at": 1000.0})
+    return target
+
+
+def test_a_live_funnel_that_fails_falls_back_to_the_parked_one(
+        store, monkeypatch):
+    """Measured live on 05.11: the funnel was in `degraded` while the other four
+    fast panels answered, because `idx_request_log_path` was not serving it and
+    the grouped scan fell to the 8s ceiling.
+
+    There were two real numbers available and the board showed neither. A dash
+    next to a value we actually hold is its own kind of lie, so the parked one
+    is served — and the failure marker goes with it, because the panel is no
+    longer unreadable.
+    """
+    parked_funnel = {"/api/v1/signal": {"challenges_today": 7, "paid_today": 2}}
+    _snapshot_with(store, monkeypatch,
+                   {"funnel": parked_funnel, "total": 99})
+    _break(monkeypatch, lambda sql: "path IN" in sql)
+
+    out = store.requests_summary()
+
+    assert out["funnel"] == parked_funnel, (
+        "a failing live funnel was shown as unreadable while a real reading sat "
+        "parked: %r" % (out["funnel"],))
+    assert "funnel" not in [d.split(":")[0] for d in out["degraded"]], (
+        "the panel is reported as unreadable even though a value is being "
+        "served for it: %r" % out["degraded"])
+    assert "funnel" in (out.get("served_from_snapshot") or []), (
+        "the payload does not say that this number is the parked one, so its "
+        "age cannot be told")
+
+
+def test_the_live_funnel_wins_when_it_answers(store, monkeypatch):
+    """Fresh beats old. The parked copy is a fallback, not the source."""
+    _snapshot_with(store, monkeypatch,
+                   {"funnel": {"/stale": {"challenges_today": 1}}, "total": 99})
+
+    out = store.requests_summary()
+
+    assert "/stale" not in (out.get("funnel") or {}), (
+        "the parked funnel overrode a live reading, so the board shows an older "
+        "number than the one it just read")
+    assert "funnel" not in (out.get("served_from_snapshot") or [])
+
+
+def test_the_parked_funnel_is_never_used_to_invent_zero(store, monkeypatch):
+    """With no parked copy either, the four values stay None — never 0.
+
+    The funnel is a MAP of routes, so an unreadable one is a dict whose values
+    are all None rather than a bare None. That distinction is the reason the
+    fallback above had to test the degraded marker instead of `is None`: the
+    naive test never fired and a real parked reading stayed invisible.
+    """
+    _snapshot_with(store, monkeypatch, {"total": 99})
+    _break(monkeypatch, lambda sql: "path IN" in sql)
+
+    out = store.requests_summary()
+    assert isinstance(out["funnel"], dict) and out["funnel"], (
+        "the funnel must still name its routes, so the page can render the "
+        "panel and say it is unread: %r" % (out["funnel"],))
+    for route, counts in out["funnel"].items():
+        for field, value in counts.items():
+            assert value is None, (
+                "%s.%s is %r — an unread number was reported as a reading"
+                % (route, field, value))
+    assert "funnel" in [d.split(":")[0] for d in out["degraded"]], (
+        "the board does not say the funnel could not be read")
+
+
+# ── 8. a pass that keeps failing must say so ───────────────────────────────
+def test_a_failing_snapshot_pass_is_reported_by_class(store, monkeypatch):
+    """'Still coming' and 'has been failing' both look like a dash.
+
+    Only one of them is worth waiting for, so the CLASS of the last failure is
+    published. The message is not: a driver error can carry the DSN, which is
+    why the payload carries `QueryCanceled` and not the connection string.
+    """
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(target, "_private_runner", lambda: (_ for _ in ()).throw(
+        RuntimeError("postgres://user:secret@host/db refused")))
+
+    assert target.refresh_requests_snapshot() == {}
+    assert target._snapshot_last_error == "RuntimeError"
+
+    out = store.requests_summary()
+    assert out["snapshot_error"] == "RuntimeError", (
+        "the board cannot say that the snapshot pass is failing")
+    assert "secret" not in str(out), (
+        "the driver's message reached the payload, so the DSN can leak")
+
+
+def test_a_pass_that_succeeds_clears_the_previous_failure(store, monkeypatch):
+    """A stale failure is its own lie once the thing works again."""
+    target = getattr(store, "history", store)
+    target._snapshot_last_error = "QueryCanceled"
+
+    target.refresh_requests_snapshot(runner=target._run)
+
+    assert target._snapshot_last_error is None
+    assert store.requests_summary()["snapshot_error"] is None
 

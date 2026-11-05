@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 766
+SUITE_TESTS_PASSED = 789
 SUITE_LAST_RUN = "2026-11-05"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -988,6 +988,402 @@ def arb_sample():
         "paid_route": "/api/arb/opportunities",
         "disclaimer": _sample_disclaimer("/api/arb/opportunities"),
     }), 200
+
+
+# ── A2A (Agent2Agent) surface ───────────────────────────────────────────────
+# An Agent Card at the standard path, plus a JSON-RPC endpoint that does one
+# real, useful, honest thing: it answers a request for one of our data products
+# with that product's FREE SAMPLE and the exact terms to buy the live one.
+#
+# WHY IT DOES NOT DELIVER THE PAID DATA ITSELF. These products are sold per call
+# through the x402 paywall on the HTTP routes. An A2A endpoint that handed the
+# live payload over for free would give the product away; one that claimed to
+# sell it with no payment rail would be lying. So the skill really is "show me
+# the shape and the price" — which is exactly what the free /sample routes
+# already answer — and the paid path stays where it is and is pointed to
+# explicitly. Nothing here invents data and nothing here undercuts the paywall.
+#
+# THE CARD MUST NOT DESCRIBE MORE THAN THIS. `streaming` and `pushNotifications`
+# are declared FALSE, and no security scheme is advertised, because neither is
+# implemented and this endpoint needs no credential. A card that advertises a
+# method answering -32601 is precisely the "card pointing at a non-working
+# endpoint" failure the card exists to avoid.
+A2A_PROTOCOL_VERSION = "0.3.0"
+A2A_AGENT_VERSION = "1.0.0"
+
+#: Tasks live in memory and expire. This surface is a discovery convenience, not
+#: a system of record, and a task that outlives its process is gone — saying so
+#: is better than a lookup that appears to succeed and silently invents one.
+A2A_TASK_TTL_SECONDS = 3600
+A2A_MAX_TASKS = 500
+_a2a_tasks: dict = {}
+_a2a_task_lock = threading.Lock()
+
+
+def _a2a_sample_builders() -> dict:
+    """Paid route -> the view function that builds its free sample.
+
+    Looked up rather than listed twice: a route with no sample is dropped from
+    the catalogue below instead of being advertised and then 404ing.
+    """
+    return {
+        "/api/v1/signal": signal_sample,
+        "/api/stats": stats_sample,
+        "/api/v1/whaleflow": whaleflow_sample,
+        "/api/sales": sales_sample,
+        "/api/bot-status": bot_status_sample,
+        "/api/arb/opportunities": arb_sample,
+    }
+
+
+def _a2a_products(base_url: str) -> list:
+    """The catalogue: the single public vitrine, joined to the paywall's prices.
+
+    Prices come from `_route_price` — the same map the 402 reads — for the reason
+    recorded there: a discovery surface that quotes an alias can advertise a
+    number no caller is ever charged.
+    """
+    from main import REAL_X402_ROUTES
+
+    builders = _a2a_sample_builders()
+    out = []
+    for route in REAL_X402_ROUTES:
+        endpoint = route["endpoint"]
+        if endpoint not in builders:
+            continue
+        out.append({
+            "id": route["id"],
+            "name": route.get("name", ""),
+            "description": (route.get("description") or "").strip(),
+            "endpoint": endpoint,
+            "method": route.get("method", "GET"),
+            "price_usdc": _route_price(endpoint),
+            "sample": "%s/sample" % endpoint,
+            "live_url": base_url + endpoint,
+        })
+    return out
+
+
+def _a2a_tokens(product: dict) -> set:
+    """The words that should select this product from a plain-language request."""
+    last = product["endpoint"].rstrip("/").rsplit("/", 1)[-1]
+    words = {product["id"].lower(), last.lower()}
+    words.update(part.lower() for part in product["id"].split("-"))
+    words.update(word.lower().strip(",.") for word in product["name"].split())
+    return {word for word in words if len(word) >= 3}
+
+
+def _a2a_pick(text: str, products: list):
+    """The product a request asks for, or None when it is not clear.
+
+    Scored by the total length of the matching tokens, so a longer, more
+    specific word beats an incidental short one. Returning None for an unclear
+    request is deliberate: answering with the wrong product would be a
+    fabricated answer wearing the costume of a helpful one, and the caller can
+    read the full catalogue instead.
+    """
+    low = (text or "").lower()
+    best, best_score = None, 0
+    for product in products:
+        score = sum(len(tok) for tok in _a2a_tokens(product) if tok in low)
+        if score > best_score:
+            best, best_score = product, score
+    return best
+
+
+def _a2a_sample_payload(endpoint: str):
+    """The free sample for one route, or None if it cannot be produced.
+
+    The sample views already own the shape and the price disclaimer, so they are
+    CALLED rather than re-described. Re-typing the schema here is how the two
+    copies drift, and a sample that disagrees with the live response is worse
+    than no sample.
+    """
+    builder = _a2a_sample_builders().get(endpoint)
+    if builder is None:
+        return None
+    try:
+        built = builder()
+        response = built[0] if isinstance(built, tuple) else built
+        return response.get_json()
+    except Exception as exc:                      # noqa: BLE001
+        return {"unavailable": type(exc).__name__}
+
+
+def _a2a_how_to_pay(base_url: str) -> dict:
+    """Machine-readable purchase terms — the same facts the 402 carries."""
+    from main import (X402_CHAIN_ID, X402_RECEIVER_ADDRESS, X402_USDC_CONTRACT)
+
+    return {
+        "protocol": "x402",
+        "version": "2",
+        "network": "eip155:%d" % X402_CHAIN_ID,
+        "chain": "base",
+        "chain_id": X402_CHAIN_ID,
+        "asset": "USDC",
+        "token_contract": X402_USDC_CONTRACT,
+        "pay_to": X402_RECEIVER_ADDRESS,
+        "price_per_call_usdc": _cheapest_route_price(),
+        "price_max_usdc": _dearest_route_price(),
+        "flow": [
+            "GET the live URL with no credential; it answers 402",
+            "read PAYMENT-REQUIRED (or the JSON body): accepts[0].amount is "
+            "ATOMIC USDC (6 decimals) — 3000 means $0.003, not $3000",
+            "sign an EIP-3009 transferWithAuthorization for accepts[0].amount "
+            "to accepts[0].payTo",
+            "retry the same URL with the PAYMENT-SIGNATURE header",
+        ],
+        "terms": "%s/.well-known/x402" % base_url,
+        "discovery": {
+            "openapi": "%s/openapi.json" % base_url,
+            "agents_json": "%s/agents.json" % base_url,
+            "mcp_manifest": "%s/api/mcp/manifest" % base_url,
+            "llms_txt": "%s/llms.txt" % base_url,
+        },
+    }
+
+
+def _a2a_catalogue_text(products: list) -> str:
+    lines = ["Kristo Intelligence — pay-per-call data API for AI agents on Base.",
+             "Live data is bought at the HTTP routes below; this A2A surface "
+             "answers with the free sample for a product and its exact terms.",
+             ""]
+    for product in products:
+        lines.append("%-20s %s USDC/call  live: %s  sample: %s"
+                     % (product["id"], ("%.3f" % product["price_usdc"]),
+                        product["live_url"], product["sample"]))
+    return "\n".join(lines)
+
+
+def _a2a_task(text: str, base_url: str, message: dict) -> dict:
+    """Build the completed task for one request. Never invents a value."""
+    products = _a2a_products(base_url)
+    chosen = _a2a_pick(text, products)
+    task_id = "task-" + secrets.token_hex(12)
+    now = datetime.now(timezone.utc).isoformat()
+
+    if chosen is None:
+        answer = ("I could not tell which product you are asking for, so here is "
+                  "the whole catalogue rather than a guess.\n\n"
+                  + _a2a_catalogue_text(products))
+        data = {"matched": None, "catalogue": products,
+                "how_to_pay": _a2a_how_to_pay(base_url)}
+    else:
+        sample = _a2a_sample_payload(chosen["endpoint"])
+        answer = (
+            "Product: %s (%s)\n"
+            "Live data: %s — %.3f USDC per call over x402 on Base.\n"
+            "This A2A endpoint does NOT return the live payload; it returns the "
+            "free sample and the terms, so that nothing is given away and "
+            "nothing is promised that is not sold.\n"
+            "Free sample: %s"
+            % (chosen["name"], chosen["id"], chosen["live_url"],
+               chosen["price_usdc"], chosen["sample"]))
+        data = {"matched": chosen["id"], "product": chosen,
+                "free_sample": sample, "how_to_pay": _a2a_how_to_pay(base_url)}
+
+    return {
+        "kind": "task",
+        "id": task_id,
+        "contextId": "ctx-" + secrets.token_hex(8),
+        "status": {"state": "completed", "timestamp": now},
+        "history": [message] if message else [],
+        "artifacts": [{
+            "artifactId": "artifact-" + secrets.token_hex(8),
+            "name": (chosen["id"] if chosen else "catalogue"),
+            "description": ("Free sample and exact paid terms for one product."
+                            if chosen else
+                            "The full product catalogue with prices."),
+            "parts": [
+                {"kind": "text", "text": answer},
+                {"kind": "data", "data": data},
+            ],
+        }],
+    }
+
+
+def _a2a_remember(task: dict) -> None:
+    """Store a task, evicting the expired and then the oldest."""
+    now = time.time()
+    with _a2a_task_lock:
+        for key in [k for k, v in _a2a_tasks.items()
+                    if now - v.get("_stored_at", 0) > A2A_TASK_TTL_SECONDS]:
+            _a2a_tasks.pop(key, None)
+        while len(_a2a_tasks) >= A2A_MAX_TASKS:
+            _a2a_tasks.pop(min(_a2a_tasks,
+                               key=lambda k: _a2a_tasks[k].get("_stored_at", 0)),
+                           None)
+        _a2a_tasks[task["id"]] = dict(task, _stored_at=now)
+
+
+def _a2a_public(task: dict) -> dict:
+    """The task as served: the internal bookkeeping key is not part of the spec."""
+    return {k: v for k, v in task.items() if not k.startswith("_")}
+
+
+def _a2a_message_text(message) -> str:
+    """Flatten an A2A message's parts into text. Both v0.2 and v0.3 part keys."""
+    if not isinstance(message, dict):
+        return ""
+    chunks = []
+    for part in message.get("parts") or []:
+        if not isinstance(part, dict):
+            continue
+        if isinstance(part.get("text"), str):
+            chunks.append(part["text"])
+        elif isinstance(part.get("data"), dict):
+            chunks.append(json.dumps(part["data"]))
+    return "\n".join(chunks)
+
+
+def _a2a_rpc_error(req_id, code: int, message: str, data=None):
+    error = {"code": code, "message": message}
+    if data is not None:
+        error["data"] = data
+    return jsonify({"jsonrpc": "2.0", "id": req_id, "error": error}), 200
+
+
+@discovery_bp.route("/.well-known/agent-card.json")
+def agent_card():
+    """The A2A Agent Card (protocol 0.3.0), at the standard discovery path.
+
+    Every field here is one a caller can check against a live response: the
+    skills are the six paid routes, each naming the free sample that documents
+    it and the price the 402 actually charges.
+    """
+    base_url = request.host_url.rstrip("/")
+    products = _a2a_products(base_url)
+    return jsonify({
+        "protocolVersion": A2A_PROTOCOL_VERSION,
+        "name": "Kristo Intelligence",
+        "description": (
+            "Pay-per-call data API for AI agents on Base: live DeFi trading "
+            "signals, whale flow (USDC transfers of $5M or more), cross-DEX "
+            "arbitrage radar, on-chain sales history and market stats. Six "
+            "routes, each bought per call with USDC over x402 — no subscription "
+            "and no API key. This A2A endpoint answers a request for a product "
+            "with that product's free sample and its exact terms; the live data "
+            "itself is bought at the HTTP route, because that is what the "
+            "paywall sells."
+        ),
+        "url": "%s/a2a" % base_url,
+        "version": A2A_AGENT_VERSION,
+        "preferredTransport": "JSONRPC",
+        "provider": {"organization": "Kristo Intelligence", "url": base_url},
+        "documentationUrl": "%s/llms.txt" % base_url,
+        "iconUrl": "%s/static/icons/kristo.svg" % base_url,
+        # Declared false because they are NOT implemented. See the note above.
+        "capabilities": {
+            "streaming": False,
+            "pushNotifications": False,
+            "stateTransitionHistory": False,
+        },
+        "defaultInputModes": ["text/plain", "application/json"],
+        "defaultOutputModes": ["text/plain", "application/json"],
+        "skills": [
+            {
+                "id": product["id"],
+                "name": product["name"],
+                "description": (
+                    "%s Free sample (no payment, no key): %s. Live data: %s at "
+                    "%.3f USDC per call over x402 on Base."
+                    % (product["description"], base_url + product["sample"],
+                       product["live_url"], product["price_usdc"])),
+                "tags": ["x402", "base", "usdc", product["id"]],
+                "examples": [
+                    "Show me the %s sample and what it costs" % product["name"],
+                    "What are the terms for %s?" % product["endpoint"],
+                ],
+                "inputModes": ["text/plain"],
+                "outputModes": ["application/json"],
+            }
+            for product in products
+        ],
+        # A non-standard block, and honest about being one: it is the same
+        # payment facts the 402 and agents.json already publish, repeated where
+        # an A2A client will look for them.
+        "x402": _a2a_how_to_pay(base_url),
+    }), 200
+
+
+@discovery_bp.route("/a2a", methods=["GET", "POST"])
+def a2a_endpoint():
+    """Minimal A2A JSON-RPC: `message/send` and `tasks/get`, honestly.
+
+    A GET is answered with a short description rather than a 405, because a
+    directory (and a person) checking whether the card's URL is alive should get
+    something readable instead of a protocol error about the wrong verb.
+    """
+    if request.method == "GET":
+        base_url = request.host_url.rstrip("/")
+        return jsonify({
+            "protocol": "A2A",
+            "protocolVersion": A2A_PROTOCOL_VERSION,
+            "transport": "JSONRPC",
+            "card": "%s/.well-known/agent-card.json" % base_url,
+            "methods": ["message/send", "tasks/get"],
+            "note": ("POST a JSON-RPC 2.0 request with method message/send. "
+                     "This surface answers with a product's free sample and its "
+                     "exact paid terms; the live data is bought at the HTTP "
+                     "route over x402."),
+        }), 200
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return _a2a_rpc_error(None, -32700, "Parse error: body is not a JSON object")
+
+    req_id = body.get("id")
+    method = body.get("method")
+    params = body.get("params")
+    if not isinstance(params, dict):
+        params = {}
+
+    if body.get("jsonrpc") != "2.0" or not isinstance(method, str):
+        return _a2a_rpc_error(req_id, -32600,
+                              "Invalid Request: jsonrpc must be \"2.0\" and "
+                              "method must be a string")
+
+    base_url = request.host_url.rstrip("/")
+
+    if method == "message/send":
+        message = params.get("message")
+        if not isinstance(message, dict):
+            return _a2a_rpc_error(req_id, -32602,
+                                  "Invalid params: message must be an object")
+        text = _a2a_message_text(message)
+        try:
+            task = _a2a_task(text, base_url, message)
+        except Exception as exc:                  # noqa: BLE001
+            return _a2a_rpc_error(req_id, -32603,
+                                  "Internal error building the task",
+                                  {"type": type(exc).__name__})
+        _a2a_remember(task)
+        return jsonify({"jsonrpc": "2.0", "id": req_id,
+                        "result": _a2a_public(task)}), 200
+
+    if method == "tasks/get":
+        task_id = params.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            return _a2a_rpc_error(req_id, -32602,
+                                  "Invalid params: id must be a task id string")
+        with _a2a_task_lock:
+            task = _a2a_tasks.get(task_id)
+        if task is None:
+            # A2A's TaskNotFound. Not a fabricated empty task: tasks are held in
+            # memory only, so one from before a restart really is gone.
+            return _a2a_rpc_error(
+                req_id, -32001, "Task not found: %s" % task_id,
+                {"note": "Tasks are kept in memory and expire after %d seconds."
+                         % A2A_TASK_TTL_SECONDS})
+        return jsonify({"jsonrpc": "2.0", "id": req_id,
+                        "result": _a2a_public(task)}), 200
+
+    return _a2a_rpc_error(
+        req_id, -32601, "Method not found: %s" % method,
+        {"supported": ["message/send", "tasks/get"],
+         "note": ("message/stream and the push-notification methods are not "
+                  "implemented, which is why the agent card declares streaming "
+                  "and pushNotifications as false.")})
 
 
 def _mcp_tools(base_url):
