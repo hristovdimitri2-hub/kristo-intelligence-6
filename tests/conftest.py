@@ -73,4 +73,36 @@ def _reset_dashboard_stats_cache():
         main._reset_stats_cache()
     _reset()
 
+
+@pytest.fixture(autouse=True)
+def _reset_request_summary_caches():
+    """The traffic-summary caches on the shared store are process-global too.
+
+    `requests_summary` replays a TTL-cached payload and overlays a parked
+    all-time snapshot. Both live on the one `dashboard_db` instance that the
+    whole session shares, so without this a snapshot parked by one test — or a
+    summary computed over another test's seeded rows — is served to every later
+    test. That is exactly the leak the dashboard-payload fixture above was
+    written for; this is the same hazard one layer down.
+    """
+    import main
+    store = getattr(main, "dashboard_db", None)
+    history = getattr(store, "history", None)
+    if history is None:
+        yield
+        return
+
+    def _clear():
+        for name, value in (("_summary_value", None), ("_summary_json", "{}"),
+                            ("_summary_at", 0.0), ("_summary_limit", None),
+                            ("_snapshot_value", None)):
+            if hasattr(history, name):
+                setattr(history, name, value)
+        if hasattr(history, "_snapshot_refreshing"):
+            history._snapshot_refreshing = False
+
+    _clear()
+    yield
+    _clear()
+
 os.environ.setdefault("VALUE_CHECK_ENABLED", "0")

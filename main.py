@@ -270,6 +270,7 @@ research_store = create_research_store(RESEARCH_DATA_FILE)
 # On-chain sales / request log / PayAPI listing state live in SQLite so a
 # gunicorn restart NEVER zeroes the dashboard numbers. See DASHBOARD_AUDIT.md.
 from integrations.dashboard_store import (  # noqa: E402
+    REQUEST_SNAPSHOT_INTERVAL_SECONDS,
     WHALE_RETENTION_DAYS_DEFAULT,
     DashboardStore,
     redact_rpc,
@@ -6429,6 +6430,34 @@ def _dashboard_warmer_loop():
         time.sleep(interval)
 
 
+def _requests_snapshot_warmer_loop():
+    """Park the all-time traffic numbers off the request path.
+
+    THE PROBLEM THIS SOLVES. Eight panels on the board are full scans of
+    `request_log` — a `COUNT(*)` with no predicate, and a GROUP BY over every
+    row. They take 10-21 seconds each here, and the SHARED Postgres connection
+    cancels any statement at 8 seconds, so on the request path they were not
+    merely slow: they were UNREADABLE. The board showed "—" for the site's
+    all-time traffic and for the payment funnel — the one number that says
+    whether any of this is working.
+
+    A request cannot spend four minutes. This thread can. It reads those panels
+    on its OWN connection (`HistoryStore._private_runner`), so the shared lock
+    is never held and the fast panels keep answering in milliseconds, and it
+    parks the result where the request path picks it up for free.
+
+    It waits a little after boot so warm-up does not compete with startup, then
+    runs on the long interval these all-time counts actually justify.
+    """
+    time.sleep(20.0)
+    while True:
+        try:
+            dashboard_db.history.refresh_requests_snapshot()
+        except Exception as exc:
+            log.warning("requests snapshot warmer: %s", redact_rpc(exc))
+        time.sleep(REQUEST_SNAPSHOT_INTERVAL_SECONDS)
+
+
 def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) -> dict:
     """Serve the board IMMEDIATELY from cache, refreshing off the request path.
 
@@ -6799,6 +6828,13 @@ def _start_background_threads():
     t_dash = threading.Thread(target=_dashboard_warmer_loop, daemon=True,
                               name="dashboard-warmer")
     t_dash.start()
+
+    # Read the board's all-time traffic panels out of band: they exceed the
+    # shared connection's 8s statement timeout, so on a request path they were
+    # unreadable rather than merely slow. Own connection, own ceiling.
+    t_snap = threading.Thread(target=_requests_snapshot_warmer_loop, daemon=True,
+                              name="requests-snapshot-warmer")
+    t_snap.start()
 
     # Start agent thread
     t_agent = threading.Thread(target=_background_agent_loop, daemon=True, name="agent-loop")

@@ -782,6 +782,21 @@ function renderRoutes(rt) {
 function renderRequests(r) {
   const noise = (r.internal_noise || {});
   const missing = (r.degraded || []);
+  // A marker arrives as "panel:reason". The reason is a diagnostic, not a
+  // sentence, so it is said in words — and a reader who sees „—" is told WHY
+  // and how old the parked numbers are, because "still coming" and "broke"
+  // are different news and only one of them is worth waiting for.
+  const whyLabel = (m) => {
+    const i = m.indexOf(':');
+    const panel = i < 0 ? m : m.slice(0, i);
+    const why = i < 0 ? '' : m.slice(i + 1);
+    const human = why === 'awaiting_snapshot' ? 'още чака фоновия прочит'
+                : why === 'out_of_budget'      ? 'не стигна бюджета'
+                : why || 'не се прочете';
+    return `${panel} (${human})`;
+  };
+  const ageMin = (r.snapshot_age_seconds == null
+                  ? null : Math.round(r.snapshot_age_seconds / 60));
   $('req-cards').innerHTML =
     card(r.today_clean ?? r.today, `ДНЕС ЧИСТИ (без keep-alive) — ${esc(r.today_date)} UTC`, true) +
     card(r.total_clean ?? r.total, 'Общо чисти (от лог-а)') +
@@ -790,8 +805,8 @@ function renderRequests(r) {
     // Кажи го с думи, вместо да оставиш празнина, която изглежда като „няма трафик".
     (missing.length
       ? `<div class="empty" style="grid-column:1/-1">Част от числата по-горе не можаха
-         да се прочетат от базата (${esc(missing.slice(0, 4).join(', '))}${missing.length > 4 ? '…' : ''}).
-         Показано е само реално прочетеното — липсващо число е „—", не се измисля нула.</div>`
+         да се прочетат от базата (${esc(missing.slice(0, 4).map(whyLabel).join(', '))}${missing.length > 4 ? '…' : ''}).
+         Показано е само реално прочетеното — липсващо число е „—", не се измисля нула${ageMin != null ? `; фоновият прочит е отпреди ${ageMin} мин` : ''}.</div>`
       : '');
   // The payment funnel moved to its own always-visible section (renderFunnel)
   // so "402 → платени" is on screen permanently, not behind a hidden box.

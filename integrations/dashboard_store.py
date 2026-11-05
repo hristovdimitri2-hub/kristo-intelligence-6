@@ -27,6 +27,7 @@ Sources:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -99,6 +100,85 @@ REQUEST_SUMMARY_TTL_SECONDS = max(
 #: the read itself has to be survivable.
 REQUEST_SUMMARY_BUDGET_SECONDS = max(
     1.0, float(os.getenv("KRISTO_REQUEST_SUMMARY_BUDGET_SECONDS", "6")))
+
+#: The panels cheap enough to read live on a request path.
+#:
+#: The rule is BOUNDED vs UNBOUNDED, checked against the SQL rather than
+#: guessed: `today` and `noise_today` are both `COUNT(*)` bounded by the indexed
+#: day window, `recent` is an indexed `ORDER BY id DESC LIMIT 25`, the hourly
+#: histogram is bounded by the same day window, and the funnel is a grouped scan
+#: that restricts itself with `path IN (...)` so `idx_request_log_path` serves
+#: it. All five answer in milliseconds.
+#:
+#: Everything NOT here has no predicate at all or groups over every row
+#: (`COUNT(*)` with no WHERE, `GROUP BY source / funnel / user_agent`, and an
+#: all-time `GROUP BY path`) and took 10-21 SECONDS here — which is why it may
+#: not run on the request path at any budget.
+REQUEST_SUMMARY_FAST_PANELS = ("today", "recent", "hourly", "funnel",
+                               "noise_today")
+
+#: Where the heavy all-time panels are parked once computed.
+REQUEST_SNAPSHOT_KEY = "requests_summary_snapshot_v1"
+
+#: How long the BACKGROUND pass may spend reading the heavy panels (seconds).
+#:
+#: This is the whole point of the snapshot: a request path cannot spend 240s,
+#: but a background thread can. Measured cost of the eight heavy reads is
+#: ~100-210s total on this instance, so this budget fits the entire set with
+#: room to spare, and a pass that still cannot finish simply keeps whatever it
+#: did read and tries the rest next time (see `refresh_requests_snapshot`).
+REQUEST_SNAPSHOT_BUDGET_SECONDS = max(
+    30.0, float(os.getenv("KRISTO_REQUEST_SNAPSHOT_BUDGET_SECONDS", "240")))
+
+#: How often the background pass re-reads the heavy panels (seconds).
+#:
+#: These numbers are all-time counts. Ten minutes of age cannot make one wrong,
+#: and the page already labels the snapshot's age so a reader can tell how
+#: fresh the all-time figures are.
+REQUEST_SNAPSHOT_INTERVAL_SECONDS = max(
+    60.0, float(os.getenv("KRISTO_REQUEST_SNAPSHOT_INTERVAL_SECONDS", "600")))
+
+#: The statement timeout for the snapshot's OWN connection (milliseconds).
+#:
+#: THIS IS WHY THE ALL-TIME NUMBERS WERE UNREADABLE. Every read through `_run`
+#: inherits `KRISTO_PG_STATEMENT_TIMEOUT_MS` (8s), so Postgres itself cancelled
+#: every full scan of `request_log` at 8 seconds. No retry, no budget and no
+#: index would have helped: the statement was killed by the server before it
+#: could finish. Measured 05.11, `requests_summary` burned 21.5s and returned
+#: `QueryCanceled` for `total`, `by_source`, `by_channel`, `noise_*` and the
+#: funnel — while the same payload happily reported real numbers for the panels
+#: that happen to be indexed.
+#:
+#: The snapshot pass therefore runs on a separate connection with its own,
+#: generous ceiling. 300s is a bound, not an expectation: it exists so a
+#: pathological plan cannot hold a backend open forever.
+REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS = max(
+    10000,
+    int(os.getenv("KRISTO_REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS", "300000")))
+
+#: The panel names (as they appear in `degraded`) that may NOT run on a request
+#: path. Spelled out rather than derived from the SQL so that adding an
+#: expensive panel to `_requests_summary_compute` cannot silently put it back on
+#: the 45-second poll — the exact regression that took the board, and once the
+#: whole service, down on 05.11.
+REQUEST_SNAPSHOT_PANELS = (
+    "by_path", "by_channel", "by_source", "by_source_clean",
+    "top_user_agents", "noise_total", "total",
+)
+
+#: The served-summary keys that those panels produce. The serve path overlays
+#: these from the snapshot; anything here that the snapshot has not read is
+#: reported as unreadable rather than dropped or zeroed.
+#:
+#: `internal_noise` is overlaid by HALF and `today_clean` not at all. Both mix a
+#: live reading with a parked one — today's keep-alive count and the day's total
+#: are read on the request path, while the all-time counts are full scans — so
+#: copying either wholesale would pair a fresh number with a stale one and
+#: present the result as a single measurement.
+REQUEST_SNAPSHOT_KEYS = (
+    "total", "total_clean", "internal_noise", "by_source",
+    "by_source_clean", "by_channel", "top_paths", "top_user_agents",
+)
 
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
 PAYER_CLASSES = {
@@ -390,6 +470,13 @@ class HistoryStore:
         self._summary_json = "{}"
         self._summary_at = 0.0
         self._summary_limit: Optional[int] = None
+        # The heavy half of that summary: eight full scans that postgres was
+        # cancelling at its 8s statement timeout, so they are computed on a
+        # background pass with its own connection and parked here (and in
+        # `dashboard_meta`, so a deploy does not blank them).
+        self._snapshot_lock = threading.Lock()
+        self._snapshot_value: Optional[Dict[str, Any]] = None
+        self._snapshot_refreshing = False
         # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
         # EXISTS, so the schema cannot drift between the two backends either.
         self._ensure_schema()
@@ -804,25 +891,35 @@ class HistoryStore:
         self._run(ddl)
 
     def requests_summary(self, recent_limit: int = 25) -> Dict[str, Any]:
-        """TTL-cached wrapper around the all-time request aggregates.
+        """The traffic summary the board is served: live where it can be, parked where it cannot.
 
-        WHY THIS EXISTS. `_requests_summary_compute` below issues EIGHT
-        unbounded aggregates — `COUNT(*)` with no WHERE, plus `GROUP BY
-        source / funnel / path / user_agent` — over `request_log`. That table
-        has no retention (nothing ever deletes from it), so it only grows; the
-        same file already records a fix for two full scans when it held
-        "~783K rows". A `COUNT(*)` with no predicate cannot use an index, and a
-        `GROUP BY` over the whole table is a full scan plus a hash aggregate.
+        WHY THIS SHAPE. `request_log` has no retention, so it only grows; on
+        05.11 the ten aggregates behind this summary ran over ~783K rows behind
+        ONE shared Postgres link, and the first to exceed the server's 8s
+        statement timeout raised QueryCanceled, which failed the ENTIRE
+        dashboard build — so the cache never filled and every 45-second poll
+        built again. One slow panel took the whole board, and for a while the
+        whole service, down.
 
-        Measured on 05.11: /api/dashboard/data hung past 90s and the whole
-        service went down with it, because every one of those scans ran behind
-        the single shared Postgres link on EVERY poll — and the page polls
-        every 45 seconds.
+        Three things had to change, and each one is load-bearing:
+
+        1. A panel that cannot be read is REPORTED as unreadable rather than
+           failing the build (`_requests_summary_compute`).
+        2. The unbounded aggregates never run on a request path at all. A
+           request cannot spend 240 seconds; the background pass can.
+        3. That pass uses its OWN Postgres connection. `_run` holds the shared
+           link's lock for the whole statement, so routing 20-second reads
+           through it would queue the fast panels behind them and rebuild the
+           outage by hand.
 
         The numbers here are all-time or day-grain. None of them becomes more
-        correct when recomputed on every request, so they are computed at most
-        once per `REQUEST_SUMMARY_TTL_SECONDS` and replayed in between. This
-        changes NO displayed value: it is the same query, asked less often.
+        correct when recomputed on every request, so the heavy half is read at
+        most once per `REQUEST_SNAPSHOT_INTERVAL_SECONDS` and replayed in
+        between, with its age published so a reader can judge it.
+
+        `None` means "we could not read this". It is NEVER a stand-in zero: a
+        zero here is a factual claim about traffic, and inventing one is worse
+        than admitting the gap.
         """
         limit = int(recent_limit)
         now = time.time()
@@ -835,7 +932,7 @@ class HistoryStore:
                 # A deep copy through JSON: the caller gets its own lists, so
                 # nothing it does downstream can reach back into the cache.
                 return json.loads(self._summary_json)
-        value = self._requests_summary_compute(recent_limit=limit)
+        value = self._requests_summary_serve(recent_limit=limit)
         blob = json.dumps(value, default=str)
         with self._summary_lock:
             self._summary_value = value
@@ -844,7 +941,235 @@ class HistoryStore:
             self._summary_limit = limit
         return json.loads(blob)
 
-    def _requests_summary_compute(self, recent_limit: int = 25) -> Dict[str, Any]:
+    def _requests_summary_serve(self, recent_limit: int = 25) -> Dict[str, Any]:
+        """Live bounded panels, unbounded panels overlaid from the snapshot.
+
+        The split is by measured cost, not by topic. `today`, `noise_today`,
+        `recent`, the hourly histogram and the funnel are all bounded by an
+        index and answer in milliseconds; everything else scans the table and
+        may only come from the parked snapshot.
+        """
+        live = self._requests_summary_compute(
+            recent_limit=int(recent_limit),
+            budget_seconds=REQUEST_SUMMARY_BUDGET_SECONDS,
+            panels=REQUEST_SUMMARY_FAST_PANELS)
+
+        snapshot = self.snapshot_state() or {}
+        parked = snapshot.get("value") or {}
+        computed_at = snapshot.get("computed_at")
+        # What the background pass TRIED and could not read, versus what it has
+        # not reached yet. A panel named in neither was read successfully, and
+        # that — not the mere presence of a key — is what makes it resolved.
+        snap_failed = {d.split(":")[0] for d in snapshot.get("degraded", ())}
+        snap_skipped = set(snapshot.get("skipped", ()))
+
+        for key in REQUEST_SNAPSHOT_KEYS:
+            if key in parked:
+                live[key] = parked[key]
+
+        # `internal_noise` is HALF live: today's keep-alive count is bounded by
+        # the indexed day window and is read on the request path, while the
+        # all-time count scans the table and comes from the snapshot. Replacing
+        # the object wholesale would put a stale number where a fresh one was.
+        parked_noise = parked.get("internal_noise")
+        if isinstance(parked_noise, dict):
+            noise = dict(live.get("internal_noise") or {})
+            noise.update(parked_noise)
+            live["internal_noise"] = noise
+
+        # A panel the background pass has not read yet is not "empty" and not
+        # "zero" — it is unreadable, and the payload says which one it was. A
+        # panel that FAILED there is reported as a failure, not as "waiting":
+        # those are different states with different remedies.
+        degraded = list(live.get("degraded", []))
+        for panel in live.get("skipped", ()):
+            if panel not in REQUEST_SNAPSHOT_PANELS:
+                continue
+            if panel in snap_failed:
+                degraded.append(panel)
+            elif panel in snap_skipped or not parked:
+                degraded.append(panel + ":awaiting_snapshot")
+        live["degraded"] = sorted(set(degraded))
+        live["available"] = not live["degraded"]
+
+        # Recomputed rather than copied: both halves are live now, and the
+        # snapshot's own difference was taken against the day-count as it stood
+        # at snapshot time.
+        noise = live.get("internal_noise") or {}
+        today, noise_today = live.get("today"), noise.get("today")
+        live["today_clean"] = (None if today is None or noise_today is None
+                               else max(0, today - noise_today))
+
+        live["snapshot_age_seconds"] = (
+            None if computed_at is None
+            else max(0, int(time.time() - float(computed_at))))
+        live["snapshot_computed_at"] = computed_at
+        live.pop("skipped", None)
+        return live
+
+    # ── the heavy half, computed out of band ────────────────────────────────
+    @contextlib.contextmanager
+    def _private_runner(self):
+        """A statement runner that does NOT use the shared Postgres link.
+
+        Two reasons, and either one alone would be enough:
+
+        `_run` holds `_pg_lock` for the whole statement. The snapshot pass reads
+        eight full scans at up to minutes each, so routing them through it would
+        queue every fast dashboard panel behind them and re-create the 05.11
+        outage deliberately.
+
+        And the shared connection carries `KRISTO_PG_STATEMENT_TIMEOUT_MS` (8s),
+        which is what was actually killing these reads — postgres cancelled
+        `total` and friends at 8 seconds, so no budget on our side could ever
+        have read them. This connection carries the snapshot's own, longer
+        ceiling.
+
+        Same door `_ensure_whaleflow_indexes` already uses for its
+        `CREATE INDEX CONCURRENTLY`. On SQLite there is no shared link to
+        contend for, so the ordinary runner is fine and the tests stay simple.
+        """
+        if self.backend != "postgresql":
+            yield self._run
+            return
+        conn = None
+        try:
+            import psycopg
+            conn = psycopg.connect(
+                self.database_url, connect_timeout=PG_CONNECT_TIMEOUT_SECONDS)
+            with conn.cursor() as cur:
+                cur.execute("SET statement_timeout = %s",
+                            (REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS,))
+            conn.commit()
+
+            def runner(sql, params=(), fetch=""):
+                with conn.cursor() as cur:
+                    cur.execute(self._q(sql), params)
+                    rows = (cur.fetchall() if fetch == "all"
+                            else cur.fetchone() if fetch == "one" else None)
+                    rowcount = cur.rowcount
+                conn.commit()
+                return rows, rowcount
+
+            yield runner
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def snapshot_state(self) -> Dict[str, Any]:
+        """The parked heavy panels and when they were read.
+
+        Memory first, then the durable row: this instance restarts often, and
+        re-reading eight full scans from cold after every deploy would leave the
+        board showing dashes for minutes each time.
+
+        Returns `{}` when nothing has ever been computed — an empty snapshot is
+        reported as unreadable panels, never as zero traffic.
+        """
+        with self._snapshot_lock:
+            if self._snapshot_value is not None:
+                return self._snapshot_value
+        raw = None
+        try:
+            raw = self.get_durable_meta(REQUEST_SNAPSHOT_KEY)
+        except Exception as exc:
+            log.warning("requests snapshot unreadable (%s)", type(exc).__name__)
+            return {}
+        if not raw:
+            return {}
+        try:
+            loaded = json.loads(raw)
+        except Exception:
+            log.warning("requests snapshot is not JSON — ignored")
+            return {}
+        if not isinstance(loaded, dict) or "value" not in loaded:
+            return {}
+        with self._snapshot_lock:
+            self._snapshot_value = loaded
+        return loaded
+
+    def refresh_requests_snapshot(self, runner=None) -> Dict[str, Any]:
+        """Read the heavy panels on a private connection and park them.
+
+        Returns the parked snapshot. Never raises for a slow or failed read: a
+        pass that dies part-way keeps whatever the store already had, so the
+        board degrades to the previous all-time numbers instead of to dashes.
+        Re-entrant calls are refused (single-flight) — two of these passes at
+        once would double the load the snapshot exists to remove.
+
+        `runner` overrides where the statements go, and exists so a caller that
+        already has a working link can reuse it. The background warmer passes
+        nothing and gets the private connection; a test whose backend is faked
+        passes the store's own runner, so it exercises this exact parking logic
+        without needing a socket to a database that is not there.
+        """
+        with self._snapshot_lock:
+            if self._snapshot_refreshing:
+                return self._snapshot_value or {}
+            self._snapshot_refreshing = True
+        try:
+            try:
+                if runner is not None:
+                    full = self._requests_summary_compute(
+                        recent_limit=25,
+                        budget_seconds=REQUEST_SNAPSHOT_BUDGET_SECONDS,
+                        panels=REQUEST_SNAPSHOT_PANELS,
+                        runner=runner)
+                else:
+                    with self._private_runner() as private:
+                        full = self._requests_summary_compute(
+                            recent_limit=25,
+                            budget_seconds=REQUEST_SNAPSHOT_BUDGET_SECONDS,
+                            panels=REQUEST_SNAPSHOT_PANELS,
+                            runner=private)
+            except Exception as exc:
+                log.warning(
+                    "requests snapshot pass failed (%s) — keeping the previous "
+                    "one rather than blanking the board", type(exc).__name__)
+                return self.snapshot_state()
+
+            parked = {k: full.get(k) for k in REQUEST_SNAPSHOT_KEYS if k in full}
+            # Panels this pass could not read are recorded BESIDE the values, so
+            # the serve path can say "unreadable" for them instead of serving a
+            # previous number as if it were current.
+            parked_degraded = [p for p in full.get("degraded", ())
+                               if p.split(":")[0] in REQUEST_SNAPSHOT_PANELS]
+            parked_skipped = [p for p in full.get("skipped", ())
+                              if p in REQUEST_SNAPSHOT_PANELS]
+            payload = {
+                "value": parked,
+                "degraded": parked_degraded,
+                "skipped": parked_skipped,
+                "computed_at": time.time(),
+            }
+            try:
+                self.set_durable_meta(REQUEST_SNAPSHOT_KEY,
+                                      json.dumps(payload, default=str))
+            except Exception as exc:
+                log.warning("requests snapshot not persisted (%s) — kept in "
+                            "memory only", type(exc).__name__)
+            with self._snapshot_lock:
+                self._snapshot_value = payload
+            # Drop the served-summary TTL cache: it is holding the answer from
+            # BEFORE these numbers existed, and replaying it for up to
+            # REQUEST_SUMMARY_TTL_SECONDS would keep the board showing dashes
+            # after the pass that filled them has already finished. A cache that
+            # outlives the data it was cached alongside is just a delay.
+            self._summary_value = None
+            self._summary_at = 0.0
+            return payload
+        finally:
+            with self._snapshot_lock:
+                self._snapshot_refreshing = False
+
+    def _requests_summary_compute(
+            self, recent_limit: int = 25,
+            budget_seconds: Optional[float] = None,
+            panels: Optional[tuple] = None,
+            runner=None) -> Dict[str, Any]:
         """today/total + channel (/f/<name>) + source breakdown.
 
         The internal keep-alive traffic (UA 'Render/1.0' — our own /health pings
@@ -866,7 +1191,26 @@ class HistoryStore:
         internal_sql = "user_agent LIKE 'Render/%'"
 
         degraded: List[str] = []
-        deadline = time.monotonic() + REQUEST_SUMMARY_BUDGET_SECONDS
+        # Panels deliberately NOT attempted on this pass. Kept separate from
+        # `degraded` because they did not FAIL — the caller is going to supply
+        # them from somewhere else (the snapshot). Conflating the two would
+        # report a panel as broken when it was never asked for.
+        skipped: List[str] = []
+        # The snapshot pass hands in a runner on its OWN connection (see
+        # `_private_runner`); everything else uses the shared link.
+        run = runner if runner is not None else self._run
+        deadline = time.monotonic() + (
+            REQUEST_SUMMARY_BUDGET_SECONDS if budget_seconds is None
+            else float(budget_seconds))
+
+        def wanted(name) -> bool:
+            """Is this panel being read on THIS pass?
+
+            `panels=None` means every panel (the background snapshot pass, and
+            the direct calls the tests make). A tuple restricts the pass to the
+            panels that are cheap enough for the path it runs on.
+            """
+            return panels is None or name in panels
 
         def q(name, sql, params=(), fetch=one, default=None, budgeted=True):
             """Read ONE panel of the traffic summary, tolerantly.
@@ -887,11 +1231,14 @@ class HistoryStore:
             stand-in zero, because a zero here is a factual claim about traffic
             that we would be inventing.
             """
+            if not wanted(name):
+                skipped.append(name)
+                return default
             if budgeted and time.monotonic() > deadline:
                 degraded.append(name + ":out_of_budget")
                 return default
             try:
-                return self._run(sql, params, fetch)[0]
+                return run(sql, params, fetch)[0]
             except Exception as exc:
                 degraded.append(name)
                 log.warning(
@@ -1032,6 +1379,10 @@ class HistoryStore:
             # Named so the page can say "not read" instead of "no traffic".
             "degraded": degraded,
             "available": not degraded,
+            # Panels this pass did not attempt because they are not cheap enough
+            # for the path it runs on. The serve layer fills them from the
+            # snapshot, or reports them unreadable if the snapshot has none.
+            "skipped": skipped,
             "internal_noise": {
                 "today": noise_today,
                 "total": noise_total,

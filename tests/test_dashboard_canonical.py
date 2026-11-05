@@ -17,6 +17,22 @@ from datetime import datetime, timezone
 import pytest
 
 
+def _served(store):
+    """`requests_summary()` once the all-time snapshot has been built.
+
+    The unbounded panels — `total`, the source/channel/user-agent breakdowns —
+    are read by a background pass and parked, so a store that has only just
+    recorded its rows honestly reports them as unread. That is deliberate:
+    reading them on the request path is what took the whole service to 502 on
+    05.11. These assertions are about the numbers once they HAVE been read, so
+    the snapshot is built first — through the store's own runner, because a
+    test with a faked backend has no socket to open.
+    """
+    target = getattr(store, "history", store)
+    target.refresh_requests_snapshot(runner=target._run)
+    return store.requests_summary()
+
+
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_API_TOKEN", "test-admin-token")
@@ -130,7 +146,7 @@ def test_request_log_persists_and_breaks_down_channels(tmp_path):
     store.record_request("GET", "/", "web", 200, user_agent="TestBot/1.0", funnel="x")
     store.record_request("GET", "/api/stats", "api", 200, user_agent="agent", funnel="x")
     store.record_request("GET", "/api/stats", "api", 402, user_agent="agent")
-    summary = store.requests_summary()
+    summary = _served(store)
     assert summary["total"] == 3
     assert summary["by_channel"] == [{"channel": "x", "n": 2}]
     assert {"source": "api", "n": 2} in summary["by_source"]
@@ -149,7 +165,7 @@ def test_internal_health_noise_counted_separately(tmp_path):
                          user_agent="Render/1.0")
     store.record_request("GET", "/api/v1/signal", "api", 200,
                          user_agent="x402-agent/1.0")
-    summary = store.requests_summary()
+    summary = _served(store)
     assert summary["total"] == 3
     assert summary["internal_noise"]["total"] == 2
     assert summary["total_clean"] == 1
@@ -169,7 +185,7 @@ def test_payment_funnel_challenges_vs_paid(tmp_path):
     store.record_request("GET", "/api/v1/signal", "api", 200, user_agent="node")
     # stats: 1 challenge, no paid
     store.record_request("GET", "/api/stats", "api", 402, user_agent="node")
-    f = store.requests_summary()["funnel"]
+    f = _served(store)["funnel"]
     assert f["/api/v1/signal"]["challenges_today"] == 3
     assert f["/api/v1/signal"]["paid_today"] == 1
     assert f["/api/v1/signal"]["challenges_total"] == 3
@@ -193,7 +209,7 @@ def test_top_user_agents_and_hourly_peaks(tmp_path):
         store.record_request("GET", "/openapi.json", "web", 200,
                              user_agent="Mozilla/5.0 (compatible; Agent402/1.0)")
     store.record_request("GET", "/health", "web", 200, user_agent="Render/1.0")
-    s = store.requests_summary()
+    s = _served(store)
     uas = {u["user_agent"]: u["n"] for u in s["top_user_agents"]}
     assert uas["CarbonMonitor/0.1 healthcheck"] == 3
     assert uas["Mozilla/5.0 (compatible; Agent402/1.0)"] == 2
@@ -270,7 +286,10 @@ def test_dashboard_data_sections_and_crm_never_in_onchain(client):
     assert crm["items"][0]["customer"].startswith("in")  # masked, not the full email
     assert "investor@crypto.io" not in admin_resp.get_data(as_text=True)
 
-    assert sections["requests"]["total"] >= 1  # this very request is logged
+    # `today` is read live — it is bounded by the indexed day window. The
+    # all-time `total` is a full scan parked by a background pass, which does
+    # not run under pytest, so it is honestly unread rather than zero here.
+    assert sections["requests"]["today"] >= 1  # the /health warmup is logged
     assert "invariant" in payload
 
 
@@ -577,7 +596,7 @@ def test_sargable_day_range_is_boundary_exact(tmp_path):
                            '', NULL)""", (ts,))
         conn.commit()
 
-    s = store.requests_summary()
+    s = _served(store)
     assert s["total"] == 4
     assert s["today"] == 2, "day window must include exactly today's rows"
     f = s["funnel"]["/api/v1/signal"]

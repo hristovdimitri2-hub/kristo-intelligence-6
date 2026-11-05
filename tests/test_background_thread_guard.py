@@ -57,8 +57,9 @@ def test_duplicate_module_load_skips_all_threads(monkeypatch):
     main._start_background_threads()
     first_run = list(started)
     # monitor + agent + catalog + stripe-snapshot + dashboard + dashboard-warmer
-    # + whaleflow + keep-alive + telegram-sales = 9 threads.
-    assert len(first_run) == 9, first_run
+    # + requests-snapshot-warmer + whaleflow + keep-alive + telegram-sales
+    # = 10 threads.
+    assert len(first_run) == 10, first_run
     assert registered["webhook"] == 1
     assert registered["commands"] == 1
     # Set only because threads actually started.

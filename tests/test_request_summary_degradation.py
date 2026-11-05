@@ -71,13 +71,28 @@ def _break(monkeypatch, predicate, exc=None):
     return seen
 
 
+def _compute(store, **kw):
+    """The layer that ISSUES the queries — what the background pass runs.
+
+    These tests used to call `store.requests_summary()`. That is no longer the
+    same thing, and deliberately so: the request path is forbidden from reading
+    the unbounded aggregates at all (they exceed postgres's statement timeout
+    and one of them used to fail the whole build). So the invariants about a
+    FAILING panel belong on `_requests_summary_compute`, which is exactly what
+    the snapshot pass calls. The serve layer's own honesty rule — an unread
+    panel is named, never zeroed — is tested separately below.
+    """
+    target = getattr(store, "history", store)
+    return target._requests_summary_compute(**kw)
+
+
 # ── 1. a failing panel degrades; it does not raise ─────────────────────────
 def test_a_failing_aggregate_degrades_instead_of_raising(store, monkeypatch):
     """This is the exact failure that took the service to 502."""
     _break(monkeypatch, lambda sql: "COUNT(*) AS n FROM request_log" in sql
            and "WHERE" not in sql)
 
-    out = store.requests_summary()          # must NOT raise
+    out = _compute(store)                   # must NOT raise
 
     assert out["available"] is False
     assert "total" in out["degraded"], (
@@ -91,7 +106,7 @@ def test_an_unreadable_number_is_none_and_never_an_invented_zero(store,
     _break(monkeypatch, lambda sql: "COUNT(*) AS n FROM request_log" in sql
            and "WHERE" not in sql)
 
-    out = store.requests_summary()
+    out = _compute(store)
 
     assert out["total"] is None, (
         "an unreadable total was reported as a NUMBER — that is a fabricated "
@@ -106,7 +121,7 @@ def test_the_panels_that_were_read_stay_real(store, monkeypatch):
     _break(monkeypatch, lambda sql: "COUNT(*) AS n FROM request_log" in sql
            and "WHERE" not in sql)
 
-    out = store.requests_summary()
+    out = _compute(store)
 
     assert out["today"] == 3, "today's real traffic was lost with the failure"
     assert out["funnel"], "the payment funnel — the revenue panel — was lost"
@@ -116,7 +131,7 @@ def test_the_section_still_has_every_key_when_degraded(store, monkeypatch):
     """The page reads these unconditionally; a missing key is a JS crash."""
     _break(monkeypatch, lambda sql: True)   # every query fails
 
-    out = store.requests_summary()
+    out = _compute(store)
 
     for key in ("today", "total", "today_clean", "total_clean", "by_source",
                 "by_channel", "top_paths", "top_user_agents", "hourly",
@@ -157,7 +172,7 @@ def test_an_exhausted_budget_stops_issuing_queries(store, monkeypatch):
 
     monkeypatch.setattr(ds.HistoryStore, "_run", slow)
 
-    out = store.requests_summary()
+    out = _compute(store)
 
     assert out["degraded"], "the budget never fired at all"
     assert all("out_of_budget" in name for name in out["degraded"]), (
@@ -189,7 +204,7 @@ def test_the_budget_does_not_skip_the_cheap_and_load_bearing_panels(
 
     monkeypatch.setattr(ds.HistoryStore, "_run", cheap)
 
-    out = store.requests_summary()
+    out = _compute(store)
 
     assert out["today"] == 3
     assert "today" not in out["degraded"]
@@ -232,7 +247,7 @@ def test_an_unread_funnel_route_is_none_not_zero(store, monkeypatch):
     """
     _break(monkeypatch, lambda sql: "SUM(CASE WHEN status_code = 402" in sql)
 
-    out = store.requests_summary()
+    out = _compute(store)
 
     assert "funnel" in out["degraded"], "the unread funnel was not named"
     for path, row in out["funnel"].items():
@@ -251,7 +266,7 @@ def test_a_funnel_route_with_no_traffic_is_still_a_real_zero(store,
     Without this, "not read" and "no traffic" would collapse into one state and
     the honest fix would just be a different lie.
     """
-    out = store.requests_summary()          # every query runs, none fails
+    out = _compute(store)          # every query runs, none fails
 
     assert out["funnel"], "no funnel routes at all"
     for path, row in out["funnel"].items():
@@ -293,3 +308,218 @@ def test_the_degraded_list_survives_into_the_served_payload(monkeypatch):
     assert "available" in rq, "the served payload drops the available flag"
     assert isinstance(rq["degraded"], list), (
         "degraded must always be a list — the page iterates it unconditionally")
+
+
+# ── 6. the request path must never touch the unbounded aggregates ──────────
+def test_the_request_path_never_reads_a_heavy_panel(store, monkeypatch):
+    """THE regression guard for the 05.11 outage.
+
+    Eight of these ten aggregates are full scans that postgres was cancelling
+    at its 8s statement timeout. Running any of them per request is what made
+    the board hang past 90s and then took the whole service to 502 with it, and
+    the page polls every 45 seconds.
+
+    So this asserts on the SQL the REQUEST path actually asked for: if someone
+    later deletes a panel from `REQUEST_SUMMARY_FAST_PANELS`, or calls the
+    compute without restricting it, this fails.
+    """
+    seen = _break(monkeypatch, lambda sql: False)   # nothing fails; record only
+
+    store.requests_summary()
+
+    for sql in seen:
+        # Unbounded groupings: these have no predicate that can serve them.
+        for marker in ("GROUP BY source", "GROUP BY funnel", "GROUP BY user_agent"):
+            assert marker not in sql, (
+                "the request path issued a full-table aggregate (%r). That is "
+                "the read that took the service down on 05.11 — it belongs in "
+                "the background snapshot." % marker)
+        # The funnel also groups by path, and that one IS allowed, because it
+        # restricts itself with `path IN (...)` and `idx_request_log_path`
+        # serves it. The all-time `GROUP BY path` restricts nothing.
+        if "GROUP BY path" in sql:
+            assert "path IN" in sql, (
+                "the request path ran the all-time GROUP BY path, which scans "
+                "every row: %r" % " ".join(sql.split())[:120])
+        # Every COUNT(*) over the log must be bounded by the indexed day window.
+        # `total` and `noise_total` have no such bound and cannot be served.
+        if "COUNT(*) AS n FROM request_log" in sql:
+            assert "ts >= ? AND ts < ?" in sql, (
+                "the request path ran an unbounded COUNT(*) over the whole "
+                "table: %r" % " ".join(sql.split())[:120])
+    assert seen, "no queries ran at all — this test would pass vacuously"
+
+
+def test_a_panel_awaiting_the_snapshot_is_named_and_never_zeroed(store):
+    """No snapshot yet is UNREADABLE, not zero, and not silent.
+
+    Three distinct states have to stay distinguishable on the board: a real
+    zero (we asked, nobody came), a failure (we asked, it broke), and not-read
+    (we never asked). Collapsing the last into a zero would claim nobody has
+    ever visited the site — a traffic statement we did not measure.
+    """
+    out = store.requests_summary()
+
+    assert out["total"] is None, "an unread total was reported as a number"
+    assert out["total"] != 0, "an unread total was reported as zero"
+    named = [d.split(":")[0] for d in out["degraded"]]
+    assert "total" in named, (
+        "the board cannot say which all-time panel is missing: %r"
+        % out["degraded"])
+    assert any("awaiting_snapshot" in d for d in out["degraded"]), (
+        "a panel that was never attempted was reported as a FAILURE — the two "
+        "are different and the page shows them differently")
+
+
+def test_the_snapshot_supplies_the_heavy_panels_to_the_request_path(
+        store, monkeypatch):
+    """The whole point: real all-time numbers, read out of band."""
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(
+        target, "snapshot_state",
+        lambda: {"value": {"total": 999, "total_clean": 900,
+                           "internal_noise": {"today": 0, "total": 99,
+                                              "label": "x"},
+                           "by_source": [{"source": "direct", "n": 5}],
+                           "by_channel": [], "by_source_clean": [],
+                           "top_paths": [], "top_user_agents": []},
+                 "computed_at": 1000.0, "degraded": []})
+
+    out = store.requests_summary()
+
+    assert out["total"] == 999, "the snapshot's total never reached the board"
+    assert out["by_source"] == [{"source": "direct", "n": 5}]
+    assert out["today_clean"] == out["today"], (
+        "today_clean must be recomputed from the LIVE today and the parked "
+        "noise count, not copied from a stale difference")
+    assert "awaiting_snapshot" not in " ".join(out["degraded"])
+
+
+def test_the_snapshot_runs_on_its_own_connection_with_a_longer_timeout(
+        store, monkeypatch):
+    """Both halves of the fix, asserted on the SQL actually sent.
+
+    The shared connection carries an 8s statement timeout — that is what was
+    cancelling these reads, so no retry or budget could ever have read them.
+    And `_run` holds the shared link's lock for the whole statement, so a
+    20-second read through it would queue every fast panel behind it.
+    """
+    from integrations import dashboard_store as ds
+    import sys
+    import types
+
+    seen = {}
+
+    class FakeCursor:
+        def __init__(self): self.sql = None
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params=None): self.sql = (sql, params)
+        def fetchall(self): return []
+        def fetchone(self): return None
+        @property
+        def rowcount(self): return 0
+
+    class FakeConn:
+        def cursor(self): return FakeCursor()
+        def commit(self): pass
+        def close(self): pass
+
+    def fake_connect(dsn, **kw):
+        seen["dsn"] = dsn
+        return FakeConn()
+
+    fake = types.ModuleType("psycopg")
+    fake.connect = fake_connect
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(target, "backend", "postgresql")
+    monkeypatch.setattr(target, "database_url", "postgres://x/y")
+
+    with target._private_runner() as runner:
+        assert runner is not None
+
+    assert seen.get("dsn") == "postgres://x/y", (
+        "the snapshot did not open its own connection — it would contend for "
+        "the shared lock and re-create the outage")
+    assert ds.REQUEST_SNAPSHOT_STATEMENT_TIMEOUT_MS > ds.PG_STATEMENT_TIMEOUT_MS, (
+        "the snapshot's statement timeout is not longer than the shared one, "
+        "so postgres will cancel the very reads it exists to perform")
+
+
+def test_a_snapshot_pass_that_fails_keeps_the_previous_numbers(
+        store, monkeypatch):
+    """A failed pass must not blank the board it was meant to fill."""
+    target = getattr(store, "history", store)
+    previous = {"value": {"total": 42}, "computed_at": 1.0}
+    monkeypatch.setattr(target, "snapshot_state", lambda: previous)
+
+    def boom():
+        raise RuntimeError("private connection refused")
+    monkeypatch.setattr(target, "_private_runner", boom)
+
+    assert target.refresh_requests_snapshot() == previous, (
+        "a failed snapshot pass discarded the numbers we already had")
+
+
+def test_the_snapshot_round_trip_serves_real_all_time_numbers(tmp_path):
+    """End to end on the real path: record traffic, run the pass, serve it.
+
+    The tests above mock the snapshot. This one does not: it records rows, runs
+    the very `refresh_requests_snapshot` the warmer runs — through the store's
+    ordinary runner, so no socket is needed — and then asserts the request path
+    serves the numbers it parked, with no "unreadable" marker left behind.
+
+    That ordering matters. Before the snapshot exists the same call must report
+    the panels as UNREAD rather than as zero, so this asserts both halves: the
+    honest gap, then the real number.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    store = DashboardStore(tmp_path / "round_trip.db")
+    for _ in range(3):
+        store.record_request("GET", "/api/v1/signal", "api", 200,
+                             user_agent="x402-agent/1.0")
+
+    assert store.requests_summary()["total"] is None, (
+        "an all-time count was reported as a number before anything read it")
+
+    target = getattr(store, "history", store)
+    target.refresh_requests_snapshot(runner=target._run)
+    out = store.requests_summary()
+
+    assert out["total"] == 3, "the parked snapshot never reached the board"
+    assert out["available"] is True, out["degraded"]
+    assert not out["degraded"], out["degraded"]
+
+
+def test_a_panel_the_snapshot_failed_is_reported_as_a_failure(
+        store, monkeypatch):
+    """The THIRD state: the background pass tried and could not read it.
+
+    Three states must stay distinguishable on the board — a real zero (asked,
+    nobody came), a failure (asked, it broke), and not-read (never asked) — and
+    the tests above cover two of them. This is the one a mutation survived on:
+    with the failure branch removed, a panel named in the snapshot's own
+    `degraded` list was silently dropped from the board's, so a broken read
+    looked exactly like a healthy one.
+    """
+    target = getattr(store, "history", store)
+    monkeypatch.setattr(
+        target, "snapshot_state",
+        lambda: {"value": {"total": None, "internal_noise": {}},
+                 "degraded": ["total:QueryCanceled"],
+                 "skipped": [],
+                 "computed_at": 1000.0})
+
+    out = store.requests_summary()
+
+    named = [d.split(":")[0] for d in out["degraded"]]
+    assert "total" in named, (
+        "a panel the snapshot failed was dropped from the board entirely, so "
+        "a broken read looks like a healthy one: %r" % out["degraded"])
+    assert "total:awaiting_snapshot" not in out["degraded"], (
+        "a FAILED read was reported as a pending one — the page would sit "
+        "waiting for a pass that has already run and already failed")
+    assert out["total"] is None, "a failed read was reported as a number"
+

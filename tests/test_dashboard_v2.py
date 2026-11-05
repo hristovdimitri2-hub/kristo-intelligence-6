@@ -200,6 +200,11 @@ def test_stats_route_reports_durable_request_counters(client, monkeypatch):
     monkeypatch.setattr(main, "_daily_stats", {})   # "the process restarted"
     monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
     monkeypatch.setattr(main, "_free_tier_usage", {})
+    # The all-time count is an unbounded scan over `request_log`, so it is read
+    # by a background pass and parked, never computed on a request path — doing
+    # it live is what took the whole service to 502 on 05.11. Run that pass, as
+    # the warmer does, before asking the route for the number.
+    dash.history.refresh_requests_snapshot(runner=dash.history._run)
     payload = test_client.get("/api/stats").get_json()
     assert payload["total_requests"] == 3
     assert payload["today"]["requests"] == 3
@@ -548,6 +553,23 @@ def _install_fake_postgres(monkeypatch, db):
     return db
 
 
+def _served(store):
+    """`requests_summary()` once the parked all-time snapshot exists.
+
+    `total` is an unbounded `COUNT(*)` over `request_log`, and postgres cancels
+    any statement on the shared connection at 8 seconds — so it is read by a
+    background pass and parked, never computed on a request path. A store that
+    has only just recorded its rows therefore reports it as UNREAD, which is
+    the honest answer and the reason these assertions look wrong at first
+    glance. They are about the value once it HAS been read, so the snapshot is
+    built first — through the store's own runner, because the fake-postgres
+    tests have no socket to open.
+    """
+    target = getattr(store, "history", store)
+    target.refresh_requests_snapshot(runner=target._run)
+    return store.requests_summary()
+
+
 def test_history_survives_a_restart_when_postgres_is_configured(
         tmp_path, monkeypatch):
     """THE acceptance criterion: with DATABASE_URL set, a deploy/restart must
@@ -576,7 +598,7 @@ def test_history_survives_a_restart_when_postgres_is_configured(
     assert summary["count"] == 1
     assert summary["state"] == "live_data"
     assert summary["whales"][0]["amount_usdc"] == 250_000.0
-    assert second.requests_summary()["total"] == 1
+    assert _served(second)["total"] == 1
     # The dialect actually used is PostgreSQL, not SQLite.
     joined = " ".join(db.sql)
     assert "ON CONFLICT (tx_hash, log_index) DO NOTHING" in joined
@@ -594,7 +616,7 @@ def test_history_is_idempotent_and_uses_sqlite_without_database_url(
     store = DashboardStore(tmp_path / "d.db")
     assert store.history.backend == "sqlite"
     store.record_request("GET", "/health", "api", 200)
-    assert store.requests_summary()["total"] == 1
+    assert _served(store)["total"] == 1
 
     now = datetime.now(timezone.utc).isoformat()
     assert store.history.record_whale_event(
