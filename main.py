@@ -35,7 +35,7 @@ import binascii
 import uuid
 from datetime import datetime, timedelta, timezone
 from collections import deque
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import math
 from flask import Flask, g, jsonify, redirect, render_template, request, session
@@ -6252,6 +6252,70 @@ def _canonical_dashboard_payload(include_crm: bool = False,
     }
 
 
+#: Last dashboard payload that built cleanly, per VARIANT, so the board can
+#: keep reporting instead of blanking out when a read fails.
+#:
+#: KEYED BY THE EXACT GRANT PAIR. A looser key — one shared slot, or a key of
+#: "the dashboard payload" — would hand a public caller an admin or operator
+#: response, which is the single thing `include_crm` and `include_sales_detail`
+#: exist to prevent. The key is the grant, never anything about the caller.
+_DASHBOARD_LAST_GOOD: Dict[Tuple[bool, bool], Tuple[dict, float]] = {}
+_DASHBOARD_LAST_GOOD_LOCK = threading.Lock()
+
+
+def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) -> dict:
+    """Build the dashboard payload; on failure serve the last good one, LABELLED.
+
+    The owner's requirement is that the board stays operational ("искам таблото
+    постоянно да е оперативно"). Bounding the Postgres waits stops a slow read
+    from taking the service down, but it does not stop the board from showing
+    "НЕАКТУАЛНИ" — a fast failure is still a blank dashboard.
+
+    So a failed build falls back to the last payload that DID build, with its
+    age attached. Three honesty rules, because a stale number presented as live
+    is worse than no number at all:
+
+      * the fallback is marked — `stale: true`, `stale_since` and
+        `stale_age_seconds` — so the page can say how old it is;
+      * nothing is invented. This replays bytes that were real once, never a
+        guess, never a zero, never an extrapolation;
+      * the FIRST failure with no cached payload still raises, so the error is
+        reported rather than hidden behind an empty success.
+    """
+    key = (bool(include_crm), bool(include_sales_detail))
+    try:
+        payload = _canonical_dashboard_payload(
+            include_crm=include_crm,
+            include_sales_detail=include_sales_detail)
+    except Exception as exc:
+        with _DASHBOARD_LAST_GOOD_LOCK:
+            cached = _DASHBOARD_LAST_GOOD.get(key)
+        if cached is None:
+            raise
+        previous, built_at = cached
+        age = max(0.0, time.time() - built_at)
+        log.warning(
+            "Dashboard payload failed to build (variant %s) — serving the last "
+            "good read, %.0fs old: %s", key, age, redact_rpc(exc))
+        stale = dict(previous)
+        stale["stale"] = True
+        stale["stale_since"] = datetime.fromtimestamp(
+            built_at, timezone.utc).isoformat()
+        stale["stale_age_seconds"] = round(age, 1)
+        stale["stale_reason"] = (
+            "the live read failed; these are the last figures that read "
+            "cleanly, not current ones")
+        return stale
+
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        # A SHALLOW copy on purpose: this dict is the cache, and only its
+        # top-level keys are ever touched, so the nested sections are shared
+        # and never rewritten after the fact.
+        _DASHBOARD_LAST_GOOD[key] = (dict(payload), time.time())
+    payload["stale"] = False
+    return payload
+
+
 @app.route("/api/dashboard/data")
 def api_dashboard_data():
     """Free, read-only JSON for the canonical dashboard (persistent sources).
@@ -6265,11 +6329,14 @@ def api_dashboard_data():
     page. The two grants are passed separately so that a button press can never
     reveal the Stripe section. See `_operator_view_enabled` for what the button
     is and is not worth.
+
+    The build goes through `_dashboard_payload_resilient`, which falls back to
+    the last good read — marked `stale` — rather than blanking the board.
     """
-    return _safe_jsonify(_canonical_dashboard_payload(
-        include_crm=_is_admin_request(),
-        include_sales_detail=(
-            _is_admin_request() or _operator_view_enabled())))
+    include_crm = _is_admin_request()
+    return _safe_jsonify(_dashboard_payload_resilient(
+        include_crm=include_crm,
+        include_sales_detail=include_crm or _operator_view_enabled()))
 
 
 @app.route("/api/dashboard/operator-view", methods=["POST"])

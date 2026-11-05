@@ -1116,6 +1116,25 @@ async function load() {
       ' · обновено: ' + utc(d.generated_at) + ' UTC · Данните са актуални към ' +
       utc(d.generated_at) + ' UTC';
     $('invariant').textContent = d.invariant || '';
+    // А6: сървърът може да върне ПОСЛЕДНИТЕ ДОБРИ данни, когато живият прочит
+    // се провали. Тогава отговорът е 200 — и ако не гледаме `d.stale`, точно
+    // тук ще напишем „LIVE" върху стари числа. Това е единствената лъжа, която
+    // този банер съществува да предотврати, затова се проверява ПРЕДИ success.
+    if (d.stale === true) {
+      document.querySelector('.wrap').classList.add('stale-data');
+      const sb = $('live-badge');
+      sb.className = 'badge stale';
+      sb.textContent = 'ЗАСТАРЕЛИ';
+      const age = Number(d.stale_age_seconds);
+      const ageTxt = isFinite(age)
+        ? (age < 90 ? Math.round(age) + ' сек' : Math.round(age / 60) + ' мин')
+        : '?';
+      $('generated-at').textContent =
+        ' · Данните са от ' + utc(d.stale_since) + ' UTC (' + ageTxt +
+        ' преди) — живият прочит се провали, това са последните числа, ' +
+        'които са прочетени успешно';
+      return;
+    }
     // А5: при успех данните отново са „живи" — махаме stale означението.
     document.querySelector('.wrap').classList.remove('stale-data');
     const b = $('live-badge');
