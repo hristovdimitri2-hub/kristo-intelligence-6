@@ -53,6 +53,31 @@ def redact_rpc(text: Any) -> str:
     """Return `text` with any embedded RPC API key replaced by ***."""
     return _RPC_KEY_RE.sub(lambda m: m.group(1) + "***", str(text))
 
+
+# ── Bounded waits on the shared Postgres link (outage 05.11) ───────────────
+# HistoryStore keeps ONE Postgres connection behind ONE lock. Without bounds,
+# a single slow or dead link is not a slow request — it is a dead service: the
+# holder keeps `_pg_lock`, every caller queues, and with `--threads 8` eight
+# queued callers are every worker there is, so /health fails too and Render
+# answers 502. Measured on 05.11 before this change: /api/dashboard/data hung
+# past 90s, and even the STATIC 402 challenge on /api/v1/whaleflow took 10.6s
+# because request logging goes through the same lock.
+#
+# Three independent bounds, each addressing one link in that chain:
+#   * connect timeout  — a reconnect to a slow/unreachable database gives up.
+#   * statement timeout — the server cancels a runaway statement itself, so it
+#     releases the lock instead of holding it until the client gives up.
+#   * lock wait         — a caller refuses rather than queueing forever, which
+#     turns a stalled lock into one fast error instead of an outage.
+# Worst case per statement is now well under both the gunicorn timeout (120s)
+# and Render's proxy patience, which is the whole point.
+PG_CONNECT_TIMEOUT_SECONDS = max(
+    1, int(os.getenv("KRISTO_PG_CONNECT_TIMEOUT", "5")))
+PG_STATEMENT_TIMEOUT_MS = max(
+    1000, int(os.getenv("KRISTO_PG_STATEMENT_TIMEOUT_MS", "8000")))
+PG_LOCK_WAIT_SECONDS = max(
+    1.0, float(os.getenv("KRISTO_PG_LOCK_WAIT_SECONDS", "15")))
+
 # ── Payer taxonomy: KNOWN_PAYERS label → dashboard class ──────────────────
 PAYER_CLASSES = {
     "chet_payapi_verification": "canary",
@@ -352,12 +377,36 @@ class HistoryStore:
         return sql
 
     def _pg_connection(self):
+        """The one shared Postgres link, rebuilt when it is not usable.
+
+        `closed` alone is not enough. A connection the server has reaped, or
+        one sitting on a socket that died without a FIN, reports
+        `closed == False` and then blocks on the next statement with no timeout
+        of its own — while holding `_pg_lock` and, through it, every other
+        caller. `broken` catches that case and forces a reconnect.
+
+        Two bounds make the reconnect safe to do from the hot path: libpq's
+        `connect_timeout`, and a session-level `statement_timeout` so that no
+        statement issued on this link can outlive the waiters.
+        """
         import psycopg
         from psycopg.rows import dict_row
-        if self._pg_conn is None or self._pg_conn.closed:
-            self._pg_conn = psycopg.connect(self.database_url,
-                                            row_factory=dict_row)
-        return self._pg_conn
+        conn = self._pg_conn
+        if conn is None or conn.closed or getattr(conn, "broken", False):
+            conn = psycopg.connect(
+                self.database_url,
+                row_factory=dict_row,
+                connect_timeout=PG_CONNECT_TIMEOUT_SECONDS,
+            )
+            # `set_config` rather than `SET`: the extended protocol cannot bind
+            # a parameter into a SET, and interpolating the value would be the
+            # one place this module built SQL by string formatting.
+            with conn.cursor() as cur:
+                cur.execute("SELECT set_config('statement_timeout', %s, false)",
+                            (str(PG_STATEMENT_TIMEOUT_MS),))
+            conn.commit()
+            self._pg_conn = conn
+        return conn
 
     def _run(self, sql: str, params: tuple = (), fetch: str = ""):
         """Execute one statement in either dialect. Returns (rows, rowcount)."""
@@ -370,7 +419,17 @@ class HistoryStore:
                 rowcount = cur.rowcount
                 conn.commit()
             return rows, rowcount
-        with self._pg_lock:                  # one shared, serialised link
+        # ONE shared link, so this lock is the throughput ceiling for every
+        # Postgres read AND every request-log write. Waiting on it forever is
+        # what turned a single slow statement into a whole-service outage: the
+        # holder keeps the lock, callers pile up behind it, and eight of them
+        # are every worker there is. Bounded wait instead — a stalled holder
+        # now costs one fast error rather than the process.
+        if not self._pg_lock.acquire(timeout=PG_LOCK_WAIT_SECONDS):
+            raise TimeoutError(
+                "shared Postgres link busy for %.0fs; refusing instead of "
+                "queueing every caller behind it" % PG_LOCK_WAIT_SECONDS)
+        try:
             try:
                 conn = self._pg_connection()
                 with conn.cursor() as cur:
@@ -389,6 +448,8 @@ class HistoryStore:
                     pass
                 self._pg_conn = None
                 raise
+        finally:
+            self._pg_lock.release()
 
     def _ensure_schema(self) -> None:
         """Create every durable table — idempotent, on first use.
