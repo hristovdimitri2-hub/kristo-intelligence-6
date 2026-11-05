@@ -1705,6 +1705,33 @@ _BAZAAR_OUTPUT_EXAMPLES = {
 }
 
 
+def _x402_challenge_description(endpoint: str, description: str = "") -> str:
+    """What a 402 says about a product — never a placeholder if we have better.
+
+    Three of the six routes used to publish "Kristo Intelligence - paid API
+    data (/api/sales)": CHALLENGE_DESCRIPTIONS is hand-written and covered only
+    three endpoints, so the rest fell through to a placeholder. Every index that
+    crawls us copies this string verbatim — PayAI's Bazaar, x402-list, x402scan —
+    so for half the catalogue the only sentence an agent read before deciding to
+    pay said nothing about the product. Measured on 05.11: 48, 60 and 48
+    characters of nothing, against 110-192 for the routes that were covered.
+
+    Precedence: an explicit description wins; then the route's own entry in
+    REAL_X402_ROUTES; only then a placeholder that at least names the endpoint.
+    Reading the single source of truth rather than retyping three more strings is
+    what stops a route added later from silently publishing the placeholder too.
+    """
+    if description:
+        return description
+    for route in REAL_X402_ROUTES:
+        if route.get("endpoint") == endpoint:
+            real = (route.get("description") or "").strip()
+            if real:
+                return real
+            break
+    return f"Kristo Intelligence - paid API data ({endpoint})"
+
+
 def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     """
     Canonical x402 v2 challenge pieces: accepts + resource + extensions.
@@ -1722,7 +1749,7 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     resource_url = request.host_url.rstrip("/") + (
         endpoint if endpoint.startswith("/") else "/" + endpoint
     )
-    desc = description or f"Kristo Intelligence - paid API data ({endpoint})"
+    desc = _x402_challenge_description(endpoint, description)
     accepts = [
         {
             "scheme": "exact",

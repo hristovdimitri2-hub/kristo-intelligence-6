@@ -345,3 +345,105 @@ def test_402_claims_v2_version_explicitly(client, monkeypatch):
     r = client.get("/api/sales")
     assert r.status_code == 402
     assert r.get_json()["x402Version"] == 2
+
+
+# ── The challenge text is the machine's first impression (F-43) ──────────────
+# CHALLENGE_DESCRIPTIONS is hand-written and covered only three of the six
+# routes, so the other three published "Kristo Intelligence - paid API data
+# (/api/sales)" — measured on 05.11 at 48, 60 and 48 characters, against 110-192
+# for the covered ones. Every index that crawls us copies that string verbatim
+# (PayAI's Bazaar, x402-list, x402scan), so for half the catalogue the only
+# sentence an agent read before deciding to pay said nothing about the product.
+#
+# The fix reads the route's own entry in REAL_X402_ROUTES instead of retyping
+# three more strings, which is what makes these guards meaningful rather than
+# a snapshot of today's six: a route added later cannot publish the placeholder.
+
+PLACEHOLDER_MARKER = "paid API data"
+
+
+def test_no_paid_route_publishes_a_placeholder_description(client, monkeypatch):
+    """Every sellable route must describe itself, not say "paid API data"."""
+    import main
+
+    routes = [r["endpoint"] for r in main.REAL_X402_ROUTES]
+    assert len(routes) >= 6, \
+        "expected at least the six known paid routes, got %r" % (routes,)
+
+    offenders = []
+    for path in routes:
+        main._free_tier_usage["127.0.0.1"] = 1
+        r = client.get(path)
+        assert r.status_code == 402, \
+            "%s should demand payment, got %s" % (path, r.status_code)
+        desc = r.get_json()["resource"]["description"]
+        if PLACEHOLDER_MARKER in desc:
+            offenders.append((path, desc))
+
+    assert offenders == [], (
+        "these routes advertise themselves with a placeholder, and every "
+        "directory that crawls us copies it verbatim: %r" % (offenders,))
+
+
+def test_the_challenge_description_is_long_enough_to_sell_anything(client,
+                                                                  monkeypatch):
+    """A description an agent cannot learn from is the placeholder again."""
+    import main
+
+    for route in main.REAL_X402_ROUTES:
+        path = route["endpoint"]
+        main._free_tier_usage["127.0.0.1"] = 1
+        r = client.get(path)
+        assert r.status_code == 402
+        desc = r.get_json()["resource"]["description"]
+        # The three covered routes measured 110-192 characters. Anything at or
+        # below the placeholder's own length (60) carries no more information.
+        assert len(desc) > 60, \
+            "%s publishes only %d characters: %r" % (path, len(desc), desc)
+
+
+def test_the_description_helper_prefers_what_it_is_given():
+    """An explicit description must still win over the route's own entry."""
+    import main
+
+    assert main._x402_challenge_description("/api/sales", "hand-written") == \
+        "hand-written"
+    # No explicit description: the route's own text, which is not a placeholder.
+    derived = main._x402_challenge_description("/api/sales")
+    assert PLACEHOLDER_MARKER not in derived
+    assert derived == next(r["description"] for r in main.REAL_X402_ROUTES
+                           if r["endpoint"] == "/api/sales")
+    # An endpoint in neither source still gets a named, honest fallback.
+    unknown = main._x402_challenge_description("/api/not-a-route")
+    assert unknown == ("Kristo Intelligence - paid API data (/api/not-a-route)")
+
+
+def test_fixing_the_wording_did_not_move_the_money(client, monkeypatch):
+    """Only the description changed: the price and the wallet must be identical.
+
+    This is the boundary the fix had to respect — x402 prices, payTo, fee and
+    commission are not ours to touch while making the copy truer. Comparing the
+    two routes whose text changed against one whose text did not proves the
+    change landed in the string and nowhere else.
+    """
+    import main
+
+    seen = {}
+    for path in ("/api/sales", "/api/stats", "/api/arb/opportunities",
+                 "/api/v1/signal"):
+        main._free_tier_usage["127.0.0.1"] = 1
+        r = client.get(path)
+        assert r.status_code == 402
+        req = r.get_json()["accepts"][0]
+        seen[path] = (req["amount"], req["payTo"], req["asset"],
+                      req["network"], req["scheme"])
+
+    assert seen["/api/sales"][1:] == seen["/api/v1/signal"][1:], \
+        "the untouched route and a retitled one must agree on the receiver"
+    for path, money in seen.items():
+        assert money[0].isdigit(), "%s amount must stay atomic" % path
+        assert money[1] == main.X402_RECEIVER_ADDRESS, \
+            "%s must still pay the same receiver" % path
+        assert money[3] == "eip155:8453"
+        assert money[4] == "exact"
+
