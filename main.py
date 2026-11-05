@@ -6293,7 +6293,20 @@ _DASHBOARD_LAST_GOOD_LOCK = threading.Lock()
 
 #: Variants with a background rebuild already in flight. Prevents a burst of
 #: visitors from each starting their own rebuild.
+#:
+#: THIS IS NOT AN OPTIMISATION, IT IS THE FIX for the second outage. When the
+#: cold path built inline, four simultaneous first requests ran four full
+#: builds; on 05.11 each build took 40+ seconds, so those four saturated every
+#: one of gunicorn's 8 threads AND queued behind the one shared Postgres link.
+#: The result was not a slow dashboard — it was a dead service: the static `/`
+#: took 15s and /health returned 502. One build per variant, started and
+#: awaited rather than repeated, removes that failure mode entirely.
 _DASHBOARD_REFRESHING: set = set()
+
+#: Why the last build for a variant FAILED, if it did. Kept so the cold path
+#: can tell "still building" apart from "this is broken" and raise the real
+#: error instead of reporting an endless warm-up.
+_DASHBOARD_LAST_ERROR: Dict[Tuple[bool, bool], str] = {}
 
 #: Age at which a served payload triggers a BACKGROUND refresh. Below this the
 #: cached read is simply returned.
@@ -6307,17 +6320,35 @@ _DASHBOARD_FRESH_SECONDS = max(
     _DASHBOARD_REVALIDATE_SECONDS * 2.0,
     float(os.getenv("KRISTO_DASHBOARD_FRESH_SECONDS", "180")))
 
+#: How long a request may wait for a variant's FIRST build before giving up.
+#: The request never performs the build itself (see below) — it waits for the
+#: background thread. Past this it answers 503 "warming", which the page
+#: already renders as "the figures below are not current", rather than holding
+#: a gunicorn thread for the length of a slow build.
+_DASHBOARD_COLD_WAIT_SECONDS = max(
+    1.0, float(os.getenv("KRISTO_DASHBOARD_COLD_WAIT_SECONDS", "20")))
+
+
+class DashboardWarming(RuntimeError):
+    """No payload has ever been built and the first build is still running."""
+
 
 def _dashboard_build(key, include_crm: bool, include_sales_detail: bool) -> dict:
     """Build a payload and publish it into the cache under its exact grant key."""
-    payload = _canonical_dashboard_payload(
-        include_crm=include_crm,
-        include_sales_detail=include_sales_detail)
+    try:
+        payload = _canonical_dashboard_payload(
+            include_crm=include_crm,
+            include_sales_detail=include_sales_detail)
+    except Exception as exc:
+        with _DASHBOARD_LAST_GOOD_LOCK:
+            _DASHBOARD_LAST_ERROR[key] = redact_rpc(exc)
+        raise
     with _DASHBOARD_LAST_GOOD_LOCK:
         # A SHALLOW copy on purpose: this dict is the cache, and only its
         # top-level keys are ever touched, so the nested sections are shared
         # and never rewritten after the fact.
         _DASHBOARD_LAST_GOOD[key] = (dict(payload), time.time())
+        _DASHBOARD_LAST_ERROR.pop(key, None)
     return payload
 
 
@@ -6431,11 +6462,36 @@ def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) 
             payload["stale"] = False
         return payload
 
-    # Cold: nothing has ever been built for this variant, so this call has to
-    # do it. It is the only path that can raise.
-    payload = _dashboard_build(key, include_crm, include_sales_detail)
-    payload["stale"] = False
-    return payload
+    # COLD: nothing has ever been built for this variant.
+    #
+    # The request does NOT perform the build. It starts ONE background build —
+    # no matter how many requests are waiting on it — and waits, bounded.
+    # Building here is what killed the service on 05.11: four simultaneous
+    # first requests ran four concurrent 40-second builds, which consumed every
+    # one of gunicorn's 8 threads and queued behind the single shared Postgres
+    # link. The static `/` then took 15s and /health returned 502, so the
+    # failure was service-wide, not confined to this route.
+    _dashboard_refresh_in_background(key, include_crm, include_sales_detail)
+    deadline = time.time() + _DASHBOARD_COLD_WAIT_SECONDS
+    while True:
+        with _DASHBOARD_LAST_GOOD_LOCK:
+            got = _DASHBOARD_LAST_GOOD.get(key)
+            failed = _DASHBOARD_LAST_ERROR.get(key)
+            busy = key in _DASHBOARD_REFRESHING
+        if got is not None:
+            payload = dict(got[0])
+            payload["stale"] = False
+            return payload
+        if failed is not None and not busy:
+            # Not "warming up" — broken. The caller gets the real reason
+            # rather than an endless, dishonest warm-up message.
+            raise RuntimeError("dashboard build failed: %s" % failed)
+        if time.time() >= deadline:
+            raise DashboardWarming(
+                "no dashboard figures have been built yet and the first build "
+                "is still running (waited %ds)"
+                % int(_DASHBOARD_COLD_WAIT_SECONDS))
+        time.sleep(0.05)
 
 
 @app.route("/api/dashboard/data")
@@ -6452,13 +6508,24 @@ def api_dashboard_data():
     reveal the Stripe section. See `_operator_view_enabled` for what the button
     is and is not worth.
 
-    The build goes through `_dashboard_payload_resilient`, which falls back to
-    the last good read — marked `stale` — rather than blanking the board.
+    The payload comes from `_dashboard_payload_resilient`, which serves the
+    last good read (marked `stale` when it is old) and refreshes behind the
+    request. Only a variant that has never been built can block, and then only
+    for KRISTO_DASHBOARD_COLD_WAIT_SECONDS — after which this returns 503 with
+    `warming: true`, which the page renders as "the figures below are not
+    current" instead of holding a worker thread for the length of a slow read.
     """
     include_crm = _is_admin_request()
-    return _safe_jsonify(_dashboard_payload_resilient(
-        include_crm=include_crm,
-        include_sales_detail=include_crm or _operator_view_enabled()))
+    try:
+        payload = _dashboard_payload_resilient(
+            include_crm=include_crm,
+            include_sales_detail=include_crm or _operator_view_enabled())
+    except DashboardWarming as exc:
+        # 503, not 500: the service is fine, the first read just has not
+        # finished. The page already treats a failed load as "not current".
+        return _safe_jsonify({"ok": False, "warming": True,
+                              "error": str(exc)}), 503
+    return _safe_jsonify(payload)
 
 
 @app.route("/api/dashboard/operator-view", methods=["POST"])

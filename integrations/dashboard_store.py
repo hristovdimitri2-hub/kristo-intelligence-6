@@ -513,6 +513,7 @@ class HistoryStore:
                   "ON request_log (ts)")
         self._run("CREATE INDEX IF NOT EXISTS idx_whaleflow_ts "
                   "ON whaleflow_events (ts)")
+        self._ensure_whaleflow_indexes()
         # Path index for the payment funnel / top-paths queries (option B,
         # double-door 11.10) — see _ensure_request_log_path_index().
         self._ensure_request_log_path_index()
@@ -706,6 +707,59 @@ class HistoryStore:
              datetime.now(timezone.utc).isoformat()),
         )
         return max(0, int(rowcount or 0))
+
+    def _ensure_whaleflow_indexes(self) -> None:
+        """Index the whale-feed reads — the 40-second dashboard build (05.11).
+
+        `whale_rows` runs two reads that `idx_whaleflow_ts (ts)` cannot serve:
+
+            SELECT … FROM whaleflow_events
+             WHERE ts >= ? AND amount_usdc >= ?
+             ORDER BY ts DESC, block_number DESC LIMIT ?
+            SELECT COUNT(*), MAX(ts), MAX(block_number)
+              FROM whaleflow_events WHERE amount_usdc >= ?     <-- the expensive one
+
+        The second filters on `amount_usdc`, which had NO index at all, so
+        Postgres had to read the entire table to count matching rows. This
+        module already records that `whaleflow_events` reached 427 MB in under
+        five days at the old $50k threshold, and the threshold is now lower —
+        so "the entire table" means hundreds of MB, read on every dashboard
+        build, behind the single shared Postgres link.
+
+        That is where the 40 seconds went. It also explains the shape of the
+        05.11 outage exactly: /health and the static `/` answered in ~400ms
+        because they never touch this table, while /api/dashboard/data ran for
+        40+ seconds and eventually returned 500 — and the audit's F-22 had
+        already measured the same thing as "5 full scans (~41 s live)".
+
+        (amount_usdc, ts, block_number) answers the aggregate from the index
+        alone; (ts DESC, block_number DESC) lets the windowed read walk in the
+        order it was asked for instead of sorting. Idempotent, and on
+        PostgreSQL built CONCURRENTLY so it never takes a write lock on a table
+        this size — the same double-door the request_log path index uses.
+        """
+        stmts = (
+            ("idx_whaleflow_amount",
+             "whaleflow_events (amount_usdc, ts, block_number)"),
+            ("idx_whaleflow_ts_block",
+             "whaleflow_events (ts DESC, block_number DESC)"),
+        )
+        if self.backend == "postgresql":
+            try:
+                import psycopg
+                with psycopg.connect(self.database_url, autocommit=True,
+                                     connect_timeout=5) as conn:
+                    for name, target in stmts:
+                        conn.execute(
+                            "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+                            f"{name} ON {target}")
+                return
+            except Exception:
+                # Fall back to the transactional path; an index problem must
+                # never block boot (same rule as the request_log path index).
+                pass
+        for name, target in stmts:
+            self._run(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
 
     def _ensure_request_log_path_index(self) -> None:
         """Create idx_request_log_path (option B, double-door 11.10).

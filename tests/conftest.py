@@ -52,18 +52,22 @@ def _reset_dashboard_stats_cache():
     _clear = getattr(main, "_DASHBOARD_LAST_GOOD", None)
     _lock = getattr(main, "_DASHBOARD_LAST_GOOD_LOCK", None)
     _inflight = getattr(main, "_DASHBOARD_REFRESHING", None)
-    if _clear is not None and _lock is not None:
+    _errors = getattr(main, "_DASHBOARD_LAST_ERROR", None)
+
+    def _reset():
+        if _clear is None or _lock is None:
+            return
         with _lock:
             _clear.clear()
             if _inflight is not None:
                 _inflight.clear()
+            if _errors is not None:
+                _errors.clear()
+
+    _reset()
     yield
     if hasattr(main, "_reset_stats_cache"):
         main._reset_stats_cache()
-    if _clear is not None and _lock is not None:
-        with _lock:
-            _clear.clear()
-            if _inflight is not None:
-                _inflight.clear()
+    _reset()
 
 os.environ.setdefault("VALUE_CHECK_ENABLED", "0")

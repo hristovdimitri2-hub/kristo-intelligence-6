@@ -3,26 +3,42 @@
 The owner's requirement is that the board is always up ("искам таблото
 постоянно да е оперативно").
 
-Three fixes got here, and the difference between them matters:
+Four fixes got here, and the difference between them is the whole lesson:
 
-  * `eafdacf` bounded the Postgres waits, so one slow read could no longer
-    take the whole service down — /health came back to ~420ms from 502.
+  * `eafdacf` bounded the Postgres waits, so one slow read could not take the
+    SERVICE down.
   * `a8d717e` stopped the board from blanking when a read failed.
-  * the current design stops the request path from touching the database at
-    all. That last one is the actual requirement: on 05.11 the endpoint still
-    spent 40+ seconds INSIDE the build. Bounding a bad number is not the same
-    as fixing it, and a 40-second request is a board nobody can use.
+  * `6679507` cached the eight unbounded request_log aggregates.
+  * the current design keeps the request path off the database entirely.
 
-So the load-bearing assertions here are:
+The last two were needed because bounding a bad number is not the same as
+fixing it. Measured after `a8d717e` deployed:
 
-  * a cached variant is served WITHOUT rebuilding — measured as builder
-    invocations, which is the whole point and the easiest thing to regress;
-  * an ageing payload triggers a refresh BEHIND the request, so the reader
-    never waits;
-  * only one refresh per variant runs at a time, so a burst of visitors does
-    not start one rebuild each;
-  * and the honesty rules still hold: an old payload is LABELLED, nothing is
-    invented, and a public caller is never served an admin variant.
+    /health              HTTP 200     420 ms
+    /                    HTTP 200     345 ms
+    /api/dashboard/data  40+ seconds, then HTTP 500
+
+and measured again after the first cache landed, when four requests arrived at
+once on a cold process:
+
+    /api/dashboard/data  4 x timeout at 25 s
+    /health              HTTP 502
+    /                    HTTP 502
+    /openapi.json        HTTP 502
+
+So the cold path was itself the outage. Four simultaneous first requests ran
+four concurrent 40-second builds, which ate all 8 gunicorn threads and queued
+behind the single shared Postgres link — and the whole service died with them.
+
+The assertions that carry the weight, therefore:
+
+  * a cached variant is served WITHOUT rebuilding;
+  * a STAMPEDE of cold requests runs exactly ONE build — the actual regression
+    that took the service down twice;
+  * the request thread never performs the build;
+  * only one refresh per variant is ever in flight;
+  * and the honesty rules hold: an old payload is LABELLED, a broken build
+    raises, and a public caller is never served an admin variant.
 """
 
 from __future__ import annotations
@@ -47,23 +63,40 @@ def main_module():
 @pytest.fixture(autouse=True)
 def _clean_cache(main_module):
     """Every test starts with an empty cache and leaves one behind."""
-    with main_module._DASHBOARD_LAST_GOOD_LOCK:
-        main_module._DASHBOARD_LAST_GOOD.clear()
-        main_module._DASHBOARD_REFRESHING.clear()
+    def _reset():
+        with main_module._DASHBOARD_LAST_GOOD_LOCK:
+            main_module._DASHBOARD_LAST_GOOD.clear()
+            main_module._DASHBOARD_REFRESHING.clear()
+            main_module._DASHBOARD_LAST_ERROR.clear()
+
+    _reset()
     yield
-    with main_module._DASHBOARD_LAST_GOOD_LOCK:
-        main_module._DASHBOARD_LAST_GOOD.clear()
-        main_module._DASHBOARD_REFRESHING.clear()
+    _reset()
 
 
 @pytest.fixture()
 def refreshes(monkeypatch, main_module):
-    """Record background refreshes instead of racing real threads.
+    """Record refresh scheduling, and PERFORM it synchronously.
 
-    The scheduling decision is what most of these tests are about; running an
-    actual thread would make them timing-dependent for no gain. The real
-    thread is exercised separately, in the two tests that end this file.
+    These tests are about the scheduling decision, so running a real thread
+    would only make them timing-dependent. But the fake must still build: the
+    cold path now starts a background build and waits for it, so a no-op fake
+    would leave every cold test waiting for a build that never happens.
     """
+    started = []
+
+    def fake(key, include_crm, include_sales_detail):
+        started.append(key)
+        main_module._dashboard_build(key, include_crm, include_sales_detail)
+        return True
+
+    monkeypatch.setattr(main_module, "_dashboard_refresh_in_background", fake)
+    return started
+
+
+@pytest.fixture()
+def schedule_only(monkeypatch, main_module):
+    """Record refresh scheduling WITHOUT building — for primed-cache tests."""
     started = []
 
     def fake(key, include_crm, include_sales_detail):
@@ -74,14 +107,17 @@ def refreshes(monkeypatch, main_module):
     return started
 
 
-def _fake_payload(monkeypatch, main, value=1.23, delay=0.0, gate=None):
+def _fake_payload(monkeypatch, main, value=1.23, delay=0.0, gate=None,
+                  record_thread=False):
     """Replace the real builder with a controllable stand-in."""
-    calls = {"n": 0}
+    calls = {"n": 0, "threads": []}
 
     def builder(include_crm=False, include_sales_detail=False):
         calls["n"] += 1
+        if record_thread:
+            calls["threads"].append(threading.current_thread().name)
         if gate is not None:
-            gate.wait(5.0)
+            gate.wait(10.0)
         if delay:
             time.sleep(delay)
         return {
@@ -97,7 +133,7 @@ def _fake_payload(monkeypatch, main, value=1.23, delay=0.0, gate=None):
     return calls
 
 
-def _wait_for(predicate, timeout=5.0):
+def _wait_for(predicate, timeout=10.0):
     """Poll until `predicate()` is true. Returns whether it became true."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -105,6 +141,12 @@ def _wait_for(predicate, timeout=5.0):
             return True
         time.sleep(0.01)
     return predicate()
+
+
+def _backdate(main, key, seconds):
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        payload, _ = main._DASHBOARD_LAST_GOOD[key]
+        main._DASHBOARD_LAST_GOOD[key] = (payload, time.time() - seconds)
 
 
 # ── 1. the happy path, and the guarantee that actually matters ─────────────
@@ -121,12 +163,7 @@ def test_a_fresh_build_is_marked_not_stale(main_module, monkeypatch):
 
 def test_a_cached_variant_is_served_without_rebuilding(main_module, monkeypatch,
                                                        refreshes):
-    """THE POINT OF THE WHOLE CHANGE.
-
-    If this regresses, every 45-second poll is back to doing the full build on
-    the request path — which is what made the board take 40 seconds and the
-    service fall over.
-    """
+    """Serving from cache is what keeps the 45-second poll off the database."""
     main = main_module
     calls = _fake_payload(monkeypatch, main)
 
@@ -156,7 +193,67 @@ def test_a_cached_read_inside_the_window_starts_no_refresh(main_module,
         "a payload inside the revalidate window still triggered a refresh")
 
 
-# ── 2. ageing triggers a refresh BEHIND the reader ─────────────────────────
+# ── 2. THE STAMPEDE — the regression that caused the second outage ─────────
+def test_a_stampede_of_cold_requests_runs_exactly_one_build(
+        main_module, monkeypatch):
+    """Four concurrent cold requests must not become four 40-second builds.
+
+    On 05.11 they did, and the result was not a slow dashboard: every gunicorn
+    thread was consumed, /health returned 502 and the static `/` took 15s.
+    """
+    main = main_module
+    gate = threading.Event()
+    calls = _fake_payload(monkeypatch, main, gate=gate)
+
+    outcomes = []
+
+    def hit():
+        try:
+            outcomes.append(main._dashboard_payload_resilient(False, False))
+        except Exception as exc:                       # recorded, not raised:
+            outcomes.append(exc)                       # assertions below
+
+    threads = [threading.Thread(target=hit) for _ in range(6)]
+    for t in threads:
+        t.start()
+
+    assert _wait_for(lambda: (False, False) in main._DASHBOARD_REFRESHING), (
+        "no build was started at all")
+    time.sleep(0.4)                                    # let the rest pile up
+
+    assert calls["n"] == 1, (
+        "a stampede of 6 cold requests started %d builds" % calls["n"])
+    assert len(main._DASHBOARD_REFRESHING) == 1
+
+    gate.set()
+    for t in threads:
+        t.join(15)
+
+    assert len(outcomes) == 6
+    assert all(isinstance(o, dict) for o in outcomes), (
+        "some waiters failed instead of being served the build they waited "
+        "for: %r" % [o for o in outcomes if not isinstance(o, dict)][:2])
+    assert calls["n"] == 1, "a second build ran after the first finished"
+
+
+def test_the_request_thread_never_performs_the_build(main_module, monkeypatch):
+    """The build runs on the daemon refresher, never on a request thread.
+
+    This is what keeps a slow build from consuming a gunicorn worker.
+    """
+    main = main_module
+    calls = _fake_payload(monkeypatch, main, record_thread=True)
+
+    main._dashboard_payload_resilient(False, False)
+
+    assert calls["threads"], "the builder never ran"
+    for name in calls["threads"]:
+        assert name == "dashboard-refresh", (
+            "the dashboard payload was built on thread %r — a slow build "
+            "there occupies a gunicorn worker" % name)
+
+
+# ── 3. ageing triggers a refresh BEHIND the reader ─────────────────────────
 def test_an_ageing_payload_starts_a_background_refresh(main_module, monkeypatch,
                                                        refreshes):
     from main import _DASHBOARD_REVALIDATE_SECONDS
@@ -165,12 +262,7 @@ def test_an_ageing_payload_starts_a_background_refresh(main_module, monkeypatch,
     _fake_payload(monkeypatch, main)
     main._dashboard_payload_resilient(False, False)
 
-    # Backdate the cache entry past the revalidate interval.
-    with main._DASHBOARD_LAST_GOOD_LOCK:
-        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
-        main._DASHBOARD_LAST_GOOD[(False, False)] = (
-            payload, time.time() - (_DASHBOARD_REVALIDATE_SECONDS + 5))
-
+    _backdate(main, (False, False), _DASHBOARD_REVALIDATE_SECONDS + 5)
     refreshes.clear()
     main._dashboard_payload_resilient(False, False)
 
@@ -180,19 +272,18 @@ def test_an_ageing_payload_starts_a_background_refresh(main_module, monkeypatch,
 
 
 def test_the_reader_does_not_wait_for_the_refresh(main_module, monkeypatch,
-                                                  refreshes):
-    """The refresh is scheduled, not performed — the call returns at once."""
+                                                  schedule_only):
+    """With a payload in hand, a scheduled refresh must not delay the read."""
     from main import _DASHBOARD_REVALIDATE_SECONDS
 
     main = main_module
     gate = threading.Event()
     calls = _fake_payload(monkeypatch, main, gate=gate)
-    main._dashboard_payload_resilient(False, False)
 
     with main._DASHBOARD_LAST_GOOD_LOCK:
-        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
         main._DASHBOARD_LAST_GOOD[(False, False)] = (
-            payload, time.time() - (_DASHBOARD_REVALIDATE_SECONDS + 5))
+            {"ok": True, "sections": {"onchain": {"total_usdc": 1.23}}},
+            time.time() - (_DASHBOARD_REVALIDATE_SECONDS + 5))
 
     t0 = time.time()
     out = main._dashboard_payload_resilient(False, False)
@@ -202,22 +293,22 @@ def test_the_reader_does_not_wait_for_the_refresh(main_module, monkeypatch,
     assert elapsed < 1.0, (
         "the read blocked for %.2fs waiting on the rebuild" % elapsed)
     assert out["ok"] is True
-    assert calls["n"] == 1, "the refresh ran on the request path"
+    assert calls["n"] == 0, "the refresh ran on the request path"
+    assert schedule_only, "no refresh was scheduled for the ageing payload"
 
 
-# ── 3. honesty: an old payload says so ─────────────────────────────────────
+# ── 4. honesty: an old payload says so ─────────────────────────────────────
 def test_a_payload_older_than_the_fresh_window_is_labelled_stale(
-        main_module, monkeypatch, refreshes):
+        main_module, monkeypatch, schedule_only):
     from main import _DASHBOARD_FRESH_SECONDS
 
     main = main_module
     _fake_payload(monkeypatch, main)
-    main._dashboard_payload_resilient(False, False)
 
     with main._DASHBOARD_LAST_GOOD_LOCK:
-        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
         main._DASHBOARD_LAST_GOOD[(False, False)] = (
-            payload, time.time() - (_DASHBOARD_FRESH_SECONDS + 30))
+            {"ok": True, "sections": {"onchain": {"total_usdc": 1.23}}},
+            time.time() - (_DASHBOARD_FRESH_SECONDS + 30))
 
     out = main._dashboard_payload_resilient(False, False)
 
@@ -231,18 +322,16 @@ def test_a_payload_older_than_the_fresh_window_is_labelled_stale(
 
 
 def test_the_stale_marker_reports_the_real_age(main_module, monkeypatch,
-                                               refreshes):
+                                               schedule_only):
     from main import _DASHBOARD_FRESH_SECONDS
 
     main = main_module
     _fake_payload(monkeypatch, main)
-    main._dashboard_payload_resilient(False, False)
 
     age = _DASHBOARD_FRESH_SECONDS + 42
     with main._DASHBOARD_LAST_GOOD_LOCK:
-        payload, _ = main._DASHBOARD_LAST_GOOD[(False, False)]
         main._DASHBOARD_LAST_GOOD[(False, False)] = (
-            payload, time.time() - age)
+            {"ok": True, "sections": {}}, time.time() - age)
 
     out = main._dashboard_payload_resilient(False, False)
 
@@ -251,9 +340,9 @@ def test_the_stale_marker_reports_the_real_age(main_module, monkeypatch,
         % (out["stale_age_seconds"], age))
 
 
-# ── 4. the cold path is the only one that may raise ────────────────────────
-def test_the_first_build_with_no_cache_still_raises(main_module, monkeypatch):
-    """A genuinely broken service must report an error, not an empty success."""
+# ── 5. a broken build is REPORTED, not hidden behind a warm-up ─────────────
+def test_a_broken_first_build_raises_the_real_reason(main_module, monkeypatch):
+    """503 "warming up" would be a lie if the build is actually failing."""
     main = main_module
 
     def boom(include_crm=False, include_sales_detail=False):
@@ -261,22 +350,39 @@ def test_the_first_build_with_no_cache_still_raises(main_module, monkeypatch):
 
     monkeypatch.setattr(main, "_canonical_dashboard_payload", boom)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError) as err:
         main._dashboard_payload_resilient(False, False)
+
+    assert "the database is unreachable" in str(err.value), (
+        "the caller was told something other than the real failure")
 
     with main._DASHBOARD_LAST_GOOD_LOCK:
         assert main._DASHBOARD_LAST_GOOD == {}, (
-            "a failed cold build published something to the cache")
+            "a failed build published something to the cache")
 
 
-# ── 5. the security boundary: the key is the GRANT, never the caller ───────
-def test_a_public_caller_can_never_be_served_the_admin_payload(
+def test_a_slow_first_build_times_out_as_warming_not_an_error(
         main_module, monkeypatch):
-    """The defect this would be: serving an admin variant to an anonymous GET.
+    """A request must not hold a worker for the whole build."""
+    main = main_module
+    monkeypatch.setattr(main, "_DASHBOARD_COLD_WAIT_SECONDS", 0.3)
+    gate = threading.Event()
+    _fake_payload(monkeypatch, main, gate=gate)
 
-    Both variants are primed, so the only thing that can keep them apart is the
-    key. A single shared slot — the obvious "optimisation" — fails here.
-    """
+    t0 = time.time()
+    with pytest.raises(main.DashboardWarming):
+        main._dashboard_payload_resilient(False, False)
+    elapsed = time.time() - t0
+    gate.set()
+
+    assert elapsed < 3.0, (
+        "the cold path waited %.1fs, far past the 0.3s it was given" % elapsed)
+
+
+# ── 6. the security boundary: the key is the GRANT, never the caller ───────
+def test_a_public_caller_can_never_be_served_the_admin_payload(
+        main_module, monkeypatch, refreshes):
+    """A single shared cache slot — the obvious "optimisation" — fails here."""
     main = main_module
     _fake_payload(monkeypatch, main)
 
@@ -299,13 +405,12 @@ def test_the_two_grants_use_separate_cache_slots(main_module, monkeypatch,
     main._dashboard_payload_resilient(True, False)
     main._dashboard_payload_resilient(False, True)
 
-    assert calls["n"] == 2, (
-        "the two grant pairs shared one cache slot")
+    assert calls["n"] == 2, "the two grant pairs shared one cache slot"
     assert main._dashboard_payload_resilient(True, False)["crm"] == {"leads": 7}
     assert main._dashboard_payload_resilient(False, True).get("crm") is None
 
 
-# ── 6. the REAL background thread ──────────────────────────────────────────
+# ── 7. the REAL background thread ──────────────────────────────────────────
 def test_a_failing_background_refresh_neither_raises_nor_wipes_the_cache(
         main_module, monkeypatch):
     main = main_module
@@ -318,7 +423,6 @@ def test_a_failing_background_refresh_neither_raises_nor_wipes_the_cache(
 
     monkeypatch.setattr(main, "_canonical_dashboard_payload", boom)
 
-    # Force a refresh through the real path; it must swallow the failure.
     main._dashboard_refresh_in_background((False, False), False, False)
 
     assert _wait_for(lambda: (False, False) not in main._DASHBOARD_REFRESHING), (
@@ -336,12 +440,14 @@ def test_only_one_background_refresh_per_variant_runs_at_a_time(
     main = main_module
     gate = threading.Event()
     calls = _fake_payload(monkeypatch, main, gate=gate)
-    main._dashboard_payload_resilient(False, False)
+
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_LAST_GOOD[(False, False)] = (
+            {"ok": True, "sections": {}}, time.time())
 
     main._dashboard_refresh_in_background((False, False), False, False)
     assert _wait_for(lambda: (False, False) in main._DASHBOARD_REFRESHING)
 
-    # While one is in flight, further requests must not start another.
     for _ in range(5):
         started = main._dashboard_refresh_in_background(
             (False, False), False, False)
@@ -349,16 +455,14 @@ def test_only_one_background_refresh_per_variant_runs_at_a_time(
 
     gate.set()
     assert _wait_for(lambda: (False, False) not in main._DASHBOARD_REFRESHING)
-    assert calls["n"] == 2, (
-        "expected the cold build plus exactly one refresh, got %d builds"
-        % calls["n"])
+    assert calls["n"] == 1, (
+        "expected exactly one refresh, got %d builds" % calls["n"])
 
 
 def test_the_refresh_thread_is_a_daemon(main_module, monkeypatch):
     """A non-daemon thread would hold the process open on shutdown."""
     main = main_module
     _fake_payload(monkeypatch, main)
-    main._dashboard_payload_resilient(False, False)
 
     seen = []
     real_thread = threading.Thread
@@ -374,15 +478,14 @@ def test_the_refresh_thread_is_a_daemon(main_module, monkeypatch):
 
     assert seen, "no thread was started"
     assert all(kw.get("daemon") is True for kw in seen)
-    assert _wait_for(lambda: (False, False) not in main._DASHBOARD_REFRESHING)
 
 
-# ── 7. the page must not paint LIVE over a stale payload ───────────────────
+# ── 8. the page must not paint LIVE over a stale payload ───────────────────
 def test_the_page_checks_stale_before_it_declares_live():
     """Structural: the template must handle `d.stale` BEFORE the LIVE path.
 
-    A fallback response is still HTTP 200, so a page that only checks `r.ok`
-    prints a confident "LIVE" over numbers it was just told are old.
+    A served-from-cache response is still HTTP 200, so a page that only checks
+    `r.ok` prints a confident "LIVE" over numbers it was just told are old.
     """
     from pathlib import Path
 
