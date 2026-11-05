@@ -749,6 +749,13 @@ function renderGuards(g) {
 function renderFunnel(r) {
   const funnel = (r.funnel || {});
   const frows = Object.entries(funnel).map(([path, f]) => {
+    // `|| 0` тук би превърнало „не се прочете" в „никой никога не е плащал по
+    // този маршрут" — твърдение за приходи, което не сме измерили.
+    if (f.challenges_today === null || f.challenges_today === undefined ||
+        f.challenges_total === null || f.challenges_total === undefined) {
+      return `<tr><td class="mono">${esc(path)}</td>
+        <td class="num" colspan="2">${DASH} не се прочете от базата</td></tr>`;
+    }
     const t = f.challenges_today || 0, p = f.paid_today || 0;
     const rate = t ? Math.round(1000 * p / t) / 10 : 0;
     return `<tr><td class="mono">${esc(path)}</td>

@@ -186,3 +186,51 @@ def test_the_page_says_which_panels_could_not_be_read():
         "is indistinguishable from a panel with no traffic")
     render = html[html.find("function renderRequests("):][:1400]
     assert "degraded" in render
+
+
+# ── 4. the revenue panel must not claim zero when it was not read ──────────
+def test_an_unread_funnel_route_is_none_not_zero(store, monkeypatch):
+    """"0 → 0 (0%)" on a paid route is a revenue claim, not a blank.
+
+    This is worse than a missing number: the funnel is the panel that shows
+    whether the x402 handshake converts, and printing zeros there says nobody
+    has ever paid.
+    """
+    _break(monkeypatch, lambda sql: "SUM(CASE WHEN status_code = 402" in sql)
+
+    out = store.requests_summary()
+
+    assert "funnel" in out["degraded"], "the unread funnel was not named"
+    for path, row in out["funnel"].items():
+        assert row["challenges_total"] is None, (
+            "%s reported challenges_total=%r for a query that never ran"
+            % (path, row["challenges_total"]))
+        assert row["paid_total"] is None, (
+            "%s claimed paid_total=%r without reading the database"
+            % (path, row["paid_total"]))
+
+
+def test_a_funnel_route_with_no_traffic_is_still_a_real_zero(store,
+                                                             monkeypatch):
+    """An answered query with no rows for a route genuinely means zero.
+
+    Without this, "not read" and "no traffic" would collapse into one state and
+    the honest fix would just be a different lie.
+    """
+    out = store.requests_summary()          # every query runs, none fails
+
+    assert out["funnel"], "no funnel routes at all"
+    for path, row in out["funnel"].items():
+        assert row["challenges_total"] == 0, (
+            "an ANSWERED funnel query must be able to report a real zero")
+
+
+def test_the_page_does_not_print_a_dashless_zero_for_an_unread_funnel():
+    """`f.challenges_today || 0` turns "not read" into "nobody paid"."""
+    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
+    fn = html[html.find("function renderFunnel("):][:1200]
+
+    assert "null" in fn or "undefined" in fn, (
+        "renderFunnel does not check for a missing reading, so an unread route "
+        "still renders as a confident 0 → 0 (0%)")
+    assert "DASH" in fn, "renderFunnel has no placeholder for a missing reading"

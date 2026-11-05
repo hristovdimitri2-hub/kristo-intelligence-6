@@ -990,9 +990,20 @@ class HistoryStore:
                 GROUP BY path""",
             (*day_params, *day_params, *FUNNEL_ROUTES), all_, []) or []
         funnel_by_path = {r["path"]: r for r in funnel_rows}
+        # An empty result and an unread result are NOT the same thing. If the
+        # query was answered and a route is absent, that route genuinely has no
+        # requests. If the query was never answered, reporting zeros would claim
+        # nobody has ever paid on that route — a revenue statement we did not
+        # measure.
+        funnel_read = "funnel" not in degraded
         funnel = {}
         for path in FUNNEL_ROUTES:
             cur = funnel_by_path.get(path)
+            if cur is None and not funnel_read:
+                funnel[path] = {k: None for k in
+                                ("challenges_total", "paid_total",
+                                 "challenges_today", "paid_today")}
+                continue
             funnel[path] = {
                 "challenges_total": (cur["challenges"] or 0) if cur else 0,
                 "paid_total": (cur["paid"] or 0) if cur else 0,
