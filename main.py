@@ -6192,7 +6192,15 @@ def _canonical_dashboard_payload(include_crm: bool = False,
                                             include_private=include_sales_detail),
             },
             "requests": {
-                "label": "постоянен лог (SQLite)",
+                # WHICH ENGINE HOLDS THE TRAFFIC HISTORY. This read
+                # "постоянен лог (SQLite)" as a literal, so it kept describing
+                # the fallback after the durable tables moved to PostgreSQL on
+                # 14.09 — telling the operator that a deploy could erase the
+                # history it was in fact moved to PostgreSQL to protect. The
+                # label now comes from the store itself, so it cannot go stale.
+                "label": "постоянен лог (%s)" % ("PostgreSQL"
+                                                 if dashboard_db.backend == "postgresql"
+                                                 else "SQLite"),
                 "today": requests["today"],
                 "total": requests["total"],
                 "today_date": requests["today_date"],

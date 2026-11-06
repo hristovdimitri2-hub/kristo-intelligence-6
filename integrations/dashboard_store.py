@@ -2439,6 +2439,23 @@ HYBRID since 14.09:
             os.getenv("DATABASE_URL", ""),
         )
 
+    @property
+    def backend(self) -> str:
+        """Which engine owns the DURABLE tables: `"postgresql"` or `"sqlite"`.
+
+        The dashboard used to label the request log `"постоянен лог (SQLite)"`
+        hard-coded, which described the fallback as if it were the live engine.
+        On production the durable store has been PostgreSQL since 14.09
+        (`Durable store ready (postgresql)` at boot), so the label told the
+        operator that the traffic history lived in a file that a deploy could
+        erase — the opposite of why the table was moved there.
+
+        The label is derived from the store rather than repeated as a literal so
+        it cannot go stale again: if `DATABASE_URL` ever goes missing, the
+        dashboard says SQLite because that is then the truth.
+        """
+        return self.history.backend
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.file_path), timeout=30)
         conn.row_factory = sqlite3.Row
