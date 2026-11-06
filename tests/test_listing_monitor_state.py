@@ -348,3 +348,58 @@ def test_a_failed_search_is_unknown_not_absent(monitor):
     )
 
 
+# ── the catalogue half must not be able to kill the run ─────────────────────
+# On 06.11 a run printed a traceback instead of a report, because the listing
+# fetch was the ONE unguarded request in the file: payapi.market briefly failed
+# to resolve and the ConnectionError took the whole monitor with it, discarding
+# the Glama reading and saving no state. A pulse that dies silently is worse
+# than one that says what it could not read.
+
+
+def test_an_unreachable_catalogue_is_recorded_not_raised(monitor, monkeypatch):
+    def boom(url, timeout=20):
+        raise ConnectionError("getaddrinfo failed")
+
+    monkeypatch.setattr(monitor, "_get_json", boom)
+
+    state = monitor.fetch_state()  # must not raise
+
+    assert state["reliability"]["unreachable"] is True
+    assert "ConnectionError" in state["reliability"]["error"]
+
+
+def test_an_unreachable_catalogue_is_not_reported_as_a_listing_change(monitor):
+    """The heart of it: 'could not read' must not become 'band dropped'."""
+    prev = {"reliability": {"band": "established", "score": 69.7,
+                            "price_min": 0.003, "description": "d"},
+            "ranks": {"defi": {"position": 2, "total": 20}}}
+    cur = {"reliability": {"unreachable": True,
+                           "error": "ConnectionError: getaddrinfo failed"},
+           "ranks": {}}
+
+    joined = " | ".join(monitor.diff(prev, cur))
+
+    assert "UNREACHABLE" in joined
+    assert "BAND" not in joined, (
+        "an unreadable catalogue was reported as a band change: %r" % joined
+    )
+    assert "PRICE" not in joined, (
+        "an unreadable catalogue was reported as a price change: %r" % joined
+    )
+    assert "-> None" not in joined
+
+
+def test_a_failed_catalogue_search_is_not_an_absent_rank(monitor):
+    prev = {"reliability": {"band": "established"}, "ranks": {}}
+    cur = {"reliability": {"band": "established"},
+           "ranks": {"eth": {"error": "Timeout: timed out"}}}
+
+    joined = " | ".join(monitor.diff(prev, cur))
+
+    assert "UNKNOWN" in joined, (
+        "a failed search was compared as though it had returned no results"
+    )
+    assert "-> absent" not in joined
+
+
+

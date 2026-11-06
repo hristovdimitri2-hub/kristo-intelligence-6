@@ -306,22 +306,51 @@ def diff_glama(prev: dict, cur: dict) -> List[str]:
     return changes
 
 
+def _get_json(url: str, timeout: int = 20):
+    """GET + parse, or raise. Kept separate so callers choose their own failure."""
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_state() -> dict:
+    """The payapi half of the pulse, and it must never be able to kill the run.
+
+    The listing fetch below used to be the ONLY unguarded request in this file.
+    The per-term searches are wrapped and record ``{"error": …}``, but this one
+    raised ConnectionError on a DNS failure and took the whole monitor with it,
+    losing the Glama half that had already been read and saving no state at all.
+
+    A pulse that dies silently is worse than one that says what it could not
+    read: on 06.11 the run printed a traceback instead of a report because
+    payapi.market briefly failed to resolve. Failure is now a recorded value.
+    """
     state: dict = {"reliability": None, "ranks": {}}
-    g = requests.get(f"{BASE}/agent/get?id={OUR_SLUG}", timeout=20).json()
-    rel = g.get("reliability") or {}
-    state["reliability"] = {
-        "score": rel.get("score"),
-        "band": rel.get("band"),
-        "computed_at": rel.get("computed_at"),
-        "name": g.get("name"),
-        "payment_verified": g.get("payment_verified"),
-        "price_min": g.get("price_min"),
-        "description": (g.get("description") or "")[:200],
-    }
+
+    try:
+        g = _get_json(f"{BASE}/agent/get?id={OUR_SLUG}")
+    except Exception as exc:
+        state["reliability"] = {
+            "error": f"{type(exc).__name__}: {str(exc)[:90]}",
+            "unreachable": True,
+        }
+        g = None
+
+    if isinstance(g, dict):
+        rel = g.get("reliability") or {}
+        state["reliability"] = {
+            "score": rel.get("score"),
+            "band": rel.get("band"),
+            "computed_at": rel.get("computed_at"),
+            "name": g.get("name"),
+            "payment_verified": g.get("payment_verified"),
+            "price_min": g.get("price_min"),
+            "description": (g.get("description") or "")[:200],
+        }
+
     for term in TERMS:
         try:
-            r = requests.get(f"{BASE}/agent/search?q={term}", timeout=20).json()
+            r = _get_json(f"{BASE}/agent/search?q={term}")
             items = r if isinstance(r, list) else (
                 r.get("results") or r.get("apis") or r.get("listings") or [])
             names = [x.get("name", "") for x in items]
@@ -336,6 +365,16 @@ def fetch_state() -> dict:
 def diff(prev: dict, cur: dict) -> List[str]:
     changes = []
     p_rel, c_rel = prev.get("reliability") or {}, cur.get("reliability") or {}
+
+    # An unreadable current reading is not a change. Without this, a DNS failure
+    # on payapi.market produced "BAND: established -> None" and
+    # "PRICE: 0.003 -> None", which reads as the catalogue dropping us when in
+    # truth nothing about the listing was learned at all.
+    if c_rel.get("unreachable"):
+        changes.append(f"CATALOGUE UNREACHABLE ({BASE}) — no comparison made for "
+                       f"band, description, price or rank")
+        return changes
+
     if p_rel.get("band") != c_rel.get("band"):
         changes.append(f"BAND: {p_rel.get('band')} -> {c_rel.get('band')} "
                        f"(score {p_rel.get('score')} -> {c_rel.get('score')})")
@@ -345,6 +384,11 @@ def diff(prev: dict, cur: dict) -> List[str]:
         changes.append(f"PRICE: {p_rel.get('price_min')} -> {c_rel.get('price_min')}")
     p_ranks, c_ranks = prev.get("ranks") or {}, cur.get("ranks") or {}
     for term, c in c_ranks.items():
+        if "error" in c:
+            # A search that failed is not an absent position.
+            changes.append(f"RANK q={term}: UNKNOWN — the search failed, so no "
+                           f"position was read")
+            continue
         p = (p_ranks.get(term) or {}).get("position")
         cp = c.get("position")
         if p != cp:
@@ -438,10 +482,17 @@ def main() -> int:
         print("not know what moved. A fresh baseline is saved at the end.")
         print("!" * 72)
 
-    rel = cur["reliability"]
-    print(f"listing: {rel.get('name')}")
-    print(f"reliability: band={rel.get('band')} score={rel.get('score')} "
-          f"computed_at={rel.get('computed_at')}")
+    rel = cur["reliability"] or {}
+    if rel.get("unreachable"):
+        print(f"listing: UNREACHABLE — {BASE} did not answer "
+              f"({rel.get('error')})")
+        print("  No statement about reliability, band, price or position is being")
+        print("  made: the catalogue could not be read, which is not the same as")
+        print("  it saying nothing changed.")
+    else:
+        print(f"listing: {rel.get('name')}")
+        print(f"reliability: band={rel.get('band')} score={rel.get('score')} "
+              f"computed_at={rel.get('computed_at')}")
     for term, r in cur["ranks"].items():
         if "error" in r:
             print(f"q={term}: ERROR {r['error']}")
