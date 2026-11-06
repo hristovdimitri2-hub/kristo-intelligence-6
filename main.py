@@ -108,8 +108,8 @@ X402_PRICE_MAP = {
 CHALLENGE_DESCRIPTIONS = {
     "/api/v1/signal": (
         "Live DeFi trading signal: action, confidence and one-line reasoning "
-        "for ETH/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live "
-        "market data."
+        "for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed under 5 minutes from "
+        "live market data."
     ),
     "/api/v1/whaleflow": (
         "Live whale flow: USDC transfers ≥ $5M on Base with labeled "
@@ -2296,7 +2296,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "signal",
         "name": "Trading-Agent Signals",
-        "description": "Action, confidence, price_usd and one-line reasoning for ETH/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data.",
+        "description": "Action, confidence, price_usd and one-line reasoning for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data.",
         "category": "intelligence",
         "endpoint": "/api/v1/signal",
         "method": "GET",

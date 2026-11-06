@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 804
+SUITE_TESTS_PASSED = 814
 SUITE_LAST_RUN = "2026-11-06"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1876,7 +1876,7 @@ def api_mcp_manifest():
                  "description": "Live cross-DEX arbitrage spreads on Base (60s refresh)"},
                 {"path": "/api/v1/signal", "method": "GET",
                  "cost_usdc": _route_price("/api/v1/signal"),
-                 "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN"},
+                 "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for Ethereum (ETH)/ONDO/KAITO/DEGEN"},
                 {"path": "/api/v1/whaleflow", "method": "GET",
                  "cost_usdc": _route_price("/api/v1/whaleflow"),
                  "description": "Network-wide whale flow: USDC transfers >= $5M on Base with labeled counterparties (60s refresh)"},
@@ -1991,7 +1991,7 @@ def well_known_x402_scan():
                 "name": "Kristo — Trading Signal",
                 "description": ("Live DeFi trading signal: action, "
                                 "confidence and reasoning for "
-                                "ETH/ONDO/KAITO/DEGEN."),
+                                "Ethereum (ETH)/ONDO/KAITO/DEGEN."),
             },
             {
                 "url": f"{base_url}/api/v1/whaleflow",
@@ -2136,7 +2136,7 @@ def mcp_json():
             },
             {
                 "name": _mcp_name("/api/v1/signal"),
-                "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for ETH/ONDO/KAITO/DEGEN",
+                "description": "Trading-agent signals (action, confidence, price_usd, reasoning) for Ethereum (ETH)/ONDO/KAITO/DEGEN",
                 "endpoint": f"{base_url}/api/v1/signal",
                 "method": "GET",
                 "cost_usdc": _route_price("/api/v1/signal"),
@@ -2384,7 +2384,7 @@ def openapi_spec():
             )},
             "/api/v1/signal": {"get": _paid_op(
                 "Live DeFi trading signal",
-                "Live DeFi trading signal: action, confidence and one-line reasoning for ETH/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live market data.",
+                "Live DeFi trading signal: action, confidence and one-line reasoning for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed under 5 minutes from live market data.",
                 _route_price("/api/v1/signal"),
             )},
             "/api/v1/whaleflow": {"get": _paid_op(

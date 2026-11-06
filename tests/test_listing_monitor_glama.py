@@ -24,14 +24,23 @@ def monitor():
 
 
 def _fake_get(payloads):
-    """A stand-in for _glama_get keyed by path."""
+    """A stand-in for _glama_get keyed by path.
+
+    _glama_get answers ``(http_status, data)`` rather than a bare payload, so that
+    "there is no such listing" (404) stays distinguishable from "the listing
+    exists and holds nothing" (200 with an empty tools list). Those two need
+    opposite fixes, and the monitor used to record them identically as tools=0.
+
+    A path the test does not name is answered as a 404, which is exactly what the
+    real API returns for a listing that does not exist.
+    """
     calls = []
 
     def fake(path, key, params=None):
         calls.append((path, params))
         if path in payloads:
-            return payloads[path]
-        return None
+            return 200, payloads[path]
+        return 404, None
 
     fake.calls = calls
     return fake
@@ -97,6 +106,7 @@ def test_fetch_glama_state_parses_both_listings(monitor, monkeypatch):
     state = monitor.fetch_glama_state("k")
 
     assert state["servers"] == {
+        "status": 200, "missing": False,
         "quality_score": None, "spdx_license": None, "tools": 0,
         "attributes": ["hosting:remote-capable"], "boosted": False}
     assert state["connector"]["healthy"] is True
@@ -121,23 +131,32 @@ def test_fetch_glama_state_positions(monitor, monkeypatch):
 
     def fake(path, key, params=None):
         if params and params.get("query") == "defi":
-            return defi
+            return 200, defi
         if params and params.get("query") == "signals":
-            return signals
-        return None
+            return 200, signals
+        return 404, None
 
     monkeypatch.setattr(monitor, "_glama_get", fake)
     state = monitor.fetch_glama_state("k")
-    assert state["positions"]["defi"] == {"position": 2, "shown": 2}
-    assert state["positions"]["signals"] == {"position": None, "shown": 1}
+    assert state["positions"]["defi"] == {"position": 2, "shown": 2,
+                                          "status": 200}
+    assert state["positions"]["signals"] == {"position": None, "shown": 1,
+                                             "status": 200}
 
 
 def test_fetch_glama_state_survives_an_unreachable_api(monitor, monkeypatch):
-    monkeypatch.setattr(monitor, "_glama_get", lambda *a, **k: None)
+    """No network at all: status 0. Unread is neither a 404 nor a real listing."""
+    monkeypatch.setattr(monitor, "_glama_get", lambda *a, **k: (0, None))
     state = monitor.fetch_glama_state("k")
     assert state["servers"]["tools"] == 0
+    assert state["servers"]["status"] == 0, "a failed request lost its status"
+    assert state["servers"]["missing"] is False, (
+        "a request that never completed was recorded as a confirmed missing "
+        "listing — 'we could not look' must not become 'there is nothing there'"
+    )
     assert state["connector"]["healthy"] is None
     assert state["positions"]["defi"]["position"] is None
+    assert state["positions"]["defi"]["status"] == 0
 
 
 # ── diffing ────────────────────────────────────────────────────────────────
