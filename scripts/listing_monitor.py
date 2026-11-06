@@ -13,6 +13,15 @@ not telemetry.
 Usage:
     python scripts/listing_monitor.py            # run + diff + save state
     python scripts/listing_monitor.py --quiet    # exit 1 only on change
+
+Exit codes:
+    0  ran, nothing moved
+    1  ran, something moved (with --quiet)
+    2  the saved baseline exists but could not be read, so NOTHING was compared
+
+Code 2 exists because an unreadable baseline is not the same as a quiet one. The
+comparison did not happen; we do not know what moved. Reporting that as "no
+changes" would be a false all-clear from the one tool whose job is to notice.
 """
 
 from __future__ import annotations
@@ -21,6 +30,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from typing import Optional
 
 import requests
@@ -287,18 +297,79 @@ def diff(prev: dict, cur: dict) -> List[str]:
     return changes
 
 
+# ── the baseline: read it honestly, write it atomically ────────────────────
+# Three situations, deliberately NOT collapsed into one:
+#   absent  — a first run; there is no baseline, and that is not an error
+#   ok      — a usable baseline; diff against it
+#   corrupt — the file is there but we cannot use it, so we do NOT know what
+#             moved, and must not say that nothing did
+BASELINE_ABSENT = "absent"
+BASELINE_OK = "ok"
+BASELINE_CORRUPT = "corrupt"
+CORRUPT_EXIT_CODE = 2
+
+
+def _read_baseline(path: str):
+    """Return (status, baseline). Never raises, and never guesses.
+
+    A file that parses but is not a non-empty object — a list, a bare value, an
+    empty dict — is reported as corrupt rather than as "no baseline". It is not
+    usable for a diff, and silently treating it as usable would produce exactly
+    the false all-clear this function exists to prevent.
+    """
+    if not os.path.exists(path):
+        return BASELINE_ABSENT, None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return BASELINE_CORRUPT, None
+    if not isinstance(data, dict) or not data:
+        return BASELINE_CORRUPT, None
+    return BASELINE_OK, data
+
+
+def _write_state(path: str, data: dict) -> None:
+    """Write the baseline atomically: a temp file here, then one rename.
+
+    The reader above has been taught to distrust a torn file; the writer must
+    stop being able to create one. If this run dies mid-save, the previous
+    baseline survives intact instead of being replaced by half a document.
+    """
+    directory = os.path.dirname(path) or "."
+    if not os.path.isdir(directory):
+        os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Never leave the temp file behind on the way out.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quiet", action="store_true", help="print only changes")
     args = ap.parse_args()
 
     cur = fetch_state()
-    prev = {}
-    if os.path.exists(STATE_PATH):
-        try:
-            prev = json.load(open(STATE_PATH, encoding="utf-8"))
-        except Exception:
-            prev = {}
+    prev_status, prev = _read_baseline(STATE_PATH)
+    baseline_corrupt = prev_status == BASELINE_CORRUPT
+    if baseline_corrupt:
+        # Loud, and before anything else, so it cannot be mistaken for a quiet
+        # week. This is the one case where the tool must not sound calm.
+        print("\n" + "!" * 72)
+        print(f"BASELINE UNREADABLE: {STATE_PATH}")
+        print("The file exists but could not be read as a baseline object, so the")
+        print("comparison below did NOT happen. This is NOT 'no changes' - we do")
+        print("not know what moved. A fresh baseline is saved at the end.")
+        print("!" * 72)
 
     rel = cur["reliability"]
     print(f"listing: {rel.get('name')}")
@@ -333,20 +404,24 @@ def main() -> int:
     changes = diff(prev, cur) if prev else []
     if prev:
         changes += diff_glama(prev.get("glama") or {}, cur.get("glama") or {})
-    if changes:
+    if baseline_corrupt:
+        print("\n(changes vs previous run: NOT COMPARED — the baseline was "
+              "unreadable)")
+    elif changes:
         print("\n=== CHANGES vs previous run ===")
         for c in changes:
             print(" *", c)
     else:
         print("\n(no changes vs previous run)")
 
-    with open(STATE_PATH, "w", encoding="utf-8") as fh:
-        json.dump(cur, fh, indent=2, ensure_ascii=False)
+    _write_state(STATE_PATH, cur)
     print(f"state saved: {STATE_PATH}")
 
     # Launch-signal scan: silent unless an external human payer shows up.
     receiver_scan()
 
+    if baseline_corrupt:
+        return CORRUPT_EXIT_CODE
     return 1 if (args.quiet and changes) else 0
 
 
