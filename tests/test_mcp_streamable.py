@@ -155,3 +155,94 @@ def test_mcp_json_free_endpoints_are_not_advertised_as_tools(client):
     free = {entry["endpoint"] for entry in doc["free_endpoints"]}
     for path in ("/api/mcp/manifest", "/.well-known/x402.json", "/openapi.json"):
         assert any(entry.endswith(path) for entry in free), (path, sorted(free))
+
+
+# ── the priced tool result must carry payable terms, not prose (07.11) ───────
+#
+# An independent prober read our priced MCP tool result as
+# `payment_terms_unreadable` — "says payment is required, but without x402 terms
+# we can read: a listing cannot verify yet" — and said plainly that an agent
+# "cannot pay it in-session". The tool named a URL to go and pay somewhere else,
+# which an agent inside an MCP session will not do. These tests hold the fix.
+
+
+def _priced_call(client, name):
+    r = _post(client, {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                       "params": {"name": name, "arguments": {}}})
+    assert r.status_code == 200
+    return r.get_json()["result"]
+
+
+def test_a_priced_tool_answers_with_the_canonical_payment_required_object(client):
+    """x402Version + accepts[] must be present, or the listing cannot verify."""
+    sc = _priced_call(client, "get_trading_signal")["structuredContent"]
+
+    assert sc["x402Version"] == 2
+    assert isinstance(sc.get("accepts"), list) and sc["accepts"], (
+        "no machine-readable accepts[] — this is exactly what made the listing "
+        "unverifiable and the tool unpayable in-session")
+    assert "resource" in sc and "extensions" in sc
+
+
+def test_the_mcp_terms_cannot_drift_from_the_http_402(client):
+    """The assertion that matters: MCP must quote the price the 402 charges.
+
+    Both are built by the same `_x402_challenge_core` call, so an agent that
+    trusts the MCP terms and an agent that reads the 402 envelope are told the
+    same amount, receiver, network and asset.
+
+    The free tier is exhausted first, or this route answers 200 in tests and
+    there is no challenge to compare against.
+    """
+    import main
+
+    main._free_tier_usage.clear()
+    main._free_tier_usage["127.0.0.1"] = 999   # exhaust it → a real 402
+    try:
+        mcp_accept = _priced_call(client, "get_trading_signal")[
+            "structuredContent"]["accepts"][0]
+
+        live = client.get("/api/v1/signal")
+        assert live.status_code == 402, live.status_code
+        http_accept = live.get_json()["accepts"][0]
+
+        for field in ("scheme", "network", "amount", "payTo", "asset"):
+            assert mcp_accept[field] == http_accept[field], (
+                f"{field}: MCP publishes {mcp_accept[field]!r} but the 402 at "
+                f"that route charges {http_accept[field]!r}")
+    finally:
+        main._free_tier_usage.clear()
+
+
+def test_the_mcp_payment_terms_are_also_readable_as_text(client):
+    """A client that only reads content[] must still be able to pay."""
+    result = _priced_call(client, "get_whale_flow")
+    texts = [c["text"] for c in result["content"] if c.get("type") == "text"]
+    parsed = [json.loads(t) for t in texts if t.strip().startswith("{")]
+
+    assert parsed, "the x402 terms are unreachable from content[]"
+    assert parsed[0]["x402Version"] == 2
+    assert parsed[0]["accepts"][0]["amount"] == "3000", (
+        "0.003 USDC is 3000 atomic units on Base")
+
+
+def test_the_resource_url_is_the_route_not_a_url_glued_to_a_url(client):
+    """`x["endpoint"]` is absolute; the builder wants the path.
+
+    Passing it through unchanged produced "http://host/https://host/api/..."
+    """
+    sc = _priced_call(client, "get_trading_signal")["structuredContent"]
+    url = sc["resource"]["url"]
+
+    assert url.count("://") == 1, url
+    assert url.endswith("/api/v1/signal"), url
+
+
+def test_the_mcp_tool_keeps_the_legacy_x402_key(client):
+    """Clients already reading structuredContent["x402"] must not break."""
+    sc = _priced_call(client, "get_onchain_sales")["structuredContent"]
+
+    assert sc["x402"]["price_usdc"] > 0
+    assert sc["x402"]["endpoint"].startswith("http")
+    assert sc["accepts"][0]["amount"] == "5000"
+

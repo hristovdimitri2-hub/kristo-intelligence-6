@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 import queue
 import secrets
@@ -41,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 844
+SUITE_TESTS_PASSED = 849
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1668,19 +1669,70 @@ def _mcp_dispatch(body):
                                 "error": {"code": -32602,
                                           "message": f"Unknown tool: {name}"}}
         x = tool.get("x402", {})
-        result = {
-            "content": [{
-                "type": "text",
-                "text": (
-                    f"Tool '{name}' is pay-per-call via x402: send "
-                    f"{x.get('price_usdc')} USDC on {x.get('chain_id')} "
-                    f"to {x.get('receiver')}, then call "
-                    f"{x.get('endpoint')} with the payment header. "
-                    "The 402 challenge at that endpoint is self-describing."
-                ),
-            }],
-            "structuredContent": {"x402": x},
-        }
+        # A priced tool result is where an MCP agent decides whether it CAN pay,
+        # and this one answered in prose plus a private `{"x402": ...}` shape. An
+        # independent prober read that as `payment_terms_unreadable` (checked
+        # 07.11): "says payment is required, but without x402 terms we can read: a
+        # listing cannot verify yet" — and its own note is blunter: an agent
+        # "cannot pay it in-session". The tool named a URL to go and pay somewhere
+        # else, which an agent inside an MCP session will not do.
+        #
+        # The fix is NOT to invent terms here. It is to publish the SAME canonical
+        # challenge the HTTP 402 already carries, built by the same
+        # `_x402_challenge_core` call the HTTP path uses, so the two cannot drift:
+        # one price, one receiver, one CAIP-2 network, one atomic amount.
+        #
+        # Best-effort on purpose. If anything here fails, the previous shape stands
+        # and the tool still answers — a discovery nicety must never take the
+        # endpoint down.
+        payment_required = None
+        try:
+            from urllib.parse import urlsplit
+
+            from main import _x402_challenge_core, CHALLENGE_DESCRIPTIONS
+
+            # `x["endpoint"]` is absolute (base_url + route) because that is what
+            # an agent must call; the canonical builder joins it to the request
+            # host and CHALLENGE_DESCRIPTIONS keys on the path, so both need the
+            # PATH. Passing the absolute URL through would have produced
+            # "http://host/https://host/api/..." as the resource url and an empty
+            # description — a worse lie than the prose it replaced.
+            raw_endpoint = x.get("endpoint") or ""
+            path = urlsplit(raw_endpoint).path if "//" in raw_endpoint else raw_endpoint
+            accepts, resource, extensions = _x402_challenge_core(
+                path, float(x.get("price_usdc") or 0),
+                description=CHALLENGE_DESCRIPTIONS.get(path, ""))
+            payment_required = {
+                "x402Version": 2,
+                "error": "payment_required",
+                "accepts": accepts,
+                "resource": resource,
+                "extensions": extensions,
+            }
+        except Exception as exc:      # pragma: no cover - defensive
+            # Match this module's style: it has no module-level `log`, and a
+            # bare `log.debug` here would raise NameError INSIDE the handler and
+            # take down the very call it was meant to protect.
+            logging.getLogger(__name__).debug(
+                "MCP %s: could not build x402 terms: %s", name, exc)
+
+        tool_text = (
+            f"Tool '{name}' is pay-per-call via x402: send "
+            f"{x.get('price_usdc')} USDC on {x.get('chain_id')} "
+            f"to {x.get('receiver')}, then call "
+            f"{x.get('endpoint')} with the payment header. "
+            "The 402 challenge at that endpoint is self-describing."
+        )
+        content = [{"type": "text", "text": tool_text}]
+        structured = {"x402": x}
+        if payment_required is not None:
+            # `x402` above is kept for clients already reading it; the canonical
+            # object is added alongside, AND repeated as text, because a client
+            # that only reads content[] must still be able to pay.
+            structured.update(payment_required)
+            content.append({"type": "text",
+                            "text": json.dumps(payment_required)})
+        result = {"content": content, "structuredContent": structured}
     else:
         return "response", {"jsonrpc": "2.0", "id": msg_id,
                             "error": {"code": -32601,
