@@ -114,11 +114,11 @@ def test_no_served_text_revives_a_banned_phantom_string(client):
 
 
 def test_every_paid_route_appears_with_its_exact_price(client):
-    """All six routes, each with its own price — in the docs that list prices."""
+    """Every route, each with its own price — in the docs that list prices."""
     _test_client, main = client
     expected = {r["endpoint"]: round(float(r["price_usdc"]), 6)
                 for r in main.REAL_X402_ROUTES}
-    assert len(expected) == 6, "the live set is six routes"
+    assert len(expected) == 7, "the live set is seven routes"
 
     served = _fetched(_test_client)
     llms = served["/llms.txt"]

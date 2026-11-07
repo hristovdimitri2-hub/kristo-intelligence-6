@@ -60,17 +60,12 @@ def build(version: str = VERSION) -> dict:
     from app.blueprints.discovery import _mcp_tools
 
     price_map = main.X402_PRICE_MAP                      # {endpoint: price}
-    routes = {r["endpoint"]: r for r in main.REAL_X402_ROUTES}
     tools = _mcp_tools(BASE_URL)
 
-    paid_endpoints = [
-        {
-            "endpoint": endpoint,
-            "price_usd": _usd(price),
-            "name": routes.get(endpoint, {}).get("name", ""),
-        }
-        for endpoint, price in sorted(price_map.items())
-    ]
+    # There used to be a separate `paid_endpoints` list here repeating each
+    # tool's endpoint and price. `tools` already carries both, and the second
+    # copy is what took the publisher extension past the registry's 4096-byte
+    # limit and silently blocked publishing (test_server_json_registry_limits).
     tool_rows = []
     for tool in tools:
         endpoint = (tool.get("x402") or {}).get("endpoint", "")
@@ -83,7 +78,7 @@ def build(version: str = VERSION) -> dict:
             "price_usd": _usd(price_map.get(path, main.X402_FEE_USDC)),
         })
 
-    prices = [row["price_usd"] for row in paid_endpoints]
+    prices = [row["price_usd"] for row in tool_rows]
     return {
         "$schema": SCHEMA,
         "name": SERVER_NAME,
@@ -121,7 +116,6 @@ def build(version: str = VERSION) -> dict:
                              "price. No free tier, no signup, no API keys."),
                 },
                 "tools": tool_rows,
-                "paid_endpoints": paid_endpoints,
                 "discovery": {
                     "mcp": BASE_URL + "/mcp",
                     "mcp_sse": BASE_URL + "/mcp/sse",
@@ -226,8 +220,6 @@ def main_cli() -> int:
     print("  remote       : %s" % doc["remotes"][0]["url"])
     print("  price range  : $%.3f - $%.3f" % (meta["pricing"]["min_usd"],
                                               meta["pricing"]["max_usd"]))
-    for row in meta["paid_endpoints"]:
-        print("   %-26s $%.3f" % (row["endpoint"], row["price_usd"]))
     for row in meta["tools"]:
         print("   tool %-22s -> %-16s $%.3f"
               % (row["name"], row["endpoint"], row["price_usd"]))

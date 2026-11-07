@@ -113,13 +113,14 @@ def test_sse_full_round_trip_like_the_official_client(monkeypatch, tmp_path):
             tools = json.loads(_next_event(events, "message"))
             assert tools["id"] == 2
             names = [t["name"] for t in tools["result"]["tools"]]
-            # All six paid routes must be callable over MCP. This list used to
+            # Every paid route must be callable over MCP. This list used to
             # carry only three, so the flagship /api/v1/signal could not be
             # bought from Claude Desktop or Cursor at all, while agents.json
-            # described all six.
+            # described all of them.
             assert names == ["get_market_stats", "get_onchain_sales",
                              "get_bot_status", "get_trading_signal",
-                             "get_whale_flow", "get_arbitrage_opportunities"]
+                             "get_whale_flow", "get_arbitrage_opportunities",
+                             "verify_seller_receiver"]
             for t in tools["result"]["tools"]:
                 assert "price_usdc" in t["x402"]
 
@@ -156,7 +157,7 @@ def test_every_mcp_tool_advertises_the_paywall_real_price():
 
     # Every paid route in the price map is offered, and nothing else.
     assert sorted(routes) == sorted(main.X402_PRICE_MAP)
-    assert len(tools) == 6
+    assert len(tools) == 7
 
     for tool in tools:
         route = tool["x402"]["endpoint"].rsplit("https://example.invalid", 1)[-1]

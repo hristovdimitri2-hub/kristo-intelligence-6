@@ -637,11 +637,19 @@ def test_the_homepage_links_a_human_to_the_pages_a_human_needs(client):
 def test_the_vip_threshold_says_it_applies_to_one_payment(client):
     """"Payments >= $0.1 USDC" read as a running total; the code means one transfer.
 
-    main.py:884 tests a single transfer's amount, and no route costs anywhere near
-    $0.1 — the dearest is $0.005 — so as originally worded no ordinary customer
-    could ever reach the invite it promised. Same family as the volume discount
-    that could never trigger, and the "$29 unlocks the API" claim that was never
-    true: a promise that is unreachable is a promise that is false.
+    main.py:884 tests a single transfer's amount, so as originally worded no
+    ordinary customer could reach the invite it promised. Same family as the
+    volume discount that could never trigger, and the "$29 unlocks the API"
+    claim that was never true: a promise that is unreachable is a promise that
+    is false.
+
+    The guard here used to be `dearest < VIP_THRESHOLD_USDC` — true while the
+    dearest route cost $0.005. /api/v1/verify-seller at $1.00 broke it precisely
+    because the premise changed, and keeping that assertion would have forced the
+    note to go on claiming that no route reaches the threshold. A promise that is
+    reachable but described as unreachable is the same lie in the other
+    direction, so what is asserted now is that the note names the generated
+    dearest price AND describes whichever of the two cases actually holds.
     """
     app_client, main = client
     body = app_client.get("/api/mcp/manifest").get_data(as_text=True)
@@ -655,8 +663,16 @@ def test_the_vip_threshold_says_it_applies_to_one_payment(client):
     dearest = max(float(route["price_usdc"]) for route in main.REAL_X402_ROUTES)
     assert "$%.3f" % dearest in note, (
         "the note should name the dearest route so the gap is visible")
-    assert dearest < main.VIP_THRESHOLD_USDC, (
-        "a route now costs as much as the VIP threshold — the note needs rewriting")
+
+    if dearest >= main.VIP_THRESHOLD_USDC:
+        assert "earns the invite by itself" in note, (
+            "the dearest route costs $%.3f, at or above the $%.2f threshold, so "
+            "the note must say a single call to it earns the invite"
+            % (dearest, main.VIP_THRESHOLD_USDC))
+    else:
+        assert "ordinary per-call usage will not reach it" in note, (
+            "no route reaches the $%.2f threshold, so the note must say so"
+            % main.VIP_THRESHOLD_USDC)
 
 
 def test_the_pricing_and_terms_pages_answer_and_are_honest(client):

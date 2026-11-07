@@ -468,12 +468,22 @@ def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     payload = response.get_json()
     # 13.09: public product list = the REAL x402 routes (demo SKUs unlisted),
     # now including Whale Flow after its paid canary.
-    assert payload["products_summary"]["total_products"] == 6
+    assert payload["products_summary"]["total_products"] == 7
     assert payload["products_summary"]["kind"] == "real_x402_routes"
-    assert len(payload["products"]) == 6
+    assert len(payload["products"]) == 7
     assert "/api/v1/whaleflow" in {p["endpoint"] for p in payload["products"]}
     assert "recent_requests" not in payload
-    assert all(0.001 <= product["price_usdc"] <= 0.25 for product in payload["products"])
+    # This used to assert every price sat in the $0.001-$0.25 band, which was a
+    # true description of the catalogue until /api/v1/verify-seller arrived at
+    # $1.00. The band was never the property worth enforcing — it was a typed
+    # guess at the catalogue's shape — so assert the real invariant instead: a
+    # positive price, equal to the one the 402 actually demands, so the public
+    # list can never drift from the single source of truth.
+    import main as _main
+    for product in payload["products"]:
+        assert product["price_usdc"] > 0, product
+        assert float(product["price_usdc"]) == float(
+            _main.X402_PRICE_MAP[product["endpoint"]]), product
     assert payload["total_volume_usd"] == 0.0
     assert payload["total_sales"] == 0
     assert "telegram_bot_running" in payload

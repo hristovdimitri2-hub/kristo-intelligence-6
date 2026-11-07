@@ -245,6 +245,7 @@ FUNNEL_ROUTES = [
     "/api/bot-status",
     "/api/arb/opportunities",
     "/api/v1/whaleflow",
+    "/api/v1/verify-seller",
 ]
 
 # ── Whale flow defaults (env-regulatable, read at RUNTIME not import) ──────

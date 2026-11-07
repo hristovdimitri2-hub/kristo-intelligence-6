@@ -195,8 +195,14 @@ def audit_receiver(receiver: str, days: int = DEFAULT_AUDIT_DAYS,
     # waiting on a report is better served by an honest failure than by a long
     # hunt through endpoints. `base_rpc_candidates()` remains the source of the
     # primary, so this follows configuration rather than pinning a host.
+    #
+    # `days` is passed THROUGH to the scanner. It used to stop here: the scanner
+    # hardcoded a 7-day window while this function reported whatever it had been
+    # asked for, so a report headed "last 30 days" had read 7. The window in the
+    # report and the window walked are now the same value, and the coverage block
+    # carries lookback_days so the two can be compared rather than trusted.
     stats: dict = {}
-    kwargs = {"stats": stats}
+    kwargs = {"stats": stats, "days": days}
     if usdc_contract:
         kwargs["usdc_contract"] = usdc_contract
     try:

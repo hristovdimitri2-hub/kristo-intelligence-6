@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 875
+SUITE_TESTS_PASSED = 892
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1168,6 +1168,173 @@ def seller_audit():
     return jsonify(report), 200
 
 
+@discovery_bp.route("/api/v1/verify-seller")
+def verify_seller():
+    """PAID: the same honest audit, for any receiver the caller names.
+
+    This is the broader form the free route above points at. It reads the chain
+    directly rather than the shared store, because the receiver is not ours and
+    no monitor of ours is already sweeping it.
+
+    WHY IT COSTS WHAT IT COSTS. A 7-day window is thousands of adaptive
+    eth_getLogs chunks, so this is the only route we sell that does real RPC work
+    per call instead of serving a snapshot. The price and the census behind it
+    live at KRISTO_VERIFY_SELLER_PRICE in config.py; what matters here is that
+    the amount is read from the same single price source as every other route, so
+    the challenge cannot quote a number of its own.
+
+    THE GUARDS ARE THE PRODUCT'S HONESTY, not decoration:
+      - the address must parse, or we would read a padded topic for a typo and
+        report a clean zero for an address that does not exist
+      - `days` is clamped to the engine's own bounds, never trusted
+      - the window actually walked is reported back in `coverage.lookback_days`,
+        so a report can be checked against the scan instead of believed
+      - a chain failure is `read: "failed"` with its reason. It is never an
+        exception, an empty report, or a zero: a buyer who paid $1 and got
+        "\"distinct payers\": 0" because the RPC blinked has been told a lie, and
+        the one thing this product cannot do is tell that particular lie.
+
+    The free sibling exists on purpose. An agent should be able to see the exact
+    report shape, including how coverage is stated, before paying a hundred times
+    what our other routes cost.
+    """
+    from services.seller_audit import (
+        audit_receiver, cached_audit, store_audit,
+        DEFAULT_AUDIT_DAYS, MAX_AUDIT_DAYS, MIN_AUDIT_DAYS,
+    )
+
+    raw = (request.args.get("receiver") or "").strip()
+    if not raw:
+        return jsonify({
+            "ok": False,
+            "error": "receiver_required",
+            "message": ("Name the Base address to audit, e.g. "
+                        "?receiver=0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"),
+            "free_sample": request.host_url.rstrip("/") + "/api/v1/verify-seller/sample",
+        }), 400
+
+    # Validate before anything else. Reading logs for a malformed address would
+    # return an empty set, which this engine would honestly label a clean read —
+    # a truthful statement about an address that is not one.
+    receiver = raw
+    try:
+        from web3 import Web3
+        if not Web3.is_address(raw):
+            raise ValueError("not an address")
+        receiver = Web3.to_checksum_address(raw)
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error": "invalid_receiver",
+            "message": ("`receiver` must be a 40-hex-character EVM address, "
+                        "with or without the 0x prefix."),
+            "received": raw[:64],
+        }), 400
+
+    try:
+        days = int(request.args.get("days") or DEFAULT_AUDIT_DAYS)
+    except (TypeError, ValueError):
+        days = DEFAULT_AUDIT_DAYS
+    days = max(MIN_AUDIT_DAYS, min(MAX_AUDIT_DAYS, days))
+
+    # A cached report is served as-is and says so: the age is in the payload, and
+    # a 15-minute-old on-chain read of a slow-moving address is not a stale fact,
+    # it is the same fact.
+    hit = cached_audit(receiver, days)
+    if hit is not None:
+        hit["served_from_cache"] = True
+        return jsonify(hit), 200
+
+    report = audit_receiver(receiver, days)
+    report["served_from_cache"] = False
+    report["source"] = ("the chain, read on demand for the address you named "
+                        "(eth_getLogs on USDC transfers to that exact address)")
+    report["scope_note"] = ("Reads any receiver on request. The free route "
+                            "/api/v1/seller-audit is the same engine fixed to "
+                            "this service's own address.")
+    report["buyer_note"] = (
+        "A distinct paying address is not a distinct customer, and a clean read "
+        "is not an endorsement: this reports who paid, never whether the seller "
+        "is honest. Read `coverage` before the headline — if `complete` is false, "
+        "the window was not read end to end and the figures are a floor."
+    )
+    store_audit(receiver, days, report)
+    return jsonify(report), 200
+
+
+@discovery_bp.route("/api/v1/verify-seller/sample")
+def verify_seller_sample():
+    """Free sample of the $1.00 seller-verification report.
+
+    Static, like every other sample here. It shows the shape AND the honesty
+    rules — `coverage.complete` false with a `partial` read — because a buyer
+    needs to see that an incomplete read is published as incomplete before
+    trusting a complete one.
+    """
+    from services.seller_audit import MAX_AUDIT_DAYS, MIN_AUDIT_DAYS
+
+    return jsonify({
+        "input": {
+            "type": "http",
+            "method": "GET",
+            "queryParams": {
+                "receiver": "Base address to audit (0x + 40 hex). Required.",
+                "days": f"window in days, {MIN_AUDIT_DAYS}-{MAX_AUDIT_DAYS}, "
+                        "default 7. Optional.",
+            },
+            "example_url": (request.host_url.rstrip("/")
+                            + "/api/v1/verify-seller?receiver="
+                              "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f&days=7"),
+        },
+        "output_example": {
+            "ok": True,
+            "receiver": "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
+            "window_days": 7,
+            "read": "clean",
+            "coverage": {
+                "complete": True,
+                "lookback_days": 7,
+                "scanned_blocks": 201600,
+                "failed_ranges": 0,
+                "split_retries": 4,
+            },
+            "payer_analysis": {
+                "total_txs": 6,
+                "total_usdc": 0.018,
+                "unique_payers": 3,
+                "external_unique_payers": 2,
+                "known_verification_txs": 3,
+                "repeat_payers": 1,
+                "avg_check_usdc": 0.003,
+                "noise": {"large_txs": 0, "large_tx_count": 0},
+            },
+            "verdict": ("Read cleanly: 2 distinct paying address(es), 1 of them "
+                        "paid more than once."),
+            "notes": [
+                "Only incoming USDC transfers on Base to this exact address are read.",
+                "Transfers at or above the large-transfer threshold are counted as "
+                "treasury/exchange flows, not as per-call payments.",
+                "Known reviewer/verification addresses are counted separately so they "
+                "cannot inflate the customer count.",
+                "A distinct paying address is not a distinct customer: one operator "
+                "can pay from several wallets, and several agents can share one.",
+            ],
+            "served_from_cache": False,
+        },
+        "paid_route": "/api/v1/verify-seller",
+        # The disclaimer is generated from the price map, like every other
+        # sample's: a typed price here is how the free sample for
+        # /api/v1/whaleflow once overquoted its own product by 67%. The
+        # `partial` case below is extra honesty this route needs and the others
+        # do not, so it is carried alongside the generated sentence rather than
+        # replacing it.
+        "disclaimer": (_sample_disclaimer("/api/v1/verify-seller")
+                       + " The `partial` case looks like this: read \"partial\", "
+                         "coverage.complete false, and a verdict saying the "
+                         "figures are a floor rather than a zero."),
+    }), 200
+
+
 @discovery_bp.route("/api/bot-status/sample")
 def bot_status_sample():
     """Free static sample of GET /api/bot-status (no payment)."""
@@ -1251,6 +1418,7 @@ def _a2a_sample_builders() -> dict:
         "/api/sales": sales_sample,
         "/api/bot-status": bot_status_sample,
         "/api/arb/opportunities": arb_sample,
+        "/api/v1/verify-seller": verify_seller_sample,
     }
 
 
@@ -1466,7 +1634,7 @@ def agent_card():
     """The A2A Agent Card (protocol 0.3.0), at the standard discovery path.
 
     Every field here is one a caller can check against a live response: the
-    skills are the six paid routes, each naming the free sample that documents
+    skills are the paid routes, each naming the free sample that documents
     it and the price the 402 actually charges.
     """
     base_url = request.host_url.rstrip("/")
@@ -1632,20 +1800,29 @@ def _mcp_tools(base_url):
     def _price(route):
         return float(X402_PRICE_MAP.get(route, X402_FEE_USDC))
 
-    def _tool(name, route, description):
+    def _tool(name, route, description, input_schema=None):
+        """One MCP tool. `input_schema` is omitted by every route that takes no
+        input; /api/v1/verify-seller requires a `receiver`, and an MCP tool that
+        declares an empty schema while its route demands a query parameter tells
+        the agent the call is complete when it is not."""
         return {
             "name": name,
             "description": description,
-            "inputSchema": {"type": "object", "properties": {},
-                            "additionalProperties": False},
+            "inputSchema": (input_schema if input_schema is not None
+                            else {"type": "object", "properties": {},
+                                  "additionalProperties": False}),
             "x402": {"price_usdc": _price(route), "chain_id": X402_CHAIN_ID,
                      "receiver": X402_RECEIVER_ADDRESS,
                      "token_contract": X402_USDC_CONTRACT,
                      "endpoint": f"{base_url}{route}"},
         }
 
-    _paid = ("Paid via x402 (HTTP 402 challenge with the exact USDC amount and "
-             "receiver on Base).")
+    # The payment facts live in each tool's structured `x402` block (price,
+    # receiver, chain, token) and once in the registry artifact's pricing.note.
+    # They used to be repeated as a prose sentence at the end of EVERY tool
+    # description, and seven copies of it pushed the publisher extension past
+    # the registry's 4096-byte limit — publishing failed with a 400 that
+    # `mcp-publisher validate` called valid.
     return [
         _tool(
             "get_market_stats", "/api/stats",
@@ -1655,7 +1832,7 @@ def _mcp_tools(base_url):
             "real-time market data (CoinGecko, DEXScreener, Fear & Greed). "
             "Use it for market context and price/indicator lookups; use "
             "get_onchain_sales for paid-call revenue and get_bot_status for "
-            "integration health. " + _paid,
+            "integration health. ",
         ),
         _tool(
             "get_onchain_sales", "/api/sales",
@@ -1666,7 +1843,7 @@ def _mcp_tools(base_url):
             "timestamp), source=\"real_blockchain\", plus the wallet state "
             "and a market snapshot. Use it when you need provable revenue "
             "or settlement evidence; use get_market_stats for prices and "
-            "get_bot_status for integration health. " + _paid,
+            "get_bot_status for integration health. ",
         ),
         _tool(
             "get_bot_status", "/api/bot-status",
@@ -1678,7 +1855,7 @@ def _mcp_tools(base_url):
             "Use it to confirm this service's own monitoring is alive (and "
             "its heartbeat recent) before trusting other outputs; use "
             "get_market_stats for market data or get_onchain_sales for "
-            "provable revenue. " + _paid,
+            "provable revenue. ",
         ),
         _tool(
             "get_trading_signal", "/api/v1/signal",
@@ -1687,7 +1864,7 @@ def _mcp_tools(base_url):
             "KAITO and DEGEN: action, confidence, price_usd and the model's "
             "reasoning. Use it when you need a directional call rather than "
             "raw market data; use get_whale_flow for large-transfer flow and "
-            "get_arbitrage_opportunities for cross-DEX spreads. " + _paid,
+            "get_arbitrage_opportunities for cross-DEX spreads. ",
         ),
         _tool(
             "get_whale_flow", "/api/v1/whaleflow",
@@ -1695,7 +1872,7 @@ def _mcp_tools(base_url):
             "network-wide USDC whale flow on Base: transfers of $5M or more, "
             "refreshed every 60 seconds, with labelled counterparties. Use it "
             "to see where size is moving; use get_trading_signal for "
-            "directional calls or get_market_stats for broad context. " + _paid,
+            "directional calls or get_market_stats for broad context. ",
         ),
         _tool(
             "get_arbitrage_opportunities", "/api/arb/opportunities",
@@ -1703,7 +1880,43 @@ def _mcp_tools(base_url):
             "live cross-DEX arbitrage spreads on Base, refreshed every 60 "
             "seconds. Use it for executable price gaps between venues; use "
             "get_market_stats for aggregate prices or get_trading_signal for "
-            "directional calls. " + _paid,
+            "directional calls. ",
+        ),
+        # The only tool that requires input. It is also the only one that
+        # answers a question ABOUT another seller rather than about this
+        # service, which is why it is the one agents ask for by name when they
+        # are deciding whether to pay somebody else.
+        _tool(
+            "verify_seller_receiver", "/api/v1/verify-seller",
+            # Kept short on purpose: `tools` is the bulk of the publisher
+            # extension, and the registry rejects anything over 4096 bytes
+            # measured as compact JSON. The long form of this sentence lives in
+            # the OpenAPI description and llms.txt, where nothing is billed by
+            # the byte.
+            "Read-only; REQUIRES `receiver`. Audits ANY receiver's incoming "
+            "USDC on Base: distinct payers, repeat payers, concentration, "
+            "probes vs customers. Decides whether a seller is safe to pay. "
+            "Reports partial/failed, never a zero it did not measure.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "receiver": {
+                        "type": "string",
+                        "description": "USDC receiver address to audit. A "
+                                       "bare 40-hex address is accepted and "
+                                       "checksummed.",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 30,
+                        "default": 7,
+                        "description": "Lookback window in days.",
+                    },
+                },
+                "required": ["receiver"],
+                "additionalProperties": False,
+            },
         ),
     ]
 
@@ -2149,6 +2362,9 @@ def api_mcp_manifest():
                 {"path": "/api/v1/whaleflow", "method": "GET",
                  "cost_usdc": _route_price("/api/v1/whaleflow"),
                  "description": "Network-wide whale flow: USDC transfers >= $5M on Base with labeled counterparties (60s refresh)"},
+                {"path": "/api/v1/verify-seller", "method": "GET",
+                 "cost_usdc": _route_price("/api/v1/verify-seller"),
+                 "description": "Audit any USDC receiver on Base before paying it (requires ?receiver=0x…)"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
                  "description": "This manifest (free)"},
                 {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0,
@@ -2160,16 +2376,24 @@ def api_mcp_manifest():
             "verification": "Payments are verified on-chain via Transfer event logs",
             # This used to read "Payments >= $0.1 USDC ...", which reads as a
             # cumulative total. The code tests a single transfer
-            # (main.py:884, `amount_usd >= VIP_THRESHOLD_USDC`), and no API route
-            # costs anywhere near $0.1 — the dearest is $0.005 — so as worded the
-            # promise could not be reached by any ordinary customer. Same family
-            # as the volume discount that could never trigger.
+            # (main.py:884, `amount_usd >= VIP_THRESHOLD_USDC`), and when this
+            # was written no API route cost anywhere near $0.1 — the dearest was
+            # $0.005 — so the promise could not be reached by any ordinary
+            # customer. Same family as the volume discount that could never
+            # trigger. /api/v1/verify-seller at $1.00 changed the premise: a
+            # single audit now clears the threshold on its own, so the note says
+            # which of the two cases holds instead of repeating a claim that is
+            # no longer true. The dearest price is generated, never typed.
             "vip_threshold": (
                 f"A single payment of at least ${VIP_THRESHOLD_USDC} USDC "
-                "generates a Telegram VIP invite code. This is for large one-off "
-                "transfers, not accumulated API calls: the dearest route costs "
-                f"${_dearest_route_price():.3f}, so ordinary per-call usage will "
-                "not reach it."),
+                "generates a Telegram VIP invite code. This is one transfer, "
+                "not a running total. The dearest route costs "
+                f"${_dearest_route_price():.3f}, so "
+                + ("one call to that route earns the invite by itself; the "
+                   "cheaper routes will not reach the threshold from per-call "
+                   "usage."
+                   if _dearest_route_price() >= VIP_THRESHOLD_USDC else
+                   "ordinary per-call usage will not reach it.")),
         },
     }
     return jsonify(manifest)
@@ -2267,6 +2491,13 @@ def well_known_x402_scan():
                 "name": "Kristo — Whale Flow",
                 "description": ("USDC whale transfers >= $5M on Base with "
                                 "labeled counterparties."),
+            },
+            {
+                "url": f"{base_url}/api/v1/verify-seller",
+                "name": "Kristo — Seller Verification",
+                "description": ("Audit any USDC receiver on Base before paying "
+                                "it: distinct payers, repeat payers, "
+                                "concentration, probes vs customers."),
             },
         ],
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
@@ -2421,6 +2652,24 @@ def mcp_json():
                 "free_sample": f"{base_url}/api/v1/whaleflow/sample",
                 "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
+            {
+                "name": _mcp_name("/api/v1/verify-seller"),
+                "description": ("Audit any USDC receiver on Base before paying it: "
+                                "distinct payers, repeat payers, concentration, "
+                                "probes vs customers. Requires a receiver address."),
+                "endpoint": f"{base_url}/api/v1/verify-seller",
+                "method": "GET",
+                "cost_usdc": _route_price("/api/v1/verify-seller"),
+                "free_sample": f"{base_url}/api/v1/verify-seller/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
+                # The only advertised tool that takes input, so the document
+                # names it rather than leaving an agent to guess.
+                "parameters": [
+                    {"name": "receiver", "in": "query", "required": True},
+                    {"name": "days", "in": "query", "required": False,
+                     "default": 7},
+                ],
+            },
         ],
         "free_endpoints": [
             {
@@ -2496,6 +2745,23 @@ def openapi_spec():
     _cheapest = _cheapest_route_price()
     _dearest = _dearest_route_price()
 
+    def _fmt_amount(value):
+        """Exactly the decimals the value needs, never fewer than three.
+
+        `str()` was used here and it is truthful but inconsistent: str(0.005)
+        is "0.005" while str(1.0) is "1.0", so /api/v1/verify-seller published
+        its $1.00 as "1.0" while every other route published three places. The
+        convention is three, but three places would LIE about a finer price —
+        an environment-overridable 0.0005 would be advertised as 0.001 — so
+        trailing zeros are trimmed only down to the third decimal.
+        """
+        text = ("%.6f" % float(value)).rstrip("0")
+        if text.endswith("."):
+            text += "000"
+        while len(text.split(".")[1]) < 3:
+            text += "0"
+        return text
+
     base_url = request.host_url.rstrip("/")
     # x-payment-info shared block for all paid operations.
     # x402scan expects `protocols` to be an ARRAY OF PROTOCOL OBJECTS and a
@@ -2514,8 +2780,8 @@ def openapi_spec():
             # `mode: fixed` is kept for schema compatibility, but the amount must
             # not overstate: it is the CHEAPEST paid route. Every operation below
             # carries its own exact price, and the 402 is authoritative.
-            "amount": str(_cheapest),
-            "amount_max": str(_dearest),
+            "amount": _fmt_amount(_cheapest),
+            "amount_max": _fmt_amount(_dearest),
         },
         "protocols": [{"x402": {}}],
     }
@@ -2529,7 +2795,7 @@ def openapi_spec():
         },
     }
 
-    def _paid_op(summary, description, cost_usdc=None):
+    def _paid_op(summary, description, cost_usdc=None, parameters=None):
         """Paid operation entry.
 
         `cost_usdc` overrides the per-call price advertised in
@@ -2545,21 +2811,25 @@ def openapi_spec():
             op_payment_info = dict(payment_info)
             op_payment_info["price"] = {
                 **payment_info["price"],
-                "amount": str(cost),
+                "amount": _fmt_amount(cost),
             }
         # x402 Doctor "openapi-input-schema" (21.10): x402scan does not
-        # register a paid operation without an input declaration. All six
+        # register a paid operation without an input declaration. The original
         # routes are plain GET handlers with NO query parameters (no
-        # request.args in any of them), so the honest declaration is an
-        # explicit empty parameters list plus a "no parameters" note in the
+        # request.args in any of them), so for those the honest declaration is
+        # an explicit empty parameters list plus a "no parameters" note in the
         # description — a paid operation that stays silent about its input
-        # reads as "may need input we can't see".
+        # reads as "may need input we can't see". A route that DOES take input
+        # passes `parameters` and gets neither the empty list nor the note, so
+        # the sentence never describes a route that takes a query string.
+        if parameters is None:
+            description = (description
+                           + " Takes no parameters (plain GET, no query "
+                           "string).")
         return {
             "summary": summary,
-            "description": (description
-                            + " Takes no parameters (plain GET, no query "
-                            "string)."),
-            "parameters": [],
+            "description": description,
+            "parameters": [] if parameters is None else parameters,
             "x-payment-info": op_payment_info,
             "x402": {"cost_usdc": cost, "free_tier_eligible": True},
             # NO security/securitySchemes for x402 (maintainer review, x402scan
@@ -2660,6 +2930,38 @@ def openapi_spec():
                 "Live whale flow",
                 "Live whale flow: USDC transfers >= $5M on Base with labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the response always states the block scanned to).",
                 _route_price("/api/v1/whaleflow"),
+            )},
+            # The only paid operation that takes input, so it is also the only
+            # one that declares `parameters` instead of the shared "takes no
+            # parameters" note. `receiver` is required; `days` is optional and
+            # the route clamps it to its own bounds, which is why it is declared
+            # with the same defaults a caller would get by omitting it.
+            "/api/v1/verify-seller": {"get": _paid_op(
+                "Seller verification — audit any USDC receiver on Base",
+                "Reads the incoming USDC transfers of ANY receiver address on Base and reports what a payer would want to know before paying it: distinct paying addresses, repeat payers, how concentrated the revenue is, treasury-sized flows, and which addresses look like verification probes rather than customers. Answers 'is this seller safe to pay' and 'verify an x402 endpoint before paying' with chain data instead of a reputation score. Reports its own coverage and says `partial` or `failed` when it could not read the whole window, because a zero it did not measure is indistinguishable from a zero that is real.",
+                _route_price("/api/v1/verify-seller"),
+                parameters=[
+                    {
+                        "name": "receiver",
+                        "in": "query",
+                        "required": True,
+                        "description": "The USDC receiver address to audit. "
+                                       "EVM address; a bare 40-hex address is "
+                                       "accepted and checksummed.",
+                        "schema": {"type": "string"},
+                    },
+                    {
+                        "name": "days",
+                        "in": "query",
+                        "required": False,
+                        "description": "Lookback window in days. Clamped to "
+                                       "the engine's bounds; the window "
+                                       "actually walked is published as "
+                                       "coverage.lookback_days.",
+                        "schema": {"type": "integer", "minimum": 1,
+                                   "maximum": 30, "default": 7},
+                    },
+                ],
             )},
             "/api/v1/agents": {"get": _free_op(
                 "Agent catalog (free)",

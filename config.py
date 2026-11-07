@@ -119,6 +119,30 @@ KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.003"))   # /api/
 # Kept at the canary-proven price tier. Existing prices are NOT touched.
 KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.003"))
 
+# ── Seller verification: the first product priced above $1 ────────────────
+# This is the arbitrary-receiver audit. It reads the chain for ANY address a
+# caller names, so unlike every route above it is not a cached lookup: a 7-day
+# window is thousands of adaptive eth_getLogs chunks, and the price has to cover
+# real RPC work.
+#
+# $1.00 is not a guess. A census of 143.8M x402 settlements (Zenodo
+# 10.5281/zenodo.22726373, "Sub-Dollar Machine Commerce") puts the volume-weighted
+# average payment at $0.27, and finds that payments of $1 or more carry 72.5% of
+# all value from under 8% of the traffic: the sub-dollar tier is where our
+# existing $0.003-$0.005 routes live, and the top 1% of merchants take 93.0% of
+# revenue. Pricing this at $0.003 would put us below the median list price of
+# $0.01 while doing the most expensive work we offer.
+#
+# It also prices in the abuse the free surface is deliberately shaped to avoid.
+# Owners' reasoning for fixing the free audit to our own receiver was that an
+# open one would let a single caller aim it at 1000 addresses and burn the RPC.
+# At $1.00 that caller pays $1000 to do it, which is a deterrent; at a cent it
+# is an invitation.
+#
+# Overridable like every other price, and it does not touch an existing one.
+KRISTO_VERIFY_SELLER_PRICE = float(
+    os.getenv("KRISTO_VERIFY_SELLER_PRICE", "1.00"))     # /api/v1/verify-seller
+
 # ── Human products (NOT x402 routes) ──────────────────────────────────────
 # The Telegram VIP-analysis unlock is paid in USDC like a route but is a HUMAN
 # product, so it is deliberately NOT in X402_PRICE_MAP. It lives here anyway so

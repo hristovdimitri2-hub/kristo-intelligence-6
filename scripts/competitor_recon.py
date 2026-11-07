@@ -235,6 +235,7 @@ def fetch_incoming_transfers(
     chunk_size: int = DEFAULT_CHUNK_BLOCKS,
     pause_seconds: float = 0.15,
     stats: Optional[dict] = None,
+    days: int = 7,
 ) -> List[dict]:
     """Fetch incoming USDC transfers to `receiver` via eth_getLogs.
 
@@ -248,6 +249,14 @@ def fetch_incoming_transfers(
     failed_ranges / split_retries / complete. `complete=False` means the window
     was NOT fully read — silence is not proof that nobody paid.
 
+    `days` is how far back to look when the caller does not name a from_block.
+    It defaults to 7 so every existing caller is unchanged. It exists because
+    the window used to be HARDCODED to 7 days here while callers reported
+    whatever window they had been asked for: a report headed "last 30 days"
+    that had in fact read 7 is a claim the scan did not support. A caller who
+    wants a different window now gets the window it says it read, or the
+    coverage block tells it the read was short.
+
     Returns a list of {tx_hash, payer, amount_usdc, block_number}.
     """
     from web3 import Web3
@@ -259,8 +268,16 @@ def fetch_incoming_transfers(
     latest = w3.eth.block_number
     if to_block is None:
         to_block = latest
+    lookback_days = max(1, int(days or 7))
     if from_block <= 0 or from_block > to_block:
-        from_block = max(1, to_block - int(7 * 86400 / BLOCK_TIME_SECONDS))
+        from_block = max(1, to_block - int(lookback_days * 86400 / BLOCK_TIME_SECONDS))
+    else:
+        # The caller pinned the range. Do not claim a day-window we did not use.
+        lookback_days = None
+    if stats is not None:
+        # Publish the window actually used, so a report can never state a window
+        # wider than the one the scan walked.
+        stats["lookback_days"] = lookback_days
 
     padded = _pad_topic(receiver)
     logs, coverage = _get_logs_adaptive(

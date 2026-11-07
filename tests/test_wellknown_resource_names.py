@@ -28,6 +28,7 @@ EXPECTED_PATHS = [
     "/api/arb/opportunities",
     "/api/v1/signal",
     "/api/v1/whaleflow",
+    "/api/v1/verify-seller",
 ]
 
 
@@ -36,7 +37,7 @@ def test_resources_are_named_objects(client):
     assert r.status_code == 200
     data = r.get_json()
     resources = data["resources"]
-    assert len(resources) == 6, f"expected 6 resources: {resources}"
+    assert len(resources) == 7, f"expected 7 resources: {resources}"
     for res in resources:
         assert isinstance(res, dict), f"resource must be an object: {res!r}"
         assert set(res) >= {"url", "name", "description"}, res

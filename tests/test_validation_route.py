@@ -183,18 +183,31 @@ def test_validation_json_carries_x402_trust_block(client):
     assert re.match(r"^\d{4}-\d{2}-\d{2}$", trust["last_checked"]), (
         "the snapshot must say when it was taken")
     assert "4/4" in trust["claim"]
-    assert len(trust["paid_endpoints"]) == 6
 
     # These are somebody else's measurements, recomputed by them daily, so the
     # values here are a dated copy and cannot be asserted. What CAN be asserted is
     # that the copy is well-formed and that it only claims things about routes we
     # really sell: a snapshot entry for a route we do not have would advertise
     # somebody else's endpoint as ours.
+    #
+    # This used to assert the snapshot covered our routes EXACTLY. That held only
+    # while both lists had six entries, and it was the wrong invariant: a dated
+    # copy of an external service cannot be expected to contain a route that did
+    # not exist when it was taken, and asserting equality would have forced us to
+    # either invent a measurement they never made or delete one they did. The
+    # property that actually matters is one-directional — every entry must be a
+    # route we sell — and the snapshot dates itself so a lagging copy is visibly
+    # a lagging copy rather than a false claim.
     import main
     real = {route["endpoint"] for route in main.REAL_X402_ROUTES}
     listed = {entry["path"] for entry in trust["paid_endpoints"]}
-    assert listed == real, (
-        "the trust snapshot covers %s but we sell %s" % (sorted(listed), sorted(real)))
+    assert listed, "the snapshot must carry at least the endpoints they graded"
+    assert listed <= real, (
+        "the trust snapshot claims endpoints we do not sell: %s"
+        % sorted(listed - real))
+    # The gap is allowed, but it must be visible rather than silent: the copy
+    # states the date it was taken, and every entry it does carry is checked
+    # below.
     for entry in trust["paid_endpoints"]:
         assert entry["grade"] in tuple("ABCDF"), entry
         assert 0 < float(entry["score"]) <= 100, entry

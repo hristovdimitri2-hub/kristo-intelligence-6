@@ -67,7 +67,7 @@ authorization window, or an already-used transaction).
 
 ### Prices
 
-These six routes are the complete paid surface. The table is checked against the
+These seven routes are the complete paid surface. The table is checked against the
 live price map by `tests/test_visibility_seo.py`, so the README cannot drift away
 from the amounts the 402 challenges actually demand:
 
@@ -79,6 +79,12 @@ from the amounts the 402 challenges actually demand:
 | `GET /api/sales` | 0.005 |
 | `GET /api/bot-status` | 0.005 |
 | `GET /api/arb/opportunities` | 0.005 |
+| `GET /api/v1/verify-seller` | 1.000 |
+
+`/api/v1/verify-seller` is the one route that takes input: pass
+`?receiver=0x…` to audit any Base address's incoming USDC before you pay it.
+It is priced above the rest because it reads a live window of chain logs per
+call rather than serving a cached snapshot.
 
 Every one of them has a **free `/sample` twin** returning the real response
 shape with example data — see the discovery list below. Try the shape before
@@ -156,6 +162,7 @@ anything:
 | `GET /api/sales/sample` | `/api/sales` |
 | `GET /api/bot-status/sample` | `/api/bot-status` |
 | `GET /api/arb/opportunities/sample` | `/api/arb/opportunities` |
+| `GET /api/v1/verify-seller/sample` | `/api/v1/verify-seller` |
 
 ## Repository layout
 
@@ -167,7 +174,7 @@ blockchain/wallet.py     # Base wallet, USDC transfers, on-chain verification
 scripts/                 # On-chain recon tools, demo agent, E2E helpers
 examples/demo_agent/     # Public reference x402 client
 docs/                    # Audit reports, recon findings, outreach docs
-tests/                   # Test suite (875 tests)
+tests/                   # Test suite (892 tests)
 ```
 
 ## Verification
@@ -178,7 +185,7 @@ tests/                   # Test suite (875 tests)
   canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
 - **23/23 adversarial audit** (mystery-agent simulation, 2026-08-29 — a dated
   snapshot; see the banner in `docs/MYSTERY_AGENT_REPORT.md`)
-- **875 automated tests** in this repository
+- **892 automated tests** in this repository
 
 ## Docs
 

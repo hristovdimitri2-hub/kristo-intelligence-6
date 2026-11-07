@@ -252,7 +252,7 @@ def test_whaleflow_is_listed_after_the_canary(client):
     payload = test_client.get("/api/dashboard/data").get_json()
     endpoints = [x["endpoint"] for x in payload["sections"]["routes"]["routes"]]
     assert "/api/v1/whaleflow" in endpoints
-    assert len(endpoints) == len(main.REAL_X402_ROUTES) == 6
+    assert len(endpoints) == len(main.REAL_X402_ROUTES) == 7
 
     # …and it is a REAL route in the single source of truth, at the price the
     # canary actually paid.

@@ -55,6 +55,7 @@ from config import (
     KRISTO_WHALE_PRICE,
     KRISTO_SIGNAL_PRICE,
     KRISTO_WHALEFLOW_PRICE,
+    KRISTO_VERIFY_SELLER_PRICE,
 )
 
 # ── Real-time market data integration ─────────────────────────────────────
@@ -99,6 +100,11 @@ X402_PRICE_MAP = {
     # block 51200083, $0.003), so the route is now advertised in the public
     # vitrine (REAL_X402_ROUTES) instead of paywall-only. Condition 4 met.
     "/api/v1/whaleflow": KRISTO_WHALEFLOW_PRICE,
+    # Seller verification (07.11): the arbitrary-receiver on-chain audit. The
+    # only route priced above $1, and the only one that reads the chain for an
+    # address a caller names rather than serving a cached snapshot. See the
+    # reasoning at KRISTO_VERIFY_SELLER_PRICE in config.py.
+    "/api/v1/verify-seller": KRISTO_VERIFY_SELLER_PRICE,
 }
 
 # ── Challenge descriptions ("caught by the hand") ───────────────────────────
@@ -121,6 +127,13 @@ CHALLENGE_DESCRIPTIONS = {
         "Telegram sales bot status: heartbeat, subscribers, processed "
         "commands and service wallet state — updated live."
     ),
+    "/api/v1/verify-seller": (
+        "On-chain audit of any Base address you name: incoming USDC transfers "
+        "read from the chain, with distinct paying addresses, repeat-payer "
+        "concentration, treasury-sized flows separated out and the read's own "
+        "coverage stated — so you can check whether a seller is really being "
+        "paid before you pay them."
+    ),
 }
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
@@ -138,7 +151,7 @@ FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 # Endpoints that require x402 payment (after free tier exhausted)
 X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
                        "/api/arb/opportunities", "/api/v1/signal",
-                       "/api/v1/whaleflow"}
+                       "/api/v1/whaleflow", "/api/v1/verify-seller"}
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
@@ -168,6 +181,10 @@ X402_FREE_ENDPOINTS = {
     "/api/v1/whaleflow/sample",
     "/api/sales/sample",
     "/api/bot-status/sample",
+    # The $1.00 route's sample. A buyer deciding whether a $1 audit is worth it
+    # must be able to see the exact report shape first — the same rule the
+    # cheaper routes follow, and it matters more at a hundred times the price.
+    "/api/v1/verify-seller/sample",
     # Honest on-chain audit of this service's own receiver (services/seller_audit.py).
     # Free on purpose: it is the proof of the paid engine that reads ANY receiver,
     # and it is fixed to our own address so it cannot be aimed at a thousand of
@@ -1835,6 +1852,45 @@ _BAZAAR_OUTPUT_EXAMPLES = {
         # The live handler also attaches `wallet` (internal wallet state). It is
         # omitted here on purpose: same public-surface rule as /api/sales.
     },
+    "/api/v1/verify-seller": {
+        "ok": True,
+        # An illustrative address, NOT our receiver. This example is PUBLIC — it
+        # rides in every unpaid 402 — and the treasury address is already
+        # published as accepts[0].payTo. Repeating it here would widen the
+        # public surface for no discovery benefit and would show a buyer our own
+        # address as though it were a stranger's (F-26/F-27 rule).
+        "receiver": "0x1111111111111111111111111111111111111111",
+        "window_days": 7,
+        "read": "clean",
+        "coverage": {
+            "complete": True,
+            "lookback_days": 7,
+            "scanned_blocks": 201_600,
+            "failed_ranges": 0,
+            "split_retries": 4,
+        },
+        "payer_analysis": {
+            "total_txs": 6,
+            "total_usdc": 0.018,
+            "unique_payers": 3,
+            "external_unique_payers": 2,
+            "known_verification_txs": 3,
+            "repeat_payers": 1,
+            "avg_check_usdc": 0.003,
+            "noise": {"large_txs": 0, "large_tx_count": 0},
+        },
+        "verdict": ("Read cleanly: 2 distinct paying address(es), 1 of them "
+                    "paid more than once."),
+        # `read` and `coverage` are part of the example on purpose. This is the
+        # only route whose answer can be legitimately incomplete, and an example
+        # that showed only the clean case would teach a buyer that a zero is
+        # always a zero.
+        "notes": [
+            "Only incoming USDC transfers on Base to this exact address are read.",
+            "A `partial` read reports its figures as a floor, never as a zero.",
+        ],
+        "served_from_cache": False,
+    },
 }
 
 
@@ -2487,6 +2543,26 @@ REAL_X402_ROUTES: List[dict] = [
         "endpoint": "/api/v1/whaleflow",
         "method": "GET",
         "price_usdc": KRISTO_WHALEFLOW_PRICE,
+    },
+    # ── Seller verification (07.11) — the first route above $1 ────────────
+    # Every other route above serves a snapshot we already compute. This one
+    # reads the chain on demand for an address the CALLER names, which is why it
+    # is priced where it is rather than at the $0.003-$0.005 tier. See
+    # KRISTO_VERIFY_SELLER_PRICE in config.py for the census figures behind the
+    # number, and services/seller_audit.py for the engine.
+    #
+    # It is advertised in the public vitrine on the strength of the same
+    # standard the other routes met: the engine, the surface and its honesty
+    # rules are tested, and the free sample lets a buyer see the exact report
+    # before paying a hundred times what the other routes cost.
+    {
+        "id": "verify-seller",
+        "name": "Seller Verification (Any Receiver)",
+        "description": "On-chain audit of any Base address you name: incoming USDC transfers read from the chain, with distinct paying addresses, repeat-payer concentration, treasury-sized flows separated out from per-call payments, and the read's own coverage stated. Answers whether an x402 seller is really being paid, and by how many distinct addresses, before you pay them.",
+        "category": "verification",
+        "endpoint": "/api/v1/verify-seller",
+        "method": "GET",
+        "price_usdc": KRISTO_VERIFY_SELLER_PRICE,
     },
 ]
 
