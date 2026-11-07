@@ -7350,17 +7350,28 @@ def _start_background_threads():
     os.environ["KRISTO_BG_THREADS_STARTED"] = "1"
 
     # ── the organism's opening word ───────────────────────────────────────────
-    # Every block starts `not_reached`, which is honest but unhelpful: on a fresh
-    # deploy the board would say "we never looked" about blocks that are about to
-    # report on their own loops. This records the two facts boot actually
-    # establishes, and leaves the rest to the loops that own them.
+    # DELIBERATELY OFF THE BOOT PATH.
     #
-    # Deliberately NOT a blanket `ok` for all six: a heartbeat that is written at
-    # boot and never refreshed becomes a lie within five minutes, and that is
-    # exactly the failure the staleness window exists to catch.
-    _organism_beat("delivery", "ok", "process started, background threads armed")
-    _organism_journal_note("delivery", "boot",
-                           detail="background threads started")
+    # This runs inside `_start_background_threads`, which is called at import
+    # time — BEFORE gunicorn binds the port. A durable write here is a Postgres
+    # round-trip on the critical path to listening, and this project has already
+    # paid for exactly that mistake once: module-level `purge_old_requests()`
+    # delayed binding in a4c1cb0 and Render answered "No open ports detected".
+    #
+    # So it goes in its own daemon thread. Boot must not wait on telemetry; if
+    # the write is slow or fails, the blocks simply report `not_reached` until
+    # their own loops beat, which is honest.
+    def _organism_opening_word():
+        try:
+            _organism_beat("delivery", "ok",
+                           "process started, background threads armed")
+            _organism_journal_note("delivery", "boot",
+                                   detail="background threads started")
+        except Exception as exc:  # noqa: BLE001 - telemetry only
+            log.debug("organism opening word failed: %s", exc)
+
+    threading.Thread(target=_organism_opening_word, daemon=True,
+                     name="organism-boot").start()
 
     # Start blockchain monitor (real wallet)
     t_chain = threading.Thread(target=_blockchain_monitor_loop, daemon=True, name="blockchain-monitor")
