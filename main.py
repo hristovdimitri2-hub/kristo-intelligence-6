@@ -1433,8 +1433,15 @@ def _dashboard_scan_loop():
             if added:
                 log.info("Dashboard incremental scan: %d new sale(s).", added)
             _note_sales_scan_ok()
+            # The store answered a real write-and-read cycle. That is the proof
+            # the data block is well, recorded off the request path — a heartbeat
+            # written per request would put a durable write on every call.
+            _organism_beat("data_store", "ok",
+                           "incremental scan ok, %d new" % added)
         except Exception as exc:
             log.warning("Dashboard scan cycle failed (non-fatal): %s", redact_rpc(exc))
+            _organism_beat("data_store", "failed",
+                           "incremental scan failed: %s" % str(exc)[:120])
 
         if time.time() >= next_payapi:
             next_payapi = time.time() + payapi_interval
@@ -3565,6 +3572,12 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
             dashboard_db.record_payment_attempt(
                 path, "settle_failed", payer=payer, amount_usdc=price,
                 detail=str(settle_detail or "")[:200])
+            # A settlement we could not take. `degraded`, not `failed`: the rail
+            # is answering, refusing to lose money silently. The distinction
+            # matters because `failed` would page someone about a working rail.
+            _organism_beat("payment_rail", "degraded",
+                           "settle failed on %s: %s"
+                           % (path, str(settle_detail or "")[:100]))
             return False
 
     # The money moved. Recorded HERE — before the receipt fetch and the depth
@@ -3581,6 +3594,10 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     dashboard_db.record_payment_attempt(
         path, "settled", payer=payer, amount_usdc=price,
         detail=str(settle_detail or "")[:120], tx_hash=tx_hash)
+    # The rail took a real payment. This is the payment block's strongest proof
+    # of life — not "the code loaded" but "money moved".
+    _organism_beat("payment_rail", "ok",
+                   "settlement recorded on %s" % path)
 
     # Populate the real block number from the settlement receipt — PayAPI's
     # review flagged history entries reporting block_number 0 (field never
@@ -4479,6 +4496,82 @@ def _ago_words(ts) -> str:
         return "преди %d дни" % days
     months = days // 30
     return "преди %d месеца" % months if months > 1 else "преди месец"
+
+
+def _organism_journal_note(block: str, kind: str, severity: str = "info",
+                           detail: str = "", action: str = "",
+                           outcome: str = "") -> None:
+    """Write one journal entry. Never raises.
+
+    The journal is the organism's memory and the owner's report: what the system
+    noticed, what it did, and what happened. A session that reads it does not have
+    to re-discover the last one's findings.
+    """
+    try:
+        from services import organism_journal as oj
+        oj.append(dashboard_db, block, kind, severity=severity, detail=detail,
+                  action=action, outcome=outcome)
+    except Exception as exc:  # noqa: BLE001 - telemetry only
+        log.debug("organism journal note failed (%s/%s): %s", block, kind, exc)
+
+
+def _organism_beat(block: str, verdict: str, detail: str = "") -> None:
+    """Record a heartbeat for one block. Never raises, never blocks the caller.
+
+    Called from the background loops rather than the request path: a heartbeat is
+    a durable write, and putting one on every request is how the dashboard got
+    slow in the first place. The loops already run on their own threads.
+    """
+    try:
+        from services import organism
+        organism.beat(dashboard_db, block, verdict, detail)
+    except Exception as exc:  # noqa: BLE001 - telemetry only
+        log.debug("organism heartbeat failed (%s): %s", block, exc)
+
+
+def _safe_organism_summary() -> dict:
+    """The organism's block verdicts, or an honest "unavailable" marker.
+
+    Wrapped because the board must survive this module being absent or broken —
+    the same rule every other panel here follows. The failure is REPORTED as
+    unavailable rather than rendered as six healthy blocks, which is the mistake
+    this whole feature exists to prevent.
+    """
+    try:
+        from services import organism
+        return organism.summary(dashboard_db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("organism summary unavailable: %s: %s",
+                    type(exc).__name__, exc)
+        return {
+            "blocks": [], "counts": {}, "unhealthy": None,
+            "available": False,
+            "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+            "note": ("The organism's own state could not be read. This is NOT "
+                     "the same as every block being well."),
+        }
+
+
+def _safe_organism_journal(limit: int = 25) -> dict:
+    """The most recent journal entries, or an honest marker.
+
+    `unreadable: True` is deliberately distinct from an empty list: "nothing has
+    happened" and "we cannot see what happened" call for opposite reactions.
+    """
+    try:
+        from services import organism_journal as oj
+        return {
+            "entries": oj.entries(dashboard_db, limit=limit),
+            "counts_24h": oj.counts(dashboard_db, 24),
+            "unreadable": not oj.readable(dashboard_db),
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("organism journal unavailable: %s: %s",
+                    type(exc).__name__, exc)
+        return {
+            "entries": [], "counts_24h": {}, "unreadable": True,
+            "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+        }
 
 
 def _plain_summary(sales: dict, requests: dict, clients: dict) -> dict:
@@ -6507,6 +6600,17 @@ def _canonical_dashboard_payload(include_crm: bool = False,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "receiver_address": X402_RECEIVER_ADDRESS,
         "sections": {
+            # ── the organism: is the SYSTEM well, not just the traffic ────────
+            # Placed before `summary` because it answers a different question
+            # from "how many sales". Six blocks, one vocabulary, and the rule that
+            # `not_reached` ("we did not look") is counted as unhealthy rather
+            # than summed as fine. A block that never reported is not a healthy
+            # block; it is an unknown one, and this is the surface that says so.
+            #
+            # Read-only: it reads heartbeats other loops already wrote. It runs no
+            # check and takes no action.
+            "organism": _safe_organism_summary(),
+            "journal": _safe_organism_journal(),
             # The four questions the owner asks, answered in words and placed
             # first: when was the last sale, on what day, who paid, and was the
             # caller a person or a bot. Every figure is derived from the same
@@ -6843,8 +6947,13 @@ def _dashboard_warmer_loop():
         try:
             _dashboard_refresh_in_background(
                 (False, False), include_crm=False, include_sales_detail=False)
+            # The board rebuilt. This is the `delivery` block's proof of life:
+            # the payload the public sees is being produced.
+            _organism_beat("delivery", "ok", "dashboard payload rebuilt")
         except Exception as exc:
             log.warning("dashboard warmer: %s", redact_rpc(exc))
+            _organism_beat("delivery", "degraded",
+                           "dashboard rebuild failed: %s" % str(exc)[:120])
         time.sleep(interval)
 
 
@@ -6871,8 +6980,11 @@ def _requests_snapshot_warmer_loop():
     while True:
         try:
             dashboard_db.history.refresh_requests_snapshot()
+            _organism_beat("data_store", "ok", "requests snapshot parked")
         except Exception as exc:
             log.warning("requests snapshot warmer: %s", redact_rpc(exc))
+            _organism_beat("data_store", "degraded",
+                           "snapshot pass failed: %s" % str(exc)[:120])
         time.sleep(REQUEST_SNAPSHOT_INTERVAL_SECONDS)
 
 
@@ -7236,6 +7348,19 @@ def _start_background_threads():
     # Set only when threads are about to start, so the env guard above
     # always means "a full thread set already runs in this process".
     os.environ["KRISTO_BG_THREADS_STARTED"] = "1"
+
+    # ── the organism's opening word ───────────────────────────────────────────
+    # Every block starts `not_reached`, which is honest but unhelpful: on a fresh
+    # deploy the board would say "we never looked" about blocks that are about to
+    # report on their own loops. This records the two facts boot actually
+    # establishes, and leaves the rest to the loops that own them.
+    #
+    # Deliberately NOT a blanket `ok` for all six: a heartbeat that is written at
+    # boot and never refreshed becomes a lie within five minutes, and that is
+    # exactly the failure the staleness window exists to catch.
+    _organism_beat("delivery", "ok", "process started, background threads armed")
+    _organism_journal_note("delivery", "boot",
+                           detail="background threads started")
 
     # Start blockchain monitor (real wallet)
     t_chain = threading.Thread(target=_blockchain_monitor_loop, daemon=True, name="blockchain-monitor")

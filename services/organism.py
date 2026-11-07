@@ -1,0 +1,319 @@
+"""The organism's sense layer: six blocks, each with a heartbeat and a self-check.
+
+WHY THIS EXISTS. Every defect this project has had was found by a human-run audit,
+diagnosed in a human-run session, and fixed by a human-run commit. The system
+watches (the sentinel sends Telegram on health, revenue and GitHub changes) but it
+carries **no model of its own health**, so each session re-discovers what the last
+one already knew. The owner's words: *"решаваме един проблем, излиза друг."*
+
+This module gives the system that model. It is deliberately the smallest useful
+version of it:
+
+  * SIX BLOCKS, matching the areas that actually fail here: the payment rail, the
+    chain reads, the data store, discovery surfaces, alerting, delivery.
+  * ONE VOCABULARY — `ok` / `degraded` / `failed` / `not_reached`. The fourth is
+    the one that matters: a check that could not run must never be rendered as a
+    check that found nothing. That is the defect class this codebase has spent the
+    week closing one surface at a time, and it is enforced here by construction
+    rather than by remembering.
+  * A HEARTBEAT per block, written to the durable store, so "when did this last
+    work" survives a restart and a deploy.
+  * NO ACTIONS. This module observes and records. Executors are a later step, and
+    they are gated separately — see `ORGANISM.md`.
+
+THE HONESTY RULE, stated once and enforced by `Verdict`: a self-check returns a
+verdict and an optional detail. A check that raises returns `not_reached` with the
+exception recorded — never `ok`, and never a silent absence. A caller reading the
+board therefore cannot mistake "we did not look" for "we looked and it was fine".
+
+Nothing here reads or writes money, prices, receivers, `secrets/`, or git.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Callable, Dict, List, Optional
+
+import logging
+
+log = logging.getLogger("kristo.v6.organism")
+
+# ── the shared vocabulary ────────────────────────────────────────────────────
+# Ordered worst-last for reporting; `NOT_REACHED` is NOT simply "unknown" — it
+# means the check did not run, which is a different fact from a check that ran
+# and failed, and from one that ran and found nothing.
+OK = "ok"
+DEGRADED = "degraded"
+FAILED = "failed"
+NOT_REACHED = "not_reached"
+
+VERDICTS = (OK, DEGRADED, FAILED, NOT_REACHED)
+
+#: Verdicts that mean the block is NOT working, for alerting and for the count.
+UNHEALTHY = (DEGRADED, FAILED, NOT_REACHED)
+
+#: The blocks. Each owns a distinct failure domain, so one dying cannot make
+#: another look dead — the property the dashboard already proves for its panels.
+BLOCKS = (
+    "payment_rail",
+    "chain_read",
+    "data_store",
+    "discovery",
+    "alerting",
+    "delivery",
+)
+
+#: How long a heartbeat may be silent before the block counts as stale. The
+#: monitor already proves this pattern (heartbeat + freshness window); five
+#: minutes is the tightest interval any loop here actually runs at.
+HEARTBEAT_STALE_SECONDS = 300
+
+_HEARTBEAT_PREFIX = "organism_hb_"
+
+
+@dataclass
+class Verdict:
+    """One block's answer to "am I well?".
+
+    `detail` is required to be honest but is free-form. `evidence` carries the
+    numbers a human would otherwise re-measure by hand — the whole point of the
+    module is that the next session does not have to.
+    """
+
+    block: str
+    verdict: str
+    detail: str = ""
+    evidence: Dict[str, object] = field(default_factory=dict)
+    at: str = ""
+
+    def __post_init__(self) -> None:
+        if self.verdict not in VERDICTS:
+            # A typo must not invent a fifth state that callers do not handle.
+            raise ValueError(
+                "unknown verdict %r for block %r; expected one of %s"
+                % (self.verdict, self.block, ", ".join(VERDICTS)))
+        if not self.at:
+            self.at = datetime.now(timezone.utc).isoformat()
+
+    @property
+    def healthy(self) -> bool:
+        return self.verdict == OK
+
+    def as_dict(self) -> dict:
+        return {
+            "block": self.block,
+            "verdict": self.verdict,
+            "detail": self.detail,
+            "evidence": dict(self.evidence),
+            "at": self.at,
+        }
+
+
+def _not_reached(block: str, exc: BaseException) -> Verdict:
+    """The verdict for a check that could not run. NEVER `ok`.
+
+    Kept as a function so the rule is stated once: an exception in a self-check is
+    a fact about the CHECK, not a measurement of the block, and the two must not
+    be confused in either direction.
+    """
+    return Verdict(block=block, verdict=NOT_REACHED,
+                   detail="self-check did not run: %s: %s"
+                          % (type(exc).__name__, str(exc)[:160]))
+
+
+class Registry:
+    """The set of self-checks, and the thing that runs them.
+
+    Checks are registered rather than hard-coded so a block can be added without
+    touching the runner, and so tests can register a throwing check to prove the
+    `not_reached` path. That path is the one most likely to be got wrong, and it
+    is the one this module exists to make impossible.
+    """
+
+    def __init__(self) -> None:
+        self._checks: Dict[str, Callable[[], Verdict]] = {}
+
+    def register(self, block: str,
+                 check: Callable[[], Verdict]) -> Callable[[], Verdict]:
+        if block not in BLOCKS:
+            raise ValueError("unknown block %r; expected one of %s"
+                             % (block, ", ".join(BLOCKS)))
+        self._checks[block] = check
+        return check
+
+    def blocks(self) -> List[str]:
+        return list(self._checks)
+
+    def run_one(self, block: str) -> Verdict:
+        """Run a block's check, converting any failure into a verdict.
+
+        A check that raises must not take the run down: a block that dies does not
+        take the building with it, which is the property the dashboard already has
+        for its panels.
+        """
+        check = self._checks.get(block)
+        if check is None:
+            return Verdict(block=block, verdict=NOT_REACHED,
+                           detail="no self-check registered for this block")
+        try:
+            v = check()
+        except Exception as exc:  # noqa: BLE001 - see _not_reached
+            log.warning("organism self-check %s raised: %s: %s",
+                        block, type(exc).__name__, exc)
+            return _not_reached(block, exc)
+        if not isinstance(v, Verdict):
+            return Verdict(block=block, verdict=NOT_REACHED,
+                           detail="self-check returned %s, not a Verdict"
+                                  % type(v).__name__)
+        return v
+
+    def run_all(self) -> List[Verdict]:
+        """Every registered block, in a stable order. Never raises."""
+        order = [b for b in BLOCKS if b in self._checks]
+        order += [b for b in self._checks if b not in order]
+        return [self.run_one(b) for b in order]
+
+
+# ── the default checks ───────────────────────────────────────────────────────
+#
+# Each takes no arguments and reads only things that are already in memory or a
+# single cheap query. They are run on the request path of the board, so a check
+# that opens a transaction per call would be the 05.11 outage again.
+
+def _age_seconds(stamp: Optional[str]) -> Optional[float]:
+    """Seconds since an ISO timestamp, or None when it is absent or unreadable.
+
+    None means "no timestamp", which callers must treat as unknown rather than as
+    infinitely old OR perfectly fresh. Both mistakes have happened here.
+    """
+    if not stamp:
+        return None
+    try:
+        t = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - t).total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
+def check_heartbeat(block: str, store) -> Verdict:
+    """Is this block's heartbeat fresh enough to believe?
+
+    A missing heartbeat is `not_reached`, not `ok`: the block has never reported,
+    which is the state every block starts in and the state a broken writer leaves
+    behind. Treating it as healthy is exactly the mistake this module removes.
+    """
+    if store is None:
+        return Verdict(block=block, verdict=NOT_REACHED,
+                       detail="no durable store to read the heartbeat from")
+    try:
+        raw = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block)
+    except Exception as exc:  # noqa: BLE001
+        return _not_reached(block, exc)
+    if not raw:
+        return Verdict(block=block, verdict=NOT_REACHED,
+                       detail="no heartbeat recorded yet",
+                       evidence={"heartbeat": None})
+    age = _age_seconds(raw)
+    if age is None:
+        return Verdict(block=block, verdict=NOT_REACHED,
+                       detail="heartbeat is unreadable: %r" % str(raw)[:60],
+                       evidence={"heartbeat": str(raw)[:60]})
+    if age > HEARTBEAT_STALE_SECONDS:
+        return Verdict(block=block, verdict=FAILED,
+                       detail="heartbeat is %.0fs old (limit %ds)"
+                              % (age, HEARTBEAT_STALE_SECONDS),
+                       evidence={"heartbeat_age_seconds": round(age, 1)})
+    return Verdict(block=block, verdict=OK,
+                   detail="heartbeat %.0fs old" % age,
+                   evidence={"heartbeat_age_seconds": round(age, 1)})
+
+
+def beat(store, block: str, verdict: str = OK, detail: str = "") -> bool:
+    """Record that a block just ran, and how it went. Never raises.
+
+    A heartbeat is telemetry: it must not be able to fail the thing it describes.
+    Returns whether it was written, so a caller that cares can say so — but no
+    caller is required to care.
+    """
+    if store is None:
+        return False
+    if verdict not in VERDICTS:
+        verdict = NOT_REACHED
+    try:
+        stamp = datetime.now(timezone.utc).isoformat()
+        store.history.set_durable_meta(_HEARTBEAT_PREFIX + block, stamp)
+        # The verdict rides along so the board can read the last known state
+        # without re-running every check on every request.
+        store.history.set_durable_meta(_HEARTBEAT_PREFIX + block + "_verdict",
+                                       verdict)
+        if detail:
+            store.history.set_durable_meta(
+                _HEARTBEAT_PREFIX + block + "_detail", str(detail)[:200])
+        return True
+    except Exception as exc:  # noqa: BLE001 - telemetry only
+        log.debug("organism heartbeat write failed for %s: %s", block, exc)
+        return False
+
+
+def last_verdict(store, block: str) -> Dict[str, object]:
+    """What the block last reported, without running its check.
+
+    This is what the board renders: a cheap read. `verdict` is `not_reached` when
+    nothing has ever been recorded, which is honest — we have not looked.
+    """
+    out: Dict[str, object] = {
+        "block": block, "verdict": NOT_REACHED, "detail": "", "at": None,
+        "age_seconds": None,
+    }
+    if store is None:
+        return out
+    try:
+        at = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block)
+        out["at"] = at
+        out["age_seconds"] = _age_seconds(at)
+        v = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block + "_verdict")
+        if v in VERDICTS:
+            out["verdict"] = v
+        d = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block + "_detail")
+        out["detail"] = d or ""
+        if out["age_seconds"] is not None and \
+                out["age_seconds"] > HEARTBEAT_STALE_SECONDS and \
+                out["verdict"] == OK:
+            # A fresh verdict on a stale heartbeat is stale too: the writer
+            # stopped, and the last thing it said was "fine".
+            out["verdict"] = FAILED
+            out["detail"] = ("last said ok, but %.0fs ago (limit %ds)"
+                             % (out["age_seconds"], HEARTBEAT_STALE_SECONDS))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("organism last_verdict read failed for %s: %s", block, exc)
+    return out
+
+
+def summary(store) -> Dict[str, object]:
+    """The whole organism at a glance: one verdict per block, and the counts.
+
+    `unhealthy` counts the blocks that are NOT ok, including `not_reached`. A
+    block that never reported is counted, because "we have no idea" is not a
+    healthy state and must not be summed as one.
+    """
+    rows = [last_verdict(store, b) for b in BLOCKS]
+    counts = {v: 0 for v in VERDICTS}
+    for r in rows:
+        counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
+    return {
+        "blocks": rows,
+        "counts": counts,
+        "unhealthy": sum(counts[v] for v in UNHEALTHY),
+        "measured_at": datetime.now(timezone.utc).isoformat(),
+        "note": ("`not_reached` means the check did not run and is counted as "
+                 "unhealthy — it is not the same as a check that ran and found "
+                 "nothing."),
+    }
+
+
+def _now_monotonic() -> float:  # pragma: no cover - tiny shim for tests
+    return time.monotonic()

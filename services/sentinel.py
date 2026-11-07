@@ -154,6 +154,11 @@ def _check_health(state: dict) -> None:
     except Exception as exc:
         now_status, detail = "down", str(exc)[:120]
 
+    # The organism's view of the same fact. The sentinel decides whether to TELL
+    # someone; the heartbeat records whether the system is well, which is what
+    # survives the session that learned it.
+    _beat("alerting", "ok" if now_status == "ok" else "failed", detail)
+
     prev = state.get("health")
     if prev != now_status and prev is not None:
         icon = "🔴" if now_status == "down" else "🟢"
@@ -163,6 +168,20 @@ def _check_health(state: dict) -> None:
         )
     state["health"] = now_status
     log.info("Sentinel health check: %s (%s)", now_status, detail)
+
+
+def _beat(block: str, verdict: str, detail: str = "") -> None:
+    """Write an organism heartbeat for `block`. Never raises, never blocks a check.
+
+    Imported lazily and guarded, because the sentinel must keep working if the
+    organism module is absent — an alarm system that depends on the thing it
+    watches is not an alarm system.
+    """
+    try:
+        from services import organism
+        organism.beat(_dashboard_store(), block, verdict, detail)
+    except Exception as exc:  # noqa: BLE001 - telemetry only
+        log.debug("organism heartbeat from sentinel failed (%s): %s", block, exc)
 
 
 def _check_revenue(state: dict) -> None:
@@ -175,7 +194,15 @@ def _check_revenue(state: dict) -> None:
         balance = int(result["result"], 16) / 1e6
     except Exception as exc:
         log.warning("Sentinel revenue check failed: %s", exc)
+        # The RPC could not be read. That is `not_reached` for the chain block —
+        # NOT `failed`, and certainly not `ok`: we did not learn the balance.
+        _beat("chain_read", "not_reached", "revenue eth_call failed: %s"
+              % str(exc)[:120])
         return
+
+    # The chain answered. Whether the balance MOVED is a business fact; that we
+    # could read it at all is a health fact, and this is where it is recorded.
+    _beat("chain_read", "ok", "receiver balance read: %.4f USDC" % balance)
 
     if not state.get("revenue_baseline_set"):
         # First observation in this process (deploy or cold start).  Recording
@@ -257,8 +284,14 @@ def _check_github(state: dict) -> None:
         state["stars"] = stars
         state["forks"] = repo.get("forks_count", 0)
         state["open_issues"] = issues
+        # The public repo is a discovery surface: this is the proof it is
+        # reachable, recorded where the board can read it.
+        _beat("discovery", "ok",
+              "GitHub repo reachable: %d stars, %d open" % (stars, issues))
     except Exception as exc:
         log.warning("Sentinel GitHub repo check failed: %s", exc)
+        _beat("discovery", "not_reached",
+              "GitHub repo read failed: %s" % str(exc)[:120])
 
     # PR baselines are DURABLE (pr_watch_state, 27.09) — decisions read the
     # database, not this dict; `prs_state` below stays a mirror for the weekly
