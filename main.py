@@ -298,6 +298,7 @@ research_store = create_research_store(RESEARCH_DATA_FILE)
 # On-chain sales / request log / PayAPI listing state live in SQLite so a
 # gunicorn restart NEVER zeroes the dashboard numbers. See DASHBOARD_AUDIT.md.
 from integrations.dashboard_store import (  # noqa: E402
+    REQUEST_LOG_RETENTION_DAYS_DEFAULT,
     REQUEST_SNAPSHOT_INTERVAL_SECONDS,
     WHALE_RETENTION_DAYS_DEFAULT,
     DashboardStore,
@@ -347,6 +348,25 @@ try:
              _purged, WHALE_RETENTION_DAYS_DEFAULT)
 except Exception as _purge_exc:  # pragma: no cover - defensive
     log.warning("Whale retention failed (non-fatal): %s", _purge_exc)
+
+# ── request_log retention at BOOT (07.11) ─────────────────────────────────
+# The other unbounded table, and the reason one slow panel could take the whole
+# service down. `request_log` had no retention anywhere: it grew from the day
+# the service started, and the ten aggregates the dashboard runs over it were
+# measured at 10-21 SECONDS each, against an 8s statement timeout. A panel that
+# cannot be read is now reported as unreadable instead of failing the build,
+# but the cost of the read only ever grew.
+#
+# 30 days is 30x more history than anything reads: the only window any query
+# opens on this table is 24 hours. Idempotent — a second run deletes 0 rows.
+# Wrapped like the whale pass: retention must never block boot.
+try:
+    _req_purged = dashboard_db.purge_old_requests()
+    log.info("Request-log retention: %d row(s) older than %d days removed.",
+             _req_purged, REQUEST_LOG_RETENTION_DAYS_DEFAULT)
+except Exception as _req_purge_exc:  # pragma: no cover - defensive
+    log.warning("Request-log retention failed (non-fatal): %s",
+                _req_purge_exc)
 
 # ── Off-chain record durability (audit A2) ────────────────────────────────
 # The ON-CHAIN numbers are re-seeded from the chain on every boot, so a deploy

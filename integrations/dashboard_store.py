@@ -259,6 +259,28 @@ WHALE_RETENTION_DAYS_DEFAULT = 30       # rows older than this are deleted at bo
 WHALE_WINDOW_HOURS_DEFAULT = 24      # rolling window served by the route
 WHALE_BACKFILL_HOURS_DEFAULT = 24    # initial backfill on first run
 
+# ── request_log retention (the fix for the 07.11 memory kill) ──────────────
+# `request_log` had NO retention anywhere: it only ever grew, and by 07.11 it
+# held ~1.1M+ rows. The traffic summary runs ten aggregates over it, and even
+# with idx_request_log_path those reads are the heaviest thing this service
+# does — measured at 10-21 SECONDS each on 05.11, against a server statement
+# timeout of 8s. A panel that cannot be read is now reported as unreadable
+# instead of failing the whole build, but the underlying cost only grows.
+#
+# WHY 30 DAYS IS SAFE. The only window any query opens on `request_log` is
+# `timedelta(days=1)` — the traffic summary reads a rolling 24 hours. Nothing
+# in the service reads a 7-day or 30-day slice of it. A 30-day horizon is
+# therefore 30x more history than anything consumes, while still being a hard
+# ceiling: the table can no longer grow without bound, which is what let a
+# single slow panel take the whole service down.
+#
+# The horizon is a module constant, like WHALE_RETENTION_DAYS_DEFAULT above —
+# so it is read once at import and a change needs a deploy, not a restart. That
+# is deliberate: a retention pass deletes rows, and a number that could change
+# under a running process would make an accidental short horizon impossible to
+# audit afterwards.
+REQUEST_LOG_RETENTION_DAYS_DEFAULT = 30
+
 
 def whale_threshold() -> float:
     """Current whale threshold (USDC) — env WHALE_THRESHOLD, read live."""
@@ -1520,6 +1542,50 @@ class HistoryStore:
             "DELETE FROM whaleflow_events WHERE ts < ?", (cutoff,))
         return max(0, rowcount)
 
+    def purge_old_requests(self, days: int = REQUEST_LOG_RETENTION_DAYS_DEFAULT
+                           ) -> int:
+        """Retention: delete request_log rows older than `days` (idempotent).
+
+        The counterpart of purge_old_whale_events, for the same reason and with
+        a different justification for the horizon.
+
+        `request_log` is an append-only traffic ledger, and it had no retention
+        at all: it grew from the day the service started and never shrank. By
+        07.11 it was the largest thing in the database, and the ten aggregates
+        the dashboard runs over it were the single most expensive reads in the
+        service — 10-21 seconds each, against an 8-second server statement
+        timeout. That is what made one slow panel able to fail the whole board.
+
+        WHY THE HORIZON IS SAFE HERE. The only window any query opens on this
+        table is 24 hours (`timedelta(days=1)` — the traffic summary). Nothing
+        reads a 7-day or 30-day slice. A 30-day horizon therefore deletes
+        nothing that any surface would have shown, while giving the table the
+        hard ceiling it never had.
+
+        Batched, because the first run must delete a very large number of rows
+        on a small database: one unbounded DELETE would hold a long lock and
+        could itself exhaust memory, which is the failure this is meant to fix.
+        `max(1, int(days))` mirrors the whale pass, so a 0 or negative value
+        cannot mean "delete everything".
+
+        Returns the number of rows removed (0 on a second call = idempotent).
+        """
+        horizon = (datetime.now(timezone.utc)
+                   - timedelta(days=max(1, int(days)))).isoformat()
+        removed = 0
+        batch = 5000
+        while True:
+            _rows, rowcount = self._run(
+                "DELETE FROM request_log WHERE id IN ("
+                "  SELECT id FROM request_log WHERE ts < ? "
+                "  ORDER BY id LIMIT ?)",
+                (horizon, batch))
+            rowcount = max(0, int(rowcount or 0))
+            removed += rowcount
+            if rowcount < batch:
+                break
+        return removed
+
     def whale_rows(self, window_hours: int, limit: int,
                    threshold: float) -> Dict[str, Any]:
         """The rolling whale window plus the honest empty-vs-all-time context."""
@@ -2496,6 +2562,17 @@ HYBRID since 14.09:
     def purge_old_whale_events(self, days: int = WHALE_RETENTION_DAYS_DEFAULT) -> int:
         """Retention pass — see HistoryStore.purge_old_whale_events (30 days)."""
         return self.history.purge_old_whale_events(days)
+
+    def purge_old_requests(self,
+                           days: int = REQUEST_LOG_RETENTION_DAYS_DEFAULT) -> int:
+        """Retention pass — see HistoryStore.purge_old_requests (30 days).
+
+        The traffic ledger is the other unbounded table. The whale feed needed
+        retention because it was a storage hazard; this one needs it because the
+        dashboard's ten aggregates over it were the slowest reads in the
+        service, and a table that only ever grows makes that worse every day.
+        """
+        return self.history.purge_old_requests(days)
 
     #: Meta keys that MUST survive a deploy. Render wipes the local file, and
     #: auto-deploy is on: every push used to reset the whale watermark, which
