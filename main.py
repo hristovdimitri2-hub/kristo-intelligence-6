@@ -168,6 +168,12 @@ X402_FREE_ENDPOINTS = {
     "/api/v1/whaleflow/sample",
     "/api/sales/sample",
     "/api/bot-status/sample",
+    # Honest on-chain audit of this service's own receiver (services/seller_audit.py).
+    # Free on purpose: it is the proof of the paid engine that reads ANY receiver,
+    # and it is fixed to our own address so it cannot be aimed at a thousand of
+    # them. Classified explicitly — a route in NEITHER set is unclassified, and
+    # "unclassified" is not the same as "free" (F-21).
+    "/api/v1/seller-audit",
     "/api/arb/opportunities/sample",
 }
 

@@ -26,7 +26,7 @@ import queue
 import secrets
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 849
+SUITE_TESTS_PASSED = 866
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1064,6 +1064,108 @@ def sales_sample():
         "paid_route": "/api/sales",
         "disclaimer": _sample_disclaimer("/api/sales"),
     }), 200
+
+
+@discovery_bp.route("/api/v1/seller-audit")
+def seller_audit():
+    """Free, honest on-chain audit of THIS service's own receiver.
+
+    WHAT IT IS FOR. Measured demand, from a directory that logs what agents
+    search for, puts seller trust at the very top: `seller conformance`,
+    `settlement ledger` and `funded sellers`, each asked by ~50 independent
+    client addresses over eight consecutive days. Their own summary of the gap:
+    a search with no good answer is a service nobody is selling yet. This
+    publishes the report those queries are asking for — about ourselves, in the
+    exact shape any seller would receive.
+
+    WHY IT ONLY AUDITS OUR OWN RECEIVER. The engine in services/seller_audit.py
+    reads any receiver's incoming USDC on Base; that broader form is a paid
+    product. This route is its free proof, and deliberately cannot be aimed at a
+    thousand addresses by one caller.
+
+    WHY IT READS THE SHARED STORE AND NOT THE CHAIN. The rows come from the
+    monitor's continuous chain scan, which both processes share through Postgres.
+    A chain sweep here would put a multi-second eth_getLogs walk inside an HTTP
+    request path, and worse, it would repeat the split fixed in dc39a61: the
+    worker would warm its own memory and this process would read an empty one.
+
+    "COULD NOT LOOK" IS NEVER PUBLISHED AS "FOUND NOTHING". Whether the window
+    was read end to end is a question about the MONITOR's health, not about this
+    table, so coverage comes from the SHARED heartbeat. No heartbeat and no rows
+    is `partial`, never a zero — and an unreadable store is `failed`, with its
+    reason, rather than an exception on a page meant to be read by a stranger.
+    """
+    from services.seller_audit import build_audit, MAX_AUDIT_DAYS, MIN_AUDIT_DAYS
+
+    import sys as _sys
+
+    _entry = _sys.modules.get("__main__")
+    _is_main = (str(getattr(_entry, "__file__", "") or "")
+                .replace("\\", "/").rsplit("/", 1)[-1] == "main.py")
+    if _is_main:
+        dashboard_db = getattr(_entry, "dashboard_db", None)
+        receiver = getattr(_entry, "X402_RECEIVER_ADDRESS", "") or ""
+        heartbeat_key = getattr(_entry, "SALES_SCAN_HEARTBEAT_KEY",
+                                "sales_scan_heartbeat_at")
+    else:
+        from main import dashboard_db, X402_RECEIVER_ADDRESS
+        from main import SALES_SCAN_HEARTBEAT_KEY
+        receiver = X402_RECEIVER_ADDRESS or ""
+        heartbeat_key = SALES_SCAN_HEARTBEAT_KEY
+
+    try:
+        days = int(request.args.get("days") or 7)
+    except (TypeError, ValueError):
+        days = 7
+    days = max(MIN_AUDIT_DAYS, min(MAX_AUDIT_DAYS, days))
+
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=days)).isoformat()
+
+    rows: list = []
+    store_error = ""
+    try:
+        if dashboard_db is None:
+            store_error = "no_shared_store_configured"
+        else:
+            summary = dashboard_db.sales_summary(history_limit=1000)
+            rows = list((summary or {}).get("history") or [])
+    except Exception as exc:
+        store_error = f"store_unreadable: {type(exc).__name__}"
+
+    # Was the window actually read? That is the monitor's answer, published to the
+    # shared store, not something this table can assert about itself.
+    scanned_recently = False
+    try:
+        if dashboard_db is not None:
+            scanned_recently = _fresh_stamp(dashboard_db.get_meta(heartbeat_key))
+    except Exception:
+        scanned_recently = False
+
+    transfers = []
+    for row in rows:
+        try:
+            ts = str(row.get("ts") or "")
+            if cutoff and ts and ts < cutoff:
+                continue
+            transfers.append({
+                "tx_hash": row.get("tx_hash") or "",
+                "payer": row.get("sender") or "",
+                "amount_usdc": float(row.get("amount_usdc") or 0.0),
+                "block_number": row.get("block_number") or 0,
+            })
+        except (TypeError, ValueError):
+            continue
+
+    coverage = {"complete": bool(scanned_recently and not store_error)}
+    failed = store_error or ("" if scanned_recently else "")
+    report = build_audit(transfers, coverage, receiver=receiver, days=days,
+                         failed_reason=failed)
+    report["source"] = ("this service's own monitor records, written to the shared "
+                        "store as the chain was scanned")
+    report["scope_note"] = ("Free and fixed to this service's own receiver. The same "
+                            "engine reads any receiver on request.")
+    return jsonify(report), 200
 
 
 @discovery_bp.route("/api/bot-status/sample")
