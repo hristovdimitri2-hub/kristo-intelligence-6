@@ -3798,19 +3798,21 @@ def _x402_402_cache_and_cors(response):
 # once from one deploy. The header is set on the endpoint's OWN response, and a
 # 402 challenge carries it just as a 200 does.
 #
-# These are 24h credentials, not configuration. Issued 2026-11-07T09:42Z,
-# expiring 2026-11-08T09:42Z. They are emptied back to {} once the listings are
-# claimed — do not leave a stale one here, because a token that no longer
-# matches anything proves nothing and looks like a secret we forgot. They grant
-# no access to money, keys or data: they are evidence that whoever answers at
-# this domain is the same party that asked for the challenge.
-NOHUMANS_CLAIM_TOKENS = {
-    "/api/v1/signal": "2d52eadbf764a778c57b2ed19c110b9d39a56f81b1849f81",
-    "/api/stats": "f2446848a73ab9d79e9bc99e890a46de16e5b5e1fe5b5bd0",
-    "/api/bot-status": "cda8738d60c49a8751045eb66192196c2ebdaeb220f75d6d",
-    "/api/sales": "9063455b59fcf97cb626c9b9ff781cca8e9ba998b0ef3160",
-    "/api/v1/whaleflow": "f5852d1f47864ed1f103732fe03be4aabbeae6deec0cfbef",
-}
+# These are 24h credentials, not configuration. They are deliberately EMPTY
+# again now that all five listings are claimed: a token that no longer matches
+# anything proves nothing, and leaving one here would read like a secret we
+# forgot to remove. They granted no access to money, keys or data — they were
+# evidence that whoever answers at this domain is the party that asked for the
+# challenge.
+#
+# The hook below stays, because the flow is needed again for any future listing
+# or a lost edit key. Re-arming is one dict entry per challenge:
+#
+#   POST https://nohumans.directory/v1/listings/<id>/claim/challenge
+#     -> {"token": "...", "valid_for_seconds": 86400}
+#   put it here, deploy, then POST .../claim with {"email": ...} and save the
+#   edit_token it returns — that value is shown once and is what PATCH uses.
+NOHUMANS_CLAIM_TOKENS = {}
 
 
 @app.after_request
