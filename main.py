@@ -4639,6 +4639,38 @@ def _organism_beat(block: str, verdict: str, detail: str = "") -> None:
         log.debug("organism heartbeat failed (%s): %s", block, exc)
 
 
+def _tolerant(name: str, fn, default=None):
+    """Call a store method for the board and survive it failing.
+
+    ONE PANEL MUST NOT TAKE THE BOARD DOWN — the rule this codebase enforces
+    everywhere else, and which two calls in the payload builder were never
+    given.
+
+    `_step` measures a build step and publishes its timing, but it uses
+    `try/finally` and NOT `try/except`. So a bare `dashboard_db.<method>()` that
+    raises propagates out of the build, the build is recorded as failed, and the
+    cache never fills — which means every request rebuilds, fails, and the board
+    answers 500 for as long as the fault lasts. Measured on 07.11: the board was
+    down for over half an hour, and the log said only
+
+        dashboard build failed: shared Postgres link busy for 15s
+
+    while `/health`, the rail and every other surface were perfectly fine. The
+    panel that raised was one of two unwrapped calls; the slow query behind it is
+    a separate fault.
+
+    `default` is chosen by the caller to be something the page can render as
+    unavailable, never as a fact. A failure here degrades ONE panel.
+    """
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("dashboard panel %s unavailable (%s); reporting the panel "
+                    "unread rather than failing the whole board",
+                    name, type(exc).__name__)
+        return default
+
+
 def _safe_organism_summary() -> dict:
     """The organism's block verdicts, or an honest "unavailable" marker.
 
@@ -6748,7 +6780,8 @@ def _canonical_dashboard_payload(include_crm: bool = False,
             # construction - hiding one here would look like security while the
             # chain still shows it. The honest fix for the replay window is the
             # verifier, not this line (see F-05/F-09 in the audit).
-            "track_record": _redact_track_record(dashboard_db.track_record()),
+            "track_record": _redact_track_record(
+                _tolerant("track_record", dashboard_db.track_record, {})),
             "onchain": {
                 "label": "ИСТИНА — веригата",
                 "total_usdc": onchain_total,
@@ -6760,7 +6793,9 @@ def _canonical_dashboard_payload(include_crm: bool = False,
                 "by_class": sales["by_class"],
                 "class_labels": PAYER_CLASS_LABELS_BG,
                 "last_scanned_block": int(
-                    dashboard_db.get_meta("last_scanned_block", "0") or 0
+                    _tolerant("last_scanned_block",
+                              lambda: dashboard_db.get_meta(
+                                  "last_scanned_block", "0"), "0") or 0
                 ),
                 # F-01 vs the operator: the owner asked for these columns BACK.
                 # They existed until 10.10 (Време · Сума · УСЛУГА · КЛИЕНТ) and

@@ -538,6 +538,10 @@ class HistoryStore:
         self._ph = "%s" if self.backend == "postgresql" else "?"
         self._pg_conn = None
         self._pg_lock = threading.Lock()
+        #: Once per process, so the web process and `scripts/worker.py` — which
+        #: both import this module — do not each launch a rebuild of the same
+        #: index. See `_start_index_repair`.
+        self._index_repair_started = False
         # NEGATIVE-ONLY fast path for the C1 replay lock: a hash this process has
         # already claimed can never be claimable again, so a hit refuses without
         # touching the database. A MISS NEVER GRANTS — the row in the database is
@@ -1068,6 +1072,90 @@ class HistoryStore:
         for name, target in stmts:
             self._run(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
 
+    def _start_index_repair(self, name: str, target: str) -> None:
+        """Repair an invalid index in the background, once per process.
+
+        Synchronous would be simpler and wrong: this runs at import, before the
+        port binds, and a CONCURRENT rebuild of a million-row table takes tens of
+        seconds. `a4c1cb0` already cost this project a deploy for putting a long
+        operation on that path.
+
+        Guarded so the web process and `scripts/worker.py` — which both import
+        this module — do not each launch a rebuild of the same index.
+        """
+        if self._index_repair_started:
+            return
+        self._index_repair_started = True
+
+        def _work():
+            try:
+                self._repair_invalid_index(name, target)
+            except Exception as exc:  # noqa: BLE001 - never let a thread die loudly
+                log.debug("background index repair for %s failed: %s", name, exc)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="index-repair-%s" % name).start()
+
+    def _index_is_valid(self, name: str) -> Optional[bool]:
+        """Whether an index exists AND the planner can use it.
+
+        Three answers, and the middle one is the whole point:
+          True  — present and usable
+          False — present but INVALID (exists by name, unusable by the planner)
+          None  — could not tell (no such index, or the check itself failed)
+        """
+        try:
+            row = self._run(
+                "SELECT (i.indisvalid AND i.indisready) AS ok "
+                "  FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+                " WHERE c.relname = ? LIMIT 1",
+                (name,), "one")[0]
+            return bool(row["ok"]) if row else None
+        except Exception as exc:  # noqa: BLE001
+            log.debug("index validity check for %s failed: %s", name, exc)
+            return None
+
+    def _repair_invalid_index(self, name: str, target: str) -> bool:
+        """Drop and rebuild an index that exists but is INVALID.
+
+        THE DEFECT THIS CLOSES, which this file has warned about since 05.11
+        without ever acting on it: a `CREATE INDEX CONCURRENTLY` that is
+        INTERRUPTED leaves an index that exists and matches BY NAME but is not
+        usable by the planner. `IF NOT EXISTS` then skips it for ever, so the
+        "fast" read silently becomes a full scan of a million rows that Postgres
+        cancels at 8s — the panel reports itself degraded on every path,
+        permanently, with no route back to health.
+
+        An interrupted CONCURRENT build is not exotic. Every deploy that restarts
+        the container mid-build produces one, and on 07.11 seven consecutive
+        FAILED deploys did exactly that: each container booted, began the build,
+        and was killed when Render gave up on it. The funnel has been scanning
+        `request_log` ever since.
+
+        Only acts when the index is provably INVALID, so it is safe to call on
+        every boot and idempotent once healthy.
+        """
+        if self._index_is_valid(name) is not False:
+            return False
+        log.warning("index %s EXISTS BUT IS INVALID — dropping and rebuilding. "
+                    "Until it is usable, the read it serves is a full scan.",
+                    name)
+        try:
+            import psycopg
+            with psycopg.connect(self.database_url, autocommit=True,
+                                 connect_timeout=5) as conn:
+                # An INVALID index occupies the name and serves nothing, so
+                # dropping it costs no query plan anything.
+                conn.execute("DROP INDEX CONCURRENTLY IF EXISTS %s" % name)
+                conn.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS %s "
+                             "ON %s" % (name, target))
+            log.info("index %s rebuilt", name)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not rebuild %s (%s); the read it serves stays a "
+                        "full scan until the next boot", name, str(exc)[:120])
+            return False
+
     def _ensure_request_log_path_index(self) -> None:
         """Create idx_request_log_path (option B, double-door 11.10).
 
@@ -1089,6 +1177,24 @@ class HistoryStore:
                     conn.execute(
                         "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
                         "idx_request_log_path ON request_log (path)")
+                # `IF NOT EXISTS` cannot tell a WORKING index from an INVALID
+                # one, so the create above succeeding proves nothing about
+                # whether the read is actually served. Check, and repair.
+                #
+                # IN A THREAD, DELIBERATELY. This runs inside `__init__`, which
+                # runs at import, which is BEFORE gunicorn binds the port. A
+                # repair on a million rows is a `CREATE INDEX CONCURRENTLY` of
+                # tens of seconds, and this project has already lost a deploy to
+                # exactly that shape — an inline `purge_old_requests()` at import
+                # in a4c1cb0, which made Render report "No open ports". Boot must
+                # not wait on an index.
+                #
+                # The consequence of it being late is bounded: until the index is
+                # usable the funnel reads as degraded and the parked snapshot
+                # supplies the numbers, which is the state the board is already
+                # designed to render.
+                self._start_index_repair("idx_request_log_path",
+                                         "request_log (path)")
                 return
             except Exception:
                 try:
