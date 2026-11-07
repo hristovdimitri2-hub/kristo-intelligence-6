@@ -41,7 +41,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 838
+SUITE_TESTS_PASSED = 844
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -130,14 +130,14 @@ def _route_price(endpoint: str) -> float:
 SALES_SCAN_FRESH_SECONDS = 600
 
 
-def _sales_scan_is_fresh(wallet: dict, now=None) -> bool:
-    """Did the dashboard scan read the chain recently enough to count as proof?
+def _fresh_stamp(raw, now=None) -> bool:
+    """Is this ISO stamp recent enough to count as proof of life?
 
-    A missing stamp, an unparseable one, or a clock in the future is NOT proof.
-    An absence must never be reported as a healthy chain — the same rule the rest
-    of this audit applies to every other surface.
+    A missing, empty, unparseable or future stamp is NOT proof. An absence must
+    never be promoted into a healthy dependency — the rule this audit applies to
+    every other surface, and the one /health broke on 07.11 by reading memory that
+    could never hold the stamp in the first place.
     """
-    raw = wallet.get("sales_scan_ok_at")
     if not raw:
         return False
     try:
@@ -150,30 +150,38 @@ def _sales_scan_is_fresh(wallet: dict, now=None) -> bool:
     return 0 <= age <= SALES_SCAN_FRESH_SECONDS
 
 
+def _sales_scan_is_fresh(wallet: dict, now=None) -> bool:
+    """Did the in-process dashboard scan read the chain recently enough?"""
+    return _fresh_stamp(wallet.get("sales_scan_ok_at"), now)
+
+
 def _dependency_state():
     """Read the two dependencies of this service, and say how they are.
 
-    Returns (crm_ready, blockchain_ready, monitor_ready, wallet, backend). The
-    `__main__` dance is here so /health and /ready cannot drift apart in how they
-    find the live state — the lazy `import main` copy keeps its defaults because the
-    env guard skips its threads, and reading it reports a false "degraded".
+    Returns (crm_ready, blockchain_ready, monitor_ready, wallet, backend), where
+    `wallet` also carries the SHARED-store stamps under `shared_*` keys.
 
-    `blockchain_ready` and `monitor_ready` are deliberately NOT the same question
-    (06.11). TWO independent loops read this chain: the dedicated payment monitor
-    (`_blockchain_monitor_loop`, whose wallet init this used to be the sole measure
-    of) and the dashboard sales scan (`_dashboard_scan_loop`), which holds its own
-    Web3 connection and records sales from the same receiver. On 06-07.11 the monitor
-    failed to initialise and STAYED uninitialised for over fifteen hours — its retry
-    loop re-refused on the same single endpoint roughly every 120s — while the sales
-    scan read that same chain successfully every 60 seconds. /health reported the
-    CHAIN as not ready for that entire period, which is a false statement about the
-    dependency, and it raised a Telegram alarm nobody could act on.
+    THE ANSWER CANNOT COME FROM THIS PROCESS'S MEMORY ALONE (07.11). The
+    recommended deployment runs the background loops in a SEPARATE worker process —
+    scripts/worker.py's own diagram: web is HTTP-only
+    (`KRISTO_DISABLE_BACKGROUND_THREADS=true`), worker is background-only
+    (`KRISTO_WORKER_MODE=true`), and POSTGRES is the shared state. `_wallet_state`
+    is process-local, so in that topology the web process's copy can never hold the
+    monitor's or the scan's stamps, and /health reported `blockchain.ready: false`
+    with `last_block_checked: 0` for over fifteen hours while the worker was
+    demonstrably scanning that same chain every minute and writing
+    `last_scanned_block` into Postgres. The alarm was about where we looked.
 
-    So: `blockchain_ready` answers "is the chain reachable", which is the dependency,
-    and `monitor_ready` answers "did our redundant dedicated monitor start", which is
-    one component. Reporting only the second as if it were the first cried wolf; the
-    first is what callers act on. Keeping BOTH visible means the split explains
-    reality without hiding the monitor's failure, which is still worth fixing.
+    So each answer is: this process's memory OR the shared store, whichever proves
+    liveness. The `__main__` dance stays for the single-process case (the lazy
+    `import main` copy keeps its defaults because the env guard skips its threads,
+    and reading it reports a false "degraded").
+
+    `blockchain_ready` answers "is the chain reachable" — the dependency, and what
+    callers act on. `monitor_ready` answers "is the dedicated payment monitor
+    running" — one component, with a redundant sibling. Reporting only the second
+    as if it were the first cried wolf; reporting only the first would hide a real
+    monitor failure. Both are published so neither can hide the other.
 
     Every read is defensive: this is the pair of endpoints that has to keep
     answering while the thing being read is broken, so a store that cannot report
@@ -186,8 +194,18 @@ def _dependency_state():
         _lock = _entry._lock
         _wallet_state = _entry._wallet_state
         crm_store = _entry.crm_store
+        dashboard_db = getattr(_entry, "dashboard_db", None)
+        heartbeat_keys = (
+            getattr(_entry, "MONITOR_HEARTBEAT_KEY", "monitor_heartbeat_at"),
+            getattr(_entry, "MONITOR_HEARTBEAT_BLOCK_KEY", "monitor_heartbeat_block"),
+            getattr(_entry, "SALES_SCAN_HEARTBEAT_KEY", "sales_scan_heartbeat_at"),
+        )
     else:
-        from main import _lock, _wallet_state, crm_store
+        from main import _lock, _wallet_state, crm_store, dashboard_db
+        from main import (MONITOR_HEARTBEAT_KEY, MONITOR_HEARTBEAT_BLOCK_KEY,
+                          SALES_SCAN_HEARTBEAT_KEY)
+        heartbeat_keys = (MONITOR_HEARTBEAT_KEY, MONITOR_HEARTBEAT_BLOCK_KEY,
+                          SALES_SCAN_HEARTBEAT_KEY)
     from config import BASE_CHAIN_ID
 
     try:
@@ -197,14 +215,38 @@ def _dependency_state():
         crm_ready = False
     with _lock:
         wallet = dict(_wallet_state)
-    monitor_ready = bool(
+
+    # The shared store, where the worker process publishes the same facts. Read
+    # defensively and in one place: a store that cannot answer yields no evidence
+    # rather than an exception on the endpoint the platform health-checks.
+    monitor_key, monitor_block_key, scan_key = heartbeat_keys
+    wallet["shared_monitor_heartbeat_at"] = None
+    wallet["shared_monitor_heartbeat_block"] = None
+    wallet["shared_sales_scan_heartbeat_at"] = None
+    try:
+        if dashboard_db is not None:
+            wallet["shared_monitor_heartbeat_at"] = (
+                dashboard_db.get_meta(monitor_key, "") or None)
+            wallet["shared_monitor_heartbeat_block"] = (
+                dashboard_db.get_meta(monitor_block_key, "") or None)
+            wallet["shared_sales_scan_heartbeat_at"] = (
+                dashboard_db.get_meta(scan_key, "") or None)
+    except Exception:
+        pass
+
+    memory_monitor_ready = bool(
         wallet.get("rpc_connected")
         and wallet.get("chain_id") == BASE_CHAIN_ID
         and wallet.get("receiver_valid")
     )
-    # The chain is readable if EITHER scanner proves it. One loop failing to start
-    # is not the chain going away, and it must not be reported as if it were.
-    blockchain_ready = bool(monitor_ready or _sales_scan_is_fresh(wallet))
+    monitor_ready = bool(memory_monitor_ready
+                         or _fresh_stamp(wallet.get("shared_monitor_heartbeat_at")))
+    # The chain is readable if ANY scanner proves it, in ANY process.
+    blockchain_ready = bool(
+        monitor_ready
+        or _sales_scan_is_fresh(wallet)
+        or _fresh_stamp(wallet.get("shared_sales_scan_heartbeat_at"))
+    )
     return (crm_ready, blockchain_ready, monitor_ready, wallet,
             getattr(crm_store, "backend", "unknown"))
 
@@ -250,24 +292,33 @@ def health():
             # The other scanner's proof of life, and how far it has read. If
             # monitor_ready is false and this is recent, the chain is demonstrably
             # fine and the alarm is about the monitor, not about Base.
-            "sales_scan_ok_at": wallet.get("sales_scan_ok_at"),
+            #
+            # These report the FRESHEST evidence from either place the fact can live
+            # — this process's memory or the shared store the worker writes — because
+            # in the split deployment only the latter is ever populated here.
+            "sales_scan_ok_at": (wallet.get("shared_sales_scan_heartbeat_at")
+                                 or wallet.get("sales_scan_ok_at")),
             "sales_scan_block": wallet.get("sales_scan_block") or 0,
             # WHY the monitor is not ready. Redacted at write time (redact_rpc):
             # a paid endpoint carries its api key in the path. Publishing it here
             # is the difference between an alarm and an alarm with a cause.
             "rpc_error": wallet.get("rpc_error"),
+            "monitor_heartbeat_at": (wallet.get("shared_monitor_heartbeat_at")
+                                     or wallet.get("last_check_time")),
             # Where the payment monitor has scanned up to, and when it last
             # looked. Added because there was no way to see this from outside at
             # all: the figure lives in the paid /api/stats wallet block, so nobody
             # - including us - could tell whether the thing that detects incoming
             # payments was keeping up or had silently stopped.
             #
-            # This is read from memory, deliberately: /health is what the platform
-            # restarts us on, so it must not gain an RPC call. last_check_time is
-            # what makes the block number interpretable without one.
+            # Read from this process's memory plus one bounded shared-store read
+            # (the same kind crm_store.is_healthy() above already does). Deliberately
+            # NOT an RPC call: /health is what the platform restarts us on.
             "monitor": {
-                "last_block_checked": wallet.get("last_block_checked") or 0,
-                "last_check_time": wallet.get("last_check_time"),
+                "last_block_checked": (wallet.get("last_block_checked")
+                                       or int(wallet.get("shared_monitor_heartbeat_block") or 0)),
+                "last_check_time": (wallet.get("last_check_time")
+                                    or wallet.get("shared_monitor_heartbeat_at")),
             },
         },
     ), 200

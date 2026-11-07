@@ -408,14 +408,63 @@ _wallet_state = {
     "sales_scan_block": 0,
 }
 
+#: Proof-of-life keys, in the SHARED store (`dashboard_meta`).
+#:
+#: `_wallet_state` is process-local memory, and the recommended production
+#: deployment splits the loops away from the web process: scripts/worker.py's own
+#: diagram has web as HTTP-only (`KRISTO_DISABLE_BACKGROUND_THREADS=true`) and the
+#: worker as background-only, sharing POSTGRES. Memory cannot cross that split, so
+#: `/health` — which runs in the WEB process and read only `_wallet_state` — could
+#: never see the monitor's state there. Measured 07.11: `/health` reported
+#: `blockchain.ready: false` with `last_block_checked: 0` for over fifteen hours
+#: while the worker was demonstrably scanning that same chain every minute and
+#: writing `last_scanned_block` into Postgres. The alarm was about where we looked,
+#: not about Base.
+#:
+#: These keys are how the two processes tell each other the truth. The in-process
+#: stamp is still written as well, so a single-process deployment keeps working.
+MONITOR_HEARTBEAT_KEY = "monitor_heartbeat_at"
+MONITOR_HEARTBEAT_BLOCK_KEY = "monitor_heartbeat_block"
+SALES_SCAN_HEARTBEAT_KEY = "sales_scan_heartbeat_at"
+
+
+def _publish_heartbeat(state_key: str, meta_key: str, block: Optional[int] = None,
+                       state_block_key: Optional[str] = None,
+                       meta_block_key: Optional[str] = None) -> str:
+    """Stamp liveness in BOTH places: this process's memory and the shared store.
+
+    Written only on SUCCESS by both callers, so the stamp ages when the chain stops
+    answering. An absence never refreshes it — `/health` treats a stale or missing
+    stamp as no evidence at all.
+
+    A store that cannot be written must not kill the loop that just proved the chain
+    is fine, so the persistence half is best-effort: the in-process stamp still
+    stands, and the failure is logged at debug rather than raised.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with _lock:
+        _wallet_state[state_key] = now
+        if block is not None and state_block_key:
+            _wallet_state[state_block_key] = block
+    try:
+        dashboard_db.set_meta(meta_key, now)
+        if block is not None and meta_block_key:
+            dashboard_db.set_meta(meta_block_key, str(block))
+    except Exception as exc:
+        log.debug("Heartbeat %s could not be persisted: %s", meta_key, exc)
+    return now
+
 
 def _note_sales_scan_ok() -> None:
     """Record that the dashboard scan just read the chain, successfully.
 
     Called ONLY on success, so the stamp ages when the RPC stops answering: an
     absence never refreshes it, which is the whole point of keeping it. `/health`
-    reads a fresh stamp as evidence that the chain itself is readable even when
-    the separate payment monitor never got off the ground.
+    reads a fresh stamp as evidence that the chain itself is readable even when the
+    separate payment monitor never got off the ground.
+
+    Published to the shared store as well as to memory: in the split deployment the
+    scan runs in the worker process and `/health` in the web one.
     """
     try:
         block = int(dashboard_db.get_meta("last_scanned_block", "0") or 0)
@@ -423,9 +472,8 @@ def _note_sales_scan_ok() -> None:
         # A store that cannot answer must not break the scan loop. The block is
         # cosmetic here; the timestamp is the fact that matters.
         block = 0
-    with _lock:
-        _wallet_state["sales_scan_ok_at"] = datetime.now(timezone.utc).isoformat()
-        _wallet_state["sales_scan_block"] = block
+    _publish_heartbeat("sales_scan_ok_at", SALES_SCAN_HEARTBEAT_KEY,
+                       block=block, state_block_key="sales_scan_block")
 
 # Bot status
 _bot_status = {
@@ -864,9 +912,14 @@ def _blockchain_monitor_loop():
         log.info("Blockchain monitor: starting at head %d (%s)",
                  last_block, _resume_reason)
 
-    with _lock:
-        _wallet_state["last_block_checked"] = last_block
-        _wallet_state["last_check_time"] = datetime.now(timezone.utc).isoformat()
+    # Proof of life the moment the monitor is up, not only after its first scan:
+    # a monitor that initialised and is waiting on the poll interval is working,
+    # and the board should be able to say so. Persisted to the shared store too —
+    # in the split deployment this loop and /health live in different processes.
+    _publish_heartbeat("last_check_time", MONITOR_HEARTBEAT_KEY,
+                       block=last_block,
+                       state_block_key="last_block_checked",
+                       meta_block_key=MONITOR_HEARTBEAT_BLOCK_KEY)
 
     log.info("Monitoring USDC transfers to %s from block %d", fee_receiver, last_block)
 
@@ -922,9 +975,10 @@ def _blockchain_monitor_loop():
 
             if scan_succeeded:
                 last_block = to_block
-                with _lock:
-                    _wallet_state["last_block_checked"] = last_block
-                    _wallet_state["last_check_time"] = datetime.now(timezone.utc).isoformat()
+                _publish_heartbeat("last_check_time", MONITOR_HEARTBEAT_KEY,
+                                   block=last_block,
+                                   state_block_key="last_block_checked",
+                                   meta_block_key=MONITOR_HEARTBEAT_BLOCK_KEY)
 
         except Exception as exc:
             log.warning("Blockchain monitor cycle failed (non-fatal): %s", redact_rpc(exc))
