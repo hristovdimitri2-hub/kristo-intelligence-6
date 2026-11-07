@@ -293,11 +293,17 @@ def payment_attempt_sql(since: str = "", until: str = "") -> Tuple[str, tuple]:
                    WHERE path IN ({placeholders})
                    GROUP BY path, outcome"""
         return sql, (since, until, *FUNNEL_ROUTES)
+    # NO WINDOW ASKED FOR: `n_today` is aliased to the all-time count so the
+    # column always exists, but it is NOT a today count and must never be read as
+    # one. Callers that display "today" pass a window; `payment_attempt_rows()`
+    # and `payment_attempts_readable()` deliberately do not, because they want
+    # the all-time figure and use `n`.
     sql = f"""SELECT path, outcome, COUNT(*) AS n, COUNT(*) AS n_today
                 FROM payment_attempts
                WHERE path IN ({placeholders})
                GROUP BY path, outcome"""
     return sql, tuple(FUNNEL_ROUTES)
+
 
 # ── Whale flow defaults (env-regulatable, read at RUNTIME not import) ──────
 WHALE_THRESHOLD_DEFAULT = 5_000_000.0   # USDC
@@ -875,9 +881,18 @@ class HistoryStore:
                )"""
         )
         # The payment-attempt epoch (see the note above payment_attempts).
+        #
         # Insert-only on purpose: ON CONFLICT DO NOTHING means a redeploy can
         # never move the window forward and quietly shrink what we claim to have
-        # measured.
+        # measured. This matters more than it looks, because TWO processes open
+        # this store — the web worker and `scripts/worker.py`, which imports
+        # `main` — and both run this schema pass.
+        #
+        # The guarantee is bounded by the row surviving. If `dashboard_meta` were
+        # ever dropped while `payment_attempts` was not, the epoch would be
+        # re-inserted as NOW and the window WOULD shrink. That is the one case
+        # this cannot defend against, and it is recorded here rather than
+        # claimed impossible.
         self._run(
             """INSERT INTO dashboard_meta (key, value, updated_at)
                VALUES (?, ?, ?)
@@ -1503,7 +1518,33 @@ class HistoryStore:
             except Exception:
                 return default
 
-        # Cheap and load-bearing first, so the board always has today's traffic,
+        # ── what happened to the credentials that WERE presented (07.11) ─────
+        # FIRST, before any read of `request_log` — and that placement is the
+        # whole point, not a style choice.
+        #
+        # Every `q()` in this method spends from ONE 6-second budget. Reading this
+        # panel where it is logically used (beside the funnel it feeds) put it
+        # LAST, where the first live deploy of e3b3f65 reported it
+        # `payment_attempts:out_of_budget`. That marker is the OPPOSITE of a slow
+        # query — it means the panel never ran. Nothing was wrong with the SQL; it
+        # simply arrived after the money was gone.
+        #
+        # It is the cheapest read here: `path IN (...)` against
+        # `idx_payment_attempts_path_ts`, on a table that holds attempts rather
+        # than traffic, so it is orders of magnitude smaller than request_log. A
+        # cheap read that feeds a panel must not queue behind expensive ones.
+        #
+        # ONE read for both windows. `None` means the read FAILED; `[]` would mean
+        # the table is empty, which is a measurement.
+        #
+        # `test_the_attempt_read_happens_before_the_budget_is_spent` pins this: no
+        # request_log read may precede it.
+        _attempt_sql, _attempt_params = payment_attempt_sql(*day_params)
+        attempt_rows = q("payment_attempts", _attempt_sql, _attempt_params,
+                         all_, None)
+        attempts_read = attempt_rows is not None
+
+        # Cheap and load-bearing next, so the board always has today's traffic,
         # the funnel and the recent log even if the all-time aggregates timeout.
         today_row = count("today", "SELECT COUNT(*) AS n FROM request_log "
                                    "WHERE ts >= ? AND ts < ?", day_params)
@@ -1524,25 +1565,6 @@ class HistoryStore:
                     """SELECT path, COUNT(*) AS n FROM request_log
                        GROUP BY path ORDER BY n DESC LIMIT 10""",
                     (), all_, []) or []
-        # ── what happened to the credentials that WERE presented (07.11) ─────
-        # Read HERE, deliberately, and not next to the funnel it feeds.
-        #
-        # Every `q()` above and below spends from the same 6-second budget, and
-        # the heavy all-time scans over request_log spend all of it. Reading this
-        # panel where it is logically used put it LAST, where it was reported
-        # `payment_attempts:out_of_budget` on the first live deploy of e3b3f65 —
-        # the panel was never slow, it simply arrived after the money was gone.
-        #
-        # It is the cheapest read in this method: `path IN (...)` against
-        # `idx_payment_attempts_path_ts` on a table that only ever holds attempts,
-        # not traffic. So it goes early, where it always gets its turn.
-        #
-        # ONE read for both windows. `None` means the read FAILED; `[]` would mean
-        # the table is empty, which is a measurement.
-        _attempt_sql, _attempt_params = payment_attempt_sql(*day_params)
-        attempt_rows = q("payment_attempts", _attempt_sql, _attempt_params,
-                         all_, None)
-        attempts_read = attempt_rows is not None
         by_channel = q("by_channel",
                        """SELECT funnel AS channel, COUNT(*) AS n
                           FROM request_log
@@ -1734,16 +1756,37 @@ class HistoryStore:
             abandoned_total = challenges_total
 
             # ── the reconciliation ───────────────────────────────────────────
-            # `credentials_today` counts the 401/425 responses in request_log —
-            # requests that DID carry a credential. Every one of them should have
-            # produced exactly one attempt row. A gap means a call site on the
-            # rail stopped recording, which would quietly flatten this panel, so
-            # the gap is published rather than hidden.
+            # A 401/425 in request_log means a credential WAS presented. If the
+            # rail recorded the attempt, `presented_today` should match.
             #
-            # Only meaningful once recording covers the whole day; before that
-            # the gap is unmeasured history, not a defect.
+            # THIS CHECK IS DELIBERATELY ONE-DIRECTIONAL, and the direction
+            # matters. It fires only when MORE credentials arrived than rows were
+            # written — never the reverse:
+            #
+            #   * MORE credentials than rows is a real defect: a call site on the
+            #     recording rail stopped writing, and this panel would silently
+            #     flatten to "nobody tried".
+            #   * FEWER credentials than rows is NORMAL and must not be flagged.
+            #     `request_log` keeps only the status code, and BOTH rails answer
+            #     401 — the legacy self-describing proof rail (main.py:4122) does
+            #     not record attempts at all. So the credential count is an upper
+            #     bound, and any surplus is ambiguous between "the legacy rail
+            #     served them" and "we failed to record them".
+            #
+            # The previous version compared the two directly and would have
+            # raised a permanent false alarm on every legacy-rail 401 — a warning
+            # nobody can act on is worse than no warning, because it teaches the
+            # reader to ignore this line.
+            #
+            # `attempts_since` is a TIMESTAMP and `today` is a DATE, so they are
+            # compared as dates. Comparing them as strings is always False
+            # ("2026-11-07T17:01" > "2026-11-07" because 'T' > ''), which silently
+            # disabled this check on the very day it was deployed — the day it
+            # exists for — and then armed it the next morning over hours it never
+            # covered.
             unrecorded_today = None
-            if attempts_read and attempts_since and attempts_since <= today:
+            since_date = (attempts_since or "")[:10]
+            if attempts_read and since_date and since_date <= today:
                 if at_today["presented"] is not None:
                     unrecorded_today = max(
                         0, credentials_today - at_today["presented"])
@@ -1765,6 +1808,13 @@ class HistoryStore:
                 "settled_today": at_today["settled"],
                 "rejected_today": at_today["rejected"],
                 "settle_failed_today": at_today["settle_failed"],
+                # The all-time counterpart of `settle_failed_today` and
+                # `rejected_today`. Without it the board could say how many sales
+                # we lost TODAY but never how many this platform has ever lost,
+                # which is the figure that says whether the rail is fundamentally
+                # sound or fundamentally broken.
+                "settle_failed_total": at_all["settle_failed"],
+                "rejected_total": at_all["rejected"],
                 "abandoned_today": abandoned_today,
                 "abandoned_total": abandoned_total,
                 # 401/425 responses seen by request_log today, and how many of
@@ -2672,6 +2722,32 @@ class HistoryStore:
                       "rejected", outcome)
             outcome = "rejected"
         try:
+            tx = _norm_tx(tx_hash)[:80]
+            # A SETTLEMENT IS RECORDED ONCE PER TRANSACTION, however many times
+            # the request arrives.
+            #
+            # `settled` is the only outcome that maps to a sale, and a settlement
+            # legitimately reaches this point more than once:
+            #
+            #   * a REPLAYED request re-enters the whole rail, settles by nonce,
+            #     and is refused by the C1 claim only later — so the recording
+            #     cannot rely on C1 having run;
+            #   * a settlement our depth gate answers 425 is recorded before that
+            #     gate, because the money IS on-chain and the buyer DID pay.
+            #
+            # Without this check one payment replayed twice produced THREE
+            # `settled` rows (measured), inflating exactly the sales figure this
+            # panel exists to make trustworthy. The other outcomes are events
+            # rather than facts about a transaction, so they are always recorded.
+            if outcome == "settled" and tx:
+                seen = self._run(
+                    "SELECT 1 FROM payment_attempts "
+                    "WHERE outcome = ? AND tx_hash = ? LIMIT 1",
+                    ("settled", tx), "one")[0]
+                if seen:
+                    log.debug("settlement %s already recorded; not counting it "
+                              "as a second sale", tx)
+                    return
             self._run(
                 """INSERT INTO payment_attempts
                        (ts, path, outcome, payer, amount_usdc, detail, tx_hash)
@@ -2683,7 +2759,7 @@ class HistoryStore:
                     (payer or "")[:80],
                     float(amount_usdc or 0.0),
                     (detail or "")[:300],
-                    _norm_tx(tx_hash)[:80],
+                    tx,
                 ),
             )
         except Exception as exc:  # pragma: no cover - telemetry only

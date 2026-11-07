@@ -78,6 +78,10 @@
      осчетоводихме) — то е загубена продажба, не липса на интерес. */
   #funnel-box .warn { color: var(--amber); }
   #funnel-box .bad { color: var(--red); font-weight: 600; }
+  /* Средата на фунията за ЦЯЛАТА история, под числото „402 → платени" в
+     колоната „Общо". По-дребно и приглушено, защото е пояснение към числото
+     над него, не самостоятелна величина. */
+  #funnel-box .sub-num { color: var(--muted); font-size: 11px; font-weight: 400; }
   /* Б2: двете графики (Chart.js, локално копие в static/vendor/) */
   .chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
                padding: 12px 14px; position: relative; }
@@ -794,10 +798,28 @@ function renderFunnel(r) {
       }
     }
 
+    // Колоната „Общо" показваше само 402 → платени, а средата се изчисляваше и
+    // се изхвърляше. Точно там стои отговорът „има ли изобщо опити" за цялата
+    // измерена история, затова се казва до числата.
+    const totalMiddle = (() => {
+      if (f.presented_total === null || f.presented_total === undefined) {
+        return `${DASH}`;
+      }
+      const parts = [`опитаха ${f.presented_total}`];
+      if (f.settle_failed_total) {
+        parts.push(`<span class="bad">${f.settle_failed_total} не се осчетоводи</span>`);
+      }
+      if (f.abandoned_total !== null && f.abandoned_total !== undefined) {
+        parts.push(`изоставиха ${f.abandoned_total}`);
+      }
+      return parts.join(' · ');
+    })();
+
     return `<tr><td class="mono">${esc(path)}</td>
       <td class="num">${t} → ${p} (${rate}%)</td>
       <td class="num">${middle}</td>
-      <td class="num">${f.challenges_total} → ${f.paid_total}</td></tr>`;
+      <td class="num">${f.challenges_total} → ${f.paid_total}<br>
+        <span class="sub-num">${totalMiddle}</span></td></tr>`;
   });
   // Кога започна записът на опитите. Изоставянето НЕ зависи от него (то е
   // броят на 402-та), но разделянето на 401-те — да. Затова прозорецът се

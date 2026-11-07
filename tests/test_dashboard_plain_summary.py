@@ -24,6 +24,21 @@ def _iso(days_ago: int, hour: int = 12) -> str:
     return dt.datetime(day.year, day.month, day.day, hour, tzinfo=UTC).isoformat()
 
 
+def _iso_in_previous_week(hour: int = 12) -> str:
+    """A timestamp safely inside the PREVIOUS calendar week (Mon-Sun).
+
+    Derived from today rather than hard-coded, so these assertions never depend
+    on which weekday the suite happens to run — the same reason the surrounding
+    tests compute their dates. Mid-week is chosen so the timestamp cannot land in
+    the current week even when today is Monday.
+    """
+    today = dt.datetime.now(UTC).date()
+    this_week_start = today - dt.timedelta(days=today.weekday())
+    day = this_week_start - dt.timedelta(days=3)
+    return dt.datetime(day.year, day.month, day.day, hour,
+                       tzinfo=UTC).isoformat()
+
+
 # ── who is calling: a person, an AI agent, or a robot ────────────────────────
 
 def test_headless_chrome_is_a_robot_not_a_person():
@@ -192,6 +207,63 @@ def test_this_week_is_compared_with_the_week_before_it():
     assert summary["last_week"]["usdc"] == 0.006
     # The two windows must not overlap or leave a hole between them.
     assert summary["last_week"]["to"] < summary["this_week"]["from"]
+
+
+def test_the_money_change_is_not_rounded_away_to_zero():
+    """THE bug this test exists for, found on the live board 07.11.
+
+    `week_change` and `week_change_usdc` share one `_change` helper. It formatted
+    both with `"с %d повече" % delta` — fine for a COUNT, and for MONEY it
+    rounded every sub-dollar change to zero. The board then read
+
+        с 0 по-малко        (beside)        -22.2%
+
+    two halves of one sentence disagreeing, because $0.006 formatted as "0".
+
+    The existing tests only ever exercised the COUNT path, which is exactly why
+    this survived: a whole-number delta is the case where `%d` happens to be
+    right.
+    """
+    history = [
+        # This week: $0.003. Last week: $0.009. A real -$0.006.
+        {"ts": dt.datetime.now(UTC).isoformat(), "amount_usdc": 0.003},
+        {"ts": _iso_in_previous_week(9), "amount_usdc": 0.005},
+        {"ts": _iso_in_previous_week(10), "amount_usdc": 0.004},
+    ]
+    summary = _summary(history)
+    words = summary["week_change_usdc"]["words"]
+
+    assert summary["week_change_usdc"]["delta"] < 0, "the fixture lost its point"
+    assert "0 по-малко" not in words, (
+        "the money change was formatted as a whole number, so a real $%.3f "
+        "change printed as 'с 0 по-малко' — contradicting its own percent "
+        "(%s%%)" % (abs(summary["week_change_usdc"]["delta"]),
+                   summary["week_change_usdc"]["percent"]))
+    # The amount must be IN the sentence, not merely non-zero.
+    assert "0.006" in words, (
+        "the sentence %r does not state the amount that changed" % words)
+    assert "$" in words, "a money change must carry its unit: %r" % words
+
+
+def test_the_count_change_is_still_a_whole_number():
+    """The counterpart: the fix must not have turned sale COUNTS into dollars.
+
+    "с $1.000 повече" would be wrong in a different direction — a count is not
+    money, and the unit is what tells the reader which they are looking at.
+    """
+    history = [
+        {"ts": dt.datetime.now(UTC).isoformat(), "amount_usdc": 0.003},
+        {"ts": dt.datetime.now(UTC).isoformat(), "amount_usdc": 0.003},
+        {"ts": _iso_in_previous_week(9), "amount_usdc": 0.003},
+    ]
+    summary = _summary(history)
+    if summary["last_week"]["count"] > 0:      # only meaningful when comparable
+        delta = summary["week_change"]["delta"]
+        assert summary["week_change"]["delta"] == delta
+        if delta > 0:
+            assert summary["week_change"]["words"] == "с %d повече" % delta, (
+                "a sale COUNT was formatted as money: %r"
+                % summary["week_change"]["words"])
 
 
 def test_a_week_with_no_sales_before_it_reports_no_percentage():

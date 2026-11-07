@@ -3567,12 +3567,17 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
                 detail=str(settle_detail or "")[:200])
             return False
 
-    # The money moved. Recorded HERE rather than at the end of the function
-    # because the checks below are about DELIVERY, not about whether the buyer
-    # paid — and the funnel asks the second question. A settlement that our
-    # depth gate later answers 425 is still a buyer who authorised a real
-    # payment; filing it as "abandoned" would be the exact confusion this table
-    # exists to remove.
+    # The money moved. Recorded HERE — before the receipt fetch and the depth
+    # gate — because those checks are about DELIVERY and this one is about
+    # PAYMENT: a settlement our depth gate answers 425 is still a buyer who
+    # authorised a real payment, and filing it as "abandoned" is the confusion
+    # this table exists to remove.
+    #
+    # Placing it here is safe because `record_payment_attempt` records a
+    # settlement ONCE PER TRANSACTION HASH. That matters: a replayed request
+    # re-enters this whole function and reaches this line again, and the C1
+    # claim that refuses the replay runs LATER. Without the idempotency in the
+    # store, one payment replayed twice produced three `settled` rows.
     dashboard_db.record_payment_attempt(
         path, "settled", payer=payer, amount_usdc=price,
         detail=str(settle_detail or "")[:120], tx_hash=tx_hash)
@@ -4510,13 +4515,26 @@ def _plain_summary(sales: dict, requests: dict, clients: dict) -> dict:
                          (week_start - timedelta(days=1)).isoformat())
 
     def _change(now_value, before_value) -> Dict[str, object]:
+        """Week-over-week change, in words a human can read.
+
+        The words are formatted by KIND OF VALUE, not by one size fits all. This
+        used to say `"с %d повече" % delta` for both calls, so the USDC call —
+        whose deltas are fractions of a dollar — always printed "с 0 по-малко"
+        (or "с 0 повече") however large the real change was. On 07.11 the board
+        read "с 0 по-малко" beside a percent of -22.2%, which is how it was
+        found: the two halves of the same sentence contradicted each other.
+
+        Only the COUNT is an integer. Money gets decimals and a unit.
+        """
         delta = now_value - before_value
+        money = isinstance(now_value, float) or isinstance(before_value, float)
         if before_value == 0:
             words = ("първите продажби" if now_value > 0 else "няма продажби")
         elif delta > 0:
-            words = "с %d повече" % delta
+            words = ("с $%.3f повече" % delta) if money else ("с %d повече" % delta)
         elif delta < 0:
-            words = "с %d по-малко" % abs(delta)
+            words = (("с $%.3f по-малко" % abs(delta)) if money
+                     else ("с %d по-малко" % abs(delta)))
         else:
             words = "същото"
         percent = (round(delta / before_value * 100, 1)

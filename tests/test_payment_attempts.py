@@ -30,9 +30,35 @@ below encode the corrected model, including the reconciliation that would catch
 a rail call site which stops recording.
 """
 
+import re
 import sqlite3
 
 import pytest
+
+
+def _render_funnel_source():
+    """The body of `renderFunnel`, cut at the function's own closing brace.
+
+    Sliced by STRUCTURE rather than by a character count. The first version used
+    `[:3600]`, and adding one block to the function pushed the text these tests
+    look for past the limit — so a guard failed for the wrong reason, reporting a
+    missing sentence that was still there. A fixed offset measures the size of
+    the function, not the presence of the thing being asserted.
+    """
+    from pathlib import Path
+    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
+    start = html.find("function renderFunnel(")
+    assert start >= 0, "renderFunnel has been renamed or removed"
+    # Walk to the matching closing brace at the same nesting depth.
+    depth = 0
+    for i in range(html.index("{", start), len(html)):
+        if html[i] == "{":
+            depth += 1
+        elif html[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return html[start:i + 1]
+    raise AssertionError("renderFunnel has unbalanced braces")
 
 
 @pytest.fixture()
@@ -175,6 +201,66 @@ def test_abandonment_is_never_negative_or_invented(store):
     f = _served(store)["funnel"]["/api/v1/whaleflow"]
     assert f["abandoned_today"] == 0
     assert f["abandoned_today"] >= 0
+
+
+def test_a_settlement_is_recorded_once_per_transaction(store):
+    """THE regression guard for the double-counted sale.
+
+    `record_payment_attempt(..., "settled", ...)` is called BEFORE the C1 replay
+    claim in `_try_consume_standard_payment`, deliberately: a settlement our depth
+    gate answers 425 is still a buyer who paid, and the depth gate runs later.
+
+    But a REPLAYED request re-enters the whole rail and reaches that line again,
+    and C1 refuses it only afterwards. So the recording cannot rely on C1 having
+    run first — measured, one payment replayed twice produced THREE `settled`
+    rows, inflating exactly the figure this panel exists to make trustworthy.
+
+    The store therefore records a settlement once per tx hash. The other outcomes
+    are events, not facts about a transaction, so they are always recorded.
+    """
+    for _ in range(3):
+        store.record_payment_attempt("/api/stats", "settled", payer="0xP",
+                                     amount_usdc=0.005, tx_hash="0xabc123")
+    rows = _rows(store, "SELECT COUNT(*) AS n FROM payment_attempts "
+                        "WHERE outcome = 'settled'")
+    assert int(dict(rows[0])["n"]) == 1, (
+        "the same settlement was counted as multiple sales — a replay inflates "
+        "the funnel's paid figure")
+
+    f = _served(store)["funnel"]["/api/stats"]
+    assert f["settled_today"] == 1
+    assert f["presented_today"] == 1
+
+
+def test_different_settlements_are_still_counted_separately(store):
+    """The counterpart: idempotency must key on the TRANSACTION, not on the
+    route. Two buyers paying on one route is two sales."""
+    store.record_payment_attempt("/api/stats", "settled", tx_hash="0xaaa")
+    store.record_payment_attempt("/api/stats", "settled", tx_hash="0xbbb")
+    f = _served(store)["funnel"]["/api/stats"]
+    assert f["settled_today"] == 2
+
+
+def test_a_settlement_with_no_hash_is_still_recorded(store):
+    """A settlement the facilitator reported without a usable hash must not be
+    silently dropped — that would lose a real sale. Only DE-DUPLICATION needs a
+    hash; recording does not."""
+    store.record_payment_attempt("/api/sales", "settled", tx_hash="")
+    store.record_payment_attempt("/api/sales", "settled", tx_hash="")
+    rows = _rows(store, "SELECT COUNT(*) AS n FROM payment_attempts "
+                        "WHERE outcome = 'settled'")
+    assert int(dict(rows[0])["n"]) == 2, (
+        "a hashless settlement was dropped or wrongly de-duplicated")
+
+
+def test_repeated_rejections_are_all_recorded(store):
+    """Only `settled` is de-duplicated. A buyer retrying a bad signature is
+    still a buyer trying, and the panel should show the attempts."""
+    for _ in range(3):
+        store.record_payment_attempt("/api/v1/signal", "rejected",
+                                     detail="signature_mismatch")
+    f = _served(store)["funnel"]["/api/v1/signal"]
+    assert f["rejected_today"] == 3
 
 
 # ── the reconciliation: every credential must have a row ────────────────────
@@ -383,21 +469,43 @@ def test_recording_an_attempt_does_not_move_the_epoch(store):
     assert store.history.payment_attempts_since() == before
 
 
-def test_a_fresh_deploy_reports_the_split_as_not_yet_measured(tmp_path):
-    """On a store whose epoch is NOW, the attempt split is only partly observed,
-    so the reconciliation must stay silent — but abandonment is still exact,
-    because it does not depend on the attempt table at all."""
+def test_a_store_that_began_recording_today_still_reconciles_today(tmp_path):
+    """THE regression guard for the deploy-day bug.
+
+    `attempts_since` is written as a full ISO TIMESTAMP and `today` is a DATE. The
+    check compared them as STRINGS, so
+
+        "2026-11-07T17:01:17+00:00" <= "2026-11-07"   ->   False
+
+    because 'T' sorts after the empty string. The self-check was therefore
+    silently DISABLED on the very day it was deployed — the only day it exists
+    for, since on every later day the epoch is comfortably in the past — and then
+    armed itself the next morning, reconciling hours it had never covered.
+
+    A fresh store IS the deploy-day case: its epoch is now. Credentials that
+    arrived after the epoch must be reconciled; abandonment stays exact either
+    way because it never reads this table.
+    """
     from integrations.dashboard_store import DashboardStore
 
     store = DashboardStore(tmp_path / "fresh.db")
-    store.record_request("GET", "/api/v1/signal", "api", 402, user_agent="node")
-    store.record_request("GET", "/api/v1/signal", "api", 402, user_agent="node")
+    for _ in range(2):
+        store.record_request("GET", "/api/v1/signal", "api", 402, user_agent="node")
+    # One credential arrived AFTER the epoch and the rail recorded it; two did
+    # not. On a fresh store both are post-epoch, so the gap is 1 and it is real.
+    store.record_request("GET", "/api/v1/signal", "api", 401, user_agent="node")
+    store.record_request("GET", "/api/v1/signal", "api", 401, user_agent="node")
+    store.record_request("GET", "/api/v1/signal", "api", 401, user_agent="node")
+    store.record_payment_attempt("/api/v1/signal", "rejected")
+
     f = _served(store)["funnel"]["/api/v1/signal"]
     assert f["abandoned_today"] == 2, "abandonment is read off the 402s"
-    assert f["unrecorded_today"] is None, (
-        "a store that began recording minutes ago cannot call the morning's "
-        "unrecorded credentials a defect")
     assert f["measured_since"], "the window must be published so the page can date it"
+    assert f["unrecorded_today"] == 2, (
+        "the reconciliation is disabled on the day of the deploy — the epoch is a "
+        "timestamp and 'today' is a date, and comparing them as strings is always "
+        "False. Got %r, expected 2 (3 credentials, 1 recorded)."
+        % (f["unrecorded_today"],))
 
 
 # ── the funnel still answers its original question ───────────────────────────
@@ -450,18 +558,29 @@ def test_the_attempt_read_happens_before_the_budget_is_spent(store, monkeypatch)
         "the attempt split was never read on the request path — the panel is "
         "silently absent rather than unread")
 
-    # Compare against the LAST cheap request_log read that actually runs on this
-    # path, not against a heavy panel: the heavy ones are correctly skipped here
-    # (`awaiting_snapshot`), so they can never be overtaken and would make this
-    # guard vacuous — which is exactly what the first version of it did.
+    # EVERY request_log read, not just the last one.
+    #
+    # The first version of this guard compared against `max(log_at)` — the last
+    # request_log read on the path, which is the funnel query. That made it
+    # vacuous: a "half-fixed" placement just BEFORE the funnel still passed,
+    # while sitting after four of the five log reads and therefore still at the
+    # mercy of the budget those four spend. Measured issuance order then was
+    # attempt at 3 and log reads at [0, 1, 2, 4, 6]; the assertion `3 < 6` held
+    # for the very ordering it was written to forbid.
+    #
+    # The panel is the CHEAPEST read in the method (an indexed `path IN` against
+    # a table of attempts, not of traffic), so the honest requirement is that no
+    # request_log read precedes it at all.
     log_at = [i for i, s in enumerate(issued) if "FROM request_log" in s]
     assert log_at, "no request_log read ran; the guard is moot"
-    assert attempt_at < max(log_at), (
-        "the attempt split is read after the last request_log panel (position "
-        "%d vs %d). Every `q()` spends from ONE 6-second budget, and the reads "
-        "over request_log are the expensive ones — so this panel, the cheapest "
-        "here, would be reported out_of_budget ('never ran') on a live deploy. "
-        "Read it early." % (attempt_at, max(log_at)))
+    earlier = [i for i in log_at if i < attempt_at]
+    assert not earlier, (
+        "the attempt split is read at position %d, AFTER %d request_log read(s) "
+        "at %r. Every `q()` spends from ONE 6-second budget, and the reads over "
+        "request_log are the expensive ones — so this panel, the cheapest here, "
+        "gets reported out_of_budget ('never ran') on a live deploy. Read it "
+        "before every request_log panel."
+        % (attempt_at, len(earlier), earlier))
 
 
 def test_every_funnel_route_exposes_the_missing_middle(store):
@@ -488,9 +607,7 @@ def test_every_funnel_route_exposes_the_missing_middle(store):
 
 def test_the_page_shows_the_middle_of_the_funnel():
     """The 402 → paid cells alone are the defect; the page must carry the split."""
-    from pathlib import Path
-    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
-    render = html[html.find("function renderFunnel("):][:3600]
+    render = _render_funnel_source()
     for field in ("presented_today", "settle_failed_today", "rejected_today",
                   "abandoned_today", "measured_since", "unrecorded_today"):
         assert field in render, (
@@ -501,9 +618,7 @@ def test_the_page_shows_the_middle_of_the_funnel():
 def test_the_page_does_not_print_a_number_for_an_unmeasured_split():
     """On deploy day the split is partial. Rendering `|| 0` there would state
     that nobody walked away, or that the rail is broken."""
-    from pathlib import Path
-    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
-    render = html[html.find("function renderFunnel("):][:3600]
+    render = _render_funnel_source()
     assert "presented === null" in render or "presented == null" in render, (
         "renderFunnel has no null branch, so an unmeasured split renders as a "
         "number")
@@ -513,9 +628,7 @@ def test_the_page_does_not_print_a_number_for_an_unmeasured_split():
 
 def test_the_page_says_when_the_attempt_read_failed():
     """`опитите не се прочетоха` and `никой не опита` are different news."""
-    from pathlib import Path
-    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
-    render = html[html.find("function renderFunnel("):][:3600]
+    render = _render_funnel_source()
     assert "опитите не се прочетоха" in render, (
         "a failed attempt read must be labelled as a failed read")
 
