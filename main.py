@@ -4514,11 +4514,76 @@ def _organism_board_enabled() -> bool:
 
 
 def _organism_board_section() -> dict:
-    """The organism and journal projections for the board payload."""
+    """The organism, journal, rule table and chaos report for the board."""
     return {
         "organism": _safe_organism_summary(),
         "journal": _safe_organism_journal(),
+        "rules": _safe_organism_rules(),
+        "chaos": _safe_organism_chaos(),
     }
+
+
+def _safe_organism_chaos() -> dict:
+    """The last chaos-drill result, or an honest marker.
+
+    The drills run on demand rather than on the board's request path: they are
+    cheap and in-memory, but the board rebuilds every 30 seconds and a drill
+    suite belongs on a schedule, not on every page view.
+    """
+    try:
+        from services import organism_chaos as chaos
+        report = chaos.run_all()
+        return {
+            "available": True,
+            **report,
+            "actions_enabled": _organism_actions_enabled(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("organism chaos unavailable: %s: %s",
+                    type(exc).__name__, exc)
+        return {"available": False, "failed": None, "passed": None,
+                "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+                "note": "a drill suite that could not run is not a passing one"}
+
+
+def _organism_actions_enabled() -> bool:
+    """Whether the executors may act. Off unless a human turns it on.
+
+    Published on the board because "is this thing allowed to change production"
+    is the first question anyone should be able to answer about it.
+    """
+    try:
+        from services import organism_executors as ex
+        return ex.actions_enabled()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _safe_organism_rules() -> dict:
+    """The rule table and what it has seen, or an honest marker.
+
+    The table is published IN FULL, not summarised. A policy nobody can read is
+    a policy nobody can review, and this one is the entire set of things the
+    organism is allowed to do to itself.
+    """
+    try:
+        from services import organism_rules as rules
+        return {
+            "observe_only": True,
+            "blast_radius_per_hour": rules.BLAST_RADIUS_PER_HOUR,
+            "executors": list(rules.EXECUTORS),
+            "forbidden": list(rules.FORBIDDEN_EFFECTS),
+            "table": rules.table(),
+            "digest": rules.digest(dashboard_db, hours=24),
+            "note": ("`not_reached` is never converted into an action: nobody "
+                     "looking is not the same as something being broken, and "
+                     "restarting on it would thrash on every deploy."),
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("organism rules unavailable: %s: %s",
+                    type(exc).__name__, exc)
+        return {"available": False, "table": [], "digest": {},
+                "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120])}
 
 
 def _organism_journal_note(block: str, kind: str, severity: str = "info",

@@ -58,8 +58,18 @@ def test_duplicate_module_load_skips_all_threads(monkeypatch):
     first_run = list(started)
     # monitor + agent + catalog + stripe-snapshot + dashboard + dashboard-warmer
     # + requests-snapshot-warmer + whaleflow + keep-alive + telegram-sales
-    # = 10 threads.
-    assert len(first_run) == 10, first_run
+    # + organism-boot
+    # = 11 threads.
+    #
+    # `organism-boot` writes the organism's opening heartbeat. It runs in its OWN
+    # thread on purpose: the write is a Postgres round-trip, and this runs at
+    # import time BEFORE gunicorn binds the port. A durable write on that path
+    # already cost this project one deploy (module-level purge_old_requests in
+    # a4c1cb0), so boot must not wait on telemetry.
+    assert len(first_run) == 11, first_run
+    assert "organism-boot" in first_run, (
+        "the organism's boot heartbeat must be on its own thread, not on the "
+        "path to binding the port")
     assert registered["webhook"] == 1
     assert registered["commands"] == 1
     # Set only because threads actually started.

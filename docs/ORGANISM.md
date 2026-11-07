@@ -1,6 +1,6 @@
 # The Organism — how the platform watches itself
 
-**Built:** 2026-11-07 · **Status:** sense layer and memory live; executors not built
+**Built:** 2026-11-07 · **Status:** all six steps implemented; actions OFF by default
 
 ---
 
@@ -16,9 +16,46 @@ The cost is not the fixing. It is the re-discovery.
 
 ---
 
-## What is built
+## The six steps, and where each one lives
 
-### Six blocks, one vocabulary
+| # | Step | Module | State |
+|---|---|---|---|
+| 1 | Conversion funnel | `integrations/dashboard_store.py` | live |
+| 2 | Block heartbeats + verdicts | `services/organism.py` | live |
+| 3 | The journal | `services/organism_journal.py` | live |
+| 4 | The rule table (observe-only) | `services/organism_rules.py` | live |
+| 5 | Executors | `services/organism_executors.py` | **OFF by default** |
+| 6 | Chaos drills | `services/organism_chaos.py` | live |
+
+---
+
+## The chain, end to end
+
+```
+a loop runs  ->  beat(block, ok|degraded|failed|not_reached)   [step 2]
+                        |
+                        v
+              last_verdicts(store)  ->  the board             [step 2]
+                        |
+                        v
+         signals_from_verdicts(store)                          [step 2→4]
+                        |
+                        v
+              decide(signal)  ->  class + action + why         [step 4]
+                        |
+                        v
+              execute(decision)  ->  Result(ok, verified)      [step 5]
+                        |
+                        v
+              journal_result(...)                              [step 3]
+                        |
+                        v
+              chaos drills prove the whole path                [step 6]
+```
+
+---
+
+## Six blocks, one vocabulary
 
 Each block owns a distinct failure domain, so one dying cannot make another look
 dead — the property the dashboard already proves for its panels.
@@ -41,78 +78,78 @@ failed        the block reported a failure
 not_reached   THE CHECK DID NOT RUN
 ```
 
-**`not_reached` is counted as unhealthy.** "We did not look" is not the same as
-"we looked and it was fine", and the single most dangerous thing this system could
-do is report a confident `ok` produced by a check that never executed. That is the
-defect class this codebase spent a week closing one surface at a time; the
-organism holds it for the whole system at once.
+**`not_reached` is counted as unhealthy, and is NEVER converted into an action.**
+"We did not look" is not "something is broken", and restarting a loop on it would
+restart six healthy loops on every single deploy. A drill asserts this.
 
-A block that has never reported is `not_reached` — which is exactly why a fresh
-deploy shows **six unhealthy blocks** rather than a clean sheet.
+---
 
-### The journal
+## The rule table
 
-An append-only, bounded, never-raising record of what the system noticed and did.
+Twelve rules, three classes, and six verbs. Read the whole policy in one screen —
+that is the point of a table over a model.
 
-- **Append-only.** A journal that can be edited can be made to say anything.
-- **Bounded on write** (`MAX_ENTRIES = 2000`), because a table with no retention
-  is what took the service down on 07.11.
-- **Never raises.** It is written next to payment handling; telemetry must not be
-  able to fail the thing it describes.
-- **`kind` is normalised** (`"Settle Failed"` → `settle_failed`) so the future
-  rule table matches one token per signal.
+| Signal | Class | Action |
+|---|---|---|
+| `rpc_endpoint_refused` | self_heal | `rotate_endpoint` |
+| `heartbeat_stale` | self_heal | `restart_loop` |
+| `cache_violently_stale` | self_heal | `rebuild_cache` |
+| `index_missing_or_invalid` | self_heal | `recreate_index` |
+| `retention_backlog_over_horizon` | self_heal | `purge_older_than` |
+| `surface_returns_5xx` | self_heal | `re_warm` |
+| `deploy_failed` | escalate | — |
+| `env_missing_or_drifted` | escalate | — |
+| `payment_settles_but_not_recorded` | escalate | — |
+| `conversion_below_floor` | escalate | — |
+| `public_claim_contradicted` | escalate | — |
+| `anything_unrecognised` | observe | — |
 
-Severities: `observe` · `info` · `warn` · `error`.
+**A rule cannot name a forbidden effect.** `move_money`, `change_price`,
+`edit_receiver`, `touch_secrets` and `push_to_main` are not merely absent from the
+table — a `Rule` constructed with one raises. That is enforced by a test.
+
+---
+
+## The executors, and the guard order
+
+`KRISTO_ORGANISM_ACT` is **unset by default**, so the organism ships observing.
+The guards run in order, cheapest and safest first:
+
+1. the class must be `self_heal` — escalate/observe never act, in any mode
+2. the verb must be implemented — `re_warm` is not, and says so
+3. actions must be ENABLED — off unless a human turns it on
+4. the blast radius must allow it — at most 6 actions/hour/block
+5. then the executor runs
+6. and the result is **verified**: the signal must be GONE
+
+A repair whose symptom survives is journalled as an **error**, because it is worse
+than not acting — it stops anyone looking.
+
+---
+
+## The chaos drills
+
+Four drills, each breaking one thing and requiring the organism to notice,
+classify and (where a repair exists) heal it *and have the signal disappear*.
+
+```
+stale_heartbeat   -> HEALED
+degraded_block    -> sensed, decided (would_heal in observe-only)
+never_reported    -> CORRECTLY NOT ACTED ON (not_reached is not a fault)
+unreadable_store  -> CORRECTLY NOT ACTED ON
+```
+
+`would_heal` is reported separately from `HEALED`, deliberately: a chaos suite
+that never verifies recovery would pass forever and prove nothing.
 
 ---
 
 ## Where to see it
 
-`GET /api/dashboard/data` → `sections.organism` and `sections.journal`.
+`GET /api/dashboard/data` → `sections.organism`, `.journal`, `.rules`, `.chaos`.
 
-```json
-"organism": {
-  "blocks": [{"block": "payment_rail", "verdict": "ok", "age_seconds": 12.4, …}],
-  "counts": {"ok": 2, "degraded": 1, "failed": 0, "not_reached": 3},
-  "unhealthy": 4
-}
-```
-
-`unhealthy` includes `not_reached`. If the organism itself cannot be read, the
-payload says `available: false` — it does **not** render six healthy blocks.
-
----
-
-## The honesty rules, held by construction
-
-1. A self-check that raises returns `not_reached`, never `ok`.
-2. A self-check returning the wrong type returns `not_reached`.
-3. A block with no registered check returns `not_reached`.
-4. A heartbeat older than 5 minutes that last said `ok` is reported as **failed** —
-   a writer that stopped leaves behind a last word of "fine".
-5. A missing heartbeat is `not_reached`, not healthy.
-6. An empty journal and an unreadable journal are different answers.
-7. A failed organism read is `available: false`, not a clean summary.
-
-Each of these has a test in `tests/test_organism.py`.
-
----
-
-## What is NOT built, and why
-
-**The rule table and the executors.** The design calls for a deterministic table
-mapping a signal to an action (`rpc_endpoint_refused` → `rotate_endpoint`), with
-three guards: a blast-radius cap, per-action verification, and a journal entry for
-every action.
-
-It is deliberately not here yet, for one reason: **a rule you cannot see firing is
-a rule you cannot trust.** The journal has to accumulate real signals first, so the
-frequencies are known before anything is allowed to act on them. Building the
-executors first would mean guessing which rules matter.
-
-**Nothing in the plan moves money, changes a price, edits a receiver, touches
-`secrets/`, or pushes to `main`.** Those stay escalated to the owner,
-permanently.
+The organism sections are behind `KRISTO_ORGANISM_BOARD`, **off by default** while
+the service is stabilised. The heartbeats and the journal run either way.
 
 ---
 
@@ -121,7 +158,7 @@ permanently.
 - **A rule table cannot fix a novel defect.** It closes the *known* failure modes
   permanently so human attention is spent only on the new.
 - **Self-healing can mask rot.** A monitor that silently restarts forever looks
-  identical to a healthy one. That is why a rising heal count in the journal is
-  itself the signal the owner should watch.
-- **`not_reached` on a fresh deploy is expected, not a defect.** It becomes a
-  finding only if it persists.
+  identical to a healthy one. That is why every action is journalled and the
+  digest counts a rising heal rate as a signal in itself.
+- **A rule that has never fired is either rare or impossible**, and only counting
+  tells them apart — which is exactly why the table observes before it acts.

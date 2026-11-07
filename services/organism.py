@@ -352,5 +352,44 @@ def summary(store) -> Dict[str, object]:
     }
 
 
+def signals_from_verdicts(store) -> List[dict]:
+    """Translate block verdicts into rule-table signals, one per sick block.
+
+    THIS IS WHERE THE SENSE LAYER MEETS THE BRAIN. The blocks answer "am I well";
+    the rule table answers "what would be done about it". Without this function
+    the table has nothing to decide on, and the two layers sit beside each other
+    instead of in a chain.
+
+    The mapping is deliberately narrow, and it is the honest one:
+
+      * a STALE heartbeat for a block that owns a loop -> `heartbeat_stale`
+      * a block whose verdict is `failed`               -> `heartbeat_stale`
+        (its writer stopped, which is the same fault from the table's view)
+      * `not_reached`                                   -> NOT a signal
+
+    That last line is the important one. `not_reached` means NOBODY HAS LOOKED,
+    and the correct response is to look — not to restart a loop that may be
+    perfectly healthy and merely unobserved. Restarting on `not_reached` would
+    make the organism thrash on every fresh deploy, when all six blocks are
+    legitimately `not_reached` for the first few seconds. So it is reported to
+    the board and deliberately not converted into an action.
+    """
+    out: List[dict] = []
+    for row in last_verdicts(store, BLOCKS):
+        verdict = row.get("verdict")
+        block = row.get("block") or ""
+        if verdict == NOT_REACHED:
+            continue
+        if verdict in (FAILED, DEGRADED):
+            out.append({
+                "signal": "heartbeat_stale",
+                "block": block,
+                "detail": str(row.get("detail") or "")[:200],
+                "evidence": {"verdict": verdict,
+                             "age_seconds": row.get("age_seconds")},
+            })
+    return out
+
+
 def _now_monotonic() -> float:  # pragma: no cover - tiny shim for tests
     return time.monotonic()
