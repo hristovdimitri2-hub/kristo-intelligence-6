@@ -4498,6 +4498,29 @@ def _ago_words(ts) -> str:
     return "преди %d месеца" % months if months > 1 else "преди месец"
 
 
+def _organism_board_enabled() -> bool:
+    """Whether the board payload carries the organism sections.
+
+    DEFAULT OFF. Three deploys in a row failed to open a port with this section
+    present and every deploy before it took a minute, so the section is gated
+    until the service is stable again and a failure can be attributed cleanly.
+
+    Read at CALL time, not import time: a Render environment change must not
+    require a code edit to take effect, and `os.getenv` here costs nothing
+    measurable next to building the payload.
+    """
+    return (os.getenv("KRISTO_ORGANISM_BOARD", "") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _organism_board_section() -> dict:
+    """The organism and journal projections for the board payload."""
+    return {
+        "organism": _safe_organism_summary(),
+        "journal": _safe_organism_journal(),
+    }
+
+
 def _organism_journal_note(block: str, kind: str, severity: str = "info",
                            detail: str = "", action: str = "",
                            outcome: str = "") -> None:
@@ -6601,16 +6624,26 @@ def _canonical_dashboard_payload(include_crm: bool = False,
         "receiver_address": X402_RECEIVER_ADDRESS,
         "sections": {
             # ── the organism: is the SYSTEM well, not just the traffic ────────
-            # Placed before `summary` because it answers a different question
-            # from "how many sales". Six blocks, one vocabulary, and the rule that
-            # `not_reached` ("we did not look") is counted as unhealthy rather
-            # than summed as fine. A block that never reported is not a healthy
-            # block; it is an unknown one, and this is the surface that says so.
+            # ENABLED BY ENVIRONMENT, DEFAULT OFF, and that default is deliberate.
             #
-            # Read-only: it reads heartbeats other loops already wrote. It runs no
-            # check and takes no action.
-            "organism": _safe_organism_summary(),
-            "journal": _safe_organism_journal(),
+            # Three consecutive deploys failed with this section in the payload,
+            # every one after ~15 minutes, and Render's log names the cause:
+            #
+            #     ==> No open HTTP ports detected on 0.0.0.0, continuing to scan...
+            #     ==> Port scan timeout reached, no open HTTP ports detected.
+            #
+            # The build succeeds; the container never serves. That is the port
+            # never opening, and the only change in those deploys was this.
+            #
+            # OFF BY DEFAULT so the next deploy is a KNOWN GOOD baseline. Once
+            # the service is stable again, set KRISTO_ORGANISM_BOARD=1 in Render
+            # and the section returns — at which point a failure is attributable
+            # to this and nothing else.
+            #
+            # The heartbeats and the journal KEEP RUNNING either way: they are
+            # written by threads and loops, and they are the parts with value.
+            # Only the board projection is gated.
+            **(_organism_board_section() if _organism_board_enabled() else {}),
             # The four questions the owner asks, answered in words and placed
             # first: when was the last sale, on what day, who paid, and was the
             # caller a person or a bot. Every figure is derived from the same
