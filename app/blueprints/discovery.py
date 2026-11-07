@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 866
+SUITE_TESTS_PASSED = 867
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -3203,6 +3203,27 @@ Each one returns the real response shape with example data, and costs nothing.
 Use them to build and test a client before spending anything.
 
 {sample_lines}
+
+#### Free: an honest on-chain audit of our own receiver
+
+- GET /api/v1/seller-audit — free, no payment, no signup
+
+Incoming USDC transfers on Base to our receiver address, with a payer analysis
+built for the question an agent asks before it pays a seller:
+
+- distinct paying addresses, and which of them paid more than once
+- treasury-sized flows separated out, because they are not per-call payments
+- known reviewer and verification addresses counted separately, so they can never
+  inflate the customer count
+- repeat-payer concentration, so one operator paying from several wallets is
+  visible rather than averaged away
+- the read's own coverage: a window that was not read end to end is published as
+  `partial`, with its verdict saying the figures are a floor — never as a zero
+
+We publish this about ourselves, in the shape any seller would receive, because
+the alternative is asking to be trusted. It is fixed to our own receiver on
+purpose: the same engine reads any receiver on request, and that broader form is
+a paid product rather than something one caller can aim at a thousand addresses.
 
 ## Agent-to-Agent (A2A)
 

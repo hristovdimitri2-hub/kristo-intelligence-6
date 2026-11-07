@@ -272,3 +272,25 @@ def test_the_surface_says_what_it_is_and_what_it_is_not(monkeypatch):
     assert "own receiver" in body["scope_note"]
     assert "monitor records" in body["source"]
 
+
+def test_the_discovery_file_advertises_the_audit_and_its_honesty_rule(client):
+    """Measured demand (07.11): the ecosystem's most-asked queries are about
+    seller trust — `seller conformance`, `settlement ledger`, `funded sellers`,
+    `x402 seller reputation unique payers` — each from ~50 independent client
+    addresses over eight days. A directory's recommender ranks partly on the
+    words a listing carries, and agents read llms.txt.
+
+    An earlier probe of our own /llms.txt found NONE of that vocabulary and no
+    mention of the audit at all, so an agent reading our own discovery file could
+    not learn we answer that question. This holds the wording in place.
+    """
+    text = client.get("/llms.txt").get_data(as_text=True).lower()
+
+    assert "/api/v1/seller-audit" in text
+    for word in ("distinct paying addresses", "treasury-sized flows",
+                 "verification addresses", "partial"):
+        assert word in text, word
+    assert "never as a zero" in text, (
+        "the discovery file must carry the honesty rule, not just the endpoint")
+
+
