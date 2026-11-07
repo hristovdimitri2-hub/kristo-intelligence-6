@@ -265,31 +265,68 @@ def last_verdict(store, block: str) -> Dict[str, object]:
     This is what the board renders: a cheap read. `verdict` is `not_reached` when
     nothing has ever been recorded, which is honest — we have not looked.
     """
-    out: Dict[str, object] = {
-        "block": block, "verdict": NOT_REACHED, "detail": "", "at": None,
-        "age_seconds": None,
-    }
+    return last_verdicts(store, [block])[0]
+
+
+def last_verdicts(store, blocks) -> List[Dict[str, object]]:
+    """Every block's last verdict in ONE query, not three per block.
+
+    WHY THIS IS NOT A LOOP OVER `last_verdict`. Three durable-meta reads per
+    block is eighteen round-trips per board build, and the board rebuilds in the
+    background every ~30 seconds on a SHARED Postgres connection with an 8-second
+    statement timeout. Eighteen extra reads there is the same shape as the read
+    that took the service down on 05.11, and it made the organism's own deploy
+    hang past Render's port-binding deadline.
+
+    One `IN (...)` against a primary-key table is served by the index and costs
+    one round-trip for all six blocks.
+    """
+    out: List[Dict[str, object]] = []
+    blocks = list(blocks)
+    blank = {b: {"block": b, "verdict": NOT_REACHED, "detail": "", "at": None,
+                 "age_seconds": None} for b in blocks}
     if store is None:
-        return out
+        return [blank[b] for b in blocks]
+
+    keys = []
+    for b in blocks:
+        keys.extend((_HEARTBEAT_PREFIX + b,
+                     _HEARTBEAT_PREFIX + b + "_verdict",
+                     _HEARTBEAT_PREFIX + b + "_detail"))
+    placeholders = ", ".join("?" for _ in keys)
     try:
-        at = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block)
-        out["at"] = at
-        out["age_seconds"] = _age_seconds(at)
-        v = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block + "_verdict")
+        rows = store.history._run(
+            "SELECT key, value FROM dashboard_meta WHERE key IN (%s)"
+            % placeholders, tuple(keys), "all")[0] or []
+        found = {}
+        for r in rows:
+            # `sqlite3.Row` has no `.get`; index by name and tolerate absence.
+            try:
+                found[r["key"]] = r["value"]
+            except (KeyError, IndexError, TypeError):
+                continue
+    except Exception as exc:  # noqa: BLE001 - the fallback below is the point
+        log.debug("organism batch heartbeat read failed: %s", exc)
+        return [blank[b] for b in blocks]
+
+    for b in blocks:
+        row = dict(blank[b])
+        at = found.get(_HEARTBEAT_PREFIX + b)
+        row["at"] = at
+        row["age_seconds"] = _age_seconds(at)
+        v = found.get(_HEARTBEAT_PREFIX + b + "_verdict")
         if v in VERDICTS:
-            out["verdict"] = v
-        d = store.history.get_durable_meta(_HEARTBEAT_PREFIX + block + "_detail")
-        out["detail"] = d or ""
-        if out["age_seconds"] is not None and \
-                out["age_seconds"] > HEARTBEAT_STALE_SECONDS and \
-                out["verdict"] == OK:
+            row["verdict"] = v
+        row["detail"] = found.get(_HEARTBEAT_PREFIX + b + "_detail") or ""
+        if row["age_seconds"] is not None and \
+                row["age_seconds"] > HEARTBEAT_STALE_SECONDS and \
+                row["verdict"] == OK:
             # A fresh verdict on a stale heartbeat is stale too: the writer
             # stopped, and the last thing it said was "fine".
-            out["verdict"] = FAILED
-            out["detail"] = ("last said ok, but %.0fs ago (limit %ds)"
-                             % (out["age_seconds"], HEARTBEAT_STALE_SECONDS))
-    except Exception as exc:  # noqa: BLE001
-        log.debug("organism last_verdict read failed for %s: %s", block, exc)
+            row["verdict"] = FAILED
+            row["detail"] = ("last said ok, but %.0fs ago (limit %ds)"
+                             % (row["age_seconds"], HEARTBEAT_STALE_SECONDS))
+        out.append(row)
     return out
 
 
@@ -300,7 +337,7 @@ def summary(store) -> Dict[str, object]:
     block that never reported is counted, because "we have no idea" is not a
     healthy state and must not be summed as one.
     """
-    rows = [last_verdict(store, b) for b in BLOCKS]
+    rows = last_verdicts(store, BLOCKS)
     counts = {v: 0 for v in VERDICTS}
     for r in rows:
         counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1

@@ -28,7 +28,14 @@ from services import organism_journal as oj
 
 
 class FakeHistory:
-    """A durable-meta store with no database behind it."""
+    """A durable-meta store with no database behind it.
+
+    It implements BOTH access shapes the organism uses: the single-key
+    `get_durable_meta` (for writes and one-off reads) and `_run` (for the batched
+    `IN (...)` read that keeps the board build at one round-trip instead of
+    eighteen). A fake that implemented only the first would let a regression in
+    the second pass unnoticed.
+    """
 
     def __init__(self):
         self.d = {}
@@ -44,6 +51,13 @@ class FakeHistory:
         if self.fail_writes:
             raise RuntimeError("store is read-only")
         self.d[key] = value
+
+    def _run(self, sql, params=(), fetch=""):
+        """Just enough of the real signature for the batched heartbeat read."""
+        if self.fail_reads:
+            raise RuntimeError("store is unreachable")
+        rows = [{"key": k, "value": self.d[k]} for k in params if k in self.d]
+        return rows, len(rows)
 
 
 class FakeStore:
