@@ -3510,6 +3510,13 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     ok, payer, detail = connectors.verify_standard_payment(payment_header, requirements)
     if not ok:
         g.x402_reject_reason = detail
+        # The funnel's missing middle, recorded at the moment it is known. This
+        # answers 401, which `request_log` records as "a credential was presented
+        # and we refused it" — the SAME status a failed settlement gets. Only
+        # this row says which of those two opposite things happened.
+        dashboard_db.record_payment_attempt(
+            path, "rejected", payer=payer, amount_usdc=price,
+            detail=str(detail or "")[:200])
         log.info("standard x402 payment rejected: path=%s detail=%s", path, detail)
         return False
 
@@ -3552,7 +3559,23 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
                     "the tx hash instead); otherwise the buyer's USDC balance "
                     "was insufficient — fund it and retry")
             log.warning("standard x402 settle failed: path=%s detail=%s", path, settle_detail)
+            # A buyer who got this far DID authorise a real payment and we could
+            # not take it. That is a lost sale caused by us, not by them, and it
+            # must never be filed under "nobody was interested".
+            dashboard_db.record_payment_attempt(
+                path, "settle_failed", payer=payer, amount_usdc=price,
+                detail=str(settle_detail or "")[:200])
             return False
+
+    # The money moved. Recorded HERE rather than at the end of the function
+    # because the checks below are about DELIVERY, not about whether the buyer
+    # paid — and the funnel asks the second question. A settlement that our
+    # depth gate later answers 425 is still a buyer who authorised a real
+    # payment; filing it as "abandoned" would be the exact confusion this table
+    # exists to remove.
+    dashboard_db.record_payment_attempt(
+        path, "settled", payer=payer, amount_usdc=price,
+        detail=str(settle_detail or "")[:120], tx_hash=tx_hash)
 
     # Populate the real block number from the settlement receipt — PayAPI's
     # review flagged history entries reporting block_number 0 (field never

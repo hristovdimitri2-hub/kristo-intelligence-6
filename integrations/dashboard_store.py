@@ -106,16 +106,17 @@ REQUEST_SUMMARY_BUDGET_SECONDS = max(
 #: The rule is BOUNDED vs UNBOUNDED, checked against the SQL rather than
 #: guessed: `today` and `noise_today` are both `COUNT(*)` bounded by the indexed
 #: day window, `recent` is an indexed `ORDER BY id DESC LIMIT 25`, the hourly
-#: histogram is bounded by the same day window, and the funnel is a grouped scan
+#: histogram is bounded by the same day window, the funnel is a grouped scan
 #: that restricts itself with `path IN (...)` so `idx_request_log_path` serves
-#: it. All five answer in milliseconds.
+#: it, and `payment_attempts` does the same against `idx_payment_attempts_path_ts`
+#: (see `payment_attempt_sql`). All six answer in milliseconds.
 #:
 #: Everything NOT here has no predicate at all or groups over every row
 #: (`COUNT(*)` with no WHERE, `GROUP BY source / funnel / user_agent`, and an
 #: all-time `GROUP BY path`) and took 10-21 SECONDS here — which is why it may
 #: not run on the request path at any budget.
 REQUEST_SUMMARY_FAST_PANELS = ("today", "recent", "hourly", "funnel",
-                               "noise_today")
+                               "noise_today", "payment_attempts")
 
 #: Where the heavy all-time panels are parked once computed.
 REQUEST_SNAPSHOT_KEY = "requests_summary_snapshot_v1"
@@ -247,6 +248,56 @@ FUNNEL_ROUTES = [
     "/api/v1/whaleflow",
     "/api/v1/verify-seller",
 ]
+
+# ── Payment attempts: the four things that can happen to a presented payload ──
+# Ordered by how far the buyer got, which is also the order the funnel renders
+# them in. `settled` is the only one that is also a sale; the other three exist
+# because "came with a signature and it did not work" is a different fact from
+# "never came with a signature", and only one of those is worth calling a
+# customer about.
+PAYMENT_ATTEMPT_OUTCOMES = ("authorised", "rejected", "settle_failed", "settled")
+# The subset that represents a buyer who actually tried, i.e. reached the rail.
+_PAYMENT_ATTEMPT_OUTCOMES = frozenset(PAYMENT_ATTEMPT_OUTCOMES)
+
+# Durable meta key holding the moment attempt recording began. It bounds the
+# window over which the 401 SPLIT can be trusted — not the window abandonment is
+# measured over, because abandonment is the 402 count and needs no table.
+PAYMENT_ATTEMPTS_SINCE_KEY = "payment_attempts_since"
+
+
+def payment_attempt_sql(since: str = "", until: str = "") -> Tuple[str, tuple]:
+    """The one query that reads the attempt split, for both windows at once.
+
+    Defined here, at module level, so the request path and the store method
+    cannot drift into two different queries — the request path must go through
+    the budgeted `q()` wrapper, and a second hand-written copy is exactly how an
+    unbudgeted full-table scan gets reintroduced.
+
+    `path IN (...)` is not decoration. `idx_payment_attempts_path_ts` is
+    `(path, ts)`, so the predicate is what turns this into an index range instead
+    of a scan of a table that only ever grows — and only the funnel's own routes
+    are ever asked about. An unrestricted `GROUP BY path` here is the read that
+    took the service down on 05.11; `test_the_request_path_never_reads_a_heavy_panel`
+    enforces the difference.
+
+    Both windows in one scan: `n` counts everything, `n_today` counts the rows
+    inside `[since, until)`. Two queries would double this panel's cost on a path
+    that runs on a query budget.
+    """
+    placeholders = ", ".join("?" for _ in FUNNEL_ROUTES)
+    if since and until:
+        sql = f"""SELECT path, outcome, COUNT(*) AS n,
+                         SUM(CASE WHEN ts >= ? AND ts < ? THEN 1 ELSE 0 END)
+                             AS n_today
+                    FROM payment_attempts
+                   WHERE path IN ({placeholders})
+                   GROUP BY path, outcome"""
+        return sql, (since, until, *FUNNEL_ROUTES)
+    sql = f"""SELECT path, outcome, COUNT(*) AS n, COUNT(*) AS n_today
+                FROM payment_attempts
+               WHERE path IN ({placeholders})
+               GROUP BY path, outcome"""
+    return sql, tuple(FUNNEL_ROUTES)
 
 # ── Whale flow defaults (env-regulatable, read at RUNTIME not import) ──────
 WHALE_THRESHOLD_DEFAULT = 5_000_000.0   # USDC
@@ -756,6 +807,60 @@ class HistoryStore:
         )
         self._run("CREATE INDEX IF NOT EXISTS idx_guard_events_ts "
                   "ON guard_events (ts)")
+        # ── Payment attempts (07.11) — the funnel's missing middle ────────────
+        # WHY THIS TABLE EXISTS. The payment funnel derived everything from
+        # `request_log`: `status_code = 402` counted as a challenge, `200` as a
+        # paid retry. That cannot tell two very different buyers apart, because
+        # a buyer who ARRIVES WITH A VALID SIGNATURE and whose settlement then
+        # fails also gets a 402. So "1,779 agents looked at the price and walked
+        # away" and "1,779 agents tried to pay and the rail refused them" render
+        # as the same number — and those two facts call for opposite work.
+        #
+        # This table records the attempt itself, at the moment the signature
+        # arrives, before any outcome is known. `request_log` keeps recording
+        # responses; this records INTENT.
+        #
+        # The four outcomes are deliberately distinct:
+        #   authorised    — a payload arrived and verified against our terms
+        #   rejected      — a payload arrived and did NOT verify
+        #   settle_failed — verified, but the facilitator could not settle it
+        #   settled       — verified and settled (also lands in onchain_sales)
+        #
+        # Anything not in the table is, by construction, a buyer who never
+        # presented a signature at all. That is the `abandoned` figure, and it
+        # is DERIVED rather than stored, so it cannot drift from the 402 count
+        # it is derived from.
+        self._run(
+            f"""CREATE TABLE IF NOT EXISTS payment_attempts (
+                    id          {id_type},
+                    ts          TEXT,
+                    path        TEXT,
+                    outcome     TEXT,
+                    payer       TEXT,
+                    amount_usdc {real},
+                    detail      TEXT,
+                    tx_hash     TEXT
+                )"""
+        )
+        self._run("CREATE INDEX IF NOT EXISTS idx_payment_attempts_ts "
+                  "ON payment_attempts (ts)")
+        # (path, ts) serves the per-route split; the funnel already groups by
+        # path, so a lone ts index would force a scan per route.
+        self._run("CREATE INDEX IF NOT EXISTS idx_payment_attempts_path_ts "
+                  "ON payment_attempts (path, ts)")
+        # WHEN attempt recording began. Written ONCE and never overwritten, so a
+        # redeploy cannot move the window forward and quietly shrink it.
+        #
+        # This exists because the table starts empty on the deploy that adds it,
+        # and `abandoned` is DERIVED (402s minus the attempts that were not
+        # abandonment). For every 402 recorded BEFORE this moment we have no
+        # attempt data at all, so subtracting zero would publish "all of those
+        # buyers walked away" — a claim about the past we never measured.
+        # Recording the epoch instead lets the funnel report abandonment only
+        # over the window it actually observed, and say so. The row is written
+        # AFTER dashboard_meta exists, further down this method — doing it here
+        # failed with "no such table: dashboard_meta" on the schema pass, because
+        # the durable meta table is created a few statements below.
         # ── Durable operational meta (18.09) ──────────────────────────────────
         # The whale scan watermarks used to live in the LOCAL file, which Render
         # wipes on every deploy — and auto-deploy is on, so every push re-scanned
@@ -769,6 +874,16 @@ class HistoryStore:
                    updated_at TEXT
                )"""
         )
+        # The payment-attempt epoch (see the note above payment_attempts).
+        # Insert-only on purpose: ON CONFLICT DO NOTHING means a redeploy can
+        # never move the window forward and quietly shrink what we claim to have
+        # measured.
+        self._run(
+            """INSERT INTO dashboard_meta (key, value, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT (key) DO NOTHING""",
+            (PAYMENT_ATTEMPTS_SINCE_KEY, datetime.now(timezone.utc).isoformat(),
+             datetime.now(timezone.utc).isoformat()))
         self._run(
             """CREATE TABLE IF NOT EXISTS vip_invites (
                    code       TEXT PRIMARY KEY,
@@ -1447,7 +1562,43 @@ class HistoryStore:
         # idx_request_log_path. Same numbers as the old per-path loop —
         # including the 13.09 bugfix where "today" must come from the TODAY
         # predicate, not from the all-time totals.
+        # `abandoned` is derived from the 402 count, and the table that makes it
+        # derivable did not exist before this moment. Read the epoch BEFORE the
+        # query, because the window it defines is one of the things the query
+        # counts: 402s recorded before it are 402s we cannot interpret.
+        attempts_since = self.payment_attempts_since()
         placeholders = ", ".join("?" for _ in FUNNEL_ROUTES)
+
+        def _f(row, key):
+            """One column of a funnel row, tolerating a column that is absent.
+
+            A PARKED SNAPSHOT IS WRITTEN BY THE PREVIOUS BUILD. `autoDeploy` is
+            on, so every deploy restarts the service with a snapshot in Postgres
+            that predates whatever columns this build just added — and a bare
+            `row[key]` then raises KeyError and takes the whole panel down on
+            boot. Absent means "that build never measured it", which is None, not
+            zero.
+
+            `.get()` cannot be used: the SQLite backend hands back `sqlite3.Row`,
+            which has no `.get`.
+            """
+            if row is None:
+                return None
+            try:
+                return row[key]
+            except (KeyError, IndexError, TypeError):
+                return None
+
+        # ── what each status code actually means on the rail (verified 07.11) ──
+        # The paywall is explicit about this and the funnel used to ignore it:
+        #   402  NO credential was presented      -> the canonical challenge
+        #   401  a credential WAS presented and we refused it (bad signature,
+        #        or a settlement we could not take) — main.py:4092
+        #   425  a settlement is on-chain but our node has not caught up (:4076)
+        #   200  paid
+        # So 402 isolates abandonment ALREADY, and the number that was missing is
+        # the split of the 401s: a bad signature is routine, a settlement we
+        # failed to take is a lost sale we caused.
         funnel_rows = q(
             "funnel",
             f"""SELECT path,
@@ -1458,11 +1609,17 @@ class HistoryStore:
                        SUM(CASE WHEN status_code = 402 AND ts >= ? AND ts < ?
                                 THEN 1 ELSE 0 END) AS challenges_today,
                        SUM(CASE WHEN status_code = 200 AND ts >= ? AND ts < ?
-                                THEN 1 ELSE 0 END) AS paid_today
+                                THEN 1 ELSE 0 END) AS paid_today,
+                       SUM(CASE WHEN status_code = 402 AND ts >= ?
+                                THEN 1 ELSE 0 END) AS challenges_since,
+                       SUM(CASE WHEN status_code IN (401, 425) AND ts >= ?
+                                                      AND ts < ?
+                                THEN 1 ELSE 0 END) AS credentials_today
                 FROM request_log
                 WHERE path IN ({placeholders})
                 GROUP BY path""",
-            (*day_params, *day_params, *FUNNEL_ROUTES), all_, []) or []
+            (*day_params, *day_params, attempts_since or "9999-99-99",
+             *day_params, *FUNNEL_ROUTES), all_, []) or []
         funnel_by_path = {r["path"]: r for r in funnel_rows}
         # An empty result and an unread result are NOT the same thing. If the
         # query was answered and a route is absent, that route genuinely has no
@@ -1470,20 +1627,152 @@ class HistoryStore:
         # nobody has ever paid on that route — a revenue statement we did not
         # measure.
         funnel_read = "funnel" not in degraded
+        # ── what happened to the credentials that WERE presented (07.11) ─────
+        # The 402 count already isolates abandonment (see the query above). What
+        # `request_log` cannot say is what happened behind the 401s: a garbage
+        # signature and a valid signature we failed to settle look identical
+        # there. That split is the only thing this read is for.
+        #
+        # ONE read for both windows, and it goes through `q()` so it is BUDGETED
+        # and so a failure lands in `degraded` like every other panel. The first
+        # draft called the store method directly, which skipped the budget — that
+        # is the exact shape of the 05.11 outage, and
+        # `test_an_exhausted_budget_stops_issuing_queries` caught it.
+        #
+        # `None` means the read FAILED; `[]` would mean the table is empty, which
+        # is a measurement. `_bucket` treats None as "no rows" and `_counts`
+        # collapses every field together when the panel is unread or unbudgeted.
+        _attempt_sql, _attempt_params = payment_attempt_sql(*day_params)
+        attempt_rows = q("payment_attempts", _attempt_sql, _attempt_params,
+                         all_, None)
+        attempts_read = attempt_rows is not None
+
+        def _bucket(rows, key):
+            # `_f`, not `.get()`: a row read on the request path arrives as a
+            # `sqlite3.Row`, which has no `.get`. `_f` also tolerates a column
+            # this build added but the row's query did not select.
+            out: Dict[str, Dict[str, int]] = {}
+            for row in (rows or []):
+                out.setdefault(_f(row, "path") or "", {})[
+                    _f(row, "outcome") or ""] = int(_f(row, key) or 0)
+            return out
+
+        all_attempts = _bucket(attempt_rows, "n")
+        today_attempts = _bucket(attempt_rows, "n_today")
+
+        def _counts(bucket: Dict[str, int]) -> Dict[str, Optional[int]]:
+            """The four outcomes for one route, or all None when unread."""
+            if not (attempts_read and funnel_read):
+                return {k: None for k in
+                        ("presented", "authorised", "settled", "rejected",
+                         "settle_failed")}
+            return {
+                "presented": sum(int(bucket.get(o) or 0)
+                                 for o in PAYMENT_ATTEMPT_OUTCOMES),
+                "authorised": int(bucket.get("authorised") or 0),
+                "settled": int(bucket.get("settled") or 0),
+                "rejected": int(bucket.get("rejected") or 0),
+                "settle_failed": int(bucket.get("settle_failed") or 0),
+            }
+
         funnel = {}
         for path in FUNNEL_ROUTES:
             cur = funnel_by_path.get(path)
+            at_all = _counts(all_attempts.get(path, {}))
+            at_today = _counts(today_attempts.get(path, {}))
+
             if cur is None and not funnel_read:
-                funnel[path] = {k: None for k in
-                                ("challenges_total", "paid_total",
-                                 "challenges_today", "paid_today")}
+                # The 402 count could not be read, so abandonment — which IS
+                # that count — is unknown. Report EVERY field unread rather than
+                # a zero, which would state that nobody walked away from a route
+                # we failed to measure.
+                #
+                # Including `measured_since`, even though that date was readable:
+                # the panel is one reading, and a lone date beside a column of
+                # dashes invites the reader to attach it to a number that is not
+                # there. `test_the_parked_funnel_is_never_used_to_invent_zero`
+                # enforces this — an unread panel reports nothing but None.
+                funnel[path] = {
+                    "challenges_total": None, "paid_total": None,
+                    "challenges_today": None, "paid_today": None,
+                    "presented_total": None,
+                    "presented_today": None,
+                    "authorised_today": None,
+                    "settled_total": None,
+                    "settled_today": None,
+                    "rejected_today": None,
+                    "settle_failed_today": None,
+                    "abandoned_today": None,
+                    "abandoned_total": None,
+                    "credentials_today": None,
+                    "unrecorded_today": None,
+                    "measured_since": None,
+                    "challenges_since": None,
+                }
                 continue
+
+            challenges_today = _f(cur, "challenges_today") or 0
+            challenges_total = _f(cur, "challenges") or 0
+            # 402s from the moment attempts started being recorded — the window
+            # over which the attempt split below can be trusted.
+            challenges_since = _f(cur, "challenges_since") or 0
+            credentials_today = _f(cur, "credentials_today") or 0
+
+            # ── abandonment, read straight off the status code ───────────────
+            # A 402 means NO credential was presented: the paywall issues it at
+            # main.py:4127, on the path taken only when neither the standard
+            # header nor a legacy proof was present. So the 402 count already IS
+            # the abandonment count, and it needs no attempt data to interpret.
+            #
+            # This is deliberately NOT `challenges - rejected - settle_failed`.
+            # Those two outcomes answer 401 (main.py:4092), so they were never
+            # inside the 402 count — subtracting them would UNDER-count
+            # abandonment by exactly the number of buyers who tried. The first
+            # draft of this block did that; the rail tests caught it.
+            abandoned_today = challenges_today
+            abandoned_total = challenges_total
+
+            # ── the reconciliation ───────────────────────────────────────────
+            # `credentials_today` counts the 401/425 responses in request_log —
+            # requests that DID carry a credential. Every one of them should have
+            # produced exactly one attempt row. A gap means a call site on the
+            # rail stopped recording, which would quietly flatten this panel, so
+            # the gap is published rather than hidden.
+            #
+            # Only meaningful once recording covers the whole day; before that
+            # the gap is unmeasured history, not a defect.
+            unrecorded_today = None
+            if attempts_read and attempts_since and attempts_since <= today:
+                if at_today["presented"] is not None:
+                    unrecorded_today = max(
+                        0, credentials_today - at_today["presented"])
+
             funnel[path] = {
-                "challenges_total": (cur["challenges"] or 0) if cur else 0,
-                "paid_total": (cur["paid"] or 0) if cur else 0,
-                "challenges_today":
-                    (cur["challenges_today"] or 0) if cur else 0,
-                "paid_today": (cur["paid_today"] or 0) if cur else 0,
+                "challenges_total": challenges_total,
+                "paid_total": _f(cur, "paid") or 0,
+                "challenges_today": challenges_today,
+                "paid_today": _f(cur, "paid_today") or 0,
+                # ── the missing middle ──────────────────────────────────────
+                # How many DID present a credential, and how each one ended.
+                # This is the part `request_log` could never say: 401 covers
+                # both "your signature was wrong" (routine) and "we could not
+                # take your valid payment" (a sale we lost).
+                "presented_total": at_all["presented"],
+                "presented_today": at_today["presented"],
+                "authorised_today": at_today["authorised"],
+                "settled_total": at_all["settled"],
+                "settled_today": at_today["settled"],
+                "rejected_today": at_today["rejected"],
+                "settle_failed_today": at_today["settle_failed"],
+                "abandoned_today": abandoned_today,
+                "abandoned_total": abandoned_total,
+                # 401/425 responses seen by request_log today, and how many of
+                # them have no attempt row behind them.
+                "credentials_today": credentials_today,
+                "unrecorded_today": unrecorded_today,
+                # The window the attempt split is measured over.
+                "measured_since": attempts_since,
+                "challenges_since": challenges_since,
             }
 
         def diff(a, b):
@@ -2342,6 +2631,122 @@ class HistoryStore:
         except Exception as exc:  # pragma: no cover - telemetry only
             log.debug("guard event not recorded (%s): %s", kind, exc)
 
+    def record_payment_attempt(self, path: str, outcome: str, payer: str = "",
+                               amount_usdc: float = 0.0, detail: str = "",
+                               tx_hash: str = "") -> None:
+        """Record that a buyer PRESENTED a payment credential, and how it went.
+
+        This is the funnel's missing middle. `request_log` records the RESPONSE,
+        and the paywall answers 401 both to a garbage signature and to a valid
+        signature whose settlement failed. Two opposite facts — the client is
+        buggy, versus WE dropped a sale — collapse into one status code, and only
+        this table can tell them apart.
+
+        Four outcomes, deliberately distinct:
+
+          authorised    — credential arrived and verified; outcome undetermined
+          rejected      — credential arrived and did NOT verify
+          settle_failed — verified, but the facilitator could not settle it
+          settled       — verified and settled
+
+        `settle_failed` is the one that matters: it is a lost sale we caused.
+        `rejected` is routine and mostly noise.
+
+        ABANDONMENT IS NOT RECORDED HERE. A 402 means no credential was
+        presented at all, so the funnel reads abandonment straight off the 402
+        count in `request_log` — which also means it survives this table breaking
+        entirely. An earlier draft derived abandonment by subtracting these
+        outcomes from the 402 count; because they answer 401 and were never in
+        that count, the subtraction under-counted it. See PAYMENT_ATTEMPT_OUTCOMES.
+
+        Outcome is validated against the known set: an unrecognised string is
+        recorded as `rejected` rather than trusted, because a typo silently
+        creating a fifth state would corrupt every later aggregate.
+
+        Never raises — telemetry must not be able to fail a payment.
+        """
+        outcome = (outcome or "").strip().lower()
+        if outcome not in _PAYMENT_ATTEMPT_OUTCOMES:
+            log.debug("payment attempt outcome %r not recognised; recording as "
+                      "rejected", outcome)
+            outcome = "rejected"
+        try:
+            self._run(
+                """INSERT INTO payment_attempts
+                       (ts, path, outcome, payer, amount_usdc, detail, tx_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    (path or "")[:120],
+                    outcome,
+                    (payer or "")[:80],
+                    float(amount_usdc or 0.0),
+                    (detail or "")[:300],
+                    _norm_tx(tx_hash)[:80],
+                ),
+            )
+        except Exception as exc:  # pragma: no cover - telemetry only
+            log.debug("payment attempt not recorded (%s): %s", outcome, exc)
+
+    def payment_attempt_rows(self, since: str = "",
+                             until: str = "") -> Optional[List[dict]]:
+        """Per-path, per-outcome attempt counts for BOTH windows, or None.
+
+        Returns rows carrying `path`, `outcome`, `n` (all time) and `n_today`
+        (inside `since`/`until`). One scan rather than two, because the request
+        path runs on a query BUDGET — three extra reads for one panel is how the
+        05.11 outage started.
+
+        RESTRICTED TO FUNNEL_ROUTES. An unrestricted `GROUP BY path` over an
+        ever-growing table is the exact read that took the service down: it can
+        use no index and scans every row. `path IN (...)` is served by
+        `idx_payment_attempts_path_ts`, and the funnel only ever asks about those
+        routes anyway. `tests/test_request_summary_degradation.py` enforces this
+        and caught the first draft without it.
+
+        Returns None — NOT `[]` — when the read fails. `[]` means "the table was
+        read and is empty", which is a measurement; None means we could not look.
+        Collapsing those two is the defect this whole file keeps closing.
+
+        NOTE: the request path does NOT call this. It issues the same SQL through
+        the budgeted `q()` wrapper in `requests_summary`, because a read that
+        skips the budget is the shape of the 05.11 outage. Keep the SQL in
+        `payment_attempt_sql` so the two cannot drift.
+        """
+        sql, params = payment_attempt_sql(since, until)
+        try:
+            return [dict(r) for r in (self._run(sql, params, "all")[0] or [])]
+        except Exception as exc:
+            log.debug("payment attempt read failed: %s", exc)
+            return None
+
+    def payment_attempts_readable(self) -> bool:
+        """Whether `payment_attempts` can actually be read.
+
+        Separate from `payment_attempt_rows() == []` on purpose: an empty result
+        and an unreadable table are the two states this whole codebase keeps
+        insisting must never be collapsed. The funnel marks the panel unread
+        rather than reporting a zero.
+        """
+        return self.payment_attempt_rows() is not None
+
+    def payment_attempts_since(self) -> Optional[str]:
+        """When attempt recording began, or None if that was never recorded.
+
+        The window the ATTEMPT SPLIT is measured over, not the window
+        abandonment is measured over: abandonment is the 402 count and does not
+        depend on this table. Before this moment, `request_log` still saw the
+        401s but nothing recorded what was behind them, so the reconciliation
+        between the two must stay silent rather than report a recording defect.
+        """
+        try:
+            row = self._run("SELECT value FROM dashboard_meta WHERE key = ?",
+                            (PAYMENT_ATTEMPTS_SINCE_KEY,), "one")[0]
+            return (row["value"] or None) if row else None
+        except Exception as exc:
+            log.debug("payment attempts epoch read failed: %s", exc)
+            return None
+
     def probe_replay_lock(self, force: bool = False,
                           probe_ttl_seconds: float = 600.0) -> bool:
         """Prove the C1 replay lock can still write. Returns whether it can.
@@ -2710,6 +3115,33 @@ HYBRID since 14.09:
         """
         return self.history.record_guard_event(kind, endpoint=endpoint,
                                                tx_hash=tx_hash, detail=detail)
+
+    def record_payment_attempt(self, path: str, outcome: str, payer: str = "",
+                               amount_usdc: float = 0.0, detail: str = "",
+                               tx_hash: str = "") -> None:
+        """Record a presented payment payload — see HistoryStore.
+
+        Telemetry only: it never raises and never changes a payment decision.
+        Called from the rail at the moment the signature is seen, so the funnel
+        can tell "came with a signature and it failed" apart from "never came
+        with a signature" — both of which render as a 402 in `request_log`.
+        """
+        return self.history.record_payment_attempt(
+            path, outcome, payer=payer, amount_usdc=amount_usdc,
+            detail=detail, tx_hash=tx_hash)
+
+    def payment_attempt_rows(self, since: str = "",
+                             until: str = "") -> List[dict]:
+        """Per-path attempt counts — see HistoryStore.payment_attempt_rows."""
+        return self.history.payment_attempt_rows(since, until)
+
+    def payment_attempts_readable(self) -> bool:
+        """Whether the attempt table can be read — see HistoryStore."""
+        return self.history.payment_attempts_readable()
+
+    def payment_attempts_since(self) -> Optional[str]:
+        """When attempt recording began — see HistoryStore."""
+        return self.history.payment_attempts_since()
 
     def probe_replay_lock(self, force: bool = False,
                           probe_ttl_seconds: float = 600.0) -> bool:

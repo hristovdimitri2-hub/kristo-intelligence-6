@@ -73,6 +73,11 @@
          прозрачност), вместо да изглеждат „live", докато badge-ът свети. */
   .stale-data .cards, .stale-data table, .stale-data .chart-box,
   .stale-data #funnel-box { opacity: .45; transition: opacity .3s; }
+  /* Фънълът: „опитаха / изоставиха" се отличават цвят по цвят, защото искат
+     противоположна работа. Червеното е НАША вина (валиден подпис, който не
+     осчетоводихме) — то е загубена продажба, не липса на интерес. */
+  #funnel-box .warn { color: var(--amber); }
+  #funnel-box .bad { color: var(--red); font-weight: 600; }
   /* Б2: двете графики (Chart.js, локално копие в static/vendor/) */
   .chart-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
                padding: 12px 14px; position: relative; }
@@ -754,18 +759,62 @@ function renderFunnel(r) {
     if (f.challenges_today === null || f.challenges_today === undefined ||
         f.challenges_total === null || f.challenges_total === undefined) {
       return `<tr><td class="mono">${esc(path)}</td>
-        <td class="num" colspan="2">${DASH} не се прочете от базата</td></tr>`;
+        <td class="num" colspan="3">${DASH} не се прочете от базата</td></tr>`;
     }
     const t = f.challenges_today || 0, p = f.paid_today || 0;
     const rate = t ? Math.round(1000 * p / t) / 10 : 0;
+
+    // ── защо никой не плаща: от 402-та днес, колко наистина опитаха ──────
+    // 402 значи, че НЕ е поднесен никакъв подпис — това Е изоставянето.
+    // 401 значи, че подпис Е поднесен и ние сме го отказали, а той покрива
+    // две противоположни неща:
+    //   * подписът е бил грешен                     → рутина, купувачът ще го оправи
+    //   * валиден подпис, който не осчетоводихме    → ЗАГУБЕНА ПРОДАЖА, наша вина
+    // Второто е единственото, за което си струва да се вдигне човек.
+    const presented = f.presented_today;
+    const failed = f.settle_failed_today;
+    const rejected = f.rejected_today;
+    const unrecorded = f.unrecorded_today;
+    const abandoned = f.abandoned_today;
+    let middle;
+    if (presented === null || presented === undefined) {
+      // Опитите не се прочетоха — различно е от „никой не опита".
+      middle = `<span class="warn">${DASH} опитите не се прочетоха</span>`;
+    } else if (abandoned === null || abandoned === undefined) {
+      middle = `<span class="warn">${DASH} не се прочете</span>`;
+    } else {
+      middle = `опитаха ${presented}` +
+        (rejected ? ` (${rejected} невалидни)` : '') +
+        (failed ? ` · <span class="bad">${failed} не се осчетоводи</span>` : '') +
+        ` · изоставиха ${abandoned}`;
+      // Сверката: всеки поднесен подпис трябва да има ред в payment_attempts.
+      // Ако не — някой запис по релсата е спрял и този панел ще замлъкне.
+      if (unrecorded) {
+        middle += ` · <span class="warn">${unrecorded} без запис</span>`;
+      }
+    }
+
     return `<tr><td class="mono">${esc(path)}</td>
       <td class="num">${t} → ${p} (${rate}%)</td>
+      <td class="num">${middle}</td>
       <td class="num">${f.challenges_total} → ${f.paid_total}</td></tr>`;
   });
+  // Кога започна записът на опитите. Изоставянето НЕ зависи от него (то е
+  // броят на 402-та), но разделянето на 401-те — да. Затова прозорецът се
+  // казва, вместо числото да изглежда като за цялата история.
+  const epochs = Object.values(funnel)
+    .map(f => f && f.measured_since).filter(Boolean);
+  const since = epochs.length ? String(epochs.sort()[0]).slice(0, 10) : '';
+  const note = since
+    ? `<div class="note">Разделянето на поднесените подписи се мери от ${esc(since)}` +
+      ` (преди това 401-те не се записваха). Изоставянето е броят на 402-та — той не зависи от това.</div>`
+    : '';
+
   $('funnel-box').innerHTML =
-    '<table><thead><tr><th>Маршрут</th><th>Днес: 402 → платени (конверсия)</th><th>Общо</th></tr></thead><tbody>' +
-    (frows.length ? frows.join('') : '<tr><td colspan="3" class="empty">Няма записани заявки все още</td></tr>') +
-    '</tbody></table>';
+    '<table><thead><tr><th>Маршрут</th><th>Днес: 402 → платени (конверсия)</th>' +
+    '<th>От 402-та днес</th><th>Общо</th></tr></thead><tbody>' +
+    (frows.length ? frows.join('') : '<tr><td colspan="4" class="empty">Няма записани заявки все още</td></tr>') +
+    '</tbody></table>' + note;
 }
 
 function renderRoutes(rt) {
