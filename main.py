@@ -44,6 +44,7 @@ from flask import Flask, g, jsonify, redirect, render_template, request, session
 from config import (
     BASE_CHAIN_ID,
     BASE_RPC_URL,
+    base_rpc_candidates,
     get_base_fee_receiver,
     BASE_FEE_AMOUNT_USDC,
     KRISTO_VIP_ANALYSIS_PRICE,
@@ -397,7 +398,34 @@ _wallet_state = {
     "rpc_error": None,
     "last_block_checked": 0,
     "last_check_time": None,
+    # When the DASHBOARD scan last read the chain successfully, and up to which
+    # block. The dedicated payment monitor is only ONE of two scanners reading the
+    # same receiver out of the same store; this is the other one's proof of life.
+    # Added 06.11 so /health can tell "the chain is unreachable" apart from "our
+    # redundant monitor failed to start" — it used to report only the second, as
+    # if it were the first, and raised a Telegram alarm on it every deploy.
+    "sales_scan_ok_at": None,
+    "sales_scan_block": 0,
 }
+
+
+def _note_sales_scan_ok() -> None:
+    """Record that the dashboard scan just read the chain, successfully.
+
+    Called ONLY on success, so the stamp ages when the RPC stops answering: an
+    absence never refreshes it, which is the whole point of keeping it. `/health`
+    reads a fresh stamp as evidence that the chain itself is readable even when
+    the separate payment monitor never got off the ground.
+    """
+    try:
+        block = int(dashboard_db.get_meta("last_scanned_block", "0") or 0)
+    except Exception:
+        # A store that cannot answer must not break the scan loop. The block is
+        # cosmetic here; the timestamp is the fact that matters.
+        block = 0
+    with _lock:
+        _wallet_state["sales_scan_ok_at"] = datetime.now(timezone.utc).isoformat()
+        _wallet_state["sales_scan_block"] = block
 
 # Bot status
 _bot_status = {
@@ -559,6 +587,54 @@ def _send_telegram_vip_notification(wallet_address: str, invite_code: str, tx_ha
 
 
 # ── Real wallet / blockchain initialization ──────────────────────────────
+def _connect_monitor_only(rpc_url: str, fee_receiver: str, usdc_address: str):
+    """One monitor-only Web3 connection, or raise.
+
+    Extracted from `_init_wallet` unchanged in behaviour so that function can try
+    SEVERAL endpoints without repeating this block. Returns (wallet_like, chain_id).
+    """
+    from web3 import Web3
+
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+    connected = w3.is_connected() if hasattr(w3, "is_connected") else w3.isConnected()
+    if not connected:
+        raise ConnectionError("rpc_unreachable")
+    if not Web3.is_address(fee_receiver):
+        raise ValueError("Configured Base fee receiver is not a valid EVM address")
+    chain_id = int(w3.eth.chain_id)
+    if chain_id != BASE_CHAIN_ID:
+        raise ConnectionError(
+            f"Configured RPC chain {chain_id} is not Base Mainnet ({BASE_CHAIN_ID})"
+        )
+
+    # Create a lightweight monitor-only wallet-like object
+    class _MonitorOnlyWallet:
+        pass
+
+    mock = _MonitorOnlyWallet()
+    mock.w3 = w3
+    mock.fee_receiver = Web3.to_checksum_address(fee_receiver)
+    mock.account = type("obj", (object,), {"address": fee_receiver})()
+    # Build USDC contract for balance check
+    _ERC20_ABI = [
+        {"constant": True, "inputs": [{"name": "owner", "type": "address"}],
+         "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+        {"constant": True, "inputs": [], "name": "decimals",
+         "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
+    ]
+    mock.usdc = w3.eth.contract(
+        address=Web3.to_checksum_address(usdc_address), abi=_ERC20_ABI
+    )
+
+    def _get_usdc_balance(self):
+        decimals = self.usdc.functions.decimals().call()
+        raw = self.usdc.functions.balanceOf(self.fee_receiver).call()
+        return raw / (10 ** decimals)
+
+    mock.get_usdc_balance = _get_usdc_balance.__get__(mock, _MonitorOnlyWallet)
+    return mock, chain_id
+
+
 def _init_wallet() -> Optional[object]:
     """
     Initialize the real Base wallet from environment variables.
@@ -566,26 +642,46 @@ def _init_wallet() -> Optional[object]:
     If WALLET_PRIVATE_KEY is set, a full Wallet object is created (can send + monitor).
     If only BASE_FEE_RECEIVER is set (no private key), a lightweight monitor-only
     Web3 connection is created — sufficient for scanning incoming USDC transfers.
+
+    Every endpoint in `base_rpc_candidates()` is tried IN ORDER, for BOTH shapes,
+    before this gives up (06.11). It used to dial BASE_RPC_URL and nothing else, so
+    one rate-limited shared endpoint (429) took the whole payment-detection layer
+    down with it — measured uninitialised for over half an hour on 06.11. The
+    settlement rail has had a fallback chain for months; this is the same idea
+    applied to the dependency that detects the incoming payment in the first place.
+
+    On total failure the REASON is recorded in `_wallet_state["rpc_error"]`, always
+    through `redact_rpc`: a paid endpoint carries its api key in the path. Before
+    this, the "cannot connect" path returned None having written NOTHING, so
+    /health could report `blockchain.ready: false` and no surface anywhere said why
+    — the operator saw an alarm with no cause attached to it.
     """
     pk = os.getenv("WALLET_PRIVATE_KEY", "").strip()
     fee_receiver = get_base_fee_receiver()  # hard fallback to bound address
-    rpc_url = BASE_RPC_URL
     usdc_address = os.getenv("BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+    candidates = base_rpc_candidates()
+    last_error: Optional[str] = None
 
     # Try full wallet first (with private key)
     if pk:
-        try:
-            from blockchain.wallet import Wallet
-            wallet = Wallet.from_env()
-            if wallet is None:
-                log.warning("Wallet.from_env() returned None — falling back to monitor-only.")
-            else:
+        from blockchain.wallet import Wallet
+
+        for rpc_url in candidates:
+            try:
+                # Constructed directly rather than through Wallet.from_env(): the
+                # classmethod reads BASE_RPC_URL itself, which is the single-url
+                # behaviour this loop exists to get away from. The arguments are
+                # exactly the ones from_env() passes.
+                wallet = Wallet(private_key=pk, rpc_url=rpc_url,
+                                usdc_address=usdc_address,
+                                fee_receiver=fee_receiver)
                 chain_id = int(wallet.w3.eth.chain_id)
                 if chain_id != BASE_CHAIN_ID:
                     raise ConnectionError(
                         f"Configured RPC chain {chain_id} is not Base Mainnet ({BASE_CHAIN_ID})"
                     )
-                log.info("Real wallet initialized: address=%s", wallet.account.address)
+                log.info("Real wallet initialized: address=%s (rpc=%s)",
+                         wallet.account.address, redact_rpc(rpc_url))
                 with _lock:
                     _wallet_state["wallet_address"] = wallet.account.address
                     _wallet_state["fee_receiver"] = wallet.fee_receiver
@@ -594,70 +690,45 @@ def _init_wallet() -> Optional[object]:
                     _wallet_state["receiver_valid"] = True
                     _wallet_state["rpc_error"] = None
                 return wallet
-        except Exception as exc:
-            log.error("Failed to initialize full wallet: %s — falling back to monitor-only.", exc)
+            except Exception as exc:
+                last_error = redact_rpc(exc)
+                log.warning("Wallet init failed via %s: %s — trying next endpoint.",
+                            redact_rpc(rpc_url), last_error)
+        log.error("Failed to initialize full wallet on %d endpoint(s) — "
+                  "falling back to monitor-only.", len(candidates))
 
     # Fallback: monitor-only mode (no private key needed)
     if fee_receiver:
         log.info("Initializing monitor-only Web3 connection (no private key). Fee receiver: %s", fee_receiver)
-        try:
-            from web3 import Web3
-            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
-            connected = w3.is_connected() if hasattr(w3, "is_connected") else w3.isConnected()
-            if not connected:
-                log.error("Cannot connect to Base RPC at %s", rpc_url)
-                return None
-            if not Web3.is_address(fee_receiver):
-                raise ValueError("Configured Base fee receiver is not a valid EVM address")
-            chain_id = int(w3.eth.chain_id)
-            if chain_id != BASE_CHAIN_ID:
-                raise ConnectionError(
-                    f"Configured RPC chain {chain_id} is not Base Mainnet ({BASE_CHAIN_ID})"
-                )
+        for rpc_url in candidates:
+            try:
+                mock, chain_id = _connect_monitor_only(rpc_url, fee_receiver, usdc_address)
 
-            # Create a lightweight monitor-only wallet-like object
-            class _MonitorOnlyWallet:
-                pass
+                with _lock:
+                    _wallet_state["wallet_address"] = fee_receiver
+                    _wallet_state["fee_receiver"] = fee_receiver
+                    _wallet_state["rpc_connected"] = True
+                    _wallet_state["chain_id"] = chain_id
+                    _wallet_state["receiver_valid"] = True
+                    _wallet_state["rpc_error"] = None
 
-            mock = _MonitorOnlyWallet()
-            mock.w3 = w3
-            mock.fee_receiver = Web3.to_checksum_address(fee_receiver)
-            mock.account = type("obj", (object,), {"address": fee_receiver})()
-            # Build USDC contract for balance check
-            _ERC20_ABI = [
-                {"constant": True, "inputs": [{"name": "owner", "type": "address"}],
-                 "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
-                {"constant": True, "inputs": [], "name": "decimals",
-                 "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
-            ]
-            mock.usdc = w3.eth.contract(
-                address=Web3.to_checksum_address(usdc_address), abi=_ERC20_ABI
-            )
+                log.info("Monitor-only wallet ready (rpc=%s). Tracking USDC transfers to: %s",
+                         redact_rpc(rpc_url), fee_receiver)
+                return mock
 
-            def _get_usdc_balance(self):
-                decimals = self.usdc.functions.decimals().call()
-                raw = self.usdc.functions.balanceOf(self.fee_receiver).call()
-                return raw / (10 ** decimals)
+            except Exception as exc:
+                last_error = redact_rpc(exc)
+                log.error("Monitor-only init failed via %s: %s — trying next endpoint.",
+                          redact_rpc(rpc_url), last_error)
 
-            mock.get_usdc_balance = _get_usdc_balance.__get__(mock, _MonitorOnlyWallet)
-
-            with _lock:
-                _wallet_state["wallet_address"] = fee_receiver
-                _wallet_state["fee_receiver"] = fee_receiver
-                _wallet_state["rpc_connected"] = True
-                _wallet_state["chain_id"] = chain_id
-                _wallet_state["receiver_valid"] = True
-                _wallet_state["rpc_error"] = None
-
-            log.info("Monitor-only wallet ready. Tracking USDC transfers to: %s", fee_receiver)
-            return mock
-
-        except Exception as exc:
-            log.error("Failed to initialize monitor-only Web3: %s", redact_rpc(exc))
-            with _lock:
-                _wallet_state["rpc_connected"] = False
-                _wallet_state["rpc_error"] = redact_rpc(exc)
-            return None
+        # Every endpoint refused. Say so WITH the reason: a bare `ready: false`
+        # is the alarm without the cause.
+        with _lock:
+            _wallet_state["rpc_connected"] = False
+            _wallet_state["rpc_error"] = last_error or "no_rpc_answered"
+        log.error("No Base RPC endpoint answered (%d tried). Last reason: %s",
+                  len(candidates), _wallet_state["rpc_error"])
+        return None
 
     log.warning("No WALLET_PRIVATE_KEY or BASE_FEE_RECEIVER set — wallet monitoring disabled.")
     return None
@@ -1218,6 +1289,7 @@ def _dashboard_scan_loop():
     try:
         added = dashboard_db.retro_scan(days=retro_days)
         log.info("Dashboard retro scan: %d new on-chain sale(s) persisted.", added)
+        _note_sales_scan_ok()
     except Exception as exc:
         log.warning("Dashboard retro scan failed (incremental will catch up): %s", redact_rpc(exc))
 
@@ -1248,6 +1320,7 @@ def _dashboard_scan_loop():
             added = dashboard_db.scan_increment()
             if added:
                 log.info("Dashboard incremental scan: %d new sale(s).", added)
+            _note_sales_scan_ok()
         except Exception as exc:
             log.warning("Dashboard scan cycle failed (non-fatal): %s", redact_rpc(exc))
 

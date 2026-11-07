@@ -61,6 +61,43 @@ BASE_USDC_CONTRACT = os.getenv(
 )
 BASE_FEE_AMOUNT_USDC = float(os.getenv("BASE_FEE_AMOUNT_USDC", "0.005"))
 
+#: Base RPC endpoints to try IN ORDER when the primary does not answer.
+#:
+#: Added 06.11 after the payment monitor sat uninitialised for over FIFTEEN hours
+#: and never recovered on its own: `_init_wallet` had exactly ONE url to try, so a
+#: shared public endpoint that rate-limits (429) took the whole payment-detection
+#: layer down with it, roughly 25 retries in a row on the same address. The
+#: settlement rail has had a three-deep fallback chain for months; a dependency
+#: that the entire inbound-payment path rests on deserves the same treatment.
+#:
+#: The primary is always BASE_RPC_URL and stays first, so nothing changes for an
+#: installation that set only that. Override the tail with BASE_RPC_FALLBACKS
+#: (comma-separated); an empty or unset value means the defaults below.
+DEFAULT_BASE_RPC_FALLBACKS = (
+    "https://base.drpc.org",
+    "https://base-rpc.publicnode.com",
+    "https://1rpc.io/base",
+)
+
+
+def base_rpc_candidates() -> tuple:
+    """Every RPC worth trying: the primary first, then the fallbacks.
+
+    Order-preserving and de-duplicated, so an operator who lists the primary
+    again in BASE_RPC_FALLBACKS does not make the monitor dial it twice. Read at
+    CALL time rather than import time: the monitor re-initialises on a retry, and
+    a rotated endpoint must be picked up without a redeploy.
+    """
+    raw = os.getenv("BASE_RPC_FALLBACKS", "")
+    tail = ([u.strip() for u in raw.split(",") if u.strip()]
+            if raw.strip() else list(DEFAULT_BASE_RPC_FALLBACKS))
+    out = []
+    for url in [BASE_RPC_URL] + tail:
+        if url and url not in out:
+            out.append(url)
+    return tuple(out)
+
+
 # ── OpenAI-compatible AI Engine configuration ─────────────────────────────
 # OpenRouter is the default provider; GLM remains supported through the
 # existing GLM_* variables for backwards compatibility.

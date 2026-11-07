@@ -41,8 +41,8 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 820
-SUITE_LAST_RUN = "2026-11-06"
+SUITE_TESTS_PASSED = 838
+SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
 #: counter. It lives here, next to the suite figures and for the same reason: the
@@ -122,13 +122,58 @@ def _route_price(endpoint: str) -> float:
     return float(X402_PRICE_MAP.get(endpoint, X402_FEE_USDC))
 
 
+#: How long a successful dashboard chain read stays evidence that the chain is
+#: reachable. The scan loop runs every 60s (KRISTO_DASHBOARD_SCAN_INTERVAL, floor
+#: 30), so ten minutes tolerates nine consecutive missed cycles: long enough not to
+#: flicker on one slow RPC call, short enough that a genuinely dead chain stops
+#: being reported as readable.
+SALES_SCAN_FRESH_SECONDS = 600
+
+
+def _sales_scan_is_fresh(wallet: dict, now=None) -> bool:
+    """Did the dashboard scan read the chain recently enough to count as proof?
+
+    A missing stamp, an unparseable one, or a clock in the future is NOT proof.
+    An absence must never be reported as a healthy chain — the same rule the rest
+    of this audit applies to every other surface.
+    """
+    raw = wallet.get("sales_scan_ok_at")
+    if not raw:
+        return False
+    try:
+        stamp = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    age = ((now or datetime.now(timezone.utc)) - stamp).total_seconds()
+    return 0 <= age <= SALES_SCAN_FRESH_SECONDS
+
+
 def _dependency_state():
     """Read the two dependencies of this service, and say how they are.
 
-    Returns (crm_ready, blockchain_ready, wallet, backend). The `__main__` dance is
-    here so /health and /ready cannot drift apart in how they find the live state —
-    the lazy `import main` copy keeps its defaults because the env guard skips its
-    threads, and reading it reports a false "degraded".
+    Returns (crm_ready, blockchain_ready, monitor_ready, wallet, backend). The
+    `__main__` dance is here so /health and /ready cannot drift apart in how they
+    find the live state — the lazy `import main` copy keeps its defaults because the
+    env guard skips its threads, and reading it reports a false "degraded".
+
+    `blockchain_ready` and `monitor_ready` are deliberately NOT the same question
+    (06.11). TWO independent loops read this chain: the dedicated payment monitor
+    (`_blockchain_monitor_loop`, whose wallet init this used to be the sole measure
+    of) and the dashboard sales scan (`_dashboard_scan_loop`), which holds its own
+    Web3 connection and records sales from the same receiver. On 06-07.11 the monitor
+    failed to initialise and STAYED uninitialised for over fifteen hours — its retry
+    loop re-refused on the same single endpoint roughly every 120s — while the sales
+    scan read that same chain successfully every 60 seconds. /health reported the
+    CHAIN as not ready for that entire period, which is a false statement about the
+    dependency, and it raised a Telegram alarm nobody could act on.
+
+    So: `blockchain_ready` answers "is the chain reachable", which is the dependency,
+    and `monitor_ready` answers "did our redundant dedicated monitor start", which is
+    one component. Reporting only the second as if it were the first cried wolf; the
+    first is what callers act on. Keeping BOTH visible means the split explains
+    reality without hiding the monitor's failure, which is still worth fixing.
 
     Every read is defensive: this is the pair of endpoints that has to keep
     answering while the thing being read is broken, so a store that cannot report
@@ -152,12 +197,16 @@ def _dependency_state():
         crm_ready = False
     with _lock:
         wallet = dict(_wallet_state)
-    blockchain_ready = bool(
+    monitor_ready = bool(
         wallet.get("rpc_connected")
         and wallet.get("chain_id") == BASE_CHAIN_ID
         and wallet.get("receiver_valid")
     )
-    return crm_ready, blockchain_ready, wallet, getattr(crm_store, "backend", "unknown")
+    # The chain is readable if EITHER scanner proves it. One loop failing to start
+    # is not the chain going away, and it must not be reported as if it were.
+    blockchain_ready = bool(monitor_ready or _sales_scan_is_fresh(wallet))
+    return (crm_ready, blockchain_ready, monitor_ready, wallet,
+            getattr(crm_store, "backend", "unknown"))
 
 
 @discovery_bp.route("/health")
@@ -183,7 +232,7 @@ def health():
     already reported informationally for exactly this reason; the database is now
     treated the same way.
     """
-    crm_ready, blockchain_ready, wallet, backend = _dependency_state()
+    crm_ready, blockchain_ready, monitor_ready, wallet, backend = _dependency_state()
     return jsonify(
         status="ok" if crm_ready and blockchain_ready else "degraded",
         service="up",
@@ -193,6 +242,20 @@ def health():
             "network": wallet.get("network", "Base Mainnet"),
             "chain_id": wallet.get("chain_id"),
             "fee_receiver": wallet.get("fee_receiver"),
+            # `ready` above answers "is the chain reachable". This answers "did the
+            # dedicated payment monitor start", which is a different question about
+            # one redundant component. Both are reported so the split cannot hide a
+            # monitor failure — see _dependency_state for why they were separated.
+            "monitor_ready": monitor_ready,
+            # The other scanner's proof of life, and how far it has read. If
+            # monitor_ready is false and this is recent, the chain is demonstrably
+            # fine and the alarm is about the monitor, not about Base.
+            "sales_scan_ok_at": wallet.get("sales_scan_ok_at"),
+            "sales_scan_block": wallet.get("sales_scan_block") or 0,
+            # WHY the monitor is not ready. Redacted at write time (redact_rpc):
+            # a paid endpoint carries its api key in the path. Publishing it here
+            # is the difference between an alarm and an alarm with a cause.
+            "rpc_error": wallet.get("rpc_error"),
             # Where the payment monitor has scanned up to, and when it last
             # looked. Added because there was no way to see this from outside at
             # all: the figure lives in the paid /api/stats wallet block, so nobody
@@ -229,14 +292,15 @@ def ready():
     restarter here would recreate F-10 under a new name. /health is the route for
     that, and it is liveness only on purpose.
     """
-    crm_ready, blockchain_ready, wallet, backend = _dependency_state()
+    crm_ready, blockchain_ready, monitor_ready, wallet, backend = _dependency_state()
     ready_now = bool(crm_ready and blockchain_ready)
     return jsonify(
         ready=ready_now,
         status="ready" if ready_now else "not_ready",
         service="up",
         database={"backend": backend, "ready": crm_ready},
-        blockchain={"ready": blockchain_ready, "chain_id": wallet.get("chain_id")},
+        blockchain={"ready": blockchain_ready, "chain_id": wallet.get("chain_id"),
+                    "monitor_ready": monitor_ready},
     ), 200 if ready_now else 503
 
 

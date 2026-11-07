@@ -712,15 +712,24 @@ def test_the_x402list_proof_path_serves_only_a_current_token(client,
     review needs no source change, and with neither set the path answers 404 —
     never an empty 200, because a token left from a finished review would sit
     there as an ownership claim we can no longer support.
+
+    The bundled-token case CONTROLS the clock (07.11). It used to read it: on
+    07.11 the bundled token had in fact expired, so that assertion was testing a
+    property of the credential rather than of the code, and it went red for a
+    reason no source change could fix. The expiry rule itself is covered, with a
+    controlled clock, by test_the_x402list_proof_stops_being_served_when_it_expires.
     """
     app_client, _main = client
     from app.blueprints import discovery
+    from datetime import datetime, timedelta, timezone
 
     bundled = discovery.X402LIST_OWNERSHIP_TOKEN
     assert bundled.startswith("x402list-verify-"), (
         "the bundled ownership token does not look like one x402-list issued")
 
     monkeypatch.delenv("X402LIST_VERIFICATION_TOKEN", raising=False)
+    monkeypatch.setattr(discovery, "X402LIST_OWNERSHIP_TOKEN_EXPIRES",
+                        datetime.now(timezone.utc) + timedelta(days=1))
     served = app_client.get("/.well-known/x402list.txt")
     assert served.status_code == 200
     assert served.get_data(as_text=True).strip() == bundled
