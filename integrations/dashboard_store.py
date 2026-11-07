@@ -1524,6 +1524,25 @@ class HistoryStore:
                     """SELECT path, COUNT(*) AS n FROM request_log
                        GROUP BY path ORDER BY n DESC LIMIT 10""",
                     (), all_, []) or []
+        # ── what happened to the credentials that WERE presented (07.11) ─────
+        # Read HERE, deliberately, and not next to the funnel it feeds.
+        #
+        # Every `q()` above and below spends from the same 6-second budget, and
+        # the heavy all-time scans over request_log spend all of it. Reading this
+        # panel where it is logically used put it LAST, where it was reported
+        # `payment_attempts:out_of_budget` on the first live deploy of e3b3f65 —
+        # the panel was never slow, it simply arrived after the money was gone.
+        #
+        # It is the cheapest read in this method: `path IN (...)` against
+        # `idx_payment_attempts_path_ts` on a table that only ever holds attempts,
+        # not traffic. So it goes early, where it always gets its turn.
+        #
+        # ONE read for both windows. `None` means the read FAILED; `[]` would mean
+        # the table is empty, which is a measurement.
+        _attempt_sql, _attempt_params = payment_attempt_sql(*day_params)
+        attempt_rows = q("payment_attempts", _attempt_sql, _attempt_params,
+                         all_, None)
+        attempts_read = attempt_rows is not None
         by_channel = q("by_channel",
                        """SELECT funnel AS channel, COUNT(*) AS n
                           FROM request_log
@@ -1627,25 +1646,7 @@ class HistoryStore:
         # nobody has ever paid on that route — a revenue statement we did not
         # measure.
         funnel_read = "funnel" not in degraded
-        # ── what happened to the credentials that WERE presented (07.11) ─────
-        # The 402 count already isolates abandonment (see the query above). What
-        # `request_log` cannot say is what happened behind the 401s: a garbage
-        # signature and a valid signature we failed to settle look identical
-        # there. That split is the only thing this read is for.
-        #
-        # ONE read for both windows, and it goes through `q()` so it is BUDGETED
-        # and so a failure lands in `degraded` like every other panel. The first
-        # draft called the store method directly, which skipped the budget — that
-        # is the exact shape of the 05.11 outage, and
-        # `test_an_exhausted_budget_stops_issuing_queries` caught it.
-        #
-        # `None` means the read FAILED; `[]` would mean the table is empty, which
-        # is a measurement. `_bucket` treats None as "no rows" and `_counts`
-        # collapses every field together when the panel is unread or unbudgeted.
-        _attempt_sql, _attempt_params = payment_attempt_sql(*day_params)
-        attempt_rows = q("payment_attempts", _attempt_sql, _attempt_params,
-                         all_, None)
-        attempts_read = attempt_rows is not None
+        # `attempts_read` was set by the early read above; nothing to do here.
 
         def _bucket(rows, key):
             # `_f`, not `.get()`: a row read on the request path arrives as a

@@ -417,6 +417,53 @@ def test_the_original_402_to_paid_numbers_are_unchanged(store):
     assert rate == 33.3
 
 
+def test_the_attempt_read_happens_before_the_budget_is_spent(store, monkeypatch):
+    """THE regression guard for the first live deploy of this panel.
+
+    Every `q()` in `requests_summary` spends from ONE 6-second budget, and the
+    heavy all-time scans over `request_log` spend all of it. This panel was
+    originally read next to the funnel it feeds — logically the right place, and
+    last in execution — so on the first deploy it was reported
+    `payment_attempts:out_of_budget` while being the cheapest read in the method.
+
+    `out_of_budget` is the OPPOSITE of a slow query: it means the panel never
+    ran. So the marker said "skipped", the board rendered the split as unread,
+    and the cause was ordering, not cost.
+
+    This pins the ORDER, not the SQL: `payment_attempts` must be issued before
+    the first unbounded aggregate over `request_log`.
+    """
+    issued = []
+    target = getattr(store, "history", store)
+    real_run = target._run
+
+    def record(sql, params=(), fetch=""):
+        issued.append(" ".join(sql.split()))
+        return real_run(sql, params, fetch)
+
+    monkeypatch.setattr(target, "_run", record)
+    store.requests_summary()
+
+    attempt_at = next((i for i, s in enumerate(issued)
+                       if "FROM payment_attempts" in s), None)
+    assert attempt_at is not None, (
+        "the attempt split was never read on the request path — the panel is "
+        "silently absent rather than unread")
+
+    # Compare against the LAST cheap request_log read that actually runs on this
+    # path, not against a heavy panel: the heavy ones are correctly skipped here
+    # (`awaiting_snapshot`), so they can never be overtaken and would make this
+    # guard vacuous — which is exactly what the first version of it did.
+    log_at = [i for i, s in enumerate(issued) if "FROM request_log" in s]
+    assert log_at, "no request_log read ran; the guard is moot"
+    assert attempt_at < max(log_at), (
+        "the attempt split is read after the last request_log panel (position "
+        "%d vs %d). Every `q()` spends from ONE 6-second budget, and the reads "
+        "over request_log are the expensive ones — so this panel, the cheapest "
+        "here, would be reported out_of_budget ('never ran') on a live deploy. "
+        "Read it early." % (attempt_at, max(log_at)))
+
+
 def test_every_funnel_route_exposes_the_missing_middle(store):
     """A route that lost the new fields would render a blank where the answer to
     'why is nobody paying' is supposed to be."""
