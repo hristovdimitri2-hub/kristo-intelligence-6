@@ -318,20 +318,47 @@ def test_adoption_refuses_a_receipt_with_no_block_number(env, monkeypatch):
 
 
 def test_same_price_signals_never_adopt_the_wrong_tx(env, monkeypatch):
-    """Nonce, NOT payer+amount: fixed prices would collide two signals."""
+    """Nonce, NOT payer+amount: fixed prices would collide two signals.
+
+    THE AMOUNT RULE CHANGED HERE, and the reason is worth recording because the
+    old assertion looked reasonable.
+
+    It used to require `value == price`. But the price is DYNAMIC (a volume
+    discount drops it after ten paid calls), and VERIFICATION accepts any signed
+    amount >= the price it saw at the moment the payload arrived. So a buyer who
+    paid $0.005 and whose response was lost would be refused on retry once the
+    price had fallen to $0.003: their transfer is really on-chain, `==` cannot
+    see it, and they have paid and received nothing. That is the defect an
+    independent review found in this exact spot.
+
+    `>=` is the same rule verification used to let the payment through, and it
+    cannot be gamed downward: the comparison is against the price of the route
+    being requested, so a $0.003 payment still cannot unlock a $0.10 route, and
+    the nonce is consumed once on-chain and claimed by C1 besides.
+    """
     main = env.main
     receipt = _receipt(TX_SELF, 100, PAYER, 5000, main.X402_RECEIVER_ADDRESS)
     eth = _FakeEth(block_number=200, receipts={TX_SELF: receipt},
                    auth_logs=[_auth_log(TX_SELF, 100, PAYER, NONCE_A)])
     _install_fake_web3(monkeypatch, eth)
 
-    # same payer, same price, DIFFERENT nonce → never adopt TX_SELF
+    # same payer, same price, DIFFERENT nonce -> never adopt TX_SELF
     assert main._find_settlement_by_nonce(PAYER, NONCE_B, 0.005) is None
-    # the right nonce at the right price → adopts the right tx
+    # the right nonce at the right price -> adopts the right tx
     found = main._find_settlement_by_nonce(PAYER, NONCE_A, 0.005)
     assert found and found["tx_hash"] == TX_SELF
-    # the right nonce but a DIFFERENT price → still refuses (amount check)
-    assert main._find_settlement_by_nonce(PAYER, NONCE_A, 0.003) is None
+    # THE CHEAPER PRICE IS THE BUYER'S OWN OVERPAYMENT, and refunding them by
+    # refusing would be taking their money. Adopted, deliberately.
+    found = main._find_settlement_by_nonce(PAYER, NONCE_A, 0.003)
+    assert found and found["tx_hash"] == TX_SELF, (
+        "a settlement larger than the current price must still be adopted: the "
+        "verifier accepted it, so recovery refusing it means the buyer paid and "
+        "received nothing")
+    # A PRICE ABOVE WHAT WAS PAID IS STILL REFUSED — this is the direction that
+    # protects the platform, and it is why `>=` cannot be used to unlock a more
+    # expensive route with a cheaper payment.
+    assert main._find_settlement_by_nonce(PAYER, NONCE_A, 0.010) is None, (
+        "a payment smaller than the requested price was adopted")
     # …and the query itself is keyed on (payer, nonce), verbatim
     spec = eth.get_logs_calls[-1]
     assert spec["topics"][0] == AUTH_USED_TOPIC

@@ -2906,8 +2906,19 @@ def _find_settlement_by_nonce(payer: str, nonce: str,
                     text = str(raw_value or "0x0")
                     value = (int(text, 16) if text.startswith("0x")
                              else int(text or "0"))
-                if value == price_atomic:
+                # ≥, NOT ==. The verifier accepts any amount at or above the
+                # quoted price (connectors.py rejects only `got < want`), so a
+                # buyer who overpays is told their payment is fine and the
+                # product is delivered. Recovery must use the SAME rule, or a
+                # paid call whose response was lost is refused on retry: the
+                # transfer is really there, but `==` does not see it, and the
+                # buyer has paid and received nothing.
+                if value >= price_atomic:
                     matched = True
+                    if value > price_atomic:
+                        log.info("nonce %s… overpaid: %d > %d atomic — adopting "
+                                 "(the verifier accepts >=, so recovery must "
+                                 "too)", nonce[:12], value, price_atomic)
                     break
             if not matched:
                 log.warning("nonce %s… consumed in %s but no matching Transfer "
@@ -4056,13 +4067,24 @@ def _x402_paywall():
     # Paid endpoints — enforce free tier + x402 payment
     if path in X402_PAID_ENDPOINTS:
         ip = _get_client_ip()
+        # READ AND INCREMENT IN ONE CRITICAL SECTION, and the previous shape is
+        # why. It read `used` under the lock, released it, then re-acquired and
+        # wrote `used + 1` — so two parallel requests from one IP both read 0,
+        # both wrote 1, and BOTH were granted a paid endpoint for free. The
+        # limit was `KRISTO_FREE_TIER_LIMIT = 1` in production, which is exactly
+        # the case where one request should be free and the second must pay.
+        #
+        # `+=` inside the lock is not merely tidier: it is the difference
+        # between a counter and a race.
         with _lock:
             used = _free_tier_usage.get(ip, 0)
-
-        if used < FREE_TIER_LIMIT:
-            # Still within free tier — allow and increment
-            with _lock:
+            if used < FREE_TIER_LIMIT:
                 _free_tier_usage[ip] = used + 1
+                granted = True
+            else:
+                granted = False
+
+        if granted:
             log.info("Free tier access: ip=%s, used=%d/%d, endpoint=%s",
                      ip, used + 1, FREE_TIER_LIMIT, path)
             return None

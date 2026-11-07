@@ -63,6 +63,11 @@ import main  # noqa: E402
 # ── Shared stop event for graceful shutdown ────────────────────────────────
 STOP_EVENT = threading.Event()
 
+#: How long the worker waits for its daemon threads to reach a safe point after
+#: SIGTERM. Bounded on purpose: Render escalates to SIGKILL, so a longer wait
+#: buys nothing except a less informative log line.
+SHUTDOWN_JOIN_SECONDS = 10
+
 
 def _handle_signal(signum, _frame):
     """Graceful shutdown on SIGTERM/SIGINT."""
@@ -91,6 +96,39 @@ def main_loop():
     # Block main thread until stop event is set
     while not STOP_EVENT.is_set():
         time.sleep(1)
+
+    # ── let the loops finish the cycle they are in ─────────────────────────
+    # DAEMON THREADS ARE KILLED AT PROCESS EXIT, so returning here cut whatever
+    # a loop was doing mid-cycle: a chain scan part-way through, a retention
+    # batch between its 5000-row statements, a dashboard snapshot half written.
+    # On a deploy those run constantly, so a restart could interrupt real work
+    # every time.
+    #
+    # BOUNDED, because a loop that will not stop must not hold the process open:
+    # Render sends SIGTERM and then SIGKILLs, and a worker that ignores the first
+    # is a worker that is killed anyway — only later, and with less logged. Ten
+    # seconds is longer than any cycle here takes to reach a safe point and far
+    # shorter than the grace period.
+    threads = [t for t in threading.enumerate()
+               if t is not threading.current_thread() and t.is_alive()]
+    if threads:
+        log.info("Waiting up to %ds for %d background thread(s) to finish...",
+                 SHUTDOWN_JOIN_SECONDS, len(threads))
+        deadline = time.time() + SHUTDOWN_JOIN_SECONDS
+        for t in threads:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            try:
+                t.join(timeout=remaining)
+            except Exception as exc:  # noqa: BLE001 - shutdown must not raise
+                log.debug("join(%s) failed: %s", t.name, exc)
+        still = [t.name for t in threads if t.is_alive()]
+        if still:
+            log.warning("%d thread(s) still running after %ds: %s",
+                        len(still), SHUTDOWN_JOIN_SECONDS, ", ".join(still))
+        else:
+            log.info("All background threads stopped cleanly.")
 
     log.info("Shutdown complete. Exiting.")
     return 0
