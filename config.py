@@ -119,29 +119,49 @@ KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.003"))   # /api/
 # Kept at the canary-proven price tier. Existing prices are NOT touched.
 KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.003"))
 
-# ── Seller verification: the first product priced above $1 ────────────────
+# ── Seller verification: the deepest audit, priced at $0.10 ───────────────
 # This is the arbitrary-receiver audit. It reads the chain for ANY address a
 # caller names, so unlike every route above it is not a cached lookup: a 7-day
 # window is thousands of adaptive eth_getLogs chunks, and the price has to cover
 # real RPC work.
 #
-# $1.00 is not a guess. A census of 143.8M x402 settlements (Zenodo
-# 10.5281/zenodo.22726373, "Sub-Dollar Machine Commerce") puts the volume-weighted
-# average payment at $0.27, and finds that payments of $1 or more carry 72.5% of
-# all value from under 8% of the traffic: the sub-dollar tier is where our
-# existing $0.003-$0.005 routes live, and the top 1% of merchants take 93.0% of
-# revenue. Pricing this at $0.003 would put us below the median list price of
-# $0.01 while doing the most expensive work we offer.
+# REVISED DOWN FROM $1.00 ON 07.11, ON EVIDENCE, AND THE EARLIER REASONING WAS
+# WRONG IN A WAY WORTH RECORDING. The $1.00 case rested on a census of 143.8M
+# x402 settlements (Zenodo 10.5281/zenodo.22726373) showing that payments of $1
+# or more carry 72.5% of all value. That finding is real, but it answers the
+# wrong question: it says where value is TRANSACTED, not what a buyer will pay
+# for THIS KIND OF ANSWER.
 #
-# It also prices in the abuse the free surface is deliberately shaped to avoid.
-# Owners' reasoning for fixing the free audit to our own receiver was that an
-# open one would let a single caller aim it at 1000 addresses and burn the RPC.
-# At $1.00 that caller pays $1000 to do it, which is a deterrent; at a cent it
-# is an invitation.
+# So the competition was measured instead, via nohumans.directory's own ranking
+# (free, 07.11). The query cluster we would be listed in is uniformly cheap:
+#
+#   "verify an x402 endpoint before paying"  -> $0.001, 0.02, 0.002, 0.001, 0.02
+#   "is this x402 seller safe to pay"        -> $0.005, 0.01, 0.02, 0.001, 0.005
+#
+# At $1.00 this route was 50x to 1000x above every visible competitor. Those
+# competitors answer a DIFFERENT question -- "is this endpoint alive and well
+# formed" (a preflight probe) rather than "is this receiving ADDRESS a real
+# seller" (a seven-day on-chain read) -- but ranked search does not make that
+# distinction, and a buyer filters by price.
+#
+# The neighbouring cluster does carry real prices ($0.02-$1.00, with live
+# listings at $0.05, $0.10 and $0.40, and one $1.00 service ranking first for
+# "how many unique payers does this wallet have"), so there is money above a
+# cent. $0.10 sits inside that band: ~33x our cheapest route, which reflects
+# that this is the most expensive work we sell, while staying in the range a
+# buyer comparing this class of answer will actually consider.
+#
+# THE ABUSE ARGUMENT STILL HOLDS, AND IS NOW THE FLOOR. The free audit is fixed
+# to our own receiver precisely so nobody can aim an open one at 1000 addresses
+# and burn the RPC. At $0.10 that caller pays $100 rather than $1000: a weaker
+# deterrent, but one that still prices a bulk scan well above its cost. This is
+# deliberately NOT $0.05, which is the ceiling for the listing platform's
+# included automatic purchase -- making our heaviest endpoint the cheapest thing
+# we sell is not a trade worth the traffic.
 #
 # Overridable like every other price, and it does not touch an existing one.
 KRISTO_VERIFY_SELLER_PRICE = float(
-    os.getenv("KRISTO_VERIFY_SELLER_PRICE", "1.00"))     # /api/v1/verify-seller
+    os.getenv("KRISTO_VERIFY_SELLER_PRICE", "0.10"))     # /api/v1/verify-seller
 
 # ── Human products (NOT x402 routes) ──────────────────────────────────────
 # The Telegram VIP-analysis unlock is paid in USDC like a route but is a HUMAN

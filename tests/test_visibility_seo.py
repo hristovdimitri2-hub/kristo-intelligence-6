@@ -644,7 +644,7 @@ def test_the_vip_threshold_says_it_applies_to_one_payment(client):
     is false.
 
     The guard here used to be `dearest < VIP_THRESHOLD_USDC` — true while the
-    dearest route cost $0.005. /api/v1/verify-seller at $1.00 broke it precisely
+    dearest route cost $0.005. /api/v1/verify-seller at $0.10 (then $1.00) broke it
     because the premise changed, and keeping that assertion would have forced the
     note to go on claiming that no route reaches the threshold. A promise that is
     reachable but described as unreachable is the same lie in the other

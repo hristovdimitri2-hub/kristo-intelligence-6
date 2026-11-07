@@ -59,16 +59,50 @@ SERVED_TEXTS = [
 ]
 
 #: Prices that used to live on our public surfaces and must never come back.
+#:
+#: NOT a general ban on these numbers -- `$0.10` was removed from this list on
+#: 07.11 when verify-seller was repriced TO $0.10. The old entries meant "the
+#: flat price we used to advertise", a claim about EVERY route; once $0.10
+#: became one route's real price, the pattern banned our own published number
+#: and failed the suite while the surfaces were correct.
+#:
+#: The stronger guard is `test_no_served_text_quotes_a_price_outside_the_price_map`
+#: below: it derives the allowed set from X402_PRICE_MAP, so a number is judged
+#: by whether it is a real route price rather than by appearing on a hand-kept
+#: list. These remaining patterns catch specific historical WORDING that the
+#: derived check cannot see (flat-price claims, free-tier promises).
 BANNED = [
     (r"\$0\.05", "the old flat $0.05"),
-    (r"\$0\.10", "the old flat $0.10"),
     (r"0\.05\s*USDC", "0.05 USDC literal"),
-    (r"0\.10\s*USDC", "0.10 USDC literal"),
     (r"\$0\.01\b|0\.01\s*USDC", "the phantom volume 'discount' price"),
     (r"1 free call", "the free-tier promise (production gives none)"),
     (r"first call is free", "the free-tier promise (production gives none)"),
     (r"free call per client", "the free-tier promise (production gives none)"),
 ]
+
+
+def test_the_ban_list_never_bans_a_real_route_price():
+    """The meta-guard, added after the 07.11 near-miss.
+
+    A hand-kept ban list drifts out of date the moment a price changes: this one
+    still banned `$0.10` after $0.10 became verify-seller's real price, so the
+    suite failed a correct build. Banning a number we legitimately publish is
+    not a safety net, it is a trap. Any pattern that matches a live route price
+    has to be reconsidered, not kept.
+    """
+    import re as _re
+
+    from main import X402_PRICE_MAP
+
+    live = ["$%.3f" % float(p) for p in X402_PRICE_MAP.values()]
+    live += ["%.3f USDC" % float(p) for p in X402_PRICE_MAP.values()]
+    collisions = [(pattern, label, text)
+                  for pattern, label in BANNED
+                  for text in live
+                  if _re.search(pattern, text)]
+    assert not collisions, (
+        "the ban list forbids a price we actually serve:\n"
+        + "\n".join("  %s (%s) matches %r" % c for c in collisions))
 
 
 def _fetched(client):

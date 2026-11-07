@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 898
+SUITE_TESTS_PASSED = 900
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2380,7 +2380,7 @@ def api_mcp_manifest():
             # was written no API route cost anywhere near $0.1 — the dearest was
             # $0.005 — so the promise could not be reached by any ordinary
             # customer. Same family as the volume discount that could never
-            # trigger. /api/v1/verify-seller at $1.00 changed the premise: a
+            # trigger. /api/v1/verify-seller above the old ceiling changed the premise: a
             # single audit now clears the threshold on its own, so the note says
             # which of the two cases holds instead of repeating a claim that is
             # no longer true. The dearest price is generated, never typed.

@@ -110,3 +110,37 @@ def test_retention_reports_what_it_removed(tmp_path):
     for _ in range(3):
         _insert_request(store, old)
     assert store.purge_old_requests() == 3
+
+
+def test_retention_is_started_in_a_thread_and_not_inline_at_import():
+    """Regression guard for the 07.11 deploy, which I broke myself.
+
+    The first live run has over a million rows to remove at 5000 per statement
+    = 200+ round trips. Run inline at import time it delayed the worker from
+    binding its port, and Render logged:
+
+        ==> No open ports detected, continuing to scan...
+
+    and the dashboard's reads hit QueryCanceled while the deletes held the
+    table. A retention pass must never be able to look like a failed deploy, so
+    this asserts the call is handed to a daemon thread and is NOT a bare
+    module-level statement in main.py.
+    """
+    from pathlib import Path
+
+    main_src = (Path(__file__).resolve().parent.parent / "main.py").read_text(
+        encoding="utf-8")
+
+    assert "threading.Thread(target=_request_log_retention" in main_src, (
+        "request_log retention must run in a daemon thread")
+    assert "daemon=True" in main_src
+
+    # No module-level `dashboard_db.purge_old_requests()`: a module-level
+    # statement has no indentation, and that is the exact shape that blocked
+    # the port. Inside a def it is indented, which is what we require.
+    for i, line in enumerate(main_src.splitlines(), 1):
+        body = line.split("#")[0]
+        if "dashboard_db.purge_old_requests(" in body:
+            assert line[:1].isspace(), (
+                "main.py:%d calls purge_old_requests() at module level — that "
+                "is what blocked the port on 07.11" % i)

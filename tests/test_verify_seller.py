@@ -76,14 +76,27 @@ def test_the_price_comes_from_the_single_source():
     assert route[0]["price_usdc"] == KRISTO_VERIFY_SELLER_PRICE
 
 
-def test_it_is_priced_above_a_dollar():
-    """The tier is the point, not an accident.
+def test_it_is_the_dearest_route_we_sell():
+    """The invariant that survived the 07.11 repricing.
 
-    A census of 143.8M x402 settlements found payments of $1 or more carry 72.5%
-    of all value from under 8% of the traffic, and this is our most expensive
-    route to serve, so it must not drift down into the $0.003 tier unnoticed.
+    The price moved from $1.00 to $0.10, so "above a dollar" is no longer the
+    contract and asserting it would just pin a number. What must stay true is
+    the REASON it was priced high at all: this is the only route doing uncached
+    on-chain work on an address the caller supplies, so it must never drift down
+    into the $0.003-$0.005 tier where a bulk scan would be cheap enough to abuse.
+
+    Derived from the live maps rather than written down, so a future change to
+    either the price or the other routes has to keep this relation true.
     """
-    assert main.X402_PRICE_MAP["/api/v1/verify-seller"] >= 1.0
+    mine = main.X402_PRICE_MAP["/api/v1/verify-seller"]
+    others = [p for endpoint, p in main.X402_PRICE_MAP.items()
+              if endpoint != "/api/v1/verify-seller"]
+    assert others, "the comparison is meaningless with no other route"
+    assert mine > max(others), (
+        "verify-seller at $%.4f is no longer the dearest route; the dearest "
+        "other route is $%.4f" % (mine, max(others)))
+    # And still far above a cent, so a 1000-address sweep costs real money.
+    assert mine >= 0.05
 
 
 def test_the_route_is_paid_and_its_sample_is_not():
@@ -92,13 +105,26 @@ def test_the_route_is_paid_and_its_sample_is_not():
     assert "/api/v1/verify-seller" not in main.X402_FREE_ENDPOINTS
 
 
-def test_the_challenge_quotes_exactly_one_dollar(no_free_tier, no_network):
+def test_the_challenge_quotes_the_configured_price(no_free_tier, no_network):
+    """The 402 must quote the price, in atomic units, with no rounding drift.
+
+    Derived from the single price source rather than written as a literal: the
+    previous version hard-coded "1000000", so repricing the route failed the
+    test even though the route was correct. What matters is the RELATION --
+    atomic == price * 10**6 exactly -- not the particular number.
+    """
+    from config import KRISTO_VERIFY_SELLER_PRICE
+    atomic = str(int(round(KRISTO_VERIFY_SELLER_PRICE * 1_000_000)))
+    # USDC on Base has 6 decimals; a non-integral atomic value would be a bug.
+    assert float(atomic) == KRISTO_VERIFY_SELLER_PRICE * 1_000_000
+
     r = no_free_tier.get(f"/api/v1/verify-seller?receiver={RECEIVER}")
     assert r.status_code == 402
     body = r.get_json()
-    assert body["x402_amount"] == "1000000", "atomic units: 1.00 USDC is 1000000"
+    assert body["x402_amount"] == atomic, (
+        "atomic units: $%.2f is %s" % (KRISTO_VERIFY_SELLER_PRICE, atomic))
     accepts = body["accepts"][0]
-    assert accepts["amount"] == "1000000"
+    assert accepts["amount"] == atomic
     assert accepts["scheme"] == "exact"
     assert accepts["network"] == "eip155:8453"
     assert accepts["payTo"] == main.X402_RECEIVER_ADDRESS

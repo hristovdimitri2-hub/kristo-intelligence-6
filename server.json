@@ -37,7 +37,7 @@
         "chain_id": 8453,
         "network": "base",
         "min_usd": 0.003,
-        "max_usd": 1.0,
+        "max_usd": 0.1,
         "note": "Every unpaid call answers HTTP 402 with the canonical x402 challenge; the amount in that response is the price. No free tier, no signup, no API keys."
       },
       "tools": [
@@ -81,7 +81,7 @@
           "name": "verify_seller_receiver",
           "description": "Read-only; REQUIRES `receiver`. Audits ANY receiver's incoming USDC on Base: distinct payers, repeat payers, concentration, probes vs customers. Decides whether a seller is safe to pay. Reports partial/failed, never a zero it did not measure.",
           "endpoint": "/api/v1/verify-seller",
-          "price_usd": 1.0
+          "price_usd": 0.1
         }
       ],
       "discovery": {

@@ -349,7 +349,7 @@ try:
 except Exception as _purge_exc:  # pragma: no cover - defensive
     log.warning("Whale retention failed (non-fatal): %s", _purge_exc)
 
-# ── request_log retention at BOOT (07.11) ─────────────────────────────────
+# ── request_log retention (07.11) ─────────────────────────────────────────
 # The other unbounded table, and the reason one slow panel could take the whole
 # service down. `request_log` had no retention anywhere: it grew from the day
 # the service started, and the ten aggregates the dashboard runs over it were
@@ -359,14 +359,29 @@ except Exception as _purge_exc:  # pragma: no cover - defensive
 #
 # 30 days is 30x more history than anything reads: the only window any query
 # opens on this table is 24 hours. Idempotent — a second run deletes 0 rows.
-# Wrapped like the whale pass: retention must never block boot.
-try:
-    _req_purged = dashboard_db.purge_old_requests()
-    log.info("Request-log retention: %d row(s) older than %d days removed.",
-             _req_purged, REQUEST_LOG_RETENTION_DAYS_DEFAULT)
-except Exception as _req_purge_exc:  # pragma: no cover - defensive
-    log.warning("Request-log retention failed (non-fatal): %s",
-                _req_purge_exc)
+#
+# WHY THIS ONE IS *NOT* A BOOT-TIME CALL, unlike the whale pass. The first run
+# has over a million rows to remove, and the pass is batched at 5000 per
+# statement — so that is 200+ round trips. Run inline at import time it delays
+# the worker from binding its port, and on 07.11 it did exactly that: Render
+# logged "No open ports detected, continuing to scan" before the service came
+# up, and the dashboard's reads hit QueryCanceled while the deletes held the
+# table. A retention pass must not be able to look like a failed deploy.
+#
+# So: a daemon thread, started after the module is importable. The app binds
+# immediately; the pass drains in the background, logging what it removed. The
+# whale pass can stay inline because it deletes single-digit rows.
+def _request_log_retention() -> None:
+    try:
+        removed = dashboard_db.purge_old_requests()
+        log.info("Request-log retention: %d row(s) older than %d days removed.",
+                 removed, REQUEST_LOG_RETENTION_DAYS_DEFAULT)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Request-log retention failed (non-fatal): %s", exc)
+
+
+threading.Thread(target=_request_log_retention, daemon=True,
+                 name="request-log-retention").start()
 
 # ── Off-chain record durability (audit A2) ────────────────────────────────
 # The ON-CHAIN numbers are re-seeded from the chain on every boot, so a deploy
