@@ -1,0 +1,46 @@
+{
+ "repos": {
+  "google-agentic-commerce/AP2": {
+   "seen_tags": [
+    "v0.2.0",
+    "v0.1.0"
+   ],
+   "last_commit_sha": "e1ea56db72a6385bce3e5c1112b3a56ce60acb43"
+  },
+  "google-agentic-commerce/a2a-x402": {
+   "seen_tags": [
+    "v0.1.0"
+   ],
+   "last_commit_sha": "125db5526a965d2325459d1a9df2e274a7e42396"
+  }
+ },
+ "known_wg_repos": [
+  "x402-foundation/wg-tax",
+  "Utsav-Bajpai/Tax_WGT",
+  "wegonnalearntoday/WGLT-Taxes",
+  "Trang021200/wg-metagenomics-taxonomic-profile",
+  "yky0314/WGC-taxi-simulator-demo-v1.0",
+  "EBillingforPaypal/-Purchase-This-by-taxguy6-hotmail.com--wgcb9jvx",
+  "x402-foundation/wg-domain-discovery"
+ ],
+ "census": [],
+ "last_check": "2026-11-07T18:02:17.425254+00:00",
+ "seen_conversation": [
+  "137",
+  "150",
+  "186",
+  "191",
+  "194",
+  "195",
+  "198",
+  "255",
+  "299",
+  "346",
+  "355",
+  "386",
+  "388",
+  "393",
+  "395",
+  "65"
+ ]
+}

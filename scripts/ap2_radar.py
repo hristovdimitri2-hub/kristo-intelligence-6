@@ -6,6 +6,8 @@ Monthly protocol, ROW 5 (after recon and listing_monitor):
 What it watches (all public, no identities, nothing sent anywhere):
   * commits since the previous check in the official AP2 repos
     (google-agentic-commerce/AP2, .../a2a-x402) + new releases/tags
+  * ISSUES AND PULL REQUESTS, recently updated, in those same repos — see the
+    note below, this is the half that was missing
   * new public repos matching the AP2 working-group patterns
     (wg-domain-discovery, wg-tax, ap2-wg...) — WG repos may become public
     at any time; the search re-runs on every check
@@ -15,6 +17,19 @@ What it watches (all public, no identities, nothing sent anywhere):
   * a MANUAL diary: EVENTS (dated signals with their source) and THERMOMETERS,
     defined in THIS file and rendered on every run, so hand-written entries
     survive the report being rebuilt from scratch
+
+WHY ISSUES ARE WATCHED — the defect this fixes (07.11.2026). The radar read only
+`/commits` and `/releases`, and reported "ТИХО" for 34 consecutive days. Measured
+against the live API on 07.11:
+
+    AP2      pushed_at 2026-06-17   updated_at 2026-11-07   190 open issues/PRs
+    a2a-x402 pushed_at 2026-08-04   updated_at 2026-11-07    75 open issues/PRs
+
+The CODE had genuinely been quiet since June. The CONVERSATION had not: both
+repos were updated the same day, and the most recent a2a-x402 pull request was
+"defer paid response completion until settlement finishes" — the precise subject
+of our own 425 in-flight rail. A radar that measures only commits cannot report
+anything but silence about a protocol whose work happens in its issue tracker.
 
 Output: docs/AP2_RADAR.md ("what changed since last time" + census growth).
 State: docs/AP2_RADAR_STATE.json (previous snapshot; safe to delete — the
@@ -28,6 +43,7 @@ artifacts, unauthenticated, read-only.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -36,6 +52,21 @@ from pathlib import Path
 import requests
 
 H = {"Accept": "application/vnd.github+json", "User-Agent": "ap2-radar"}
+
+# An optional token raises the rate limit from 60 requests an HOUR to 5000.
+#
+# One full scan costs 13 requests (measured 07.11), so the anonymous limit is
+# enough for a daily run — but not for a diagnostic afternoon, and not if the
+# task is ever made hourly or retried in a loop. 403 is exactly what that looks
+# like: the radar reporting "API грешка" instead of a month of changes, which is
+# the failure mode this script was just fixed for.
+#
+# Read from the environment only, never written to the repo. Absent is fine.
+_TOKEN = (os.getenv("GITHUB_TOKEN")
+          or os.getenv("GITHUB_RADAR_TOKEN") or "").strip()
+if _TOKEN:
+    H["Authorization"] = f"Bearer {_TOKEN}"
+
 API = "https://api.github.com"
 MONITORED = [
     "google-agentic-commerce/AP2",
@@ -270,6 +301,61 @@ def _releases(full: str, seen_tags: set[str]) -> list[dict]:
     return out
 
 
+def _repo_conversation(full: str, seen: set[str],
+                       per_page: int = 8) -> list[dict]:
+    """Recently-updated ISSUES and PULL REQUESTS — the half commits cannot see.
+
+    `/commits` answers "did the code change". It cannot answer "what is being
+    argued about", and for a protocol that is where the signal lives: a proposal
+    that constrains a future scheme, a bug report naming an edge case our rail
+    already handles, a competing implementation of the thing we sell.
+
+    Returns items whose `number` is not in `seen`, newest update first. The
+    filter is by NUMBER, not by timestamp: GitHub timestamps include comments, so
+    a timestamp filter would re-report the same thread every time somebody replied
+    to it, and the radar would drown in its own repeats.
+    """
+    out: list[dict] = []
+    r = _get(f"{API}/repos/{full}/issues"
+             f"?state=all&sort=updated&direction=desc&per_page={per_page}")
+    if r.status_code != 200:
+        return [{"error": f"HTTP {r.status_code}"}]
+    payload = r.json()
+    if not isinstance(payload, list):
+        # A 200 whose body is not a list — GitHub answering with a message object
+        # instead of issues. Returning [] here would say "nothing moved" about a
+        # response we did not understand, so it is reported as what it is.
+        msg = ""
+        if isinstance(payload, dict):
+            msg = str(payload.get("message") or "")[:80]
+        return [{"error": f"unexpected payload ({msg or type(payload).__name__})"}]
+    for it in payload:
+        if not isinstance(it, dict):
+            continue
+        number = it.get("number")
+        if number is None or str(number) in seen:
+            continue
+        # A pull request arrives through the issues endpoint too, carrying this
+        # key. Reporting a PR as an issue would mislabel the most actionable
+        # items on the list, so the distinction is kept.
+        is_pr = "pull_request" in it
+        title = (it.get("title") or "").strip()
+        body = (it.get("body") or "")[:600]
+        lowered = (title + " " + body).lower()
+        out.append({
+            "number": number,
+            "kind": "PR" if is_pr else "issue",
+            "state": it.get("state") or "",
+            "title": title[:130],
+            "url": it.get("html_url") or "",
+            "updated": (it.get("updated_at") or "")[:10],
+            "comments": it.get("comments") or 0,
+            "user": (it.get("user") or {}).get("login") or "",
+            "keywords": sorted({k for k in KEYWORDS if k in lowered}),
+        })
+    return out
+
+
 def _search_new_wg_repos(known: list[str]) -> list[dict]:
     """Public repos that look like AP2 working-group artifacts."""
     found = []
@@ -354,6 +440,37 @@ def main() -> int:
             state.setdefault("repos", {}).setdefault(full, {}).setdefault(
                 "seen_tags", []).extend(rel["tag"] for rel in rels)
         lines.append("")
+
+    # ── ISSUES / PRs — what the commits cannot see ─────────────────────────────
+    # Placed BEFORE the WG search because it is the section most likely to carry
+    # something actionable, and because a run that dies later still leaves it.
+    lines += ["## Разговорът (issues и PR-и, обновени от миналия път)", ""]
+    seen_conv = set(state.get("seen_conversation", []))
+    conv_total = 0
+    for full in MONITORED:
+        items = _repo_conversation(full, seen_conv)
+        lines.append(f"### {full}")
+        lines.append("")
+        if items and "error" in items[0]:
+            lines.append(f"- (API грешка: {items[0]['error']})")
+        elif not items:
+            lines.append("- Нищо ново обновено от миналия път.")
+        else:
+            anything = True
+            for it in items:
+                conv_total += 1
+                kw = (f" ← КЛЮЧОВИ ДУМИ: {', '.join(it['keywords'])}"
+                      if it["keywords"] else "")
+                lines.append(f"- **#{it['number']}** [{it['kind']}, {it['state']}, "
+                             f"{it['comments']} коментара, обновено {it['updated']}] "
+                             f"{it['title']}{kw}")
+                lines.append(f"  - {it['url']}")
+                seen_conv.add(str(it["number"]))
+        lines.append("")
+    if conv_total:
+        lines.append(f"Общо нови/обновени нишки: **{conv_total}**.")
+        lines.append("")
+    state["seen_conversation"] = sorted(seen_conv)
 
     lines += ["## Нови публични WG repos (търсене при всяка проверка)", ""]
     new_wg = _search_new_wg_repos(state.get("known_wg_repos", []))
