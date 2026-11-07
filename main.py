@@ -3786,6 +3786,47 @@ def _x402_402_cache_and_cors(response):
     return response
 
 
+# --- nohumans.directory ownership proof (Option B: a per-endpoint header) ----
+#
+# To edit a listing there we must prove control of the domain right now. Their
+# flow (POST /v1/listings/<id>/claim/challenge) issues a ONE-TIME token per
+# listing, valid 24h, which is served either at /.well-known/nohumans-claim or
+# as an `x-nohumans-claim` response header on the listing's own endpoint.
+#
+# Option A is one path carrying one token, so it can only ever satisfy a single
+# listing. Option B is per-endpoint, which is what lets us claim all five at
+# once from one deploy. The header is set on the endpoint's OWN response, and a
+# 402 challenge carries it just as a 200 does.
+#
+# These are 24h credentials, not configuration. Issued 2026-11-07T09:42Z,
+# expiring 2026-11-08T09:42Z. They are emptied back to {} once the listings are
+# claimed — do not leave a stale one here, because a token that no longer
+# matches anything proves nothing and looks like a secret we forgot. They grant
+# no access to money, keys or data: they are evidence that whoever answers at
+# this domain is the same party that asked for the challenge.
+NOHUMANS_CLAIM_TOKENS = {
+    "/api/v1/signal": "2d52eadbf764a778c57b2ed19c110b9d39a56f81b1849f81",
+    "/api/stats": "f2446848a73ab9d79e9bc99e890a46de16e5b5e1fe5b5bd0",
+    "/api/bot-status": "cda8738d60c49a8751045eb66192196c2ebdaeb220f75d6d",
+    "/api/sales": "9063455b59fcf97cb626c9b9ff781cca8e9ba998b0ef3160",
+    "/api/v1/whaleflow": "f5852d1f47864ed1f103732fe03be4aabbeae6deec0cfbef",
+}
+
+
+@app.after_request
+def _nohumans_claim_header(response):
+    """Answer the ownership challenge on the endpoint it was issued for.
+
+    Deliberately narrow: it echoes a token only on the exact path whose listing
+    requested it, and never on a wildcard, so this cannot be used to attest
+    control of a route we did not ask about.
+    """
+    token = NOHUMANS_CLAIM_TOKENS.get(request.path)
+    if token:
+        response.headers["x-nohumans-claim"] = token
+    return response
+
+
 @app.before_request
 def _x402_paywall():
     """
