@@ -65,10 +65,68 @@ BLOCKS = (
     "delivery",
 )
 
-#: How long a heartbeat may be silent before the block counts as stale. The
-#: monitor already proves this pattern (heartbeat + freshness window); five
-#: minutes is the tightest interval any loop here actually runs at.
+#: How long a heartbeat may be silent before the block counts as stale, PER
+#: BLOCK — and one global number is WRONG here.
+#:
+#: The first version used a single 300-second window for all six blocks. Measured
+#: against the loops that actually write the heartbeats, that produced permanent
+#: false alarms:
+#:
+#:   discovery   written by the sentinel's GitHub check, which runs every 6 HOURS
+#:               -> read as `failed` for 98.6% of the time
+#:   chain_read  written by the revenue check, every 30 MINUTES
+#:               -> read as `failed` for 83.3% of the time
+#:
+#: A warning nobody can act on is worse than no warning: it teaches the reader to
+#: ignore the panel, and then the one real failure is invisible too. That is the
+#: same defect class this whole codebase keeps closing, in the sense layer rather
+#: than in a panel.
+#:
+#: So each block declares how often it is EXPECTED to report, and the threshold is
+#: derived from that with a margin: a loop must miss two whole cycles in a row
+#: before it is called stale. A block that reports every 60 seconds is stale after
+#: 5 minutes; a block that reports every 6 hours is stale after 12.
+EXPECTED_INTERVAL_SECONDS: Dict[str, int] = {
+    # the dashboard scan loop and both warmers run every 30-60s
+    "data_store": 60,
+    # the dashboard warmer rebuilds every ~30s
+    "delivery": 60,
+    # a settled or failed payment can be minutes apart, so this block also beats
+    # from the keep-alive path; its interval is the loosest of the fast ones
+    "payment_rail": 300,
+    # the sentinel's health check, every 10 minutes
+    "alerting": 600,
+    # the sentinel's revenue check, every 30 minutes
+    "chain_read": 1800,
+    # the sentinel's GitHub check, every 6 hours
+    "discovery": 21600,
+}
+
+#: How many whole intervals may be missed before a block is called stale. Two, so
+#: a single skipped cycle (a slow RPC, a long scan) is not reported as a fault.
+STALE_AFTER_MISSED_CYCLES = 2
+
+#: The floor, so a block with a very short interval is not called stale between
+#: two heartbeats a second apart.
+MIN_STALE_SECONDS = 300
+
+#: The threshold used when a block declares no interval. Kept as the old global
+#: value so an unregistered block behaves exactly as before rather than silently
+#: becoming stricter.
 HEARTBEAT_STALE_SECONDS = 300
+
+
+def stale_after_seconds(block: str) -> int:
+    """When this block's silence stops being normal.
+
+    Derived from the block's own expected interval rather than one global number,
+    because a 5-minute window over a 6-hourly loop is a permanent false alarm.
+    """
+    interval = EXPECTED_INTERVAL_SECONDS.get(block)
+    if not interval:
+        return HEARTBEAT_STALE_SECONDS
+    return max(MIN_STALE_SECONDS, int(interval) * STALE_AFTER_MISSED_CYCLES)
+
 
 _HEARTBEAT_PREFIX = "organism_hb_"
 
@@ -222,14 +280,17 @@ def check_heartbeat(block: str, store) -> Verdict:
         return Verdict(block=block, verdict=NOT_REACHED,
                        detail="heartbeat is unreadable: %r" % str(raw)[:60],
                        evidence={"heartbeat": str(raw)[:60]})
-    if age > HEARTBEAT_STALE_SECONDS:
+    limit = stale_after_seconds(block)
+    if age > limit:
         return Verdict(block=block, verdict=FAILED,
                        detail="heartbeat is %.0fs old (limit %ds)"
-                              % (age, HEARTBEAT_STALE_SECONDS),
-                       evidence={"heartbeat_age_seconds": round(age, 1)})
+                              % (age, limit),
+                       evidence={"heartbeat_age_seconds": round(age, 1),
+                                 "limit_seconds": limit})
     return Verdict(block=block, verdict=OK,
                    detail="heartbeat %.0fs old" % age,
-                   evidence={"heartbeat_age_seconds": round(age, 1)})
+                   evidence={"heartbeat_age_seconds": round(age, 1),
+                             "limit_seconds": limit})
 
 
 def beat(store, block: str, verdict: str = OK, detail: str = "") -> bool:
@@ -318,14 +379,16 @@ def last_verdicts(store, blocks) -> List[Dict[str, object]]:
         if v in VERDICTS:
             row["verdict"] = v
         row["detail"] = found.get(_HEARTBEAT_PREFIX + b + "_detail") or ""
+        limit = stale_after_seconds(b)
+        row["limit_seconds"] = limit
         if row["age_seconds"] is not None and \
-                row["age_seconds"] > HEARTBEAT_STALE_SECONDS and \
+                row["age_seconds"] > limit and \
                 row["verdict"] == OK:
             # A fresh verdict on a stale heartbeat is stale too: the writer
             # stopped, and the last thing it said was "fine".
             row["verdict"] = FAILED
             row["detail"] = ("last said ok, but %.0fs ago (limit %ds)"
-                             % (row["age_seconds"], HEARTBEAT_STALE_SECONDS))
+                             % (row["age_seconds"], limit))
         out.append(row)
     return out
 

@@ -208,6 +208,86 @@ def test_an_unreadable_heartbeat_is_not_reached(store):
     assert v["age_seconds"] is None
 
 
+# ── the staleness window is PER BLOCK ───────────────────────────────────────
+#
+# THE DEFECT THESE PIN (found 07.11, after the first version shipped a single
+# global 300s window). A block is only stale relative to how often it is EXPECTED
+# to report, and one number for all six produced permanent false alarms:
+#
+#     discovery   the sentinel's GitHub check, every 6 HOURS
+#                 -> read as `failed` 98.6% of the time
+#     chain_read  the revenue check, every 30 MINUTES
+#                 -> read as `failed` 83.3% of the time
+#
+# A warning nobody can act on is worse than no warning, because it teaches the
+# reader to ignore the panel — and then the one real failure is invisible too.
+
+def test_every_block_declares_how_often_it_reports():
+    """Without a declared interval the threshold cannot be derived, and the
+    block silently inherits a window that may be wildly wrong for it."""
+    for block in org.BLOCKS:
+        assert block in org.EXPECTED_INTERVAL_SECONDS, (
+            "block %r declares no expected interval" % block)
+
+
+def test_the_threshold_is_at_least_two_reporting_cycles():
+    """One missed cycle is a slow RPC, not a fault. Two is a stopped loop."""
+    for block, interval in org.EXPECTED_INTERVAL_SECONDS.items():
+        assert org.stale_after_seconds(block) >= interval * 2, (
+            "%s would be called stale after less than two of its own cycles"
+            % block)
+
+
+def test_a_six_hourly_block_is_not_called_stale_after_five_minutes():
+    """THE regression guard for the false alarm."""
+    limit = org.stale_after_seconds("discovery")
+    assert limit > 3600, (
+        "a block that reports every 6 hours is called stale after %ds" % limit)
+
+
+def test_a_block_reporting_normally_is_ok(store):
+    """Every block, read just after one of its own normal intervals, is `ok`."""
+    from datetime import datetime, timedelta, timezone
+    for block, interval in org.EXPECTED_INTERVAL_SECONDS.items():
+        st = type(store)()
+        past = (datetime.now(timezone.utc)
+                - timedelta(seconds=interval)).isoformat()
+        st.history.d["organism_hb_" + block] = past
+        st.history.d["organism_hb_" + block + "_verdict"] = org.OK
+        v = org.last_verdict(st, block)
+        assert v["verdict"] == org.OK, (
+            "%s reads %r one normal interval after its own beat"
+            % (block, v["verdict"]))
+
+
+def test_a_genuinely_dead_block_is_still_caught(store):
+    """The other direction, and it must not be lost in the fix: silence well
+    past the window is a stopped loop, however long its interval."""
+    from datetime import datetime, timedelta, timezone
+    for block in org.BLOCKS:
+        st = type(store)()
+        past = (datetime.now(timezone.utc)
+                - timedelta(seconds=org.stale_after_seconds(block) * 3)
+                ).isoformat()
+        st.history.d["organism_hb_" + block] = past
+        st.history.d["organism_hb_" + block + "_verdict"] = org.OK
+        v = org.last_verdict(st, block)
+        assert v["verdict"] == org.FAILED, (
+            "%s was silent for three times its window and read %r"
+            % (block, v["verdict"]))
+
+
+def test_an_unknown_block_falls_back_rather_than_crashing():
+    assert org.stale_after_seconds("not_a_registered_block") == \
+        org.HEARTBEAT_STALE_SECONDS
+
+
+def test_the_limit_is_published_so_the_board_can_explain_itself(store):
+    """A reader seeing `failed` needs to know what it was measured against."""
+    v = org.last_verdict(store, "discovery")
+    assert v.get("limit_seconds") == org.stale_after_seconds("discovery")
+
+
 def test_a_broken_store_leaves_the_verdict_unknown(store):
     store.history.fail_reads = True
     v = org.last_verdict(store, "data_store")
