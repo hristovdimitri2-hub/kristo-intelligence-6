@@ -3923,7 +3923,41 @@ def _x402_402_cache_and_cors(response):
 #     -> {"token": "...", "valid_for_seconds": 86400}
 #   put it here, deploy, then POST .../claim with {"email": ...} and save the
 #   edit_token it returns — that value is shown once and is what PATCH uses.
-NOHUMANS_CLAIM_TOKENS = {}
+#
+# 07.11: the dict is now ENV-DRIVEN, because it was written into a PUBLIC repo.
+# Claim tokens are 24h credentials; the only way to re-arm one was to commit it,
+# which publishes it, which is the opposite of what a credential is for. The
+# rotation in progress is precisely a rotation AWAY from tokens that leaked, so
+# hard-coding the replacements would have repeated the mistake.
+#
+#   NOHUMANS_CLAIM_TOKENS_JSON='{"/api/bot-status": "<48-char token>"}'
+#
+# Set it, deploy, claim, then CLEAR the variable — an expired token proves
+# nothing and reads like a secret someone forgot. Empty, malformed or
+# non-string values are ignored rather than raising: this hook runs on EVERY
+# response, and a bad env var must not be able to take the service down.
+def _load_claim_tokens() -> dict:
+    raw = os.getenv("NOHUMANS_CLAIM_TOKENS_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        log.warning("NOHUMANS_CLAIM_TOKENS_JSON is not valid JSON; ignoring.")
+        return {}
+    if not isinstance(parsed, dict):
+        log.warning("NOHUMANS_CLAIM_TOKENS_JSON is not an object; ignoring.")
+        return {}
+    clean = {k: v for k, v in parsed.items()
+             if isinstance(k, str) and isinstance(v, str) and v.strip()}
+    if clean:
+        # Log the PATHS only. Never a token, not even a prefix.
+        log.info("no humans claim tokens armed for: %s",
+                 ", ".join(sorted(clean)))
+    return clean
+
+
+NOHUMANS_CLAIM_TOKENS = _load_claim_tokens()
 
 
 @app.after_request
