@@ -6661,6 +6661,65 @@ def _crm_stripe_section() -> dict:
 #: /api/dashboard/build-status.
 _DASHBOARD_LAST_BUILD_TIMINGS: Dict[str, float] = {}
 
+_build_store_lock = threading.Lock()
+_build_store = None
+
+
+def _dashboard_build_store():
+    """A SECOND store, with its own Postgres link, used only by the board build.
+
+    THE FIX FOR THE 07.11 BOARD OUTAGE, and the reason every earlier attempt at
+    it failed.
+
+    The build reads about a dozen panels through `HistoryStore._run`, which
+    serialises EVERY caller behind one `threading.Lock` guarding ONE Postgres
+    connection. The web process runs roughly eleven background threads plus up to
+    eight request threads, and they all share that one link. A single slow panel
+    therefore does not merely delay itself: it makes every other caller wait, and
+    a waiter that waits too long gives up and RAISES.
+
+    Measured: `/api/dashboard/data` answered 500 for hours with
+
+        dashboard build failed: shared Postgres link busy for 15s
+
+    while `/health`, the rail and every other surface were perfectly healthy. The
+    failure was never the data — it was the queue.
+
+    TWO ENV CHANGES WERE TRIED FIRST AND BOTH MADE IT WORSE, which is worth
+    recording because each looked reasonable:
+
+      * raising the lock wait 15s -> 120s turned a fast failure into a HANG, and
+        the log then said `busy for 120s`, proving a holder held the lock for
+        over two minutes;
+      * raising the statement timeout 8s -> 60s made every holder hold LONGER,
+        so the queue got worse rather than better.
+
+    Both are reverted. The real defect is the SHARING, and this removes it.
+
+    The build is single-threaded: it reads its panels one after another. Giving
+    it its own store means its own lock and its own connection, so it cannot
+    contend with the request path, with the loops, or with itself. This is the
+    same pattern the module already uses one level down for the heavy snapshot
+    pass (`HistoryStore._private_runner`), applied where it was actually needed.
+    """
+    global _build_store
+    # ON SQLITE THERE IS NOTHING TO FIX, and following `dashboard_db` is also what
+    # keeps the suite honest: every dashboard test replaces `main.dashboard_db`
+    # with a temporary store, and a build that quietly read a DIFFERENT one would
+    # be asserting against data the test never seeded. The contention this
+    # function exists to remove is a property of ONE SHARED POSTGRES LINK; SQLite
+    # opens per call and has no such queue.
+    if getattr(dashboard_db, "backend", "sqlite") != "postgresql":
+        return dashboard_db
+    if _build_store is None:
+        with _build_store_lock:
+            if _build_store is None:
+                _build_store = DashboardStore(DASHBOARD_DB_FILE)
+                log.info("dashboard build store: own Postgres link "
+                         "(backend=%s), so the build cannot contend with the "
+                         "request path", _build_store.backend)
+    return _build_store
+
 
 def _canonical_dashboard_payload(include_crm: bool = False,
                                  include_sales_detail: bool = False) -> dict:
@@ -6685,6 +6744,14 @@ def _canonical_dashboard_payload(include_crm: bool = False,
     # the public response keeps revealing nothing about our internals.
     _t_start = time.perf_counter()
     _timings: Dict[str, float] = {}
+    # Every DURABLE read below goes through this store, which owns its OWN
+    # Postgres link. Sharing the request path's link is what turned one slow
+    # panel into hours of 500s — see `_dashboard_build_store`.
+    #
+    # `get_payapi_state`, `get_meta` and `backend` deliberately still use
+    # `dashboard_db`: those are the LOCAL SQLite file, which has a different lock
+    # and cannot queue behind Postgres.
+    _db = _dashboard_build_store()
 
     def _step(name: str, fn):
         _t = time.perf_counter()
@@ -6699,31 +6766,31 @@ def _canonical_dashboard_payload(include_crm: bool = False,
             _DASHBOARD_LAST_BUILD_TIMINGS.clear()
             _DASHBOARD_LAST_BUILD_TIMINGS.update(_timings)
 
-    sales = _step("sales_summary", dashboard_db.sales_summary)
+    sales = _step("sales_summary", _db.sales_summary)
     # ON-CHAIN SALES · УСЛУГА (14.10): the route each payment was CONSUMED on.
     # The granted claim in payment_guards is the ONLY honest evidence (the same
     # join the CLIENTS section uses) — rows without a claim get route: None and
     # the table renders "—". Never guess a route from the amount here.
     try:
         _route_map = _step("guard_endpoint_map",
-                           dashboard_db.guard_endpoint_map)
+                           _db.guard_endpoint_map)
     except Exception as exc:
         log.debug("dashboard: guard endpoint map unavailable (%s)", exc)
         _route_map = {}
     for _row in sales["history"]:
         _row["route"] = _route_map.get(
             (_row.get("tx_hash") or "").lower()) or None
-    requests = _step("requests_summary", dashboard_db.requests_summary)
+    requests = _step("requests_summary", _db.requests_summary)
     payapi = _step("get_payapi_state", dashboard_db.get_payapi_state)
     price_map = _published_price_map()
     clients = _step(
         "clients_summary",
-        lambda: dashboard_db.clients_summary(price_map=price_map))
+        lambda: _db.clients_summary(price_map=price_map))
     whales = _step(
         "whaleflow_summary",
-        lambda: dashboard_db.whaleflow_summary(window_hours=24, limit=25))
-    guards = _step("guard_stats", dashboard_db.guard_stats)
-    guard_claims = _step("payment_guard_stats", dashboard_db.payment_guard_stats)
+        lambda: _db.whaleflow_summary(window_hours=24, limit=25))
+    guards = _step("guard_stats", _db.guard_stats)
+    guard_claims = _step("payment_guard_stats", _db.payment_guard_stats)
 
     onchain_total = sales["total_usdc"]
     # Priority-0 guard: the on-chain total must NEVER contain off-chain money.
@@ -6781,7 +6848,7 @@ def _canonical_dashboard_payload(include_crm: bool = False,
             # chain still shows it. The honest fix for the replay window is the
             # verifier, not this line (see F-05/F-09 in the audit).
             "track_record": _redact_track_record(
-                _tolerant("track_record", dashboard_db.track_record, {})),
+                _tolerant("track_record", _db.track_record, {})),
             "onchain": {
                 "label": "ИСТИНА — веригата",
                 "total_usdc": onchain_total,

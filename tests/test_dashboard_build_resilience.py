@@ -59,11 +59,48 @@ def test_tolerant_defaults_to_none_not_to_zero():
 
 
 def test_the_two_unwrapped_calls_are_now_wrapped():
-    """THE regression guard. These were the calls that failed the whole board."""
-    assert '_tolerant("track_record", dashboard_db.track_record' in MAIN_SRC, (
+    """THE regression guard. These were the calls that failed the whole board.
+
+    They read through `_db` (the build's own link) rather than `dashboard_db`,
+    for the reason `test_the_build_uses_its_own_store` records; what matters here
+    is that BOTH are wrapped.
+    """
+    assert '_tolerant("track_record"' in MAIN_SRC, (
         "track_record is unwrapped again; a failure there fails the whole build")
     assert '_tolerant("last_scanned_block"' in MAIN_SRC, (
         "get_meta is unwrapped again")
+
+
+def test_the_build_uses_its_own_store():
+    """THE regression guard for the outage itself.
+
+    The build read a dozen panels through the same single Postgres link the
+    request path and eleven background threads share. One slow panel then made
+    every other caller wait, and a waiter that waited too long RAISED — which is
+    how a slow query became hours of 500s on a board whose other surfaces were
+    fine.
+    """
+    assert "_db = _dashboard_build_store()" in MAIN_SRC, (
+        "the build no longer takes its own store")
+    assert "def _dashboard_build_store()" in MAIN_SRC
+    # The durable reads must go through it, not through the shared store.
+    for method in ("sales_summary", "requests_summary", "clients_summary",
+                   "whaleflow_summary", "guard_stats", "payment_guard_stats"):
+        assert "_db.%s" % method in MAIN_SRC, (
+            "%s still reads through the shared link" % method)
+
+
+def test_the_separate_store_is_postgres_only():
+    """On SQLite there is no shared link to contend for, and the suite replaces
+    `dashboard_db` to seed a temporary store — a build that read a different one
+    would assert against data the test never wrote."""
+    idx = MAIN_SRC.index("def _dashboard_build_store()")
+    # The window has to clear the function's own docstring, which is deliberately
+    # long: a 1800-char slice stopped inside it and reported the code as missing.
+    chunk = MAIN_SRC[idx:idx + 4000]
+    assert 'getattr(dashboard_db, "backend", "sqlite") != "postgresql"' in chunk, (
+        "the build store no longer defers to the injected store on SQLite")
+    assert "return dashboard_db" in chunk
 
 
 def test_the_board_still_builds_when_a_panel_raises(monkeypatch):
