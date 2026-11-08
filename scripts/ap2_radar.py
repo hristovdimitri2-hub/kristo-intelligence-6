@@ -46,7 +46,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -71,10 +71,57 @@ API = "https://api.github.com"
 MONITORED = [
     "google-agentic-commerce/AP2",
     "google-agentic-commerce/a2a-x402",
+    # ── WIDENED 08.11.2026, and not because "more is better" ──────────────────
+    # This list held TWO repositories while the ecosystem's work happens across
+    # dozens. A market census the same day showed the x402 conversation spread
+    # over at least these, each carrying threads about things we sell or depend
+    # on:
+    #
+    #   x402scan                      a directory that probes and vets endpoints
+    #   x402-conformance-probe        an independent conformance suite
+    #   alchemy-x402                  a facilitator whose 402 terms drifted
+    #   mart402-agent-kit             a competing host, 13 payers in 30 days
+    #   x402-agent-toolkit            interoperability testing
+    #   awesome-agent-native-services a listing surface for new services
+    #   indexagentica                 an agent-first directory taking entries
+    #   pulsefeed-x402                the FOREIGN radar — watching it is how we
+    #                                 see what it reports before our own
+    #                                 listings move
+    #
+    # The widening is also what MAKES THE BROADCAST RULE BELOW MEANINGFUL: with
+    # two repositories a "3+ repositories" rule can never fire.
+    #
+    # COST, measured rather than assumed: about one request per repository per
+    # scan. Anonymous GitHub allows 60 an hour, the daily run is the only
+    # automatic caller, so this fits — but a diagnostic afternoon of repeated
+    # runs will hit the limit, which is what GITHUB_TOKEN is for. A 403 is
+    # reported as an API error, never as "nothing moved".
+    "Merit-Systems/x402scan",
+    "developerfred/x402-conformance-probe",
+    "alchemyplatform/alchemy-x402",
+    "tanaka-77/mart402-agent-kit",
+    "node4dev/x402-agent-toolkit",
+    "haoruilee/awesome-agent-native-services",
+    "Drudley/indexagentica",
+    "Nikolife2016/pulsefeed-x402",
 ]
 WG_PATTERNS = ["wg-domain-discovery", "wg-tax", "ap2-wg", "ap2-working-group"]
 KEYWORDS = ["discovery", "manifest", "acceptednetworks", "buyer", "census",
             "tax", "draft"]
+
+#: BROADCAST DETECTION, borrowed from a foreign radar that runs the same idea at
+#: a larger scale. Their rule, as they state it: a branch is cut when "one author
+#: or one host appears in three or more FOREIGN repositories within two weeks".
+#:
+#: The insight worth taking is that a broadcaster is identified by SPREAD rather
+#: than by wording — so rewording cannot defeat it, which is the failure mode of
+#: every keyword filter eventually.
+#:
+#: IT NEEDED THE WATCH LIST WIDENED FIRST. With two repositories this can never
+#: fire, and a rule that cannot fire is worse than no rule: it reads like
+#: protection while providing none.
+BROADCAST_MIN_REPOS = 3
+BROADCAST_WINDOW_DAYS = 14
 CENSUS_RE = re.compile(r"(\d[\d,]{2,})\s*(hosts|merchants|agents|providers)",
                        re.IGNORECASE)
 ROOT = Path(__file__).resolve().parent.parent
@@ -356,6 +403,50 @@ def _repo_conversation(full: str, seen: set[str],
     return out
 
 
+def _broadcast_authors(pairs: list[tuple[str, dict]],
+                       today: datetime | None = None) -> dict[str, list[str]]:
+    """{author login: [repos they appeared in]} for authors who SPREAD.
+
+    A broadcaster is one author opening threads across several repositories in a
+    short window. The signal is the spread, not the words: a keyword filter is
+    defeated by rewording and this is not, because posting the same pitch in
+    seven repos looks the same whatever it says.
+
+    `pairs` is every `(repo_full_name, item)` collected this run, across ALL
+    watched repositories — the whole point is that the judgement cannot be made
+    one repository at a time, which is how the first draft of this was wrong.
+
+    ONLY ITEMS IN THE WINDOW COUNT. A long-standing contributor who legitimately
+    touches three repositories over a year is not a broadcaster; the same person
+    touching three in a fortnight is. Items without a usable date are counted,
+    because dropping them silently would UNDER-report spread, and the failure
+    this guards against is noise, not a missed item.
+
+    Returns the mapping so the caller can both cut the items and say WHO was cut
+    and WHY — a radar that hides what it discarded cannot be checked.
+    """
+    now = today or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=BROADCAST_WINDOW_DAYS)).date()
+
+    spread: dict[str, set[str]] = {}
+    for repo, item in pairs:
+        author = (item.get("user") or "").strip()
+        if not author:
+            continue
+        stamp = (item.get("updated") or "").strip()
+        if stamp:
+            try:
+                if datetime.strptime(stamp[:10], "%Y-%m-%d").date() < cutoff:
+                    continue
+            except ValueError:
+                # An unparseable date is not a reason to EXCUSE the author.
+                pass
+        spread.setdefault(author, set()).add(repo)
+
+    return {a: sorted(repos) for a, repos in spread.items()
+            if len(repos) >= BROADCAST_MIN_REPOS}
+
+
 def _search_new_wg_repos(known: list[str]) -> list[dict]:
     """Public repos that look like AP2 working-group artifacts."""
     found = []
@@ -446,9 +537,34 @@ def main() -> int:
     # something actionable, and because a run that dies later still leaves it.
     lines += ["## Разговорът (issues и PR-и, обновени от миналия път)", ""]
     seen_conv = set(state.get("seen_conversation", []))
+
+    # COLLECT FIRST, JUDGE ONCE, THEN RENDER — and the order is the whole point.
+    # The first draft decided per repository as it went, which cannot see that
+    # one author opened threads in five of them: the evidence needed to call
+    # somebody a broadcaster is spread ACROSS the loop, not available inside one
+    # turn of it.
+    fetched: list[tuple[str, list]] = [(full, _repo_conversation(full, seen_conv))
+                                       for full in MONITORED]
+    all_items = [(repo, it) for repo, items in fetched for it in items
+                 if "error" not in it]
+    broadcasters = _broadcast_authors(all_items)
+
     conv_total = 0
-    for full in MONITORED:
-        items = _repo_conversation(full, seen_conv)
+    cut_total = 0
+    #: repo -> items worth reporting (broadcasters removed)
+    kept: dict[str, list] = {}
+    cut: list[tuple[str, dict]] = []
+    for full, items in fetched:
+        if not items or "error" in items[0]:
+            kept[full] = items
+            continue
+        keep = [it for it in items if (it.get("user") or "") not in broadcasters]
+        kept[full] = keep
+        cut.extend((full, it) for it in items
+                   if (it.get("user") or "") in broadcasters)
+        conv_total += len(keep)
+
+    for full, items in fetched:
         lines.append(f"### {full}")
         lines.append("")
         if items and "error" in items[0]:
@@ -456,9 +572,12 @@ def main() -> int:
         elif not items:
             lines.append("- Нищо ново обновено от миналия път.")
         else:
+            rows = kept.get(full) or []
+            if not rows:
+                lines.append("- Всичко ново тук е от разпространител (виж по-долу).")
+                continue
             anything = True
-            for it in items:
-                conv_total += 1
+            for it in rows:
                 kw = (f" ← КЛЮЧОВИ ДУМИ: {', '.join(it['keywords'])}"
                       if it["keywords"] else "")
                 lines.append(f"- **#{it['number']}** [{it['kind']}, {it['state']}, "
@@ -467,8 +586,28 @@ def main() -> int:
                 lines.append(f"  - {it['url']}")
                 seen_conv.add(str(it["number"]))
         lines.append("")
-    if conv_total:
-        lines.append(f"Общо нови/обновени нишки: **{conv_total}**.")
+
+    if cut:
+        # CUT, NOT DELETED. The foreign radar puts these under a fold rather than
+        # dropping them, and that is right: a radar that hides what it discarded
+        # cannot be checked, and the rule itself could be wrong.
+        cut_total = len(cut)
+        lines.append(f"### ⛔ Отсечено като разпръскване: {cut_total} "
+                     f"(един автор в {BROADCAST_MIN_REPOS}+ репозитория за "
+                     f"{BROADCAST_WINDOW_DAYS} дни)")
+        lines.append("")
+        for author, repos in sorted(broadcasters.items()):
+            lines.append(f"- **@{author}** — в {len(repos)} репозитория: "
+                         f"{', '.join(repos)}")
+            for repo, it in cut:
+                if (it.get("user") or "") == author:
+                    lines.append(f"  - #{it['number']} в {repo} — {it['title'][:90]}")
+                    seen_conv.add(str(it["number"]))
+        lines.append("")
+
+    if conv_total or cut_total:
+        lines.append(f"Общо нови/обновени нишки: **{conv_total}**"
+                     + (f" (+{cut_total} отсечени)." if cut_total else "."))
         lines.append("")
     state["seen_conversation"] = sorted(seen_conv)
 

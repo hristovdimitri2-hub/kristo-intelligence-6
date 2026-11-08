@@ -174,7 +174,7 @@ blockchain/wallet.py     # Base wallet, USDC transfers, on-chain verification
 scripts/                 # On-chain recon tools, demo agent, E2E helpers
 examples/demo_agent/     # Public reference x402 client
 docs/                    # Audit reports, recon findings, outreach docs
-tests/                   # Test suite (1156 tests)
+tests/                   # Test suite (1167 tests)
 ```
 
 ## Verification
@@ -185,7 +185,7 @@ tests/                   # Test suite (1156 tests)
   canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
 - **23/23 adversarial audit** (mystery-agent simulation, 2026-08-29 — a dated
   snapshot; see the banner in `docs/MYSTERY_AGENT_REPORT.md`)
-- **1156 automated tests** in this repository
+- **1167 automated tests** in this repository
 
 ## Docs
 
