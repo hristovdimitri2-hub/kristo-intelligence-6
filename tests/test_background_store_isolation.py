@@ -241,3 +241,57 @@ def test_every_isolated_store_is_bound_before_it_is_used():
     assert not offenders, (
         "a local store is read before it is bound — it raises NameError on every "
         "cycle, and the loop's own except swallows it: %r" % offenders)
+
+
+def test_no_module_level_thread_starts_before_its_names_exist():
+    """THE BUG THIS PINS, measured locally on 08.11:
+
+        Request-log retention failed (non-fatal): name '_isolated_store' is not
+        defined
+
+    `_request_log_retention` and `_detect_reorgs` were started with
+    `threading.Thread(...).start()` at MODULE level. Both call `_isolated_store`,
+    defined ~1,400 lines further down, so the thread could run before Python had
+    created the name. Both raised NameError, both were caught by their own
+    `except`, and both reported themselves as "non-fatal" — while retention is the
+    fix for the 07.11 OOM and reorg detection guards recorded sales.
+
+    A module-level thread start must therefore come AFTER every module-level
+    definition it can reach. Anything that needs to run early belongs in
+    `_start_background_threads()`, which runs once the module is importable.
+    """
+    import ast
+
+    tree = ast.parse(MAIN_SRC)
+    # Every module-level def/assignment name, with the line it is bound on.
+    bound = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            bound[node.name] = node.lineno
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    bound[t.id] = node.lineno
+
+    offenders = []
+    for node in tree.body:
+        # A module-level `threading.Thread(...)` statement, or a `.start()` on it
+        for sub in ast.walk(node):
+            if not (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr in ("start", "Thread")):
+                continue
+            for name_node in ast.walk(sub):
+                if not isinstance(name_node, ast.Name):
+                    continue
+                where = bound.get(name_node.id)
+                if where is not None and where > node.lineno:
+                    offenders.append(
+                        ("line %d starts a thread naming `%s`, defined at line %d"
+                         % (node.lineno, name_node.id, where)))
+                    break
+    # De-duplicate: one line can be reported by both the Thread and start walks.
+    offenders = sorted(set(offenders))
+    assert not offenders, (
+        "a module-level thread start races the definition it needs, and the "
+        "NameError lands in that thread's own except: %r" % offenders)

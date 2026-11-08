@@ -59,14 +59,27 @@ def test_duplicate_module_load_skips_all_threads(monkeypatch):
     # monitor + agent + catalog + stripe-snapshot + dashboard + dashboard-warmer
     # + requests-snapshot-warmer + whaleflow + keep-alive + telegram-sales
     # + organism-boot
-    # = 11 threads.
+    # + request-log-retention + reorg-watch
+    # = 13 threads.
+    #
+    # The last two moved here from MODULE level on 08.11.2026. Both call
+    # `_isolated_store`, defined ~1,400 lines below where they were started, so
+    # the thread could run before Python had created the name:
+    #
+    #     Request-log retention failed (non-fatal): name '_isolated_store' is
+    #     not defined
+    #
+    # Retention is what keeps `request_log` bounded — the fix for the 07.11 OOM —
+    # and reorg detection is what notices a chain reorganisation invalidating a
+    # recorded sale. Both raised NameError, both were swallowed by their own
+    # `except`, and both reported themselves as non-fatal while being dead.
     #
     # `organism-boot` writes the organism's opening heartbeat. It runs in its OWN
     # thread on purpose: the write is a Postgres round-trip, and this runs at
     # import time BEFORE gunicorn binds the port. A durable write on that path
     # already cost this project one deploy (module-level purge_old_requests in
     # a4c1cb0), so boot must not wait on telemetry.
-    assert len(first_run) == 11, first_run
+    assert len(first_run) == 13, first_run
     assert "organism-boot" in first_run, (
         "the organism's boot heartbeat must be on its own thread, not on the "
         "path to binding the port")

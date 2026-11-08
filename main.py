@@ -388,9 +388,6 @@ def _request_log_retention() -> None:
         log.warning("Request-log retention failed (non-fatal): %s", exc)
 
 
-threading.Thread(target=_request_log_retention, daemon=True,
-                 name="request-log-retention").start()
-
 # ── Off-chain record durability (audit A2) ────────────────────────────────
 # The ON-CHAIN numbers are re-seeded from the chain on every boot, so a deploy
 # cannot zero them. The CRM (leads / paid leads / sales pipeline) has no such
@@ -3809,8 +3806,6 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # Finality watch, OFF the request path: the payer must not wait on 25 block
     # reads. Fire-and-forget — the same check also runs in the agent loop, and a
     # detection only ever adds a visible guard event, never a refusal here.
-    threading.Thread(target=_detect_reorgs, daemon=True,
-                     name="reorg-watch").start()
     connectors.touch("x402-eip3009")
     connectors.touch("base-usdc-receiver")
     # Spec-compliant v2 settlement receipt (emitted by _emit_payment_response).
@@ -7728,6 +7723,25 @@ def _start_background_threads():
 
     # Whale flow: its OWN thread (Табло 2.0 audit) — a network-wide scan must
     # not sit behind retro_scan, and must not starve the sales numbers.
+    # ── MOVED HERE FROM MODULE LEVEL (08.11.2026) ─────────────────────────
+    # Both call `_isolated_store`, which is defined further down this module.
+    # Started at module level they raced the rest of the import and the name
+    # did not exist yet:
+    #
+    #     Request-log retention failed (non-fatal): name '_isolated_store'
+    #     is not defined
+    #
+    # Retention is what keeps `request_log` bounded — it is the fix for the
+    # 07.11 OOM — and reorg detection notices a reorg invalidating a recorded
+    # sale. Neither is non-fatal, and both were dead.
+    #
+    # Started here instead: after the module is importable and the port is
+    # bound, which is where a4c1cb0 already said work of this shape belongs.
+    threading.Thread(target=_request_log_retention, daemon=True,
+                     name="request-log-retention").start()
+    threading.Thread(target=_detect_reorgs, daemon=True,
+                     name="reorg-watch").start()
+
     t_whale = threading.Thread(
         target=_whaleflow_scan_loop,
         daemon=True,
