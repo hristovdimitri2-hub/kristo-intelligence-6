@@ -1506,15 +1506,22 @@ def _whaleflow_scan_loop():
     hours = max(1, int(os.getenv("WHALEFLOW_BACKFILL_HOURS", "24")))
     log.info("Whale flow scan loop started (backfill=%dh, interval=%ss).",
              hours, interval)
+    # ITS OWN POSTGRES LINK. This loop walks the chain network-wide — the backfill
+    # alone is documented above as "hours on a free RPC" — and writes every whale
+    # it finds. Through the shared link it held that link for 45+ seconds at a
+    # time, and every request in the process was refused a write for hours:
+    # `holder=whaleflow-scan held=45s` in the log, with the request log frozen and
+    # all six organism blocks reading `not_reached`. See `_isolated_store`.
+    whale_db = _whaleflow_store()
     try:
-        added = dashboard_db.whaleflow_backfill(hours=hours)
+        added = whale_db.whaleflow_backfill(hours=hours)
         log.info("Whale flow backfill: %d whale event(s) persisted.", added)
     except Exception as exc:
         log.warning("Whale flow backfill failed (incremental will catch up): %s",
                     redact_rpc(exc))
     while True:
         try:
-            added = dashboard_db.whaleflow_increment()
+            added = whale_db.whaleflow_increment()
             if added:
                 log.info("Whale flow increment: %d new event(s).", added)
         except Exception as exc:
@@ -6667,64 +6674,72 @@ def _crm_stripe_section() -> dict:
 #: /api/dashboard/build-status.
 _DASHBOARD_LAST_BUILD_TIMINGS: Dict[str, float] = {}
 
-_build_store_lock = threading.Lock()
-_build_store = None
+_isolated_stores: Dict[str, object] = {}
+_isolated_stores_lock = threading.Lock()
+
+
+def _isolated_store(purpose: str):
+    """A store with its OWN Postgres link, for one named background job.
+
+    THE PATTERN THAT FIXED THE BOARD, GENERALISED — because the board was not the
+    only job that needed it.
+
+    `HistoryStore._run` serialises every caller behind one `threading.Lock`
+    guarding ONE Postgres connection. The web process runs ~11 background threads
+    plus up to 8 request threads, and they all share that single link. So any job
+    that is slow, network-bound, or long-running stalls EVERY request in the
+    process while it holds it — and the caller that waits too long is refused.
+
+    That is not a theory. On 08.11 the request log stopped being written for
+    hours, all six organism blocks read `not_reached`, and every write failed
+    with `busy for 2s`. Naming the holder ended the guessing:
+
+        shared Postgres link busy for 2s; holder=whaleflow-scan held=45s
+
+    `_whaleflow_scan_loop` walks the chain network-wide — the backfill alone is
+    documented as "hours on a free RPC" — and every whale it finds is written
+    through the shared link. The board survived it only because it already had
+    its own link.
+
+    WHY A SEPARATE STORE AND NOT JUST A `runner` ARGUMENT: the public store
+    methods (`whaleflow_increment`, `whaleflow_backfill`) take no runner, and
+    threading one through every method would touch far more code than the fault
+    justifies. A second store instance carries its own `_pg_lock` AND its own
+    connection, which is exactly the isolation required — and it is the same
+    mechanism the heavy snapshot pass already uses one level down
+    (`HistoryStore._private_runner`).
+
+    ON SQLITE it defers to `dashboard_db`: the contention is a property of one
+    SHARED POSTGRES LINK, SQLite opens per call, and following the injected store
+    is what keeps the suite honest.
+    """
+    if getattr(dashboard_db, "backend", "sqlite") != "postgresql":
+        return dashboard_db
+    store = _isolated_stores.get(purpose)
+    if store is None:
+        with _isolated_stores_lock:
+            store = _isolated_stores.get(purpose)
+            if store is None:
+                store = DashboardStore(DASHBOARD_DB_FILE)
+                _isolated_stores[purpose] = store
+                log.info("isolated store %r: own Postgres link (backend=%s), so "
+                         "it cannot contend with the request path",
+                         purpose, store.backend)
+    return store
 
 
 def _dashboard_build_store():
-    """A SECOND store, with its own Postgres link, used only by the board build.
+    """The board build's own store. See `_isolated_store` for the full reason."""
+    return _isolated_store("dashboard-build")
 
-    THE FIX FOR THE 07.11 BOARD OUTAGE, and the reason every earlier attempt at
-    it failed.
 
-    The build reads about a dozen panels through `HistoryStore._run`, which
-    serialises EVERY caller behind one `threading.Lock` guarding ONE Postgres
-    connection. The web process runs roughly eleven background threads plus up to
-    eight request threads, and they all share that one link. A single slow panel
-    therefore does not merely delay itself: it makes every other caller wait, and
-    a waiter that waits too long gives up and RAISES.
+def _whaleflow_store():
+    """The whale scan's own store.
 
-    Measured: `/api/dashboard/data` answered 500 for hours with
-
-        dashboard build failed: shared Postgres link busy for 15s
-
-    while `/health`, the rail and every other surface were perfectly healthy. The
-    failure was never the data — it was the queue.
-
-    TWO ENV CHANGES WERE TRIED FIRST AND BOTH MADE IT WORSE, which is worth
-    recording because each looked reasonable:
-
-      * raising the lock wait 15s -> 120s turned a fast failure into a HANG, and
-        the log then said `busy for 120s`, proving a holder held the lock for
-        over two minutes;
-      * raising the statement timeout 8s -> 60s made every holder hold LONGER,
-        so the queue got worse rather than better.
-
-    Both are reverted. The real defect is the SHARING, and this removes it.
-
-    The build is single-threaded: it reads its panels one after another. Giving
-    it its own store means its own lock and its own connection, so it cannot
-    contend with the request path, with the loops, or with itself. This is the
-    same pattern the module already uses one level down for the heavy snapshot
-    pass (`HistoryStore._private_runner`), applied where it was actually needed.
+    This is the job that was measured holding the shared link for 45 seconds at a
+    time, on repeat, while every request in the process was refused a write.
     """
-    global _build_store
-    # ON SQLITE THERE IS NOTHING TO FIX, and following `dashboard_db` is also what
-    # keeps the suite honest: every dashboard test replaces `main.dashboard_db`
-    # with a temporary store, and a build that quietly read a DIFFERENT one would
-    # be asserting against data the test never seeded. The contention this
-    # function exists to remove is a property of ONE SHARED POSTGRES LINK; SQLite
-    # opens per call and has no such queue.
-    if getattr(dashboard_db, "backend", "sqlite") != "postgresql":
-        return dashboard_db
-    if _build_store is None:
-        with _build_store_lock:
-            if _build_store is None:
-                _build_store = DashboardStore(DASHBOARD_DB_FILE)
-                log.info("dashboard build store: own Postgres link "
-                         "(backend=%s), so the build cannot contend with the "
-                         "request path", _build_store.backend)
-    return _build_store
+    return _isolated_store("whaleflow-scan")
 
 
 def _canonical_dashboard_payload(include_crm: bool = False,

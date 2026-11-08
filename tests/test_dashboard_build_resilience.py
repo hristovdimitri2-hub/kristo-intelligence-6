@@ -94,13 +94,37 @@ def test_the_separate_store_is_postgres_only():
     """On SQLite there is no shared link to contend for, and the suite replaces
     `dashboard_db` to seed a temporary store — a build that read a different one
     would assert against data the test never wrote."""
-    idx = MAIN_SRC.index("def _dashboard_build_store()")
+    idx = MAIN_SRC.index("def _isolated_store(")
     # The window has to clear the function's own docstring, which is deliberately
     # long: a 1800-char slice stopped inside it and reported the code as missing.
     chunk = MAIN_SRC[idx:idx + 4000]
     assert 'getattr(dashboard_db, "backend", "sqlite") != "postgresql"' in chunk, (
-        "the build store no longer defers to the injected store on SQLite")
+        "the isolated store no longer defers to the injected store on SQLite")
     assert "return dashboard_db" in chunk
+    # Both jobs must go through the ONE mechanism; duplicating it is how they
+    # drift apart again.
+    assert 'return _isolated_store("dashboard-build")' in MAIN_SRC
+    assert 'return _isolated_store("whaleflow-scan")' in MAIN_SRC
+
+
+def test_the_whale_scan_does_not_use_the_shared_link():
+    """THE regression guard for the 08.11 write outage.
+
+    `_whaleflow_scan_loop` walks the chain network-wide and held the shared
+    Postgres link for 45+ seconds at a time, on repeat, so every request in the
+    process was refused a write. The log named it:
+    `holder=whaleflow-scan held=45s`.
+    """
+    idx = MAIN_SRC.index("def _whaleflow_scan_loop()")
+    chunk = MAIN_SRC[idx:idx + 3000]
+    assert "whale_db = _whaleflow_store()" in chunk, (
+        "the whale loop no longer takes its own store")
+    assert "whale_db.whaleflow_backfill(" in chunk
+    assert "whale_db.whaleflow_increment(" in chunk
+    assert "dashboard_db.whaleflow_backfill(" not in chunk, (
+        "the whale backfill is back on the shared link")
+    assert "dashboard_db.whaleflow_increment(" not in chunk, (
+        "the whale increment is back on the shared link")
 
 
 def test_the_board_still_builds_when_a_panel_raises(monkeypatch):
