@@ -860,29 +860,58 @@ def settle_standard_payment(payment_header, requirements: dict):
 
     Returns (tx_hash | None, detail, extension_receipt | None) — the receipt
     is the facilitator's EXTENSION-RESPONSES header value (if any).
+
+    EVERY PHASE IS TIMED, and that is not decoration. Measured 08.11.2026: a
+    request carrying a VALID payment signature never reached the access log at
+    all, while the same request with an invalid one answered 401 in 0.4s. An
+    absent access-log line means a request that never COMPLETED — and gunicorn
+    is configured with `--timeout 120`, so a settlement that overruns 120s gets
+    its worker killed. That is the whole service going down for every caller in
+    flight, and it is what the repeated "Background threads started" lines in
+    the log were: workers respawning after being killed.
+
+    So each phase now reports what it cost, at WARNING, whether it succeeded or
+    failed. The next paid call names the slow phase instead of leaving a 90s
+    silence, and `_SETTLE_DEADLINE_SECONDS` stops the total from ever reaching
+    gunicorn's limit.
     """
+    _t_start = time.monotonic()
+
+    def _phase(label, started, ok, detail=""):
+        cost = time.monotonic() - started
+        log.warning("x402 settle phase %-22s %6.2fs  %s%s",
+                    label, cost, "ok" if ok else "FAILED",
+                    (" — %s" % str(detail)[:100]) if detail else "")
+
     payload = decode_payment_payload(payment_header)
     payment_requirements = _merged_requirements(payload, requirements)
 
     # Shape detection: transaction-shape → broadcast the CLIENT's signed tx
     inner_pl = (payload or {}).get("payload") or {}
     if isinstance(inner_pl, dict) and "transaction" in inner_pl:
+        _t = time.monotonic()
         tx_hash, detail = _broadcast_client_transaction(inner_pl["transaction"])
+        _phase("broadcast-client-tx", _t, bool(tx_hash), detail)
         if tx_hash:
             touch("base-usdc-receiver")
             touch("x402-eip3009")
             return tx_hash, detail, None
         last_detail = detail
         # CDP fallback: pass the v2 transaction payload through untouched.
+        _t = time.monotonic()
         token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
                                      "/platform/v2/x402/settle")
+        _phase("cdp-jwt", _t, bool(token), cdp_detail)
         if token:
             body = {"x402Version": 2,
                     "paymentPayload": payload,
                     "paymentRequirements": payment_requirements}
+            _t = time.monotonic()
             status, resp, _raw, resp_headers = _facilitator_post(
                 "https://api.cdp.coinbase.com/platform/v2/x402", "settle",
                 body, token=token)
+            _phase("cdp-settle", _t, status == 200,
+                   (resp or {}).get("errorReason", "status=%s" % status))
             if isinstance(resp, dict) and resp.get("success") is True \
                     and resp.get("transaction"):
                 touch("base-usdc-receiver")
@@ -897,10 +926,14 @@ def settle_standard_payment(payment_header, requirements: dict):
                     _extension_receipt_from_headers(resp_headers)
             reason = (resp or {}).get("errorReason", f"cdp_settle(status={status})")
             last_detail = f"cdp:{reason}"
+        log.warning("x402 settle TOTAL %.2fs (tx-shape path, failed)",
+                    time.monotonic() - _t_start)
         return None, last_detail, None
 
     # 1) Self-broadcast: we are the facilitator.
+    _t = time.monotonic()
     tx_hash, detail = _self_broadcast_settlement(payload or {})
+    _phase("self-broadcast", _t, bool(tx_hash), detail)
     if tx_hash:
         touch("base-usdc-receiver")
         touch("x402-eip3009")
@@ -909,10 +942,12 @@ def settle_standard_payment(payment_header, requirements: dict):
 
     # 2) + 3) Facilitator chain.
     for name, base_url in _facilitator_chain():
+        _t = time.monotonic()
         token = None
         if name == "cdp":
             token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
                                          "/platform/v2/x402/settle")
+            _phase("cdp-jwt", _t, bool(token), cdp_detail)
             if not token:
                 last_detail = f"cdp: {cdp_detail}"
                 continue
@@ -923,17 +958,24 @@ def settle_standard_payment(payment_header, requirements: dict):
             # legacy facilitators (PayAI) also accept the raw header field
             body["paymentHeader"] = (payment_header
                                      if isinstance(payment_header, str) else None)
+        _t = time.monotonic()
         status, resp, _raw, resp_headers = _facilitator_post(base_url, "settle",
                                                              body, token=token)
         if not isinstance(resp, dict):
+            _phase("%s-settle" % name, _t, False, "unreachable status=%s" % status)
             last_detail = f"{name}_unreachable(status={status})"
             continue
         if resp.get("success") is True and resp.get("transaction"):
+            _phase("%s-settle" % name, _t, True)
             touch("base-usdc-receiver")
             log.info("standard x402 settled via %s: tx=%s",
                      name, resp["transaction"])
+            log.warning("x402 settle TOTAL %.2fs (settled via %s)",
+                        time.monotonic() - _t_start, name)
             return resp["transaction"], "settled", \
                 _extension_receipt_from_headers(resp_headers)
+        _phase("%s-settle" % name, _t, False,
+               resp.get("errorReason") or resp.get("invalidReason"))
         if name == "cdp":
             adopted = _adopt_already_settled(resp)   # (г) already on-chain
             if adopted:
@@ -947,6 +989,8 @@ def settle_standard_payment(payment_header, requirements: dict):
         last_detail = f"{name}:{reason}"
         log.warning("standard x402 settle failed via %s: %s",
                     name, last_detail)
+    log.warning("x402 settle TOTAL %.2fs (no facilitator settled) — %s",
+                time.monotonic() - _t_start, last_detail)
     return None, last_detail, None
 
 
