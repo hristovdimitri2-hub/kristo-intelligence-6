@@ -316,7 +316,7 @@ def beat(store, block: str, verdict: str = OK, detail: str = "") -> bool:
                 _HEARTBEAT_PREFIX + block + "_detail", str(detail)[:200])
         return True
     except Exception as exc:  # noqa: BLE001 - telemetry only
-        log.debug("organism heartbeat write failed for %s: %s", block, exc)
+        log.warning("organism heartbeat write failed for %s: %s", block, exc)
         return False
 
 

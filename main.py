@@ -2689,9 +2689,15 @@ def _capture_live_request(response):
             referer=request.headers.get("Referer") or "",
             funnel=g.get("funnel_channel"),
         )
-    except Exception:
-        # Observability must never affect the application response.
-        pass
+    except Exception as exc:  # noqa: BLE001 - observability must never fail the response
+        # Observability must never affect the application response — but it must
+        # also never be SILENT. This was a bare `pass`, and that is why the
+        # request log was empty for hours on 08.11 while every surface looked
+        # healthy: the write failed on every single request and nothing anywhere
+        # said so. The traffic ledger is the instrument the business is steered
+        # by; losing it quietly is worse than losing it loudly.
+        log.warning("request log write failed (%s): %s",
+                    type(exc).__name__, redact_rpc(exc))
     return response
 
 
@@ -4622,7 +4628,7 @@ def _organism_journal_note(block: str, kind: str, severity: str = "info",
         oj.append(dashboard_db, block, kind, severity=severity, detail=detail,
                   action=action, outcome=outcome)
     except Exception as exc:  # noqa: BLE001 - telemetry only
-        log.debug("organism journal note failed (%s/%s): %s", block, kind, exc)
+        log.warning("organism journal note failed (%s/%s): %s", block, kind, exc)
 
 
 def _organism_beat(block: str, verdict: str, detail: str = "") -> None:
@@ -4636,7 +4642,7 @@ def _organism_beat(block: str, verdict: str, detail: str = "") -> None:
         from services import organism
         organism.beat(dashboard_db, block, verdict, detail)
     except Exception as exc:  # noqa: BLE001 - telemetry only
-        log.debug("organism heartbeat failed (%s): %s", block, exc)
+        log.warning("organism heartbeat failed (%s): %s", block, exc)
 
 
 def _tolerant(name: str, fn, default=None):
