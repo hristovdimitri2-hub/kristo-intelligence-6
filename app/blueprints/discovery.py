@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1131
+SUITE_TESTS_PASSED = 1139
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1804,13 +1804,46 @@ def _mcp_tools(base_url):
         """One MCP tool. `input_schema` is omitted by every route that takes no
         input; /api/v1/verify-seller requires a `receiver`, and an MCP tool that
         declares an empty schema while its route demands a query parameter tells
-        the agent the call is complete when it is not."""
+        the agent the call is complete when it is not.
+        """
         return {
             "name": name,
             "description": description,
             "inputSchema": (input_schema if input_schema is not None
                             else {"type": "object", "properties": {},
                                   "additionalProperties": False}),
+            # MACHINE-READABLE "THIS ONLY READS", and it is not cosmetic.
+            #
+            # Every tool here is a pure read: a chain scan, a market snapshot, a
+            # status read. The DESCRIPTIONS have always said so in prose — "Read-
+            # only operation, no side effects" — but the protocol carries that
+            # fact in `annotations`, and a client that reads the annotation
+            # instead of the sentence saw nothing at all. Two directories said so
+            # in public, and a buyer sees it before paying:
+            #
+            #   mcptry, per tool: "This tool isn't marked read-only, so it MAY
+            #   CHANGE SOMETHING on the server or in an account you connected.
+            #   [I understand, run it anyway]"
+            #
+            #   Glama's TDQS, per tool: "WITH NO ANNOTATIONS SUPPLIED, the
+            #   description carries the full burden" — and scored the behavior
+            #   dimension 4/5 for exactly that reason, across all seven.
+            #
+            # That warning sat in front of a paid call that only reads. Friction
+            # there is expensive and it is also simply untrue, and an agent
+            # deciding whether to spend is the audience this file exists for.
+            #
+            # `openWorldHint` is TRUE on purpose and is not a hedge: the answers
+            # genuinely depend on the outside world — Base, CoinGecko,
+            # DEXScreener — so a client should expect them to change between
+            # calls. Claiming otherwise would be the dishonesty in the other
+            # direction.
+            "annotations": {
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
             "x402": {"price_usdc": _price(route), "chain_id": X402_CHAIN_ID,
                      "receiver": X402_RECEIVER_ADDRESS,
                      "token_contract": X402_USDC_CONTRACT,
