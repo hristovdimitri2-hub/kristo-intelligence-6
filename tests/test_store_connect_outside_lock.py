@@ -34,6 +34,7 @@ import main
 
 REPO = Path(__file__).resolve().parent.parent
 STORE_SRC = (REPO / "integrations" / "dashboard_store.py").read_text(encoding="utf-8")
+MAIN_SRC = (REPO / "main.py").read_text(encoding="utf-8")
 
 
 def _run_body() -> str:
@@ -129,3 +130,30 @@ def test_a_heartbeat_round_trips():
     v = org.last_verdict(store, "delivery")
     assert v.get("verdict") == "ok"
     assert v.get("at") is not None
+
+
+# ── 3. an isolated store must not repeat the schema DDL ─────────────────────
+
+def test_an_isolated_store_skips_the_schema_pass():
+    """A store opened only to own a connection must not run the DDL.
+
+    THE DEFECT THIS PINS, measured 08.11. `_isolated_store` created a
+    `DashboardStore`, whose `HistoryStore.__init__` runs the full schema pass.
+    That pass is not free on this database — the plan is `0.1c-256mb`, and
+    `CREATE TABLE IF NOT EXISTS` takes an ACCESS EXCLUSIVE lock even when the
+    table already exists. With the board build AND the whale scan each opening an
+    isolated store at boot, three schema passes contended on those locks, and the
+    board's FIRST build step then waited behind them and never completed:
+
+        /api/dashboard/data  ->  503, and `last_build_timings_ms` stayed EMPTY
+
+    Empty timings is the tell: not one step had finished.
+    """
+    idx = MAIN_SRC.index('store = DashboardStore(DASHBOARD_DB_FILE')
+    chunk = MAIN_SRC[idx - 900:idx + 200]
+    assert "ensure_schema=False" in chunk, (
+        "the isolated store runs the schema pass again, which stalls the board")
+    assert "ensure_schema: bool = True" in STORE_SRC, (
+        "HistoryStore no longer accepts the flag")
+    assert "if ensure_schema:" in STORE_SRC, (
+        "HistoryStore ignores the flag and always runs the DDL")

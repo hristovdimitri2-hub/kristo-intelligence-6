@@ -6720,7 +6720,16 @@ def _isolated_store(purpose: str):
         with _isolated_stores_lock:
             store = _isolated_stores.get(purpose)
             if store is None:
-                store = DashboardStore(DASHBOARD_DB_FILE)
+                # `ensure_schema=False`: this store exists ONLY to own a separate
+                # Postgres connection. Running the DDL again is not merely
+                # wasteful — on this database it is HARMFUL. The plan is
+                # `0.1c-256mb`, and `CREATE TABLE IF NOT EXISTS` takes an ACCESS
+                # EXCLUSIVE lock even when the table already exists, so several
+                # stores each running the full schema pass at boot contend on
+                # those locks and the board's first build step waits behind them
+                # and never completes. The owning store has already created
+                # everything this one will ever read.
+                store = DashboardStore(DASHBOARD_DB_FILE, ensure_schema=False)
                 _isolated_stores[purpose] = store
                 log.info("isolated store %r: own Postgres link (backend=%s), so "
                          "it cannot contend with the request path",

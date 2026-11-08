@@ -530,7 +530,8 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
 class HistoryStore:
     """request_log + whaleflow_events + onchain_sales, SQLite or PostgreSQL."""
 
-    def __init__(self, sqlite_connect, write_lock, database_url: str = ""):
+    def __init__(self, sqlite_connect, write_lock, database_url: str = "",
+                 ensure_schema: bool = True):
         self._sqlite_connect = sqlite_connect
         self._lock = write_lock
         self.database_url = (database_url or "").strip()
@@ -601,7 +602,20 @@ class HistoryStore:
         self._snapshot_last_error: Optional[str] = None
         # BOTH dialects create their tables — idempotent CREATE TABLE IF NOT
         # EXISTS, so the schema cannot drift between the two backends either.
-        self._ensure_schema()
+        #
+        # SKIPPABLE, and an ISOLATED store always skips it. See `_isolated_store`
+        # in main.py: a store opened only to get its OWN CONNECTION must not run
+        # the DDL, because on this database that DDL is expensive — the plan is
+        # `0.1c-256mb`, and `CREATE TABLE IF NOT EXISTS` takes an ACCESS EXCLUSIVE
+        # lock even when the table already exists. Three stores each running the
+        # full schema pass at boot contend on those locks, and the board's first
+        # build step then waits behind them and never completes. The owning store
+        # has already created everything this one will ever read.
+        if ensure_schema:
+            self._ensure_schema()
+        else:
+            log.debug("HistoryStore opened WITHOUT the schema pass "
+                      "(isolated connection only)")
 
     # ── plumbing ────────────────────────────────────────────────────────────
     def _q(self, sql: str) -> str:
@@ -3155,7 +3169,8 @@ HYBRID since 14.09:
     payapi_state and meta (scan watermarks).
 """
 
-    def __init__(self, file_path: str | Path | None = None):
+    def __init__(self, file_path: str | Path | None = None,
+                 ensure_schema: bool = True):
         self.file_path = Path(
             file_path or os.getenv("KRISTO_DASHBOARD_DB") or default_db_path()
         )
@@ -3168,9 +3183,14 @@ HYBRID since 14.09:
         # The on-chain numbers used to be re-created from the seed manifest on
         # every boot; they now simply persist, and the seed is only the first-boot
         # bootstrap. The lock used to be reopened by every deploy.
+        #
+        # `ensure_schema=False` is for the ISOLATED stores in main.py, which exist
+        # only to own a separate Postgres connection. They must not repeat DDL
+        # this store has already run — see the note in HistoryStore.__init__.
         self.history = HistoryStore(
             self._connect, self._write_lock,
             os.getenv("DATABASE_URL", ""),
+            ensure_schema=ensure_schema,
         )
 
     @property
