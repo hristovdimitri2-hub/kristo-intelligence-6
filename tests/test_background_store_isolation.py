@@ -122,12 +122,56 @@ def test_the_known_isolated_loops_really_are_isolated():
 
 def test_every_isolated_purpose_is_namespaced_uniquely():
     """Two jobs sharing an 'isolated' store would just be the shared link again
-    under a different name."""
+    under a different name.
+
+    Note what this does NOT assert: that each purpose gets its OWN pool. It must
+    not — see `test_the_pool_count_is_bounded_below_the_connection_limit`.
+    """
     purposes = re.findall(r'_isolated_store\("([^"]+)"\)', MAIN_SRC)
     purposes += re.findall(r'isolated\("([^"]+)"\)', TELEGRAM_SRC)
     assert purposes, "no isolated stores found at all"
     duplicates = [p for p in set(purposes) if purposes.count(p) > 1]
     assert not duplicates, "these purposes are used twice: %r" % duplicates
+
+
+def test_the_pool_count_is_bounded_below_the_connection_limit():
+    """THE CEILING, and the mistake that found it.
+
+    One Postgres connection per background job looked tidy. Every pool IS a
+    connection, this database is the smallest plan (`0.1c-256mb`) with a low
+    connection limit, and eight purposes across two processes is ~16 connections
+    — close enough to the ceiling that opening one more blocks.
+
+    Measured: with four pools `/api/dashboard/data` answered in 0.30s. With eight
+    it hung on its FIRST step and `last_build_timings_ms` stayed EMPTY.
+    """
+    import main
+    purposes = set(re.findall(r'_isolated_store\("([^"]+)"\)', MAIN_SRC))
+    purposes |= set(re.findall(r'isolated\("([^"]+)"\)', TELEGRAM_SRC))
+    pools = {main._ISOLATION_POOLS.get(p, p) for p in purposes}
+    assert len(pools) <= 5, (
+        "%d pools for %d purposes: each pool is a Postgres connection and the "
+        "database limit is low. Share a pool deliberately instead of adding one."
+        % (len(pools), len(purposes)))
+
+
+def test_the_board_build_keeps_a_pool_of_its_own():
+    """The read path must not queue behind a background job, whatever else is
+    sharing. This is the one allocation that is not negotiable."""
+    import main
+    assert main._ISOLATION_POOLS.get("dashboard-build") == "dashboard-build"
+    for other in ("whaleflow-scan", "dashboard-scan", "sentinel",
+                  "telegram-sales", "request-log-retention", "reorg-watch"):
+        assert main._ISOLATION_POOLS.get(other) != "dashboard-build", (
+            "%s shares the board build's pool" % other)
+
+
+def test_an_unknown_purpose_gets_its_own_pool():
+    """So a new job is never SILENTLY sharing with one that is already busy —
+    sharing has to be a deliberate entry in `_ISOLATION_POOLS`."""
+    import main
+    assert main._ISOLATION_POOLS.get("a-brand-new-job", "a-brand-new-job") == \
+        "a-brand-new-job"
 
 
 def test_the_telegram_loop_does_not_use_the_shared_store():

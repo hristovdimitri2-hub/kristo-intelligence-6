@@ -6692,6 +6692,37 @@ _DASHBOARD_LAST_BUILD_TIMINGS: Dict[str, float] = {}
 _isolated_stores: Dict[str, object] = {}
 _isolated_stores_lock = threading.Lock()
 
+#: WHICH POOL EACH ISOLATED PURPOSE SHARES.
+#:
+#: One connection per background job looked tidy and BROKE THE BOARD. Every pool
+#: is a real Postgres connection, this database is the smallest plan
+#: (`0.1c-256mb`) with a low connection limit, and eight purposes across two
+#: processes is ~16 connections — close enough to the ceiling that opening one
+#: more blocks. Measured: with four pools `/api/dashboard/data` answered in 0.30s;
+#: with eight it hung on its FIRST step, with `last_build_timings_ms` empty.
+#:
+#: So the pools are deliberately few, and they are allocated by what the job
+#: actually costs rather than by having given each one a name:
+#:
+#:   dashboard-build    its own — it is the board's own read path
+#:   snapshot           its own — eight full scans, minutes each
+#:   background-heavy   the network-bound and bulk ones, which must not wait on
+#:                      each other
+#:   background-light   the cheap scheduled ones
+#:
+#: An unknown purpose gets its OWN pool, so a new job is never silently sharing
+#: with one that is already busy — sharing has to be a deliberate entry here.
+_ISOLATION_POOLS = {
+    "dashboard-build": "dashboard-build",
+    "requests-snapshot": "snapshot",
+    "whaleflow-scan": "background-heavy",
+    "request-log-retention": "background-heavy",
+    "reorg-watch": "background-light",
+    "dashboard-scan": "background-light",
+    "sentinel": "background-light",
+    "telegram-sales": "background-light",
+}
+
 
 def _isolated_store(purpose: str):
     """A store with its OWN Postgres link, for one named background job.
@@ -6730,10 +6761,14 @@ def _isolated_store(purpose: str):
     """
     if getattr(dashboard_db, "backend", "sqlite") != "postgresql":
         return dashboard_db
-    store = _isolated_stores.get(purpose)
+    # The POOL the purpose belongs to, not the purpose itself. See
+    # `_ISOLATION_POOLS`: a connection per job exhausted the database's limit and
+    # hung the board on its first step.
+    pool = _ISOLATION_POOLS.get(purpose, purpose)
+    store = _isolated_stores.get(pool)
     if store is None:
         with _isolated_stores_lock:
-            store = _isolated_stores.get(purpose)
+            store = _isolated_stores.get(pool)
             if store is None:
                 # `ensure_schema=False`: this store exists ONLY to own a separate
                 # Postgres connection. Running the DDL again is not merely
