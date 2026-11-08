@@ -311,6 +311,27 @@ def register_bot_commands() -> Optional[list]:
     return result
 
 
+def _store():
+    """The durable store — ITS OWN Postgres link, not the shared one.
+
+    THE FIFTH JOB WITH THIS DEFECT, and the one where it hurts most plainly: the
+    Telegram loop long-polls continuously, so it is always a candidate to be
+    holding the link the request path waits on. `HistoryStore._run` serialises
+    every caller behind one lock on one connection, and a caller that waits too
+    long is REFUSED — which is how a slow read in a chat loop becomes an empty
+    request log.
+
+    `main._isolated_store` gives it its own lock and its own connection. The
+    shared store is the fallback only, so a partially importable `main` still
+    leaves the bot working.
+    """
+    import main as main_module
+    isolated = getattr(main_module, "_isolated_store", None)
+    if callable(isolated):
+        return isolated("telegram-sales")
+    return main_module.dashboard_db
+
+
 def _whale_reply(limit: int = 5) -> str:
     """The last whales from the PERSISTENT store, with the honest scan state.
 
@@ -323,7 +344,7 @@ def _whale_reply(limit: int = 5) -> str:
     try:
         import main as main_module
 
-        summary = main_module.dashboard_db.whaleflow_summary(limit=limit)
+        summary = _store().whaleflow_summary(limit=limit)
     except Exception as exc:
         log.warning("Telegram /whale failed: %s", _redact_tg(exc))
         return _service_unavailable_reply()
@@ -670,9 +691,9 @@ def _handle_owner_invite(text: str, chat_id: str, token: str) -> dict:
         import main as main_module
 
         if tx_hash:
-            sale = main_module.dashboard_db.sale_by_tx(tx_hash)
+            sale = _store().sale_by_tx(tx_hash)
             wallet = (sale or {}).get("sender") or ""
-        stored = main_module.dashboard_db.record_vip_invite(
+        stored = _store().record_vip_invite(
             code, wallet, tx_hash, chat_id=target, source="manual")
     except Exception as exc:
         log.warning("Manual VIP invite not persisted: %s", exc)
@@ -718,7 +739,7 @@ def _handle_vip_claim(text: str, chat_id: str, token: str) -> Optional[dict]:
     try:
         import main as main_module
 
-        sale = main_module.dashboard_db.sale_by_tx(tx_hash)
+        sale = _store().sale_by_tx(tx_hash)
     except Exception as exc:
         log.warning("VIP claim lookup failed: %s", exc)
         sale = None

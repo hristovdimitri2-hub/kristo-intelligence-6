@@ -373,7 +373,15 @@ except Exception as _purge_exc:  # pragma: no cover - defensive
 # whale pass can stay inline because it deletes single-digit rows.
 def _request_log_retention() -> None:
     try:
-        removed = dashboard_db.purge_old_requests()
+        # ITS OWN POSTGRES LINK. This is the single most expensive thing the
+        # process does to that database: on a first run it DELETEs over a million
+        # rows in batches of 5000, which the comment above already calls "200+
+        # round trips" — and every one of them took the link the request path
+        # waits on. It is the same defect that took the write path down on 08.11,
+        # in its heaviest form, and it is the reason this pass is not run at
+        # import either.
+        store = _isolated_store("request-log-retention")
+        removed = store.purge_old_requests()
         log.info("Request-log retention: %d row(s) older than %d days removed.",
                  removed, REQUEST_LOG_RETENTION_DAYS_DEFAULT)
     except Exception as exc:  # pragma: no cover - defensive
@@ -1399,7 +1407,7 @@ def _dashboard_scan_loop():
 
     log.info("Dashboard scan loop started (retro=%dd, interval=%ss).", retro_days, scan_interval)
     try:
-        added = dashboard_db.retro_scan(days=retro_days)
+        added = scan_db.retro_scan(days=retro_days)
         log.info("Dashboard retro scan: %d new on-chain sale(s) persisted.", added)
         _note_sales_scan_ok()
     except Exception as exc:
@@ -3188,7 +3196,8 @@ def _detect_reorgs(limit: int = 25, read_block=None) -> int:
     mismatches were found (0 on any problem).
     """
     try:
-        claims = dashboard_db.guard_claims_with_blocks(limit)
+        reorg_db = _isolated_store("reorg-watch")
+        claims = reorg_db.guard_claims_with_blocks(limit)
     except Exception as exc:
         log.info("reorg watch: could not read anchored claims: %s", exc)
         return 0
@@ -3219,7 +3228,7 @@ def _detect_reorgs(limit: int = 25, read_block=None) -> int:
                 "C2 REORG DETECTED: settlement %s was anchored to block %s (%s) "
                 "but that height now holds %s", claim.get("tx_hash"), height,
                 stored, current)
-            dashboard_db.record_guard_event(
+            reorg_db.record_guard_event(
                 "c2_reorg_detected",
                 endpoint=claim.get("endpoint") or "",
                 tx_hash=claim.get("tx_hash") or "",
@@ -7237,7 +7246,7 @@ def _requests_snapshot_warmer_loop():
     time.sleep(20.0)
     while True:
         try:
-            dashboard_db.history.refresh_requests_snapshot()
+            _isolated_store("requests-snapshot").history.refresh_requests_snapshot()
             _organism_beat("data_store", "ok", "requests snapshot parked")
         except Exception as exc:
             log.warning("requests snapshot warmer: %s", redact_rpc(exc))
