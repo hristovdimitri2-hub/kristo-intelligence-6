@@ -1405,6 +1405,19 @@ def _dashboard_scan_loop():
     scan_interval = max(30, int(os.getenv("KRISTO_DASHBOARD_SCAN_INTERVAL", "60")))
     payapi_interval = max(300, int(os.getenv("KRISTO_DASHBOARD_PAYAPI_INTERVAL", "900")))
 
+    # ITS OWN POSTGRES LINK — the fourth background job that needed one. See
+    # `_isolated_store`: this loop does a replay-lock probe, an on-chain scan and
+    # a listing refresh every 60s, and through the shared link it was measured
+    # holding it long enough to refuse every request:
+    #     holder=dashboard-scan held=200s
+    #
+    # BOUND FIRST, BEFORE ANY USE. A previous version of this put the binding
+    # below the retro scan, and the retro scan is what finds ON-CHAIN SALES:
+    # `cannot access local variable 'scan_db'` on every cycle, caught and logged
+    # as "incremental will catch up", which it then could not do either. The
+    # money scan was dead and the log said it was merely behind.
+    scan_db = _isolated_store("dashboard-scan")
+
     log.info("Dashboard scan loop started (retro=%dd, interval=%ss).", retro_days, scan_interval)
     try:
         added = scan_db.retro_scan(days=retro_days)
@@ -1420,12 +1433,6 @@ def _dashboard_scan_loop():
     # route served a feed whose scan had not even started (live state was
     # literally "scan_not_started"). A separate thread also gives the whale
     # scan an independent failure domain.
-    # ITS OWN POSTGRES LINK — the fourth background job that needed one. See
-    # `_isolated_store`: this loop does a replay-lock probe, an on-chain scan
-    # and a listing refresh every 60s, and through the shared link it was
-    # measured holding it long enough to refuse every request:
-    #     holder=dashboard-scan held=200s
-    scan_db = _isolated_store("dashboard-scan")
     next_payapi = time.time()
     while True:
         time.sleep(scan_interval)

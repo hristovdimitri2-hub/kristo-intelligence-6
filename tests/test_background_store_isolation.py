@@ -192,3 +192,52 @@ def test_retention_is_not_on_the_shared_link():
     assert body is not None
     assert "dashboard_db.purge_old_requests()" not in body, (
         "retention is back on the shared link")
+
+
+# ── use before binding, which isolation introduced ──────────────────────────
+
+def test_every_isolated_store_is_bound_before_it_is_used():
+    """THE BUG THIS PINS, found in the live log on 08.11:
+
+        Dashboard retro scan failed: cannot access local variable 'scan_db'
+
+    Redirecting a loop onto an isolated store means introducing a LOCAL NAME, and
+    the binding was placed below the retro scan — which is the pass that finds
+    ON-CHAIN SALES. It raised on every cycle, was caught, and was logged as
+    "incremental will catch up", which it then could not do either. The money
+    scan was dead while the log said it was merely behind.
+
+    General shape, not one function: any local a loop binds must be bound before
+    the line that first reads it.
+    """
+    import ast
+
+    tree = ast.parse(MAIN_SRC)
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        bound = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Assign) and isinstance(sub.value, ast.Call):
+                fn = sub.value.func
+                name = getattr(fn, "id", None) or getattr(fn, "attr", None)
+                if name in ("_isolated_store", "_whaleflow_store", "isolated"):
+                    for tgt in sub.targets:
+                        if isinstance(tgt, ast.Name):
+                            bound.append((tgt.id, sub.lineno))
+        if not bound:
+            continue
+        for var, bind_line in bound:
+            for sub in ast.walk(node):
+                if not isinstance(sub, ast.Attribute) or sub.lineno >= bind_line:
+                    continue
+                base = sub.value
+                if isinstance(base, ast.Name) and base.id == var:
+                    offenders.append(
+                        "%s: `%s` read at line %d but bound at line %d"
+                        % (node.name, var, sub.lineno, bind_line))
+                    break
+    assert not offenders, (
+        "a local store is read before it is bound — it raises NameError on every "
+        "cycle, and the loop's own except swallows it: %r" % offenders)
