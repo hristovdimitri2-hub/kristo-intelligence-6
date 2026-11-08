@@ -3551,22 +3551,47 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     payment_header = _get_standard_payment_header()
     if not payment_header:
         return False
+
+    # EVERY STEP FROM HERE IS TIMED, at WARNING, whether it succeeds or not.
+    #
+    # WHY. A request carrying a VALID payment signature never appears in the
+    # access log at all, while the same request with an invalid one answers 401 in
+    # 0.4s. gunicorn logs a request when it COMPLETES, so an absent line is one
+    # that never finished — and with `--timeout 120` gunicorn then KILLS the
+    # worker, taking every other request in flight with it. That is what the
+    # repeated "Background threads started" lines were.
+    #
+    # The settle side is already instrumented and reported ZERO phases, so the
+    # time is spent BEFORE it — in here. These lines name which step.
+    _pt = time.monotonic()
+
+    def _pstep(label, started=None):
+        log.warning("x402 rail step %-26s %7.3fs",
+                    label,
+                    time.monotonic() - (started if started is not None else _pt))
+
     accepts, resource, _ext = _x402_challenge_core(path, price)
     requirements = dict(accepts[0])
     requirements["resource"] = resource.get("url")
     requirements["description"] = resource.get("description")
     requirements["mimeType"] = resource.get("mimeType")
+    _pstep("challenge_core")
 
+    _t = time.monotonic()
     ok, payer, detail = connectors.verify_standard_payment(payment_header, requirements)
+    _pstep("verify_standard_payment", _t)
     if not ok:
         g.x402_reject_reason = detail
         # The funnel's missing middle, recorded at the moment it is known. This
         # answers 401, which `request_log` records as "a credential was presented
         # and we refused it" — the SAME status a failed settlement gets. Only
         # this row says which of those two opposite things happened.
+        _t = time.monotonic()
         dashboard_db.record_payment_attempt(
             path, "rejected", payer=payer, amount_usdc=price,
             detail=str(detail or "")[:200])
+        _pstep("record_rejected", _t)
+        _pstep("TOTAL-rejected")
         log.info("standard x402 payment rejected: path=%s detail=%s", path, detail)
         return False
 
