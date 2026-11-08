@@ -266,6 +266,41 @@ def precheck_payment_payload(payload: dict, requirements: dict):
     return problems
 
 
+def _accepted_option(payload: dict) -> dict:
+    """The payment option the client accepted — under EITHER spelling.
+
+    THE BUG THIS FIXES, found on the live rail on 08.11.2026. The x402 v2 spec
+    names the chosen option `accepted` (singular, one object), and this code read
+    exactly that:
+
+        accepted = payload.get("accepted") or {}
+
+    But clients echo what the 402 GAVE them, and our 402 ships `accepts` — an
+    ARRAY. So `accepted` came back empty, `verifyingContract` became None, and
+    EIP-712 recovery failed on every genuine payment:
+
+        local_eip712_recovery_failed: ValueError: Missing value for field
+        `verifyingContract` of type `address`
+
+    A payment that cannot be verified is a sale that cannot happen, and the
+    refusal was recorded honestly as a 401 — which is why the dashboard showed
+    `credentials_today: 8` and nobody noticed the two spellings behind it.
+
+    Accepting both is not laxity: the array case is unambiguous (one option was
+    offered, so that is the one accepted), and rejecting a real buyer over a
+    field name is the more expensive mistake by far.
+    """
+    accepted = payload.get("accepted")
+    if isinstance(accepted, dict) and accepted:
+        return accepted
+    accepts = payload.get("accepts")
+    if isinstance(accepts, list) and accepts and isinstance(accepts[0], dict):
+        return accepts[0]
+    if isinstance(accepts, dict):        # some clients send a bare object
+        return accepts
+    return {}
+
+
 def _local_recover_signer(payload: dict):
     """
     Local EIP-712 recovery for the exact/EIP-3009 TransferWithAuthorization
@@ -277,7 +312,7 @@ def _local_recover_signer(payload: dict):
         from eth_account import Account
         from eth_account.messages import encode_typed_data
 
-        accepted = payload.get("accepted") or {}
+        accepted = _accepted_option(payload)
         inner = payload.get("payload") or {}
         auth = inner.get("authorization") or {}
         extra = accepted.get("extra") or {}
@@ -309,7 +344,11 @@ def _local_recover_signer(payload: dict):
 def _merged_requirements(payload: dict, requirements: dict) -> dict:
     """Requirements as the CLIENT accepted them (echoed accepted fields win)."""
     merged = dict(requirements)
-    accepted = (payload or {}).get("accepted") or {}
+    # `_accepted_option`, not `payload["accepted"]`: see its docstring. Reading
+    # only the singular spelling merged NOTHING when a client echoed our `accepts`
+    # array, so settlement carried the SERVER's requirements rather than the ones
+    # the buyer signed — and the signature is over the buyer's values.
+    accepted = _accepted_option(payload or {})
     for key in ("amount", "asset", "payTo", "scheme", "network", "extra"):
         if accepted.get(key) is not None:
             merged[key] = accepted[key]
