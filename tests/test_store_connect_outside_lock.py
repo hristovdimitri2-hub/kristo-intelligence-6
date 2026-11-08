@@ -88,11 +88,28 @@ def test_a_failed_statement_closes_our_own_connection_not_the_shared_field():
     replaced the field by the time we fail; closing theirs would break a
     connection somebody is about to use."""
     body = _run_body()
-    assert "conn.close()" in body, (
-        "the failure path no longer closes the connection it actually used")
+    assert "dead = conn" in body, (
+        "the failure path no longer captures the connection it actually used")
     assert "if self._pg_conn is conn:" in body, (
         "the shared field is cleared unconditionally, which can discard another "
         "thread's working connection")
+
+
+def test_the_broken_connection_is_closed_AFTER_the_lock_is_released():
+    """THE wedge, and why its fix is an ordering.
+
+    On a socket that died without a FIN — `SSL error: unexpected eof while
+    reading`, measured 08.11 — `close()` itself can block. Called from inside the
+    critical section it holds the one link every other caller is waiting on, so
+    the service kept answering HTTP while recording nothing, and every write
+    failed with `busy for 2s`.
+    """
+    body = _run_body()
+    release_at = body.index("self._pg_lock.release()")
+    close_at = body.index("dead.close()")
+    assert close_at > release_at, (
+        "the broken connection is closed BEFORE the lock is released again, "
+        "which lets a blocking close wedge every caller")
 
 
 def test_the_lock_timeout_names_the_holder():

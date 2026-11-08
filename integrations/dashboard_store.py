@@ -676,6 +676,22 @@ class HistoryStore:
             self.database_url,
             row_factory=dict_row,
             connect_timeout=PG_CONNECT_TIMEOUT_SECONDS,
+            # KEEP THE SOCKET HONEST. Measured 08.11: the shared link died with
+            # `OperationalError: consuming input failed: SSL error: unexpected
+            # eof while reading`, and that one dead socket is what emptied the
+            # request log for hours. A long-lived link that is IDLE between
+            # requests is exactly what an intermediary or the server's own idle
+            # reaper closes, and without keepalives nothing notices until the
+            # next statement is already committed to a corpse.
+            #
+            # `tcp_user_timeout` is the important one: it makes the KERNEL fail
+            # the socket after that many milliseconds of unacknowledged data,
+            # instead of leaving a write to hang. A hang is what wedged the lock.
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3,
+            tcp_user_timeout=15000,
         )
         with conn.cursor() as cur:
             cur.execute("SELECT set_config('statement_timeout', %s, false)",
@@ -732,6 +748,10 @@ class HistoryStore:
                 "queueing every caller behind it" % PG_LOCK_WAIT_SECONDS)
         self._pg_lock_owner = threading.current_thread().name
         self._pg_lock_since = time.monotonic()
+        #: A connection that must be closed AFTER the lock is released. Set only
+        #: on the failure path — see the comment there for why closing it while
+        #: holding the lock is what wedged the whole link on 08.11.
+        dead = None
         try:
             try:
                 with conn.cursor() as cur:
@@ -749,15 +769,25 @@ class HistoryStore:
                 # the link is opened outside the lock, another thread may already
                 # have replaced the field, and closing theirs would break a
                 # connection somebody is about to use.
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+                #
+                # BUT DO NOT CLOSE IT HERE. On a socket that died without a FIN —
+                # the `SSL error: unexpected eof` case measured on 08.11 —
+                # `close()` itself can block, and blocking inside this critical
+                # section holds the one link every other caller is waiting on.
+                # That is the mechanism behind `busy for 2s` on EVERY request
+                # while the service still answered HTTP. The reference is dropped
+                # here and the socket is closed after the lock is released.
+                dead = conn
                 if self._pg_conn is conn:
                     self._pg_conn = None
                 raise
         finally:
             self._pg_lock.release()
+            if dead is not None:
+                try:
+                    dead.close()
+                except Exception:  # noqa: BLE001 - already broken; nothing to do
+                    pass
 
     def _ensure_schema(self) -> None:
         """Create every durable table — idempotent, on first use.
