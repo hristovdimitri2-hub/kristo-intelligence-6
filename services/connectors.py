@@ -740,15 +740,28 @@ def verify_standard_payment(payment_header, requirements: dict):
         touch("x402-eip3009")
         return False, None, "payload_undecodable"
 
+    # TIMED, because this is where the time goes and locally it costs nothing.
+    # Measured in production: the caller logged `challenge_core 0.000s` and then
+    # NOTHING — so the hang is inside this function, whose four steps were all
+    # 0.000s when run locally. Production differs from this process somehow, and
+    # guessing which step is the difference is what these lines remove.
+    _vt = time.monotonic()
+
+    def _vstep(label):
+        log.warning("x402 verify step %-28s %7.3fs",
+                    label, time.monotonic() - _vt)
+
     # Shape detection: newest v2 'exact' scheme carries a signed TRANSACTION
     # ({payload: {transaction, from}}) instead of EIP-3009 authorization.
     inner_pl = payload.get("payload") or {}
     if isinstance(inner_pl, dict) and "transaction" in inner_pl:
         ok, payer, detail = _local_verify_transaction_payload(payload, requirements)
         touch("x402-eip3009")
+        _vstep("transaction-payload")
         return ok, payer, detail
 
     problems = precheck_payment_payload(payload, requirements)
+    _vstep("precheck_payment_payload")
     if problems:
         touch("x402-eip3009")
         detail = "; ".join(problems)
@@ -756,6 +769,7 @@ def verify_standard_payment(payment_header, requirements: dict):
         return False, None, detail
 
     recovered, err = _local_recover_signer(payload)
+    _vstep("_local_recover_signer")
     declared_from = (
         (payload.get("payload") or {}).get("authorization") or {}
     ).get("from", "")
