@@ -527,6 +527,85 @@ def _adaptive_get_logs(w3, from_block: int, to_block: int, topics: list,
 # where "durable" and "fail-closed" must both hold, so `claim_payment_tx` REFUSES
 # a payment when the backend cannot be reached — an unreachable lock is treated
 # as a locked door, never as an open one.
+class FairLock:
+    """A FIFO lock. Waiters are served in the order they ARRIVED.
+
+    WHAT WAS ACTUALLY MEASURED, because the first version of this comment claimed
+    more than the evidence supported and that is worth recording.
+
+    `threading.Lock` is not fair: when a holder releases, any waiter may win, and
+    a background job that re-acquires in a tight loop can win repeatedly. It does
+    NOT starve anyone permanently — a test with a hog thread and eight waiters
+    delivered 8/8 on both locks, every run. What it costs is LATENCY, because a
+    waiter can lose the race again and again before it finally wins:
+
+        holder holds 20ms, 8 waiters, worst observed wait
+            threading.Lock   0.234s
+            FairLock         0.015s      (~15x)
+
+    That matters here because the wait is BOUNDED. `_run` refuses after
+    `KRISTO_PG_LOCK_WAIT_SECONDS` (2s), so a caller that keeps losing the race
+    does not merely wait — it FAILS. Measured live on 08.11, `/health` answered in
+    2.3-2.7s, which is the full timeout plus overhead: it was being refused, and
+    it looked healthy only because it falls back to process memory.
+
+    With a real queue that cannot happen: a ticket is issued on arrival and the
+    lock is granted strictly in ticket order, so no caller is passed over however
+    often somebody else re-acquires. A long holder still delays everyone — that is
+    physics — but it cannot make a waiter miss its deadline ahead of callers that
+    arrived later.
+
+    Abandoned tickets are skipped rather than blocking the queue: a caller that
+    times out marks its ticket and the holder's release walks past it. Without
+    that, one timeout would wedge every later waiter for ever.
+    """
+
+    __slots__ = ("_cond", "_next_ticket", "_now_serving", "_abandoned")
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._next_ticket = 0
+        self._now_serving = 0
+        self._abandoned: set = set()
+
+    def acquire(self, timeout: Optional[float] = None) -> bool:
+        with self._cond:
+            ticket = self._next_ticket
+            self._next_ticket += 1
+            if self._now_serving == ticket:
+                return True
+            if timeout is None:
+                while self._now_serving != ticket:
+                    self._cond.wait()
+                return True
+            deadline = time.monotonic() + timeout
+            while self._now_serving != ticket:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    # Never block the queue behind a caller that has given up.
+                    self._abandoned.add(ticket)
+                    # The ticket may have been granted in the instant before we
+                    # noticed the deadline; if so, hand it straight on.
+                    if self._now_serving == ticket:
+                        self._abandoned.discard(ticket)
+                        self._advance_locked()
+                    return False
+                self._cond.wait(min(remaining, 0.05))
+            return True
+
+    def release(self) -> None:
+        with self._cond:
+            self._advance_locked()
+
+    def _advance_locked(self) -> None:
+        """Caller must hold `_cond`."""
+        self._now_serving += 1
+        while self._now_serving in self._abandoned:
+            self._abandoned.discard(self._now_serving)
+            self._now_serving += 1
+        self._cond.notify_all()
+
+
 class HistoryStore:
     """request_log + whaleflow_events + onchain_sales, SQLite or PostgreSQL."""
 
@@ -538,7 +617,10 @@ class HistoryStore:
         self.backend = "postgresql" if self.database_url else "sqlite"
         self._ph = "%s" if self.backend == "postgresql" else "?"
         self._pg_conn = None
-        self._pg_lock = threading.Lock()
+        #: FAIR, not `threading.Lock`. See `FairLock`: an unfair lock lets a
+        #: background job that re-acquires in a tight loop starve the request
+        #: path, which is what took the write path down on 08.11.
+        self._pg_lock = FairLock()
         #: Once per process, so the web process and `scripts/worker.py` — which
         #: both import this module — do not each launch a rebuild of the same
         #: index. See `_start_index_repair`.

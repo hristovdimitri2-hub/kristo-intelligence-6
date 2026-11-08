@@ -1412,6 +1412,12 @@ def _dashboard_scan_loop():
     # route served a feed whose scan had not even started (live state was
     # literally "scan_not_started"). A separate thread also gives the whale
     # scan an independent failure domain.
+    # ITS OWN POSTGRES LINK — the fourth background job that needed one. See
+    # `_isolated_store`: this loop does a replay-lock probe, an on-chain scan
+    # and a listing refresh every 60s, and through the shared link it was
+    # measured holding it long enough to refuse every request:
+    #     holder=dashboard-scan held=200s
+    scan_db = _isolated_store("dashboard-scan")
     next_payapi = time.time()
     while True:
         time.sleep(scan_interval)
@@ -1424,12 +1430,12 @@ def _dashboard_scan_loop():
         # The probe is TTL-gated (10 min) so calling it every cycle costs one
         # write per TTL, and the route then reads a warm cache and writes nothing.
         try:
-            dashboard_db.probe_replay_lock()
+            scan_db.probe_replay_lock()
         except Exception as exc:
             log.debug("Replay-lock probe refresh failed (non-fatal): %s", exc)
 
         try:
-            added = dashboard_db.scan_increment()
+            added = scan_db.scan_increment()
             if added:
                 log.info("Dashboard incremental scan: %d new sale(s).", added)
             _note_sales_scan_ok()
@@ -1447,7 +1453,7 @@ def _dashboard_scan_loop():
             next_payapi = time.time() + payapi_interval
             try:
                 from scripts.listing_monitor import fetch_state
-                dashboard_db.save_payapi_state(fetch_state())
+                scan_db.save_payapi_state(fetch_state())
                 log.info("Dashboard: PayAPI listing state refreshed.")
             except Exception as exc:
                 log.warning("Dashboard PayAPI refresh failed: %s", exc)
