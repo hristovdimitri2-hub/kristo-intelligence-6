@@ -250,9 +250,28 @@ def _dashboard_store():
 
     None ⇒ the caller treats the baseline as MISSING (record without a
     message) — an unreachable store must never look like a PR transition.
+
+    ITS OWN POSTGRES LINK, and this is the third time the same defect had to be
+    fixed in a different job. `HistoryStore._run` serialises every caller behind
+    one lock on one connection, and the sentinel's three checks are heavy reads
+    (`sales_summary` and friends) on a schedule. Through the shared link the
+    sentinel held it for MINUTES — measured 08.11:
+
+        shared Postgres link busy for 2s; holder=kristo-sentinel held=289s
+
+    and while it held it, the request log stopped being written and the board's
+    build could not finish. The sentinel is a background job; it must not share
+    the link the request path depends on.
+
+    `main._isolated_store` gives it its own lock and its own connection. It falls
+    back to `main.dashboard_db` only if that helper is unavailable, so a partially
+    importable main still yields a working sentinel.
     """
     try:
         import main
+        isolated = getattr(main, "_isolated_store", None)
+        if callable(isolated):
+            return isolated("sentinel")
         store = getattr(main, "dashboard_db", None)
         if store is not None:
             return store
@@ -263,7 +282,11 @@ def _dashboard_store():
         db_file = os.getenv("KRISTO_DASHBOARD_DB") or os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "data", "dashboard_state.db")
-        return DashboardStore(db_file)
+        # `ensure_schema=False`: this is a LAST RESORT, and repeating the DDL on a
+        # `0.1c-256mb` database takes ACCESS EXCLUSIVE locks that stall everything
+        # else. If the schema truly is missing, the reads fail and are reported —
+        # which is honest, and better than bringing the database down at boot.
+        return DashboardStore(db_file, ensure_schema=False)
     except Exception as exc:
         log.warning("Sentinel durable store unavailable: %s", exc)
         return None

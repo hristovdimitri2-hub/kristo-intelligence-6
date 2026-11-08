@@ -127,6 +127,44 @@ def test_the_whale_scan_does_not_use_the_shared_link():
         "the whale increment is back on the shared link")
 
 
+def test_the_sentinel_does_not_use_the_shared_link():
+    """THE third instance of the same defect, and the log named it too.
+
+    The sentinel's three checks are heavy reads on a schedule. Through the shared
+    link it held it for MINUTES:
+
+        shared Postgres link busy for 2s; holder=kristo-sentinel held=289s
+
+    While it held it, the request log stopped being written and the board could
+    not finish a build.
+    """
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parent.parent
+           / "services" / "sentinel.py").read_text(encoding="utf-8")
+    idx = src.index("def _dashboard_store(")
+    chunk = src[idx:idx + 2600]
+    assert 'isolated("sentinel")' in chunk, (
+        "the sentinel is back on the shared link")
+    assert "ensure_schema=False" in chunk, (
+        "the sentinel's fallback store repeats the schema DDL, which stalls the "
+        "database it depends on")
+
+
+def test_every_background_job_uses_the_one_isolation_helper():
+    """Three separate jobs needed this. The helper must stay the single way in,
+    or the fourth one will be written without it."""
+    from pathlib import Path as _P
+    sentinel_src = (_P(__file__).resolve().parent.parent
+                    / "services" / "sentinel.py").read_text(encoding="utf-8")
+    assert "def _isolated_store(purpose: str):" in MAIN_SRC
+    for purpose in ("dashboard-build", "whaleflow-scan"):
+        assert '_isolated_store("%s")' % purpose in MAIN_SRC, (
+            "%s is not isolated through the shared helper" % purpose)
+    # The sentinel lives in its own module and calls the helper through `main`.
+    assert 'isolated("sentinel")' in sentinel_src, (
+        "the sentinel is not isolated through the shared helper")
+
+
 def test_the_board_still_builds_when_a_panel_raises(monkeypatch):
     """End to end: make a store method raise and assert the payload is still
     produced, with that panel reported unavailable rather than a 500."""
