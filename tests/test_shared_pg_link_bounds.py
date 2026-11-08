@@ -90,6 +90,12 @@ def _history_store():
     store._ph = "%s"
     store._pg_conn = None
     store._pg_lock = threading.Lock()
+    #: Connection creation has its OWN lock since 08.11, so that a hanging
+    #: `connect` cannot hold the statement lock every caller waits on. It is one
+    #: of the fields `_pg_connection` touches, so the fixture must carry it.
+    store._pg_conn_lock = threading.Lock()
+    store._pg_lock_owner = None
+    store._pg_lock_since = None
     store._lock = threading.Lock()
     return store
 

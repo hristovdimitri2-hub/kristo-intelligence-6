@@ -542,6 +542,12 @@ class HistoryStore:
         #: both import this module — do not each launch a rebuild of the same
         #: index. See `_start_index_repair`.
         self._index_repair_started = False
+        #: Guards CONNECTION CREATION only, never a statement. Deliberately
+        #: separate from `_pg_lock`: opening a link must never be able to hold
+        #: the link every other caller is waiting on. See `_run`.
+        self._pg_conn_lock = threading.Lock()
+        self._pg_lock_owner = None
+        self._pg_lock_since = None
         # NEGATIVE-ONLY fast path for the C1 replay lock: a hash this process has
         # already claimed can never be claimable again, so a hit refuses without
         # touching the database. A MISS NEVER GRANTS — the row in the database is
@@ -627,8 +633,18 @@ class HistoryStore:
         """
         conn = self._pg_conn
         if conn is None or conn.closed or getattr(conn, "broken", False):
-            conn = self._pg_open(PG_STATEMENT_TIMEOUT_MS)
-            self._pg_conn = conn
+            # `_pg_conn_lock`, NOT `_pg_lock`. libpq's `connect_timeout` bounds the
+            # TCP connect but NOT DNS resolution, so this call can hang. Held under
+            # the statement lock, one such hang is permanent and total: measured
+            # 08.11, writes flowed for minutes after each boot and then stopped for
+            # ever, silently, because every caller was refused after the wait.
+            # Here a hang costs only the ability to OPEN a new link; callers that
+            # already have one keep working.
+            with self._pg_conn_lock:
+                conn = self._pg_conn
+                if conn is None or conn.closed or getattr(conn, "broken", False):
+                    conn = self._pg_open(PG_STATEMENT_TIMEOUT_MS)
+                    self._pg_conn = conn
         return conn
 
     def _pg_open(self, statement_timeout_ms: int):
@@ -684,13 +700,40 @@ class HistoryStore:
         # holder keeps the lock, callers pile up behind it, and eight of them
         # are every worker there is. Bounded wait instead — a stalled holder
         # now costs one fast error rather than the process.
+        # CONNECT BEFORE TAKING THE LOCK — the fix for a service that stayed up
+        # while doing no work at all.
+        #
+        # `_pg_connection()` was called INSIDE the critical section, and it can
+        # block: libpq's `connect_timeout` bounds the TCP connect but NOT DNS
+        # resolution, so a slow resolver hangs it indefinitely. Held under
+        # `_pg_lock`, one such hang is permanent and total. Measured 08.11:
+        # writes flowed for a few minutes after each boot and then stopped for
+        # ever — no request log, no organism heartbeats — and every caller was
+        # refused after paying the full wait. `/health` still said `ok` because it
+        # falls back to process memory when the store cannot answer, so the
+        # outage was invisible from outside.
+        #
+        # Called here, a hang costs only the ability to OPEN a link: callers with
+        # a working connection keep running, and one fast reconnect failure is one
+        # caller's error rather than everyone's.
+        conn = self._pg_connection()
         if not self._pg_lock.acquire(timeout=PG_LOCK_WAIT_SECONDS):
+            # NAME THE HOLDER. A bare "busy" told us nothing for hours.
+            held = getattr(self, "_pg_lock_owner", None)
+            since = getattr(self, "_pg_lock_since", None)
+            held_for = (time.monotonic() - since) if since else None
+            log.warning(
+                "shared Postgres link busy for %.0fs; holder=%s held=%s; "
+                "refusing instead of queueing every caller behind it",
+                PG_LOCK_WAIT_SECONDS, held,
+                ("%.0fs" % held_for) if held_for is not None else "unknown")
             raise TimeoutError(
                 "shared Postgres link busy for %.0fs; refusing instead of "
                 "queueing every caller behind it" % PG_LOCK_WAIT_SECONDS)
+        self._pg_lock_owner = threading.current_thread().name
+        self._pg_lock_since = time.monotonic()
         try:
             try:
-                conn = self._pg_connection()
                 with conn.cursor() as cur:
                     cur.execute(sql, params)
                     rows = (cur.fetchall() if fetch == "all"
@@ -701,11 +744,17 @@ class HistoryStore:
             except Exception:
                 # A dropped/aborted transaction must not poison the shared
                 # connection for every later caller.
+                #
+                # Close OUR `conn`, not whatever is in `self._pg_conn` now: since
+                # the link is opened outside the lock, another thread may already
+                # have replaced the field, and closing theirs would break a
+                # connection somebody is about to use.
                 try:
-                    self._pg_conn.close()
+                    conn.close()
                 except Exception:
                     pass
-                self._pg_conn = None
+                if self._pg_conn is conn:
+                    self._pg_conn = None
                 raise
         finally:
             self._pg_lock.release()
