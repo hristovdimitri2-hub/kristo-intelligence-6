@@ -40,7 +40,7 @@ reconstruction, not falsification. A buyer that sent `accepted` keeps it byte fo
 byte; a payload with no terms is left alone rather than given an option nobody
 signed; the caller's dict is not mutated. 7 tests in
 `tests/test_facilitator_chain_is_a_real_fallback.py` (two of them pin exactly the
-honesty conditions above). Suite 1231 green.
+honesty conditions above). Suite 1,240 green at the time of writing.
 
 **Still to do before 14 November: make one payment actually settle through PayAI
 itself** — CDP's sibling in the chain — so the fallback is proven on the real rail
@@ -83,6 +83,82 @@ template had already passed while the sentence was being SWALLOWED at runtime �
 `hero`, so it vanished and painted the card green. `tests/test_dashboard_card_render.py`
 therefore runs the page's real script under node with a stub DOM and asserts what
 the renderers actually produce.
+
+### 09.11 19:10 — Base produces a block every 0.2 s; every window we walked assumed 2 s
+
+Found by reading the r/x402 "Payability Report 13" thread and asking what in it applies
+to us. Most of its numbers are market context (see the end of this section); one line in
+it — that Base's cadence changed — turned out to be a live bug of ours.
+
+**Measured, not quoted.** At head 55,269,652 (09.11 17:11 UTC) the timestamps of head,
+head−1,000, head−10,000 and head−100,000 each give exactly **0.2000 s/block — 5 blocks
+a second**, uniformly. Base was ~2 s/block when `BLOCK_TIME_SECONDS = 2.0` was written,
+and the comment "Base mainnet ~2s blocks" was true then. It is not true now.
+
+The consequence was arithmetic, not cosmetics: every window in the codebase reads
+`N × 86400 / BLOCK_TIME_SECONDS`, so **each one covered a tenth of the time it promised,
+silently** — the logs showed a window, not a warning.
+
+| where | promised | actually walked (at 0.2 s) |
+|---|---|---|
+| `dashboard_store.retro_scan(days=30)` — first-run sales backfill | 30 days | ~3 days |
+| `dashboard_store.whaleflow_backfill(hours=24)` — the paid whale feed | 24 hours | ~2.4 hours |
+| `arb_radar` `data_age_blocks` in the PAID response | real age | 10× too small |
+| `main.py` `NONCE_SEARCH_BLOCKS_DEFAULT = 5000` | "≈2.8 h" | ~17 minutes |
+| `main.py` `BLOCKCHAIN_RESUME_LOOKBACK = 1800` | "~1 h" | ~6 minutes |
+| `scripts/competitor_recon.py --days N` | N days | N/10 days |
+
+**What was changed, and why each way.**
+
+* `integrations/dashboard_store.py` — `BLOCK_TIME_SECONDS = 0.2` with the measurement
+  written down, plus two helpers: `measure_block_time_seconds(w3)` (two real timestamps,
+  one division; falls back to the constant when the RPC cannot answer — which is also
+  the path the stubbed tests take) and `blocks_for_seconds()`. `retro_scan` and
+  `whaleflow_backfill` now **measure** instead of assuming, so the next Base upgrade
+  needs no code change. The whale backfill is now honest: 24 h = 432,000 blocks ≈ 432
+  getLogs on a COLD boot (a warm start resumes from the watermark and pays nothing).
+* A 30-day sales backfill at 5 blocks/s is ~13,000,000 blocks, and a recipient-filtered
+  `eth_getLogs` is refused by the public RPC above ~1,000 blocks (`competitor_recon.py:28`)
+  — >13,000 requests, an unaffordable boot that would look hung. So `retro_scan` now
+  **clamps** to `SALES_RETRO_MAX_BLOCKS` (env `KRISTO_SALES_RETRO_MAX_BLOCKS`, default
+  1,500,000 ≈ 3.5 days, i.e. the same wall-clock cost it already had) and **logs the
+  window it really scanned**, naming the env var that raises it. A "30 days" that means
+  3.5 must never read as 30. `tests/test_block_cadence.py` pins both the arithmetic and
+  that warning sentence.
+* `services/arb_radar.py` — `BASE_BLOCK_TIME_SECONDS = 0.2` (env `ARB_BLOCK_TIME_SECONDS`).
+  This one is customer-facing: `data_age_blocks` is the number a paying buyer reads to
+  judge staleness, and it flattered us by 10×.
+* `main.py` — the two comments now state the real reach (17 min and 6 min). **The two
+  defaults were deliberately NOT changed**: 17 minutes is still far more than the case
+  the nonce search exists for (a retry arrives seconds later), and 6 minutes is still
+  wider than a Render restart. Widening the nonce reach to catch LCD-style settlements
+  broadcast long before we look is a real, separate decision — `KRISTO_NONCE_SEARCH_BLOCKS`
+  is the knob, and each extra 5,000 blocks is another minute of chain walked per check.
+  **Owner's call, not a silent edit.**
+* `scripts/competitor_recon.py` — left at 2.0 **on purpose**, with a comment saying so:
+  its windows are already bounded by the chunking floor and changing the divisor would
+  silently re-scale every recon report we compare week to week. `--days N` there means
+  ~N/10 days. Fix it knowingly, together with the reports, or not at all.
+
+A defect found by the new tests, worth keeping: the two existing backfill tests
+(`test_whaleflow.py`, `test_price_sweep.py`) hardcoded `block_number = 100_000`. Once the
+divisor became honest, "24 hours" = 432,000 blocks and `max(1, 100_000 − 432_000)` is
+block **1** — the window silently collapsed to nothing. Both were re-derived from
+`blocks_for_seconds()` against a realistic head. The old tests were not wrong; they were
+pinned to a number that had stopped being true.
+
+Two other things read out of the same r/x402 thread, for context rather than action:
+Report 13 counts **34,137 resources / 3,250 hosts, 32,878 payable (96.31%)** — against
+which our 7 paid routes are a rounding error, i.e. the catalogues are not the constraint,
+the demand is. Its cleaned Base demand is **12,947.00 USDC over 2,529 wallets for the
+week**, of which one seller took 7,273.94 (56%), and its Solana 3,188.74 USDC is mostly
+3 × 1,000.00 "matched-price" transfers. Their own stated gap is that wallets paying >20
+distinct `payTo` count as demand, so one-endpoint high-volume wallets inflate the
+numbers — read the totals as an upper bound. `x402.nsgoods.org` (the report's author,
+Nikolaos Dimitriadis) sells 12 x402 oracles including an **x402 Payability Check** at
+$0.005/call; its free preview ignores the `resource` you pass and always checks its own
+demo endpoint, so getting a third-party verdict on *our* 402 envelope costs $0.005 and
+needs the owner's go-ahead.
 
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
