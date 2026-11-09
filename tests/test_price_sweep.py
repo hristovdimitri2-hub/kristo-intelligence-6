@@ -960,12 +960,12 @@ def test_the_boot_backfill_resumes_from_the_durable_watermark(tmp_path, monkeypa
     import sys
     import types
 
-    from integrations.dashboard_store import BLOCK_TIME_SECONDS, DashboardStore
+    from integrations.dashboard_store import DashboardStore, blocks_for_seconds
 
     fake = types.ModuleType("web3")
 
     class FakeEth:
-        block_number = 100_000
+        block_number = 1_000_000
 
     class FakeWeb3:
         HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
@@ -985,15 +985,16 @@ def test_the_boot_backfill_resumes_from_the_durable_watermark(tmp_path, monkeypa
                         lambda f, t, rpc_url="": seen.update(f=f, t=t) or 0)
 
     # COLD start: no watermark anywhere → the whole window is walked once.
+    # 24 hours = 432,000 blocks at the measured 0.2 s/block (09.11), not 43,200.
     store.whaleflow_backfill(hours=24)
-    assert seen["f"] == 100_000 - int(24 * 3600 / BLOCK_TIME_SECONDS)
-    assert seen["t"] == 100_000
+    assert seen["f"] == 1_000_000 - blocks_for_seconds(24 * 3600)
+    assert seen["t"] == 1_000_000
 
     # WARM start (a deploy): the watermark is near the head → only the gap.
-    store.set_meta("whaleflow_last_block", "99950")
+    store.set_meta("whaleflow_last_block", "999950")
     store.whaleflow_backfill(hours=24)
-    assert seen["f"] == 99950
-    assert seen["t"] == 100_000
+    assert seen["f"] == 999950
+    assert seen["t"] == 1_000_000
 
 # ── VIP: private chat, durable invites, owner confirmation (18.09) ──────────
 

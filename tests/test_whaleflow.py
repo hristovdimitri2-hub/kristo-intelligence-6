@@ -374,20 +374,24 @@ def test_whale_scan_halves_a_refused_window_instead_of_giving_up(
 
 
 def test_whale_backfill_hours_really_means_hours(tmp_path, monkeypatch):
-    """`WHALEFLOW_BACKFILL_HOURS=24` must mean 24 HOURS (43,200 blocks at 2s), not
-    24 days. The formula used to multiply by 86400, so "1" scanned a full day —
-    measured live on 18.09: the boot backfill walked 39,051 blocks (~22h) back.
+    """`WHALEFLOW_BACKFILL_HOURS=24` must mean 24 HOURS, not 24 days. The formula
+    used to multiply by 86400, so "1" scanned a full day — measured live on 18.09:
+    the boot backfill walked 39,051 blocks (~22h) back.
+
+    Re-derived on 09.11: 24 hours is 432,000 blocks, not 43,200, because Base
+    produces a block every 0.2 s (5/s) — see tests/test_block_cadence.py. The
+    earlier 43,200 "hours" covered 2.4 hours of chain.
     """
     import sys
     import types
 
-    from integrations.dashboard_store import (BLOCK_TIME_SECONDS,
-                                              DashboardStore)
+    from integrations.dashboard_store import (DashboardStore,
+                                              blocks_for_seconds)
 
     fake = types.ModuleType("web3")
 
     class FakeEth:
-        block_number = 100_000
+        block_number = 1_000_000
 
     class FakeWeb3:
         HTTPProvider = staticmethod(lambda url, request_kwargs=None: ("p", url))
@@ -410,10 +414,10 @@ def test_whale_backfill_hours_really_means_hours(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store, "scan_whale_window", _capture)
     store.whaleflow_backfill(hours=24)
-    assert seen["to"] == 100_000
-    assert seen["from"] == 100_000 - int(24 * 3600 / BLOCK_TIME_SECONDS)   # 43,200
-    # and the old (day) arithmetic would have been 1,036,800 blocks — an ~11,000
-    # request walk on the free RPC instead of ~864.
+    assert seen["to"] == 1_000_000
+    assert seen["from"] == 1_000_000 - blocks_for_seconds(24 * 3600)  # 432,000
+    # and the old (day) arithmetic would have been ~10,368,000 blocks — an
+    # ~10,000 request walk on the free RPC instead of ~432.
 
 
 def test_whale_watermark_advances_chunk_by_chunk(tmp_path, monkeypatch):

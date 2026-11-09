@@ -244,7 +244,64 @@ USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 TRANSFER_TOPIC = (
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 )
-BLOCK_TIME_SECONDS = 2.0  # Base mainnet ~2s blocks
+#
+# ── Block cadence: MEASURED, not assumed (09.11) ─────────────────────────
+# This read `2.0 # Base mainnet ~2s blocks` and the comment was true when it
+# was written; it is not true now. Base produces a block every 0.2 s — five a
+# second — and that is measured, not read from a blog post: on 09.11 19:11,
+# at head 55,269,652, the timestamps of head, head−1,000, head−10,000 and
+# head−100,000 all give exactly 0.2000 s/block.
+#
+# The stale number was NOT cosmetic. Every window in this file is derived
+# from it, so a "30 days" first-run backfill walked ~3 days of chain and the
+# whale feed's "24 hours" walked ~2.4 h — both silently, both looking correct
+# in the logs. Callers that already hold a web3 handle should call
+# `measure_block_time_seconds(w3)` instead of trusting this constant; it is
+# what we fall back to when measuring is impossible (no RPC, or a stubbed
+# chain in tests).
+BLOCK_TIME_SECONDS = 0.2
+
+# ── First-run sales backfill: clamped, and the clamp is REPORTED ─────────
+# An honest 30 days at 0.2 s/block is ~13,000,000 blocks. A recipient-filtered
+# eth_getLogs is refused by the public RPC above ~1,000 blocks (see
+# scripts/competitor_recon.py:28), i.e. ~13,000 requests on every cold boot —
+# unaffordable, and the boot would look hung. So the window IS clamped to a
+# budget and the warning states the window that was actually scanned: a
+# "30 days" that means 3 must never read as 30. 1,500,000 blocks ≈ 3.5 days,
+# which is the same wall-clock cost this backfill already had.
+SALES_RETRO_MAX_BLOCKS = int(os.getenv("KRISTO_SALES_RETRO_MAX_BLOCKS",
+                                       "1500000"))
+
+
+def measure_block_time_seconds(w3, sample_blocks: int = 1000,
+                               fallback: float = BLOCK_TIME_SECONDS) -> float:
+    """Seconds per block on the chain `w3` is actually connected to.
+
+    Two real timestamps, one division — no assumptions about upgrades, and no
+    constant to forget on the next one. Falls back to the module constant when
+    the RPC cannot answer (which is also the path the tests take).
+    """
+    try:
+        latest = int(w3.eth.block_number)
+        span = max(1, min(int(sample_blocks), latest - 1))
+        head_ts = int(w3.eth.get_block(latest)["timestamp"])
+        past_ts = int(w3.eth.get_block(latest - span)["timestamp"])
+        measured = (head_ts - past_ts) / span
+        if measured > 0:
+            return measured
+    except Exception as exc:  # noqa: BLE001 — any failure means "assume"
+        log.debug("block cadence measurement failed (%s); assuming %ss/block",
+                  exc, fallback)
+    return fallback
+
+
+def blocks_for_seconds(seconds: float, block_time: float = BLOCK_TIME_SECONDS) -> int:
+    """How many blocks `seconds` of wall clock covers at `block_time`/block."""
+    if block_time <= 0:
+        block_time = BLOCK_TIME_SECONDS
+    # rounded, not truncated: 0.2 is not exact in binary, so 86,400/0.2 lands on
+    # 431,999.99999… and a truncated day would be one block short of a day.
+    return max(1, int(round(seconds / block_time)))
 
 
 # ── Payment funnel: the paid routes whose 402→200 conversion we measure ───
@@ -3923,7 +3980,19 @@ HYBRID since 14.09:
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
         w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
         latest = w3.eth.block_number
-        from_block = max(1, latest - int(days * 86400 / BLOCK_TIME_SECONDS))
+        block_time = measure_block_time_seconds(w3)
+        wanted = blocks_for_seconds(days * 86400, block_time)
+        span = min(wanted, max(1, SALES_RETRO_MAX_BLOCKS))
+        if span < wanted:
+            # Say the true window out loud. This is the line that was missing
+            # while the arithmetic quietly turned 30 days into 3.
+            log.warning(
+                "Sales backfill: %s days requested = %d blocks at %.4fs/block, "
+                "but the budget is %d blocks — scanning %.2f days instead. "
+                "Raise KRISTO_SALES_RETRO_MAX_BLOCKS to cover more.",
+                days, wanted, block_time, SALES_RETRO_MAX_BLOCKS,
+                span * block_time / 86400)
+        from_block = max(1, latest - span)
         added = self.scan_window(from_block, latest, rpc_url=rpc_url)
         # Watermark = last CONTIGUOUS safe block — a broken chunk is retried
         # next cycle, never silently skipped (honesty rule). If the scan
@@ -4097,7 +4166,16 @@ HYBRID since 14.09:
         # would have walked ~24 DAYS of chain. Same behaviour as the day it was
         # found (the boot backfill is meant to fill the 24h window the paid route
         # serves), but now the knob does what it says.
-        from_block = max(1, latest - int(hours * 3600 / BLOCK_TIME_SECONDS))
+        #
+        # CADENCE, honestly (09.11): the conversion divisor was still the 2 s
+        # constant, so "24 hours" walked 43,200 blocks ≈ 2.4 h of chain — the
+        # paid feed promised a day and the backfill filled a tenth of it. The
+        # measured cadence is used now, and 24 h at 0.2 s/block is 432,000
+        # blocks ≈ 432 getLogs on a cold boot (the increments keep it fresh
+        # afterwards; a warm start resumes from the watermark and pays nothing).
+        block_time = measure_block_time_seconds(w3)
+        from_block = max(
+            1, latest - blocks_for_seconds(hours * 3600, block_time))
         # RESUME from the durable watermark (18.09). A COLD start (no watermark)
         # still fills the whole rolling window, but a restart after a deploy
         # continues where the scan stopped. Without this the durable watermark was

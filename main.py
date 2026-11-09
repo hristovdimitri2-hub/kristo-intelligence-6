@@ -945,6 +945,12 @@ def _monitor_resume_block(head: int, watermark: int, lookback: int) -> tuple:
     # No watermark at all: do NOT claim the head as scanned. That is the bug this
     # replaces. Scan a bounded window instead, wide enough to cover a restart and
     # a deploy, and log that the range is bounded rather than complete.
+    #
+    # 1800 blocks was chosen as "~1 hour at 2 s/block"; at the measured 0.2
+    # s/block it is ~6 MINUTES (see main.py's block-cadence note). Still wider
+    # than a Render restart, so the intent holds — but it is minutes, not the
+    # hour the docstring used to imply, and BLOCKCHAIN_RESUME_LOOKBACK is the
+    # knob if a deploy ever takes longer than that.
     lookback = max(1, int(lookback or 0))
     return max(1, head - lookback), (
         "no durable watermark; bounded %d-block lookback from head %d"
@@ -2827,8 +2833,14 @@ _AUTHORIZATION_USED_TOPIC = (
     "0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5"
 )
 
-#: How far back the nonce search looks. 5000 Base blocks ≈ 2.8h at 2s/block —
-#: a retry of a failed attempt arrives seconds later, so this is generous.
+#: How far back the nonce search looks. 5000 Base blocks ≈ 17 MINUTES at the
+#: measured 0.2 s/block (5 blocks/second — the number this comment said was
+#: "2.8h" until 09.11, which was the 2 s/block cadence Base no longer has).
+#: That is still far more than the case it exists for: a retry of a failed
+#: attempt arrives seconds later. Widening the reach to cover LCD-style
+#: settlements broadcast long before we look is a separate, deliberate change
+#: — set KRISTO_NONCE_SEARCH_BLOCKS, and mind that each extra 5,000 blocks is
+#: one more minute of chain to walk per settlement check.
 NONCE_SEARCH_BLOCKS_DEFAULT = 5000
 
 

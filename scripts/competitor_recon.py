@@ -25,6 +25,13 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 BLOCK_TIME_SECONDS = 2.0  # Base mainnet ~2s blocks
+# ^ MEASURED 09.11: this is WRONG for today's Base — the chain is at 0.2000
+# s/block (5/s), verified at head 55,269,652 from head−1,000 / −10,000 /
+# −100,000 timestamps. It is deliberately left alone for now: this script's
+# windows are already bounded by the chunking floor below, and changing them
+# would silently re-scale every number in the recon reports we compare week to
+# week. `--days N` here therefore means ~N/10 days of chain. Fix it knowingly,
+# together with the reports, or not at all — never halfway.
 # Measured 17.09 on the public RPC (https://mainnet.base.org): a recipient-
 # filtered eth_getLogs above ~1000 blocks answers **413 Payload Too Large**
 # (5000-block chunks used to work — the endpoint tightened). Ranges are halved

@@ -38,7 +38,15 @@ GAS_COST_USDC = float(os.getenv("ARB_GAS_COST_USDC", "0.10"))
 GAS_SAFETY_MULT = float(os.getenv("ARB_GAS_SAFETY_MULT", "3"))
 # Base block time used to convert wall-clock age → data_age_blocks (no RPC
 # on the serve path — the endpoint stays zero-RPC-per-call).
-BASE_BLOCK_TIME_SECONDS = 2.0
+#
+# MEASURED 09.11: 0.2 s/block (5 blocks/second), not 2 — Base's cadence after
+# the 2026 upgrade. Confirmed at head 55,269,652 from the head/head−1,000/
+# head−10,000/head−100,000 timestamps, all exactly 0.2000 s. The stale 2.0 made
+# every `data_age_blocks` in the paid response TEN TIMES too small, i.e. the
+# number a buyer uses to judge staleness flattered us by an order of magnitude.
+# Same number as integrations/dashboard_store.BLOCK_TIME_SECONDS (a test asserts
+# the two agree, so the next upgrade cannot update one and forget the other).
+BASE_BLOCK_TIME_SECONDS = float(os.getenv("ARB_BLOCK_TIME_SECONDS", "0.2"))
 
 SEARCH_QUERIES = [
     "WETH USDC base",
