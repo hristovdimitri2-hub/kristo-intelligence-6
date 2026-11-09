@@ -61,6 +61,28 @@ from config import (
 # ── Real-time market data integration ─────────────────────────────────────
 from services.market_data import get_coingecko_cache_status, get_market_snapshot
 
+# ── THE PAYMENT RAIL, AND THE CRYPTO STACK BEHIND IT, AT BOOT ──────────────
+#
+# Imported HERE rather than inside the payment handler, and that placement is the
+# fix for a real outage. It used to be `from services import connectors` inside
+# `_try_consume_standard_payment`, so the FIRST BUYER's payment also imported
+# `eth_account` — and `eth_account` pulls in four hundred and seventeen modules,
+# 151 of them heavy (pycryptodome, eth_keys, eth_utils, cytoolz, rlp).
+#
+# Measured locally: ~1.2s. On the 0.1-CPU production instance: over twenty, which
+# is exactly what the bounded rail caught —
+#
+#     x402 verify step precheck_payment_payload   0.000s
+#     x402 rail step verify_standard_payment     20.000s  DEADLINE EXCEEDED
+#
+# Nothing was wrong with the verification. It was still importing its own
+# dependencies. A buyer must never be the thing that compiles the crypto stack:
+# paid once at boot, it is off the request path for ever.
+#
+# No circular import: `services.connectors` imports only the standard library,
+# `config`, and `eth_account`.
+from services import connectors
+
 # ── Telegram Sales Bot (x402 micro-transactions) ───────────────────────────
 import services.telegram_sales
 from services.telegram_sales import (
@@ -3609,7 +3631,12 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     On success the settlement is stashed on flask.g so the after_request
     hook can emit the spec-compliant PAYMENT-RESPONSE header.
     """
-    from services import connectors
+    # `connectors` is imported at MODULE level — see the note beside
+    # `X402_STEP_DEADLINE_SECONDS`. It used to be imported here, which meant the
+    # first buyer's payment also imported `eth_account`: four hundred and
+    # seventeen modules, 151 of them heavy. That is ~1.2s on this machine and
+    # over twenty on a 0.1-CPU instance, and it is why every payment was refused
+    # after the deadline rather than verified.
 
     payment_header = _get_standard_payment_header()
     if not payment_header:

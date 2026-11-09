@@ -30,6 +30,31 @@ from config import get_base_fee_receiver
 
 log = logging.getLogger(__name__)
 
+# ── THE CRYPTO STACK IS IMPORTED HERE, AT MODULE LOAD, ON PURPOSE ───────────
+#
+# THE BUG THIS FIXES, and it took a bounded rail to see it. Every payment was
+# refused after `precheck_payment_payload` cleared in 0.000s, and the step that
+# followed — `_local_recover_signer`, pure EIP-712 arithmetic that costs 0.015s
+# here — never returned inside twenty seconds.
+#
+# Because it was not arithmetic that was slow. `from eth_account import Account`
+# sat INSIDE that function, and `eth_account` was not loaded at boot:
+#
+#     import main                                  2.51s
+#     'eth_account' in sys.modules after import    False
+#     'web3' in sys.modules after import           False
+#
+# The first payment therefore paid the whole import: measured, `eth_account`
+# pulls in FOUR HUNDRED AND SEVENTEEN modules, 151 of them heavy — pycryptodome,
+# eth_keys, eth_utils, cytoolz, rlp. That is ~1.2s on this machine and well over
+# twenty on a 0.1-CPU instance, which is exactly the shape of the failure: fast
+# locally, hanging in production, and nothing anywhere saying "import".
+#
+# Paying it once at boot, off the request path, is the whole fix. A buyer's first
+# payment must not be the thing that compiles the crypto stack.
+from eth_account import Account  # noqa: E402
+from eth_account.messages import encode_typed_data  # noqa: E402
+
 # ── Activity ledger (in-memory, per-process) ────────────────────────────────
 _ACTIVITY = {}  # conn_id -> ISO timestamp of last real use
 
