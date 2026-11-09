@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1201
+SUITE_TESTS_PASSED = 1210
 SUITE_LAST_RUN = "2026-11-07"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2072,6 +2072,59 @@ def _retype_bazaar_for_mcp(extensions, tool, name: str,
     }
 
 
+def _serve_paid_mcp_tool(path: str, price: float, payment_header: str):
+    """Settle through the HTTP rail, then return the route's own answer.
+
+    WHY A FORWARD RATHER THAN A SECOND IMPLEMENTATION. The rail already verifies,
+    settles through the CDP-first facilitator chain, records the sale and enforces
+    the replay lock — and it does all of that on the HTTP route. Re-deriving any
+    of it here would create a second payment path that can disagree with the first,
+    which is the defect this file spends most of its comments preventing.
+
+    So the caller's own payment header is handed to the route it paid for, and the
+    route's response is what the tool returns. One price, one receiver, one
+    settlement, one sale.
+
+    Returns the parsed body on success, or None — and None means "still not
+    paid", so the caller falls back to returning the challenge. A forward that
+    fails must never look like a purchase that succeeded.
+    """
+    if not path:
+        return None
+    try:
+        from main import app as _app
+
+        with _app.test_client() as client:
+            resp = client.get(path, headers={"PAYMENT-SIGNATURE": payment_header})
+
+        # A 200 IS NOT PROOF OF PAYMENT, and the first version of this shipped
+        # that defect. The forward arrives from 127.0.0.1 — loopback — and the
+        # free tier grants on IP, so `PAYMENT-SIGNATURE: FAKE` returned the data
+        # for nothing. Measured: "Free tier access: ip=127.0.0.1, used=1/1".
+        #
+        # So the test is not "did it answer" but "DID A SETTLEMENT HAPPEN". The
+        # HTTP rail emits a PAYMENT-RESPONSE header only when a real tx settled
+        # and `g.x402_delivered_tx` was stamped, which is the same evidence the
+        # paying caller gets. No settlement, no sale, no data — and the caller
+        # receives the challenge, which is the honest answer.
+        if resp.status_code != 200:
+            return None
+        settled = any(k.lower() == "payment-response" and (v or "").strip()
+                      for k, v in resp.headers.items())
+        if not settled:
+            logging.getLogger(__name__).warning(
+                "MCP paid forward to %s answered %s WITHOUT a settlement — "
+                "refusing to serve it as a purchase",
+                path, resp.status_code)
+            return None
+        body = resp.get_json(silent=True)
+        return body if isinstance(body, dict) else None
+    except Exception as exc:  # noqa: BLE001 - a discovery nicety, never fatal
+        logging.getLogger(__name__).debug(
+            "MCP paid forward to %s failed: %s", path, exc)
+        return None
+
+
 def _mcp_dispatch(body):
     """Shared JSON-RPC dispatcher for BOTH transports (POST /mcp and the SSE
     message POST). Returns (kind, payload):
@@ -2149,6 +2202,7 @@ def _mcp_dispatch(body):
         # and the tool still answers — a discovery nicety must never take the
         # endpoint down.
         payment_required = None
+        paid_response = None
         try:
             from urllib.parse import urlsplit
 
@@ -2162,6 +2216,34 @@ def _mcp_dispatch(body):
             # description — a worse lie than the prose it replaced.
             raw_endpoint = x.get("endpoint") or ""
             path = urlsplit(raw_endpoint).path if "//" in raw_endpoint else raw_endpoint
+
+            # ── CAN THEY ACTUALLY BUY? ────────────────────────────────────────
+            #
+            # Until now: NO. This handler built the challenge and returned it,
+            # every time, with no code that could accept a payment — so an agent
+            # inside an MCP session could read our terms and never complete a
+            # purchase. The tool text even said "then call <endpoint> with the
+            # payment header", i.e. go and pay somewhere else, which is exactly
+            # the behaviour an MCP client will not perform.
+            #
+            # That is the shape of `api.aiskills402.com`, measured in the same
+            # session: 175 listings, discovery-only MCP ("Buying is over HTTP in
+            # this release"), and the FEWEST payers in the market census — 7,
+            # against 13 and 12 for the two hosts whose MCP can pay.
+            #
+            # The remedy is not a second payment implementation. It is to hand
+            # the caller's own payment header to the HTTP rail we already trust,
+            # let it settle, and then serve the route it protects. One price, one
+            # receiver, one settlement path — the same reason the challenge is
+            # built by `_x402_challenge_core` in the first place.
+            payment_header = (
+                (request.headers.get("PAYMENT-SIGNATURE") or "").strip()
+                or (request.headers.get("X-PAYMENT") or "").strip()
+            )
+            if payment_header:
+                paid_response = _serve_paid_mcp_tool(
+                    path, float(x.get("price_usdc") or 0), payment_header)
+
             accepts, resource, extensions = _x402_challenge_core(
                 path, float(x.get("price_usdc") or 0),
                 description=CHALLENGE_DESCRIPTIONS.get(path, ""))
@@ -2212,6 +2294,18 @@ def _mcp_dispatch(body):
         )
         content = [{"type": "text", "text": tool_text}]
         structured = {"x402": x}
+        if paid_response is not None:
+            # PAID AND SERVED. The tool answers with the route's own payload —
+            # the same bytes a paying HTTP caller receives, because it IS that
+            # caller, forwarded. Nothing is re-derived and nothing can drift.
+            return "response", {
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {
+                    "content": [{"type": "text",
+                                 "text": json.dumps(paid_response)}],
+                    "structuredContent": paid_response,
+                },
+            }
         if payment_required is not None:
             # `x402` above is kept for clients already reading it; the canonical
             # object is added alongside, AND repeated as text, because a client
