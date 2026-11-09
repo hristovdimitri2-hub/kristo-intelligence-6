@@ -65,10 +65,22 @@ def main_module():
 def _clean_cache(main_module):
     """Every test starts with an empty cache and leaves one behind."""
     def _reset():
+        # A dashboard background thread from an earlier test is still running in
+        # this process and could publish into the shared cache AFTER this clear,
+        # making a later test see a board it never seeded. Settle every one of
+        # them first — the seed thread ("dashboard-seed") AND the refresh threads
+        # ("dashboard-refresh"), because the leak that actually bit us came from
+        # a gated refresh the previous test released on its way out.
+        for thread in threading.enumerate():
+            if thread.name.startswith("dashboard-") and thread.is_alive():
+                thread.join(2.0)
         with main_module._DASHBOARD_LAST_GOOD_LOCK:
             main_module._DASHBOARD_LAST_GOOD.clear()
             main_module._DASHBOARD_REFRESHING.clear()
             main_module._DASHBOARD_LAST_ERROR.clear()
+        # The seed is once per PROCESS, so it must be once per TEST here.
+        main_module._DASHBOARD_SEED_THREAD = None
+        main_module._DASHBOARD_SEED_DONE = False
 
     _reset()
     yield
@@ -808,3 +820,75 @@ def test_a_transient_dropped_connection_is_not_painted_as_an_error():
 
     assert "failures = 0;" in html[:html.find("async function load()")] or \
         "failures = 0;" in html, "the counter is never reset"
+
+def test_a_slow_store_cannot_hold_the_request(
+        main_module, monkeypatch, meta_store):
+    """THE PRODUCTION REGRESSION, 09.11 20:19–20:36.
+
+    With the seed awaited in full, every request paid the store's 30-second
+    timeout and then the 20-second cold wait: 50.4 s per request, 18 in a row,
+    while a rebuild was failing. The board's rule is that the request path does
+    no database work, and a slow store must cost a warm-up message — not a hung
+    dashboard.
+    """
+    main = main_module
+    reading = threading.Event()
+
+    class SlowStore:
+        def get_meta(self, key, default=None):
+            reading.set()
+            time.sleep(10.0)          # a store that is wedged, not merely busy
+            return None
+
+        def set_meta(self, key, value):
+            return None
+
+    monkeypatch.setattr(main, "_dashboard_meta_store", lambda: SlowStore())
+    monkeypatch.setattr(main, "_DASHBOARD_SEED_WAIT_SECONDS", 0.5)
+    monkeypatch.setattr(main, "_DASHBOARD_COLD_WAIT_SECONDS", 0.2)
+    gate = threading.Event()
+    _fake_payload(monkeypatch, main, gate=gate)    # the build will not finish
+
+    # The bound itself, asserted directly: this is the call the request path
+    # makes, and it must return without a board rather than wait for the store.
+    t0 = time.time()
+    seeded = main._dashboard_seed_once()
+    elapsed = time.time() - t0
+
+    assert reading.wait(2.0), "the seed was never attempted at all"
+    assert seeded is False, "a store that returns nothing seeded a board"
+    assert elapsed < 3.0, (
+        "a slow store held the request path for %.1fs — this is the 50-second "
+        "request the fix exists to prevent" % elapsed)
+    with pytest.raises(main.DashboardWarming):
+        main._dashboard_payload_resilient(False, False)
+    gate.set()
+
+
+def test_the_seed_is_attempted_once_per_process(
+        main_module, monkeypatch, meta_store):
+    """It is a boot cost, not a per-request one: the second cold request must
+    not touch the store again."""
+    main = main_module
+    calls = []
+
+    class CountingStore:
+        def get_meta(self, key, default=None):
+            calls.append(key)
+            return None
+
+        def set_meta(self, key, value):
+            return None
+
+    monkeypatch.setattr(main, "_dashboard_meta_store", lambda: CountingStore())
+    monkeypatch.setattr(main, "_DASHBOARD_SEED_WAIT_SECONDS", 0.3)
+    monkeypatch.setattr(main, "_DASHBOARD_COLD_WAIT_SECONDS", 0.05)
+    gate = threading.Event()
+    _fake_payload(monkeypatch, main, gate=gate)
+
+    for _ in range(3):
+        with pytest.raises(main.DashboardWarming):
+            main._dashboard_payload_resilient(False, False)
+
+    assert len(calls) == 1, "the store was read %d times" % len(calls)
+    gate.set()

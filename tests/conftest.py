@@ -125,6 +125,11 @@ def _no_board_persistence_in_the_shared_store(monkeypatch):
     import main
     if hasattr(main, "_dashboard_meta_store"):
         monkeypatch.setattr(main, "_dashboard_meta_store", lambda: None)
+    # The one-shot seed is per PROCESS by design, so a test that ran it would
+    # otherwise leave every later test unseeded.
+    if hasattr(main, "_DASHBOARD_SEED_THREAD"):
+        monkeypatch.setattr(main, "_DASHBOARD_SEED_THREAD", None)
+        monkeypatch.setattr(main, "_DASHBOARD_SEED_DONE", False)
 
 
 os.environ.setdefault("VALUE_CHECK_ENABLED", "0")

@@ -3381,6 +3381,29 @@ HYBRID since 14.09:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.file_path), timeout=30)
         conn.row_factory = sqlite3.Row
+        # ── WAL, because the default journal mode made readers WAIT (09.11) ──
+        #
+        # Measured in production at 20:19–20:36: every dashboard rebuild failed
+        # with `OperationalError: database is locked`, with the log's own
+        # `slowest_step` naming `get_payapi_state` at 30,067 ms — i.e. one SQLite
+        # read sitting on the 30-second busy timeout because a writer held the
+        # database. In the default rollback-journal mode a writer blocks readers
+        # for the whole transaction, and this file is written by several threads
+        # at once (the boot-time retro scan and whale backfill, the scan
+        # watermarks, request-log retention). The board could not rebuild at all,
+        # so it stayed empty and every visitor got 503 "warming".
+        #
+        # In WAL mode readers do not block on a writer and a writer does not
+        # block readers; they see the last committed state. That is exactly what
+        # this file's workload needs — many concurrent reads against occasional
+        # long writes.
+        #
+        # Best-effort on purpose: `journal_mode` fails on a read-only or
+        # in-memory database, and a store that cannot switch must still work.
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.Error:      # pragma: no cover - read-only/unusual files
+            pass
         return conn
 
     def _ensure_db(self) -> None:

@@ -7619,6 +7619,53 @@ def _dashboard_seed_from_store(key) -> bool:
     return True
 
 
+#: The one-shot seed: started once per process, awaited briefly, never repeated.
+_DASHBOARD_SEED_THREAD = None
+_DASHBOARD_SEED_DONE = False
+
+#: How long a REQUEST may wait for that seed. The board's design rule is that the
+#: request path does no database work; the seed is the single exception and it is
+#: bounded here so a slow store cannot turn the rule into a slow request.
+#:
+#: MEASURED, 09.11 20:19–20:36, and this is why the bound exists: with the seed
+#: awaited in full, each request paid the store's 30-second timeout and then the
+#: 20-second cold wait — 50.4 s per request, 18 times in a row — while the board's
+#: own rebuild was failing. Two seconds is enough for a healthy read and short
+#: enough that a sick store costs a warm-up message, not a hung dashboard.
+_DASHBOARD_SEED_WAIT_SECONDS = max(
+    0.0, float(os.getenv("KRISTO_DASHBOARD_SEED_WAIT_SECONDS", "2")))
+
+
+def _dashboard_seed_once() -> bool:
+    """Replay the last public board, bounded, and only the first time.
+
+    Returns True if the cache now holds a board. The work happens on a daemon
+    thread: a request waits at most `_DASHBOARD_SEED_WAIT_SECONDS` for it, and if
+    that expires the thread keeps going so the NEXT request finds the board
+    already there. Nothing here is allowed to raise into a request.
+    """
+    global _DASHBOARD_SEED_THREAD, _DASHBOARD_SEED_DONE
+    if _DASHBOARD_SEED_DONE:
+        return False
+    thread = _DASHBOARD_SEED_THREAD
+    if thread is None:
+        def _work():
+            global _DASHBOARD_SEED_DONE
+            try:
+                _dashboard_seed_from_store((False, False))
+            except Exception as exc:      # pragma: no cover - defensive
+                log.debug("dashboard board seed failed: %s", exc)
+            finally:
+                _DASHBOARD_SEED_DONE = True
+        thread = threading.Thread(target=_work, name="dashboard-seed",
+                                  daemon=True)
+        _DASHBOARD_SEED_THREAD = thread
+        thread.start()
+    thread.join(_DASHBOARD_SEED_WAIT_SECONDS)
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        return _DASHBOARD_LAST_GOOD.get((False, False)) is not None
+
+
 def _dashboard_refresh_in_background(key, include_crm: bool,
                                      include_sales_detail: bool) -> bool:
     """Rebuild a variant off the request path. True if a refresh was started.
@@ -7758,7 +7805,7 @@ def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) 
         # and operator variants are never persisted, so they still cold-start —
         # that is the price of never writing the CRM section to shared storage,
         # and it is paid by the one caller who has to authenticate anyway.
-        if _dashboard_seed_from_store(key):
+        if _dashboard_seed_once():
             with _DASHBOARD_LAST_GOOD_LOCK:
                 cached = _DASHBOARD_LAST_GOOD.get(key)
 

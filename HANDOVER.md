@@ -474,6 +474,57 @@ comes before the throw, the transient branch before the error badge, and neither
 shares the developer's real database and a board written by one test would seed every later
 test's cold path.
 
+### 09.11 20:19–20:36 — the restart fix hid a second fault: SQLite was locking the board out
+
+Deploy `8c6e300` went live at 20:18:46 and the board **still** failed, but differently — this time
+in the service, and visibly so:
+
+```
+/api/dashboard/data    18 × HTTP 503, 1 × HTTP 500, ~50.4 s per request
+last_error_type        {"(False, False)": "OperationalError"}
+slowest_step           get_payapi_state  30,067 ms
+cache_age_seconds      {}      refreshing: []
+log                    dashboard: background refresh failed (variant
+                       (False, False)): database is locked
+```
+
+**Two faults stacked, and the second one was created by the first fix.**
+
+1. **The store itself.** `dashboard_store._connect()` opened SQLite with the default
+   rollback-journal mode and `timeout=30`. In that mode **a writer blocks readers for the whole
+   transaction**, and this one file is written by several threads at once (the boot-time retro
+   scan and whale backfill, the scan watermarks, request-log retention). So a read — the log names
+   `get_payapi_state` — sat on the full 30-second busy timeout and died with
+   `OperationalError: database is locked`. Every rebuild failed, the board stayed empty, and every
+   visitor got 503 „ЗАГРЯВА". Fix: `PRAGMA journal_mode=WAL`, best-effort (it fails on a read-only
+   or in-memory file, and a store that cannot switch must still work). In WAL readers do not block
+   on a writer and vice versa — exactly what this file's many-reads/occasional-long-writes
+   workload needs.
+
+2. **My own seed was unbounded, and that is what made requests take 50 s.** The seed introduced by
+   `9468c4f` ran *inside* the cold path: the request waited the store's full 30-second timeout,
+   then the 20-second cold wait — 50.4 s per request, 18 times in a row. A restart-survival fix had
+   become a way to make a restart *slower* than the 503 it replaced.
+
+**The fix (`_dashboard_seed_once`, main.py).** The seed now runs **once per process** on a
+`dashboard-seed` daemon thread and a request waits at most `KRISTO_DASHBOARD_SEED_WAIT_SECONDS`
+(default **2**; the request path is the one place the "no database work on the request path" rule
+has an exception, so the exception is bounded). If the bound expires the thread keeps going, so the
+NEXT request finds the board already there. Nothing in it can raise into a request.
+
+**The test lesson, which cost more time than the fix.** `test_a_slow_store_cannot_hold_the_request`
+passed alone and failed inside its file: the leak was not in the test but in the suite's shared
+cache — a *gated refresh thread* released by the previous test published a board into
+`_DASHBOARD_LAST_GOOD` after that test's teardown had cleared it. `_clean_cache` now settles **every**
+live `dashboard-` thread (`dashboard-seed` **and** `dashboard-refresh`) before clearing, and the
+test asserts the bound directly on `_dashboard_seed_once()` instead of inferring it from a
+globally-empty cache. A test that depends on global emptiness in a threaded process is testing the
+suite, not the code.
+
+Tests: 2 new (35 in `test_dashboard_resilience.py`, suite **1,274**). The ones that carry the
+weight here: a store that takes five seconds still returns from the request path in under three; the
+seed is attempted **once per process**; and a corrupt stored board is skipped rather than raised.
+
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
 Check what the demo key is really paying for. Why it is now a task with teeth —
