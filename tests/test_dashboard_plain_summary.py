@@ -616,3 +616,86 @@ def test_the_operator_columns_require_a_real_token(monkeypatch):
     assert not (fields(with_wrong) & {"sender", "tx_hash", "route"})
     # The account the owner reads must not be spoilable by a near-miss token.
     assert fields(without) <= {"ts", "amount", "payer_class"}
+
+
+# ── whose money: a day of our own tests is not income ────────────────────────
+
+def test_a_day_of_our_own_payments_is_not_income():
+    """THE bug this test was written from, found on the live board 09.11.
+
+    The top card read "16 · $0.15 днес" and was read as revenue, while all
+    sixteen payments that day were our own demo key settling against ourselves —
+    we paid, we received, and no customer was involved. The rows always carried
+    `payer_class`; nothing aggregated it for the day, so the card had no way to
+    say so.
+    """
+    today = dt.datetime.now(UTC).date().isoformat()
+
+    def _row(hour, amount, cls):
+        return {"ts": "%sT%02d:00:00+00:00" % (today, hour),
+                "amount_usdc": amount, "payer_class": cls}
+
+    history = [
+        _row(6, 0.003, "own_key"),      # our demo key
+        _row(7, 0.1, "own_key"),        # our demo key, the $0.1 route
+        _row(8, 0.003, "sampler"),      # a market crawler, also not a customer
+        _row(9, 0.003, "external"),     # a stranger — the only business there is
+        _row(10, 0.005, "external"),
+    ]
+    summary = _summary(history)
+
+    assert summary["today"]["count"] == 5
+    assert summary["today"]["usdc"] == 0.114
+    # $0.008 of the $0.114 is a customer's. That is the number the card needs.
+    assert summary["today"]["client_count"] == 2
+    assert summary["today"]["client_usdc"] == 0.008
+    # The same split exists for the week the card compares itself against —
+    # otherwise "this week" would keep the same false reading one card over.
+    assert summary["this_week"]["client_count"] == 2
+    assert summary["this_week"]["client_usdc"] == 0.008
+    assert summary["last_week"]["client_count"] == 0
+    assert summary["last_week"]["client_usdc"] == 0.0
+
+
+def test_a_day_with_no_client_payment_says_zero_not_nothing():
+    """0 is a finding; a missing field is a rendering bug.
+
+    Every day in the 28-column series must carry the customer split, including
+    the empty ones — a card that renders `undefined` would be worse than the
+    number it replaced.
+    """
+    today = dt.datetime.now(UTC).date().isoformat()
+    history = [{"ts": "%sT06:00:00+00:00" % today, "amount_usdc": 0.003,
+                "payer_class": "own_key"}]
+    summary = _summary(history)
+
+    assert summary["today"]["client_count"] == 0
+    assert summary["today"]["client_usdc"] == 0.0
+    for row in summary["sales_by_day"]:
+        assert "client_count" in row and "client_usdc" in row, row["date"]
+
+
+def test_the_board_shows_the_customer_half_it_talks_about():
+    """On screen, not merely available.
+
+    The server can compute the split forever; if the page does not render it, the
+    owner reads "$0.15 днес" again. This asserts the three places that claim
+    money: the two day cards, the week cards, and the day table's new column.
+    """
+    html = _page()
+    assert "от реални клиенти" in html
+    assert "От реални клиенти" in html              # the day table's column
+    assert "client_count" in html and "client_usdc" in html
+    # The class tags under the "Днес" card are ALL TIME and must say it: they add
+    # up to $0.32 while that card shows one day's $0.15.
+    assert "от началото:" in html
+
+
+def test_the_onchain_section_carries_todays_customer_count():
+    doc = main.app.test_client().get("/api/dashboard/data").get_json()
+    onchain = doc["sections"]["onchain"]
+    assert "today_client_count" in onchain
+    assert "today_client_usdc" in onchain
+    # Never more customers than payments, and never more money than the day.
+    assert 0 <= onchain["today_client_count"] <= onchain["today_count"]
+    assert 0.0 <= onchain["today_client_usdc"] <= onchain["today_usdc"] + 1e-9

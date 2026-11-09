@@ -46,6 +46,44 @@ honesty conditions above). Suite 1231 green.
 itself** — CDP's sibling in the chain — so the fallback is proven on the real rail
 and not only in tests.
 
+### 09.11 16:29–16:30 — the fallback fix was exercised; the board was read wrong
+
+Two more payments landed, both labelled `own_key` ("нашият демо ключ — не е
+клиент"). Neither was a customer; both were ours, and the fingerprints are in the
+Render log:
+
+  * **16:29:08 UTC** — tx `0x54d3b252…922f`, $0.003 on `GET /api/v1/signal`,
+    client UA `Python-urllib/3.12` (our local Python — Render runs 3.14) and a
+    payload that DID carry `accepted`: the standard-rail baseline.
+  * **16:30:11 UTC** — tx `0x5d02aba9…c751d`, $0.003 on the same route, client UA
+    `kristo-fallback` = `_forensics/test_fallback_real.py`, written 16:30:01 UTC.
+    That is the pre-14-November test: the payload OMITS `accepted`, and the server
+    answered at 16:30:09.915 with
+    `x402 payload carried no accepted — filled it from the client's own terms
+    (exact 3000) so the facilitator chain is not a single point of failure`.
+    `48e4dfc` had never been exercised by a real settlement before this; now it
+    has. **But the settle still went through CDP** (self-broadcast cannot run: the
+    gas wallet `0x9c1eb9…50dd` holds 0 ETH), so the PayAI leg is still unproven on
+    the live rail. The item above stays open.
+
+**The board read "16 · $0.15 днес" as income**, while every one of that day's
+sixteen payments was the demo key paying our own receiver. The owner asked "нашите
+клиенти ли са?" — the honest answer is no: **0 customers and $0.00 of customer
+revenue on 09.11**. Fixed here: `_daily_sales_series()` now carries `client_count`
+/ `client_usdc` per day, `_between()` sums them for every range, and the page
+prints "N от реални клиенти" on the "Днес", "Тази седмица" and on-chain "Днес"
+cards — going YELLOW instead of green when nobody paid — plus "от реални клиенти:
+$X" on the week cards and a dedicated column in the day table. The all-time class
+tags are now prefixed "от началото:", because they add up to $0.32 directly under
+a card showing one day's $0.15.
+
+The lesson worth keeping: a Python assertion that the sentence exists in the
+template had already passed while the sentence was being SWALLOWED at runtime —
+`card()` took three parameters (`v, k, hero`) and the new text was passed as
+`hero`, so it vanished and painted the card green. `tests/test_dashboard_card_render.py`
+therefore runs the page's real script under node with a stub DOM and asserts what
+the renderers actually produce.
+
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
 Check what the demo key is really paying for. Why it is now a task with teeth —

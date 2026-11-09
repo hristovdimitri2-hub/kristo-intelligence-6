@@ -42,8 +42,8 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1231
-SUITE_LAST_RUN = "2026-11-07"
+SUITE_TESTS_PASSED = 1240
+SUITE_LAST_RUN = "2026-11-09"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
 #: counter. It lives here, next to the suite figures and for the same reason: the

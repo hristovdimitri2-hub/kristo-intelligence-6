@@ -234,8 +234,8 @@
   <div class="daybars" id="daybars"></div>
   <div class="day-label"><span id="daybar-first"></span><span id="daybar-last">днес</span></div>
   <table style="margin-top:10px;">
-    <thead><tr><th>Ден</th><th>Дата</th><th>Продажби</th><th>Сума</th><th>Спрямо предишния ден</th></tr></thead>
-    <tbody id="days-body"><tr><td colspan="5" class="empty">Изчакване на данни…</td></tr></tbody>
+    <thead><tr><th>Ден</th><th>Дата</th><th>Продажби</th><th>Сума</th><th>От реални клиенти</th><th>Спрямо предишния ден</th></tr></thead>
+    <tbody id="days-body"><tr><td colspan="6" class="empty">Изчакване на данни…</td></tr></tbody>
   </table>
   <div class="note" id="days-note" style="margin-top:8px;"></div>
 
@@ -502,8 +502,9 @@ const CLS_WORDS = {
 const DASH = '—';
 function num(v) { return (v === null || v === undefined || v === '') ? DASH : v; }
 
-function card(v, k, hero) {
-  return `<div class="card${hero ? ' hero' : ''}"><div class="v">${num(v)}</div><div class="k">${esc(k)}</div></div>`;
+function card(v, k, hero, sub) {
+  return `<div class="card${hero ? ' hero' : ''}"><div class="v">${num(v)}</div><div class="k">${esc(k)}</div>` +
+    (sub ? `<div class="sub-line">${esc(sub)}</div>` : '') + '</div>';
 }
 
 // КОЙ ПЛАЩА ПО ВСЕКИ РЕД. Таблицата има два вида: публичен ({ts, amount} само,
@@ -517,11 +518,18 @@ const SALES_HEAD_ADMIN =
   '<th>Услуга</th><th>Платец</th><th>Tx</th></tr>';
 
 function renderOnchain(o) {
+  // 09.11: „16 · $0.15 днес" беше прочетено като приход. Картата вече казва и
+  // колко от днешните плащания са от реален клиент — и не е зелена, когато
+  // всичките са наши собствени тестове.
+  const todayClients = o.today_client_count || 0;
   $('onchain-cards').innerHTML =
     card(usd(o.total_usdc) + ' USDC', 'Общо верифицирано on-chain', true) +
     card(o.total_count, 'Плащания (трансфери)') +
     card(o.external_payers, 'Реални платци (external)') +
-    card(`${o.today_count} · ${usd(o.today_usdc)}`, `Днес (${esc(o.today_date)} UTC)`);
+    bigCard(`${o.today_count} · ${usd(o.today_usdc)}`,
+            `Днес (${o.today_date} UTC)`,
+            todayClients + ' от реални клиенти',
+            (o.today_count > 0 && !(todayClients > 0)) ? 'warn' : '');
   const cl = o.by_class || {}, lb = o.class_labels || {};
   // DERIVED FROM THE DATA, not from a hardcoded list.
   //
@@ -534,9 +542,15 @@ function renderOnchain(o) {
   //
   // `external` sorts LAST on purpose: it is the only class that represents
   // business, so it reads as the conclusion after the noise.
+  //
+  // The prefix says ALL TIME out loud. Without it these tags sit under the
+  // "Днес" card and read as today's split: the owner saw "$0.15 днес" above tags
+  // that add up to $0.32 and reasonably asked which number was lying.
   const order = Object.keys(cl).sort((a, b) =>
     (a === 'external' ? 1 : 0) - (b === 'external' ? 1 : 0) || a.localeCompare(b));
-  $('onchain-classes').innerHTML = order.map(k => cl[k]
+  $('onchain-classes').innerHTML =
+    `<span style="color:var(--muted)">от началото:</span> ` +
+    order.map(k => cl[k]
     ? `<span class="tag ${esc(k)}">${esc(lb[k] || k)}: ${cl[k].count} tx · ${usd(cl[k].total_usdc)}</span>`
     : '').join(' &nbsp; ') +
     (o.last_scanned_block ? ` &nbsp;<span style="color:var(--muted)">scan watermark: block ${o.last_scanned_block}</span>` : '');
@@ -1139,6 +1153,13 @@ function renderAnswers(s) {
   const tw = s.this_week || {}, lw = s.last_week || {}, at = s.all_time || {};
   const busiest = s.busiest_hour;
 
+  // 09.11: „16 · $0.15" беше прочетено като приход, докато всичките 16 бяха нашият
+  // демо ключ, плащащ на самите нас. Затова всяка карта с пари казва и колко от
+  // тях идват от реален клиент — и когато нито един не идва, картата не е зелена.
+  const clientsIn = b => (b.client_count || 0) + ' от реални клиенти';
+  const moneyClass = (b, base) =>
+    ((b.count > 0 && !(b.client_count > 0)) ? 'warn' : base);
+
   $('answer-cards').innerHTML =
     bigCard(sale ? usd(sale.amount_usdc) : '—',
             'Последна продажба',
@@ -1146,11 +1167,13 @@ function renderAnswers(s) {
                  : 'още няма нито едно плащане',
             sale ? 'hero' : 'warn') +
     bigCard(t.count, 'Днес',
-            (t.from || '') + ' · ' + usd(t.usdc) +
-            ' · вчера: ' + y.count + ' бр. / ' + usd(y.usdc)) +
+            (t.from || '') + ' · ' + usd(t.usdc) + ' · ' + clientsIn(t) +
+            ' · вчера: ' + y.count + ' бр. / ' + usd(y.usdc),
+            moneyClass(t, '')) +
     bigCard(tw.count, 'Тази седмица, ' + (tw.from || '') + ' → ' + (tw.to || ''),
-            usd(tw.usdc) + ' · миналата: ' + lw.count + ' бр. / ' + usd(lw.usdc),
-            'hero') +
+            usd(tw.usdc) + ' · ' + clientsIn(tw) +
+            ' · миналата: ' + lw.count + ' бр. / ' + usd(lw.usdc),
+            moneyClass(tw, 'hero')) +
     bigCard('x' + at.count, 'Общо продажби от началото',
             usd(at.usdc) + ' от ' + at.payers + ' платеца · ' +
             (at.days_live || 0) + ' дни на пазара') +
@@ -1173,9 +1196,11 @@ function renderDays(s) {
   const tw = s.this_week || {}, lw = s.last_week || {};
   $('week-cards').innerHTML =
     card(tw.count, 'Тази седмица (' + (tw.from || '') + ' → ' + (tw.to || '') + ')') +
-    card(usd(tw.usdc), 'Приход тази седмица') +
+    card(usd(tw.usdc), 'Приход тази седмица', false,
+         'от реални клиенти: ' + usd(tw.client_usdc)) +
     card(lw.count, 'Миналата седмица') +
-    card(usd(lw.usdc), 'Приход миналата седмица') +
+    card(usd(lw.usdc), 'Приход миналата седмица', false,
+         'от реални клиенти: ' + usd(lw.client_usdc)) +
     card(tw.count - lw.count, 'Разлика в брой') +
     card(usd(tw.usdc - lw.usdc), 'Разлика в пари');
 
@@ -1207,10 +1232,11 @@ function renderDays(s) {
       '<td class="num mono">' + esc(d.date) + '</td>' +
       '<td class="num">' + d.count + '</td>' +
       '<td class="num">' + usd(d.usdc) + '</td>' +
+      '<td class="num">' + (d.client_count || 0) + '</td>' +
       '<td>' + cmp + '</td></tr>';
   });
   $('days-body').innerHTML = rows.length ? rows.join('') :
-    '<tr><td colspan="5" class="empty">няма нито една продажба в последните 28 дни</td></tr>';
+    '<tr><td colspan="6" class="empty">няма нито една продажба в последните 28 дни</td></tr>';
   $('days-note').textContent =
     withSales.length + ' от последните ' + days.length + ' дни имат продажби. ' +
     'Показани са само дните с продажби — празните дни се виждат на лентата отгоре.';

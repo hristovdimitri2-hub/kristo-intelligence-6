@@ -4544,6 +4544,7 @@ def _daily_sales_series(history_rows, days: int = 7) -> list:
     better than last week" — that needs fourteen, and the comparison is the
     question the owner actually asks.
     """
+    empty = {"usdc": 0.0, "count": 0, "client_usdc": 0.0, "client_count": 0}
     buckets: Dict[str, Dict[str, float]] = {}
     for row in history_rows or []:
         day = str(row.get("ts") or row.get("timestamp") or "")[:10]
@@ -4553,18 +4554,28 @@ def _daily_sales_series(history_rows, days: int = 7) -> list:
             amount = float(row.get("amount_usdc") or row.get("amount_usd") or 0.0)
         except (TypeError, ValueError):
             amount = 0.0
-        bucket = buckets.setdefault(day, {"usdc": 0.0, "count": 0})
+        bucket = buckets.setdefault(day, dict(empty))
         bucket["usdc"] += amount
         bucket["count"] += 1
+        # 09.11: the owner read "16 · $0.15 днес" as income while all sixteen were
+        # our own demo key paying ourselves. Each day now carries the customer
+        # half of the number, so a card cannot print self-tests as revenue
+        # without the count that contradicts it. `external` is the class that
+        # means a stranger's wallet paid (see classify_payer).
+        if (row.get("payer_class") or "") == "external":
+            bucket["client_usdc"] += amount
+            bucket["client_count"] += 1
     today = datetime.now(timezone.utc).date()
     series = []
     for offset in range(days - 1, -1, -1):
         day = (today - timedelta(days=offset)).isoformat()
-        bucket = buckets.get(day, {"usdc": 0.0, "count": 0})
+        bucket = buckets.get(day, dict(empty))
         series.append({
             "date": day,
             "usdc": round(bucket["usdc"], 6),
             "count": int(bucket["count"]),
+            "client_usdc": round(bucket["client_usdc"], 6),
+            "client_count": int(bucket["client_count"]),
         })
     return series
 
@@ -4995,15 +5006,29 @@ def _plain_summary(sales: dict, requests: dict, clients: dict) -> dict:
     sales_by_day = _daily_sales_series(history, days=28)
 
     def _between(first, last) -> Dict[str, object]:
+        """Totals for a date range, split by WHO paid.
+
+        `client_count` / `client_usdc` are the `external` half — strangers. The
+        other classes are our own verification wallets and market crawlers, and
+        on 09.11 they were the whole of the day: 16 payments, $0.15, not one of
+        them a customer. Without this split the card said "$0.15 днес" beside no
+        revenue at all, and the owner had to ask who the money came from.
+        """
         count = 0
         usdc = 0.0
+        client_count = 0
+        client_usdc = 0.0
         for row in sales_by_day:
             day = row["date"]
             if first <= day <= last:
                 count += row["count"]
                 usdc += row["usdc"]
+                client_count += row.get("client_count", 0)
+                client_usdc += row.get("client_usdc", 0.0)
         return {"from": first, "to": last,
-                "count": count, "usdc": round(usdc, 6)}
+                "count": count, "usdc": round(usdc, 6),
+                "client_count": client_count,
+                "client_usdc": round(client_usdc, 6)}
 
     week_start = today - timedelta(days=today.weekday())          # Monday
     last_week_start = week_start - timedelta(days=7)
@@ -7127,6 +7152,13 @@ def _canonical_dashboard_payload(include_crm: bool = False,
     # Priority-0 guard: the on-chain total must NEVER contain off-chain money.
     assert isinstance(onchain_total, (int, float))
 
+    # 09.11: the class tags render directly under the "Днес" card but count ALL
+    # TIME — read together they looked like today's split, so the card said
+    # "$0.15 днес" beside tags summing to $0.32. Today's own client half is taken
+    # from the same history rows as every other figure on the page, not re-queried
+    # (a second query is a second answer).
+    _today_bucket = _daily_sales_series(sales.get("history"), days=1)[0]
+
     _timings["total_ms"] = round((time.perf_counter() - _t_start) * 1000.0, 1)
     return {
         "ok": True,
@@ -7187,6 +7219,10 @@ def _canonical_dashboard_payload(include_crm: bool = False,
                 "today_usdc": sales["today_usdc"],
                 "today_count": sales["today_count"],
                 "today_date": sales["today_date"],
+                # The customer half of TODAY. `by_class` below is all-time and is
+                # labelled as such on the page; these two carry the card's date.
+                "today_client_count": _today_bucket["client_count"],
+                "today_client_usdc": _today_bucket["client_usdc"],
                 "external_payers": sales["external_payers"],
                 "by_class": sales["by_class"],
                 "class_labels": PAYER_CLASS_LABELS_BG,
