@@ -83,6 +83,17 @@ from services.market_data import get_coingecko_cache_status, get_market_snapshot
 # `config`, and `eth_account`.
 from services import connectors
 
+# `web3` IS WARMED HERE FOR THE SAME REASON, and it is a separate import because
+# `services.connectors` does not pull it. The nonce search calls
+# `_get_verify_web3()`, which imports `web3` lazily, and `web3` was NOT loaded at
+# boot either — so the first payment paid for that one too, on top of the chain
+# search it then performs. Both belong off the request path.
+try:
+    import web3 as _web3_warm  # noqa: F401
+except Exception as _web3_exc:  # noqa: BLE001 - the rail reports its own failures
+    log.warning("web3 could not be imported at boot (%s); the first payment "
+                "will pay for that import instead", type(_web3_exc).__name__)
+
 # ── Telegram Sales Bot (x402 micro-transactions) ───────────────────────────
 import services.telegram_sales
 from services.telegram_sales import (
@@ -3706,19 +3717,45 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # succeed (the authorization nonce is spent), which is why the old
     # "retry the signature" advice was a dead end that cost the sale.
     tx_hash, settle_detail, settle_extra = "", "", []
+    _t = time.monotonic()
     nonce = connectors.extract_authorization_nonce(payment_header)
+    _pstep("extract_nonce", _t)
     if nonce and payer:
-        adopted = _find_settlement_by_nonce(payer, nonce, price)
+        # TIMED AND BOUNDED, because this is a CHAIN SEARCH and it was neither.
+        #
+        # `_find_settlement_by_nonce` calls `_get_verify_web3()` — which imports
+        # `web3` lazily, and `web3` was NOT loaded at boot — and then walks up to
+        # `_nonce_search_blocks()` blocks with `eth_getLogs`. On a public RPC
+        # that is seconds at best; on the 0.1-CPU instance with a cold import in
+        # front of it, it is the next thing to hold the worker past gunicorn's
+        # 120-second limit.
+        #
+        # BOUNDING IT IS SAFE BY CONSTRUCTION: the function's own docstring says
+        # "best-effort: any RPC failure returns None and the caller settles
+        # normally, so a failed search can never reject a payment". A deadline
+        # that returns None is exactly that case — the caller falls through to a
+        # normal settlement, which is the pre-fix path.
+        _t = time.monotonic()
+        _finished, _adopted, _aex = _bounded(
+            "find_settlement_by_nonce",
+            lambda: _find_settlement_by_nonce(payer, nonce, price))
+        _pstep("find_settlement_by_nonce", _t)
+        if _aex is not None:
+            log.warning("nonce search raised (%s) — settling normally",
+                        type(_aex).__name__)
+        adopted = _adopted if _finished else None
         if adopted:
             tx_hash = adopted["tx_hash"]
             settle_detail = "adopted_existing_settlement"
             log.warning("standard x402 ADOPTED already-settled authorization "
                         "(nonce=%s, tx=%s) — idempotent settle, no second "
                         "transfer", nonce[:14], tx_hash)
+            _t = time.monotonic()
             dashboard_db.record_guard_event(
                 "c1_nonce_adopted", endpoint=path, tx_hash=tx_hash,
                 detail=f"authorization nonce {nonce[:18]} already consumed; "
                        f"channel-agnostic recovery, settle skipped")
+            _pstep("record_guard_event", _t)
     if not tx_hash:
         # *rest = extension receipt (facilitator EXTENSION-RESPONSES header);
         # 2-tuple fakes in older tests stay compatible.
