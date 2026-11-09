@@ -144,3 +144,41 @@ def test_the_worker_is_released_even_when_verify_hangs(monkeypatch):
     assert elapsed < 10, (
         "the rail held for %.1fs against a 0.4s step deadline — this is the "
         "call that used to get the worker killed" % elapsed)
+
+
+def test_the_worst_case_total_is_under_the_gunicorn_limit():
+    """The SUM is what gunicorn kills the worker over, not each step.
+
+    Three individually reasonable deadlines can add up past 120s and reproduce
+    the exact outage the bounds exist to prevent.
+    """
+    total = (main.X402_STEP_DEADLINE_SECONDS
+             + main.X402_NONCE_SEARCH_SECONDS
+             + main.X402_SETTLE_DEADLINE_SECONDS)
+    assert total < 120, (
+        "the rail's worst case is %.0fs against gunicorn's 120s timeout — the "
+        "worker would still be killed" % total)
+
+
+def test_the_settle_bound_is_above_the_facilitator_chain_budget():
+    """A bound BELOW the budget of the thing it wraps is the failure, not the net.
+
+    The first version gave settlement the same 20s as every other step and the
+    settlement was cut off at 20.002s on every attempt — while the chain behind it
+    allows `X402_FACILITATOR_TIMEOUT` (15s, default) to CDP and then to PayAI. So
+    neither facilitator was ever given the time it was configured to take.
+    """
+    from services import connectors
+
+    per_facilitator = connectors.FACILITATOR_TIMEOUT
+    assert main.X402_SETTLE_DEADLINE_SECONDS > per_facilitator, (
+        "settlement is bounded at %.0fs but a single facilitator call may take "
+        "%.0fs, so no facilitator is ever allowed to finish"
+        % (main.X402_SETTLE_DEADLINE_SECONDS, per_facilitator))
+
+
+def test_the_nonce_search_bound_is_the_shortest():
+    """It is best-effort: timing out costs a missed ADOPTION and nothing else,
+    because the caller falls through to a normal settlement."""
+    assert main.X402_NONCE_SEARCH_SECONDS < main.X402_STEP_DEADLINE_SECONDS
+    assert main.X402_NONCE_SEARCH_SECONDS < main.X402_SETTLE_DEADLINE_SECONDS

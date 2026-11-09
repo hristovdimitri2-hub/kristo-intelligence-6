@@ -3594,6 +3594,25 @@ def _get_standard_payment_header() -> str:
 X402_STEP_DEADLINE_SECONDS = float(
     os.getenv("X402_STEP_DEADLINE_SECONDS", "20"))
 
+#: The nonce search gets a SHORTER budget than the others, on purpose. Its only
+#: job is to ADOPT an already-settled payment; timing out costs a missed adoption
+#: and nothing else, because the caller falls through to a normal settlement —
+#: the pre-fix path. Twenty seconds of a buyer's request for a best-effort
+#: optimisation is the wrong trade.
+X402_NONCE_SEARCH_SECONDS = float(
+    os.getenv("X402_NONCE_SEARCH_SECONDS", "5"))
+
+#: Settlement gets a LONGER budget than the others, and the first version of this
+#: was WRONG in a way worth recording: it used the same 20s and the settlement was
+#: cut off at 20.002s every time. The facilitator chain tries CDP and then PayAI,
+#: each with its own `X402_FACILITATOR_TIMEOUT` (default 15s) — so the chain's own
+#: honest worst case is about 30s, and a 20s wrapper guarantees that NEITHER
+#: facilitator is ever given the time it was configured to take. The bound must
+#: sit ABOVE the budget of the thing it wraps, or it is not a safety net, it is
+#: the failure.
+X402_SETTLE_DEADLINE_SECONDS = float(
+    os.getenv("X402_SETTLE_DEADLINE_SECONDS", "50"))
+
 
 def _bounded(label: str, fn, seconds: float = None):
     """Run `fn` with a deadline. Returns (finished, result, error).
@@ -3738,7 +3757,13 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         _t = time.monotonic()
         _finished, _adopted, _aex = _bounded(
             "find_settlement_by_nonce",
-            lambda: _find_settlement_by_nonce(payer, nonce, price))
+            lambda: _find_settlement_by_nonce(payer, nonce, price),
+            # SHORTER THAN THE OTHERS ON PURPOSE. This is a best-effort chain
+            # search whose only job is to ADOPT a payment that was already
+            # settled. Timing out costs nothing but a missed adoption — the
+            # caller settles normally, which is the pre-fix path — so there is no
+            # reason to spend twenty seconds of a buyer's request on it.
+            X402_NONCE_SEARCH_SECONDS)
         _pstep("find_settlement_by_nonce", _t)
         if _aex is not None:
             log.warning("nonce search raised (%s) — settling normally",
@@ -3767,11 +3792,15 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         _finished, _verdict, _sex = _bounded(
             "settle_standard_payment",
             lambda: connectors.settle_standard_payment(payment_header,
-                                                       requirements))
+                                                       requirements),
+            # ABOVE the facilitator chain's own budget (15s x 2), or the wrapper
+            # is the failure rather than the net. See
+            # `X402_SETTLE_DEADLINE_SECONDS`.
+            X402_SETTLE_DEADLINE_SECONDS)
         if not _finished:
             tx_hash, settle_detail, settle_extra = None, (
                 "settlement exceeded the %.0fs deadline — the rail refused "
-                "rather than holding the worker" % X402_STEP_DEADLINE_SECONDS), []
+                "rather than holding the worker" % X402_SETTLE_DEADLINE_SECONDS), []
         elif _sex is not None:
             tx_hash, settle_detail, settle_extra = None, (
                 "settlement raised: %s: %s" % (type(_sex).__name__,
