@@ -859,3 +859,36 @@ def test_nonce_search_adopts_under_web3_v8_checksum_rule(env, monkeypatch):
     spec = eth.get_logs_calls[0]
     assert spec["address"] == _checksum(USDC.lower()), \
         "eth_getLogs трябва да получи checksum-натия USDC адрес"
+
+
+# ── 09.11: обхватът на nonce търсенето, измерен срещу реалния RPC ──────────
+
+def test_the_nonce_search_reach_follows_the_measured_block_cadence(env,
+                                                                   monkeypatch):
+    """5000 блока бяха „2.8 часа" на 2 s/block; при измерените 0.2 s/block
+    (5 блока/s) те са 17 минути — тоест търсенето покриваше десета от
+    обещаното. 90,000 блока са 5 часа и остават под тавана на RPC-то
+    (100,000 блока на заявка, измерено)."""
+    from integrations.dashboard_store import BLOCK_TIME_SECONDS
+
+    main = env.main
+    monkeypatch.delenv("KRISTO_NONCE_SEARCH_BLOCKS", raising=False)
+    reach = main._nonce_search_blocks()
+    assert reach == main.NONCE_SEARCH_BLOCKS_DEFAULT == 90_000
+    assert reach * BLOCK_TIME_SECONDS == 18_000        # 5 часа
+    assert reach <= main.NONCE_SEARCH_BLOCKS_MAX
+
+
+def test_an_env_var_above_the_rpcs_ceiling_is_clamped_not_obeyed(env,
+                                                                 monkeypatch):
+    """RPC-то отговаря `-32602 query exceeds max block range 100000`. Ако
+    env променлива поиска повече, заявката не „търси по-далеч" — тя се
+    проваля на всяко плащане. Затова стойността се орязва, вместо да се
+    изпълни, и търсенето остава работещо."""
+    main = env.main
+    monkeypatch.setenv("KRISTO_NONCE_SEARCH_BLOCKS", "500000")
+    assert main._nonce_search_blocks() == main.NONCE_SEARCH_BLOCKS_MAX == 90_000
+    monkeypatch.setenv("KRISTO_NONCE_SEARCH_BLOCKS", "64")
+    assert main._nonce_search_blocks() == 64          # по-малко е позволено
+    monkeypatch.setenv("KRISTO_NONCE_SEARCH_BLOCKS", "not-a-number")
+    assert main._nonce_search_blocks() == main.NONCE_SEARCH_BLOCKS_DEFAULT

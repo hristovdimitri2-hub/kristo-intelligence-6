@@ -24,21 +24,29 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-BLOCK_TIME_SECONDS = 2.0  # Base mainnet ~2s blocks
-# ^ MEASURED 09.11: this is WRONG for today's Base — the chain is at 0.2000
-# s/block (5/s), verified at head 55,269,652 from head−1,000 / −10,000 /
-# −100,000 timestamps. It is deliberately left alone for now: this script's
-# windows are already bounded by the chunking floor below, and changing them
-# would silently re-scale every number in the recon reports we compare week to
-# week. `--days N` here therefore means ~N/10 days of chain. Fix it knowingly,
-# together with the reports, or not at all — never halfway.
+BLOCK_TIME_SECONDS = 0.2  # MEASURED 09.11: Base is at 5 blocks/s, not 2
+# ^ Was 2.0 ("Base mainnet ~2s blocks"), which made every `--days N` window cover
+# N/10 days — a 30-day recon walked ~3 days of chain while its report said 30.
+# Verified at head 55,269,652: head−1,000 / −10,000 / −100,000 all give exactly
+# 0.2000 s/block. Reports produced BEFORE 09.11 were computed with the old
+# divisor and cover a tenth of the window they name; they are not re-run here,
+# they are superseded.
 # Measured 17.09 on the public RPC (https://mainnet.base.org): a recipient-
 # filtered eth_getLogs above ~1000 blocks answers **413 Payload Too Large**
 # (5000-block chunks used to work — the endpoint tightened). Ranges are halved
 # on refusal down to this floor; below it we stop and REPORT the gap, because
 # an unscanned window must never be mistaken for "nobody paid".
 MIN_CHUNK_BLOCKS = 100
-DEFAULT_CHUNK_BLOCKS = 1000
+# Was 1000 — which, with the honest 0.2 s divisor, turned `--days 30` into
+# ~13,000 requests. MEASURED on a production-grade RPC (BASE_RPC_URL,
+# api.developer.coinbase.com) with exactly this receiver filter: 1,000 blocks
+# OK 0.25 s · 10,000 OK 0.34 s · 50,000 OK 0.36 s · 100,000 REFUSED
+# (`-32602 query exceeds max block range 100000`). A receiver filter matches a
+# handful of logs, so the limit is the range, not the result count — 50,000
+# chunks turn a 30-day window into ~260 requests instead of 13,000. The adaptive
+# halving above keeps this safe on a pickier RPC: it wastes a request, never a
+# window.
+DEFAULT_CHUNK_BLOCKS = 50_000
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 DEFAULT_RECEIVER = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
 DEFAULT_RPC = "https://mainnet.base.org"

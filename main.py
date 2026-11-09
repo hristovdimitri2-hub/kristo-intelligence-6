@@ -2833,22 +2833,31 @@ _AUTHORIZATION_USED_TOPIC = (
     "0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5"
 )
 
-#: How far back the nonce search looks. 5000 Base blocks ≈ 17 MINUTES at the
-#: measured 0.2 s/block (5 blocks/second — the number this comment said was
-#: "2.8h" until 09.11, which was the 2 s/block cadence Base no longer has).
-#: That is still far more than the case it exists for: a retry of a failed
-#: attempt arrives seconds later. Widening the reach to cover LCD-style
-#: settlements broadcast long before we look is a separate, deliberate change
-#: — set KRISTO_NONCE_SEARCH_BLOCKS, and mind that each extra 5,000 blocks is
-#: one more minute of chain to walk per settlement check.
-NONCE_SEARCH_BLOCKS_DEFAULT = 5000
+#: How far back the nonce search looks. This is NOT the 2-s/block chain any
+#: more: Base produces a block every 0.2 s (5/s, measured 09.11 — see
+#: integrations/dashboard_store.BLOCK_TIME_SECONDS), so the old 5,000 covered
+#: 17 minutes, not the 2.8 hours this comment used to claim.
+#:
+#: RAISED TO 90,000 AFTER MEASURING, not after guessing. The production RPC
+#: (BASE_RPC_URL, api.developer.coinbase.com) refuses a range wider than 100,000
+#: blocks — `-32602 query exceeds max block range 100000` — and inside that
+#: ceiling the width costs nothing: this exact query (USDC address +
+#: AuthorizationUsed + payer topic) answered in 0.28 s at 5,000 blocks, 0.27 s
+#: at 20,000 and 0.31 s at 50,000. So 90,000 buys 5 hours of chain for the same
+#: ~0.3 s on the buyer's request path, well inside the 5 s
+#: X402_NONCE_SEARCH_SECONDS deadline.
+#:
+#: Clamped, because an env var above the RPC's ceiling would turn a working
+#: search into a hard error on every payment.
+NONCE_SEARCH_BLOCKS_DEFAULT = 90000
+NONCE_SEARCH_BLOCKS_MAX = 90000
 
 
 def _nonce_search_blocks() -> int:
     try:
-        return max(64, int(os.getenv(
+        return min(NONCE_SEARCH_BLOCKS_MAX, max(64, int(os.getenv(
             "KRISTO_NONCE_SEARCH_BLOCKS",
-            str(NONCE_SEARCH_BLOCKS_DEFAULT))))
+            str(NONCE_SEARCH_BLOCKS_DEFAULT)))))
     except ValueError:
         return NONCE_SEARCH_BLOCKS_DEFAULT
 
@@ -3825,7 +3834,7 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
         if not tx_hash:
             g.x402_reject_reason = f"settlement_failed: {settle_detail}"
             # Audit #4, check в (22.09): the nonce-revert path that our
-            # 5000-block search could NOT confirm used to read like "your
+            # block search could NOT confirm used to read like "your
             # payment is broken". Only ONE of the two outcomes is true and a
             # revert alone cannot say which — so the reason says BOTH, clearly.
             if "revert" in settle_detail or "already used" in settle_detail:

@@ -90,6 +90,21 @@ def test_the_window_arithmetic_covers_the_time_it_says():
     assert blocks_for_seconds(0.0001) == 1           # never zero
 
 
+def test_the_recon_scripts_share_the_measured_cadence_and_can_afford_a_window():
+    """`competitor_recon --days N` must mean N days. It also has to be able to
+    walk the window it names: a receiver-filtered eth_getLogs was measured at
+    50,000 blocks OK / 100,000 REFUSED on a production-grade RPC, so the chunk
+    default has to sit under that ceiling while the divisor is honest."""
+    from scripts import competitor_recon as recon
+
+    assert recon.BLOCK_TIME_SECONDS == pytest.approx(BLOCK_TIME_SECONDS)
+    assert recon.DEFAULT_CHUNK_BLOCKS <= 100_000
+    requests_for_30_days = blocks_for_seconds(30 * 86400) // recon.DEFAULT_CHUNK_BLOCKS
+    assert requests_for_30_days <= 500, (
+        "a 30-day recon would need %d requests — that is not a window anyone "
+        "will actually walk" % requests_for_30_days)
+
+
 # ── The two windows that were quietly short ─────────────────────────────────
 
 
