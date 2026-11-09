@@ -10,13 +10,176 @@ contradicts what you observe, trust the observation and say so.
 |---|---|
 | Payments (HTTP) | settling, ~1.5s end to end, through the CDP-first chain |
 | Payments (MCP) | **an agent can now buy a tool in-session** — was impossible until 09.11 |
-| CDP Bazaar | **6 routes listed**, each with real `payers=1` |
-| Test suite | **1218 green** |
-| Board | `/health` 200, `/api/dashboard/data` 200, `degraded: []` |
+| CDP Bazaar | **7 routes listed** (six at $0.003–$0.005, plus `/api/v1/verify-seller` at $0.1), each with real `payers=1` |
+| Test suite | **1231 green** (was 1218) |
+| Board | `/health` 200, `/api/dashboard/data` 200, `degraded: []`, and each public sales row now says WHOSE it is |
 
-## THE OPEN LEAD — why CDP does not index us as MCP
+## SCHEDULED RISK — 14 November, CDP maintenance. Read this before that date.
 
-This is the one live thread. Everything else is closed.
+CDP's status feed carries, for 14 November:
+
+    10:00 - 18:00 PST
+    some users may experience degraded performance across multiple products
+
+Up to four hours in which CDP — the facilitator our settlements **prefer** — may
+not answer. Until 09.11 the fallback behind it did not work at all, so that window
+meant *no payments*, full stop.
+
+**Why it did not work** (measured by calling PayAI directly and reading the body,
+`HTTP 400 {"errorReason":"invalid_payload","errorMessage":"accepted: Invalid input:
+expected object, received undefined"}`): x402 v2 names the chosen option `accepted`
+— ONE OBJECT — our 402 ships `accepts`, an ARRAY, and `settle_standard_payment`
+forwarded the client's payload unchanged. CDP tolerates the array; PayAI does not.
+So the chain was a real fallback only for clients that spell the field the spec
+way, and everyone else — including an agent echoing our own 402 verbatim — had
+exactly ONE usable facilitator.
+
+**Fixed in `48e4dfc`:** `_with_accepted()` in `services/connectors.py` fills the
+field in from the terms the SERVER itself offered, before the chain runs —
+reconstruction, not falsification. A buyer that sent `accepted` keeps it byte for
+byte; a payload with no terms is left alone rather than given an option nobody
+signed; the caller's dict is not mutated. 7 tests in
+`tests/test_facilitator_chain_is_a_real_fallback.py` (two of them pin exactly the
+honesty conditions above). Suite 1231 green.
+
+**Still to do before 14 November: make one payment actually settle through PayAI
+itself** — CDP's sibling in the chain — so the fallback is proven on the real rail
+and not only in tests.
+
+## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
+
+Check what the demo key is really paying for. Why it is now a task with teeth —
+`18e8af9` measured that **THIRTEEN OF THE DAY'S FOURTEEN payments were the owner's
+own tests**, and the board could not say so: the public row carried no
+`payer_class`, and the dashboard legend iterated a hardcoded class list, so when
+`own_key` was added for the demo wallet the class silently VANISHED from the
+totals. Fixed there: the public ledger now carries the class (a "Кой" column), the
+legend is derived from `Object.keys(by_class)`, and the four fields that stay
+private are `tx_hash`, `sender`, `route`, `block_number` — **a CATEGORY is not an
+IDENTITY.**
+
+Every payment whose payer is `0xE50c5212e8211639C49276dA190E248B83935763` is OURS
+(that is the demo key's address; the receiver is `0xd4cdA9…08f`, the gas wallet
+`0x9c1eb9…50dd`). Our own settlements on 09.11 came from it: `0x7bcde0d2…` (14:14
+UTC) and `0x1f4647e0…` (15:11 UTC — a **deliberate test**, the one the previous
+session could not explain; see below). If any catalogue's `payers` count or the
+board's "external payers" treats that address as a customer again, the attribution
+has regressed.
+
+## THE OPEN LEAD — **CLOSED** 09.11 15:11 UTC, answered by measurement
+
+**The question was:** does the CDP facilitator index from
+`paymentPayload.resource` or from `paymentRequirements.resource`?
+
+**The answer: `paymentPayload.resource`. `paymentRequirements.resource` is never
+read.** Three confirmations, none of them inferred:
+
+1. Coinbase's own facilitator-side extractor
+   (`typescript/packages/extensions/src/bazaar/facilitator.ts`,
+   `extractDiscoveryInfo`): `resourceUrl = paymentPayload.resource?.url`, then
+   `new URL(resourceUrl).pathname` — **the fragment is stripped**, so
+   `…/mcp#get_whale_flow` catalogues as `…/mcp` with `toolName` taken from
+   `extensions.bazaar.info.input`. For v2 it touches `paymentRequirements` only
+   for the v1 shape. One catalogue key = (`resource.url`, `input.toolName`).
+2. CDP's docs: *"On the settlement call that triggers indexing, set both
+   `paymentPayload.extensions.bazaar` and `paymentPayload.resource`."*
+3. The live facilitator, asked directly. `verify` is FREE (no settlement) and
+   reports the same bazaar verdict as `settle`. Four payload variants —
+   `_forensics/cdp_verify_bazaar.py` — every one returned
+   `EXTENSION-RESPONSES: {"bazaar":{"status":"processing"}}`. **Nothing was ever
+   rejected**: not the schema, not the MCP `input`, and not the `#tool` fragment
+   (12 of 30 already-catalogued MCP tools serve that same fragment —
+   `_forensics/mcp_challenge_url_survey.py`).
+
+**Why the catalog was empty anyway — deploy order, from Render's own records:**
+
+| time (UTC) 09.11 | event |
+|---|---|
+| 14:14:20 | the only paid MCP call of that deployment's life |
+| 14:14:39 | it settles through CDP, `tx=0x7bcde0d2…` |
+| 14:14:40 | `CoinbaseBazaarDiscovery/1.0` probes **`POST /api/v1/whaleflow`** |
+| 14:38:51 | `b356e2706` — the identity fix — goes live |
+| 15:02:57 | `6ac8d45` (this handover) live |
+
+At 14:14 the identity fix was **not yet deployed**, so the payload still named the
+ROUTE; CDP catalogued the route and probed the route, and the route's entry went
+`calls=1 → 2`. **The identity fix had never been exercised by a settlement.**
+
+It has been now — 15:11 UTC, one $0.003 self-payment
+(`_forensics/pay_mcp_now.py`; prices, `payTo` and the receiver untouched). The
+payload carried `…/mcp#get_whale_flow` while the rail's requirements still carried
+the route: `self-broadcast` FAILED (gas wallet holds 0 ETH) → `cdp-settle ok` →
+`tx=0x1f4647e0…` → **`CoinbaseBazaarDiscovery/1.0` probed `POST /mcp`**
+(initialize, tools/list, and `tools/call` → the challenge). The prober follows the
+payload, exactly as the docs say.
+
+**The catalogue entry has still not appeared, and the catalogue says why.**
+Polled once a minute for 20 minutes after the settle: no `type=mcp` entry for our
+receiver. Then, measured:
+
+| half | entries | updated during 09.11 |
+|---|---|---|
+| `type=http` | 32,624 | **339 of the first 1,000**, newest 15:20:49 |
+| `type=mcp` | 515 | **0 of 515**; newest `lastUpdated` **2026-11-08T23:36:43** |
+
+The MCP half of the Bazaar has not moved all day while the HTTP half updates every
+minute, and the newest MCP batch is one server's seven tools probed a second apart
+at 23:36 yesterday — so MCP `lastUpdated` is a **crawl** stamp and MCP cataloguing
+runs on its own, slower cycle. Our entry is queued, not rejected. **No code change
+is justified by this**: every step we control is measured working.
+
+`main.py:3693-3697` still puts the route into `requirements["resource"]`; that is
+harmless (the v2 extractor never reads it) and stays as the honest description of
+the endpoint the rail settled. `_merged_requirements()` deliberately does not merge
+`resource` — correct, because the buyer's payload resource must not be overwritten
+by the server's.
+
+Remaining, and only one thing: **the other six tools each need their own paid
+call** before they can be catalogued — one catalogue key per
+(`resource.url`, `input.toolName`).
+
+**How to re-check this** (read-only, from the session workspace):
+`python _forensics/bazaar_our_state.py` and
+`python _forensics/catalog_filters_ours.py`. The expected row is
+`type=mcp  https://kristo-intelligence-api.onrender.com/mcp#get_whale_flow`.
+If it is still absent, re-measure the table above first: **if the MCP half HAS
+moved and we are still not in it, cadence is no longer the explanation and this
+paragraph is wrong** — the next suspects are the metadata content policy (our
+tool's answer opens with prose that tells an agent to send money and call another
+URL) and a probe our tool fails.
+
+### The second index: PayAI has us MIS-LISTED
+
+Measured 09.11 16:20 UTC, `_forensics/payai_our_state.py`:
+
+* PayAI's catalogue carries a `type=mcp` row for
+  `https://kristo-intelligence-api.onrender.com/api/v1/whaleflow` whose
+  `extensions.bazaar.info.input` is
+  `{type: "mcp", toolName: "get_whale_flow", transport: "streamable-http", …}` —
+  **a TOOL identity glued to a ROUTE url**, written by
+  `lastWrite: {source: "settle", at: 14:06:46Z}`. The same pre-fix payload as
+  CDP's route row: two independent facilitators made the same mistake because the
+  same wrong resource travelled in the payment.
+* `discovery/listing-status?resource=…/mcp` → **404 "No catalog row or recent
+  write"**: PayAI has never seen the post-fix identity either.
+* `…/api/v1/whaleflow` → `listed: true`, `hidden: false`,
+  `lastProbe: {at: 15:58:15Z, status: "alive", httpStatus: 402}`, so PayAI
+  crawls us and would list the MCP tool too if a verify or settle carried it.
+* PayAI totals: 16,986 (16,870 `http` + 116 `mcp`).
+
+**READY TO RUN, NOT RUN** (the owner's rule is that a public catalogue listing
+waits for his explicit «Да»): PayAI documents that `/verify` also writes a
+catalogue row and a verify costs nothing — `POST
+https://facilitator.payai.network/verify` with the post-fix payload
+(`resource = …/mcp#get_whale_flow`, `extensions.bazaar.info.input.type = "mcp"`,
+`accepted` present; the same body `_forensics/cdp_verify_bazaar.py` already builds
+for CDP). Expected: a correct (`…/mcp`, `get_whale_flow`) row, confirmable within
+seconds via `listing-status`. The wrong `mcp` row for the route would remain and
+may need hiding.
+
+### The original lead, kept as measured history
+
+This was the one live thread; everything else was already closed.
 
 **The gap, measured:** the catalog carries `type=mcp` with **515 resources**. Ours:
 **0**. Our six HTTP routes are in it; no MCP tool is.
