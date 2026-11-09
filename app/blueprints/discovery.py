@@ -2247,6 +2247,36 @@ def _mcp_dispatch(body):
             accepts, resource, extensions = _x402_challenge_core(
                 path, float(x.get("price_usdc") or 0),
                 description=CHALLENGE_DESCRIPTIONS.get(path, ""))
+
+            # ── THE RESOURCE MUST NAME THE TOOL, NOT THE ROUTE ───────────────
+            #
+            # Measured, AFTER a real MCP payment settled through CDP: the catalog
+            # still showed zero MCP entries for us. The payment payload carried
+            # `resource.url = .../api/v1/whaleflow`, because
+            # `_x402_challenge_core` builds it from the HTTP path — and CDP
+            # indexes a resource by that url, so it filed the settlement under the
+            # HTTP route we already had and never under the tool.
+            #
+            # The catalog's own MCP entries say what the identity must be:
+            #
+            #     https://mcp.xrpl-utilities.io/mcp#xrpl_pulse_recent_events
+            #
+            # `<mcp endpoint>#<toolName>`. That is what makes 515 MCP resources
+            # addressable as TOOLS rather than as endpoints, and it is the piece
+            # our declaration was missing.
+            tool_name = tool.get("name") or name
+            if isinstance(resource, dict) and tool_name:
+                parsed = urlsplit(resource.get("url") or "")
+                if parsed.scheme and parsed.netloc:
+                    resource = dict(resource)
+                    # The HOST, never the route. An earlier version split on
+                    # "/mcp" and appended, which produced
+                    # "http://localhost/api/v1/whaleflow/mcp#get_whale_flow" —
+                    # a url with a url glued into it. The existing test
+                    # `test_the_resource_url_is_the_route_not_a_url_glued_to_a_url`
+                    # caught it, which is what that test is for.
+                    resource["url"] = "%s://%s/mcp#%s" % (
+                        parsed.scheme, parsed.netloc, tool_name)
             # RETYPE THE BAZAAR EXTENSION FOR MCP, and this is the whole reason
             # our seven tools were invisible to half the catalog.
             #

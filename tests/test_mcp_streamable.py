@@ -234,8 +234,20 @@ def test_the_resource_url_is_the_route_not_a_url_glued_to_a_url(client):
     sc = _priced_call(client, "get_trading_signal")["structuredContent"]
     url = sc["resource"]["url"]
 
+    # THE INVARIANT, and it is the point of this test: a url with a url glued
+    # into it is never correct. The first version of the MCP retargeting produced
+    # exactly that — "http://localhost/api/v1/whaleflow/mcp#get_whale_flow" — and
+    # this assertion is what caught it.
     assert url.count("://") == 1, url
-    assert url.endswith("/api/v1/signal"), url
+    # WHAT CHANGED (09.11), and why this second assertion had to. The resource
+    # now names the TOOL, not the HTTP route. Measured: a real MCP payment
+    # settled through CDP and the catalog still showed ZERO MCP entries for us,
+    # because CDP indexes by `resource.url` and we were handing it the route we
+    # already had — so the settlement was filed under the endpoint and never
+    # under the tool. The catalog's own MCP entries are shaped
+    # `<mcp endpoint>#<toolName>`, which is what makes 515 of them addressable as
+    # tools rather than as endpoints.
+    assert url.endswith("/mcp#get_trading_signal"), url
 
 
 def test_the_mcp_tool_keeps_the_legacy_x402_key(client):
