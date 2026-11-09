@@ -3535,6 +3535,69 @@ def _get_standard_payment_header() -> str:
     )
 
 
+#: A hard ceiling on any single step of the inbound payment rail.
+#:
+#: WHY THIS EXISTS, and it is the difference between a refused payment and an
+#: outage. gunicorn runs with `--timeout 120`: a request that has not produced a
+#: response by then has its WORKER KILLED, which takes every other request in
+#: flight with it. Measured 08.11.2026, a request carrying a valid payment
+#: signature never completed, the worker was killed, and the log filled with
+#: repeated
+#:
+#:     Background threads started (blockchain monitor + agent + ...)
+#:
+#: lines — workers respawning — including a forty-minute stretch where the
+#: service served no HTTP at all while its threads kept ticking.
+#:
+#: A bounded step cannot do that. If a step overruns, the request is refused with
+#: a reason and the worker is RELEASED, which is the whole point: one buyer's slow
+#: payment must never cost every other caller their request.
+#:
+#: The bound is also a diagnosis. The trail stopped at `_local_recover_signer`
+#: every time — pure EIP-712 cryptography that costs 0.000s locally — because the
+#: line that would have named the next step died with the killed worker. A
+#: deadline returns control to this process, so the phase that overran is logged
+#: by the living process rather than lost with the dead one.
+X402_STEP_DEADLINE_SECONDS = float(
+    os.getenv("X402_STEP_DEADLINE_SECONDS", "20"))
+
+
+def _bounded(label: str, fn, seconds: float = None):
+    """Run `fn` with a deadline. Returns (finished, result, error).
+
+    `finished=False` means the deadline expired and `result`/`error` are None —
+    the caller must treat the step as FAILED, never as passed. The thread is a
+    daemon and is deliberately left running: it will finish or die with the
+    process, and abandoning it costs a thread, while waiting for it costs the
+    worker and every request queued behind it.
+
+    This is the same trade `_run` makes with its bounded lock wait — a stalled
+    holder costs one fast error rather than the process.
+    """
+    limit = X402_STEP_DEADLINE_SECONDS if seconds is None else seconds
+    box: Dict[str, object] = {}
+
+    def work():
+        try:
+            box["result"] = fn()
+        except Exception as exc:  # noqa: BLE001
+            box["error"] = exc
+
+    t = threading.Thread(target=work, daemon=True, name="rail-%s" % label)
+    started = time.monotonic()
+    t.start()
+    t.join(limit)
+    cost = time.monotonic() - started
+    if t.is_alive():
+        log.warning("x402 rail step %-26s %7.3fs  DEADLINE EXCEEDED (%.0fs) — "
+                    "refusing this payment rather than holding the worker",
+                    label, cost, limit)
+        return False, None, None
+    if "error" in box:
+        return True, None, box["error"]
+    return True, box.get("result"), None
+
+
 def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     """
     Standard x402 v2 rail: the client sends the signed EIP-3009 payload
@@ -3578,7 +3641,21 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     _pstep("challenge_core")
 
     _t = time.monotonic()
-    ok, payer, detail = connectors.verify_standard_payment(payment_header, requirements)
+    # BOUNDED. This is the step that overran in production on a valid signature —
+    # pure EIP-712 recovery that costs 0.000s locally — and an unbounded step here
+    # is what got the worker killed and the whole service restarted. A refusal
+    # with a reason is strictly better than an outage.
+    _finished, _verdict, _vex = _bounded(
+        "verify_standard_payment",
+        lambda: connectors.verify_standard_payment(payment_header, requirements))
+    if not _finished:
+        ok, payer, detail = False, None, (
+            "verify exceeded the %.0fs deadline — the rail refused rather than "
+            "holding the worker" % X402_STEP_DEADLINE_SECONDS)
+    elif _vex is not None:
+        ok, payer, detail = False, None, "verify raised: %s" % type(_vex).__name__
+    else:
+        ok, payer, detail = _verdict
     _pstep("verify_standard_payment", _t)
     if not ok:
         g.x402_reject_reason = detail
@@ -3618,8 +3695,28 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     if not tx_hash:
         # *rest = extension receipt (facilitator EXTENSION-RESPONSES header);
         # 2-tuple fakes in older tests stay compatible.
-        tx_hash, settle_detail, *settle_extra = connectors.settle_standard_payment(
-            payment_header, requirements)
+        #
+        # BOUNDED, for the same reason as verify: settlement talks to two
+        # facilitators over the network, and an unbounded wait here is what gets
+        # the gunicorn worker killed at 120s — taking every other caller's
+        # request with it.
+        _finished, _verdict, _sex = _bounded(
+            "settle_standard_payment",
+            lambda: connectors.settle_standard_payment(payment_header,
+                                                       requirements))
+        if not _finished:
+            tx_hash, settle_detail, settle_extra = None, (
+                "settlement exceeded the %.0fs deadline — the rail refused "
+                "rather than holding the worker" % X402_STEP_DEADLINE_SECONDS), []
+        elif _sex is not None:
+            tx_hash, settle_detail, settle_extra = None, (
+                "settlement raised: %s: %s" % (type(_sex).__name__,
+                                               str(_sex)[:120])), []
+        else:
+            _verdict = _verdict or ()
+            tx_hash = _verdict[0] if len(_verdict) > 0 else None
+            settle_detail = _verdict[1] if len(_verdict) > 1 else ""
+            settle_extra = list(_verdict[2:])
         if not tx_hash:
             g.x402_reject_reason = f"settlement_failed: {settle_detail}"
             # Audit #4, check в (22.09): the nonce-revert path that our
