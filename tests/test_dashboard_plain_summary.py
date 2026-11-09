@@ -377,7 +377,11 @@ def test_the_summary_cannot_leak_a_payer_or_a_transaction_hash():
     client = main.app.test_client()
     summary = client.get("/api/dashboard/data").get_json()["sections"]["summary"]
     text = repr(summary).lower()
-    for forbidden in ("tx_hash", "transaction_hash", "sender", "payer_"):
+    # "payer_" was here as a prefix, to catch payer_class and payer_label
+    # together. payer_class is public from 09.11; payer_label — the wallet's own
+    # name, e.g. market_crawler_54e1 — is NOT, because it is the identity rather
+    # than the category.
+    for forbidden in ("tx_hash", "transaction_hash", "sender", "payer_label"):
         assert forbidden not in text, forbidden
     import re
     assert not re.search(r"0x[0-9a-fA-F]{64}", repr(summary))
@@ -471,7 +475,7 @@ def _store_row():
 
 def test_the_public_row_keeps_only_time_and_amount():
     row, = main._onchain_history([_store_row()])
-    assert set(row) <= {"ts", "amount"}
+    assert set(row) <= {"ts", "amount", "payer_class"}
     assert row["amount"] == 0.003 and row["ts"].startswith("2026-11-04")
 
 
@@ -504,7 +508,8 @@ def test_the_history_helper_survives_an_empty_or_broken_source():
     assert main._onchain_history(None) == []
     assert main._onchain_history(None, include_private=True) == []
     # A row missing everything must still produce a row, not an exception.
-    assert main._onchain_history([{}]) == [{"ts": None, "amount": None}]
+    assert main._onchain_history([{}]) == [
+        {"ts": None, "amount": None, "payer_class": None}]
 
 
 def test_every_sales_cell_carries_the_value_its_column_sorts_on():
@@ -536,7 +541,8 @@ def test_the_button_grants_the_sales_columns_to_anyone_who_presses_it():
     in as many words. This test pins the behaviour he asked for.
     """
     client = main.app.test_client()
-    assert _fields(client.get("/api/dashboard/data").get_json()) <= {"ts", "amount"}
+    assert _fields(client.get("/api/dashboard/data").get_json()) <= {
+        "ts", "amount", "payer_class"}
 
     assert client.post("/api/dashboard/operator-view",
                        json={"on": True}).get_json()["operator_view"] is True
@@ -566,7 +572,8 @@ def test_the_button_turns_off_again():
     client.post("/api/dashboard/operator-view", json={"on": True})
     assert "sender" in _fields(client.get("/api/dashboard/data").get_json())
     client.post("/api/dashboard/operator-view", json={"on": False})
-    assert _fields(client.get("/api/dashboard/data").get_json()) <= {"ts", "amount"}
+    assert _fields(client.get("/api/dashboard/data").get_json()) <= {
+        "ts", "amount", "payer_class"}
 
 
 def test_the_page_ships_the_button_its_handler_and_its_style():
@@ -603,7 +610,9 @@ def test_the_operator_columns_require_a_real_token(monkeypatch):
 
     assert "sender" in fields(with_token)
     assert "tx_hash" in fields(with_token)
-    assert not (fields(without) & {"sender", "tx_hash", "route", "payer_class"})
-    assert not (fields(with_wrong) & {"sender", "tx_hash", "route", "payer_class"})
+    # `payer_class` removed from the forbidden set on 09.11 — see the note in
+    # main._onchain_history. The identity fields stay forbidden.
+    assert not (fields(without) & {"sender", "tx_hash", "route"})
+    assert not (fields(with_wrong) & {"sender", "tx_hash", "route"})
     # The account the owner reads must not be spoilable by a near-miss token.
-    assert fields(without) <= {"ts", "amount"}
+    assert fields(without) <= {"ts", "amount", "payer_class"}

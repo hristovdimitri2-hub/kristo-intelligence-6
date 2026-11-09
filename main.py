@@ -4642,7 +4642,24 @@ def _onchain_history(rows, include_private: bool = False) -> list:
             for row in (rows or [])[:100]
         ]
     return [
-        {"ts": row.get("ts"), "amount": row.get("amount_usdc")}
+        # `payer_class` IS INCLUDED, and that is the point of this line. On
+        # 09.11 the owner looked at four fresh settlements and asked whether they
+        # were his or a customer's — and the page could not say, because the
+        # public row was `{ts, amount}` only. 13 of those 14 payments were his
+        # own tests; the board showed them all as one undifferentiated column.
+        #
+        # WHAT F-01 PROTECTS IS THE IDENTITY, NOT THE CATEGORY. `/api/sales`
+        # sells `tx_hash`, `sender`, `route` and `block_number` — how to find and
+        # verify a specific payment. `payer_class` says only whether a payment was
+        # our own probe, a market robot, or a stranger, which is exactly what the
+        # owner must know to read his own ledger, and it is not a thing anyone
+        # would pay for. The full 66-character hash stays private.
+        #
+        # The docstring above already argues this: F-01's answer is SCOPE, not
+        # deletion. The class was caught in the same net as the hash and had no
+        # business being there.
+        {"ts": row.get("ts"), "amount": row.get("amount_usdc"),
+         "payer_class": row.get("payer_class")}
         for row in (rows or [])[:100]
     ]
 

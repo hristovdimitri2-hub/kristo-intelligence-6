@@ -72,9 +72,9 @@ def test_onchain_section_carries_the_verified_chain_truth(client):
     # numbers and payer classes stay behind the paid /api/sales.
     assert len(o["history"]) == 9
     for row in o["history"]:
-        assert set(row.keys()) <= {"ts", "amount"}
+        assert set(row.keys()) <= {"ts", "amount", "payer_class"}
         assert "tx_hash" not in row and "block_number" not in row
-        assert "payer_class" not in row and "sender" not in row
+        assert "sender" not in row and "tx_hash" not in row
 
 
 # ── 2. КЛИЕНТИ: external payers, with route honesty ─────────────────────────
@@ -98,7 +98,7 @@ def test_clients_section_lists_every_external_payer(client):
         # F-01: tx hashes/sender stay in the store (paid /api/sales) — the FREE
         # row must not carry them.
         assert "tx_hashes" not in row and "tx_hash" not in row
-        assert "sender" not in row and "payer_class" not in row
+        assert "sender" not in row and "tx_hash" not in row
 
 
 def test_clients_routes_are_never_invented(client):
@@ -1342,7 +1342,7 @@ def test_dashboard_stats_agrees_with_the_chain_backed_section(client):
     # F-01: public history rows keep only {ts, amount} — no tx_hash/sender.
     assert len(stats["history"]) == 9
     for row in stats["history"]:
-        assert set(row.keys()) <= {"ts", "amount"}
+        assert set(row.keys()) <= {"ts", "amount", "payer_class"}
         assert row["amount"] is not None and row["ts"] is not None
 
 

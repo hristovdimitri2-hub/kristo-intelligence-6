@@ -511,7 +511,7 @@ function card(v, k, hero) {
 // платеца, хеша, класа и услугата. Операторският се разпознава по `sender` в
 // реда, тоест сървърът решава — страницата само не измисля колони, които ги няма.
 const SALES_HEAD_PUBLIC =
-  '<tr><th>Време (UTC)</th><th>Сума</th></tr>';
+  '<tr><th>Време (UTC)</th><th>Сума</th><th>Кой</th></tr>';
 const SALES_HEAD_ADMIN =
   '<tr><th>Време (UTC)</th><th>Сума</th><th>Клиент</th>' +
   '<th>Услуга</th><th>Платец</th><th>Tx</th></tr>';
@@ -523,9 +523,21 @@ function renderOnchain(o) {
     card(o.external_payers, 'Реални платци (external)') +
     card(`${o.today_count} · ${usd(o.today_usdc)}`, `Днес (${esc(o.today_date)} UTC)`);
   const cl = o.by_class || {}, lb = o.class_labels || {};
-  const order = ['canary', 'sampler', 'external'];
+  // DERIVED FROM THE DATA, not from a hardcoded list.
+  //
+  // This was `['canary', 'sampler', 'external']`, and when `own_key` was added
+  // for our own demo wallet the class simply VANISHED from the board: the
+  // payments stayed in the totals but lost their attribution. The owner looked at
+  // four fresh settlements and asked whether they were his or a customer's, and
+  // the page could not say — because it was iterating a list written when there
+  // were three classes and nobody had to remember it again.
+  //
+  // `external` sorts LAST on purpose: it is the only class that represents
+  // business, so it reads as the conclusion after the noise.
+  const order = Object.keys(cl).sort((a, b) =>
+    (a === 'external' ? 1 : 0) - (b === 'external' ? 1 : 0) || a.localeCompare(b));
   $('onchain-classes').innerHTML = order.map(k => cl[k]
-    ? `<span class="tag ${k}">${esc(lb[k] || k)}: ${cl[k].count} tx · ${usd(cl[k].total_usdc)}</span>`
+    ? `<span class="tag ${esc(k)}">${esc(lb[k] || k)}: ${cl[k].count} tx · ${usd(cl[k].total_usdc)}</span>`
     : '').join(' &nbsp; ') +
     (o.last_scanned_block ? ` &nbsp;<span style="color:var(--muted)">scan watermark: block ${o.last_scanned_block}</span>` : '');
 
@@ -541,7 +553,30 @@ function renderOnchain(o) {
     const cells =
       `<td class="num mono" data-v="${esc(h.ts || '')}">${esc(utc(h.ts))}</td>` +
       `<td class="num mono" data-v="${Number(h.amount) || 0}">${usd(h.amount)}</td>`;
-    if (!isAdmin) return '<tr>' + cells + '</tr>';
+    // THE PUBLIC ROW NOW SAYS WHOSE PAYMENT IT IS, and until 09.11 it could not.
+    // The owner looked at four fresh settlements and asked whether they were his
+    // or a customer's; thirteen of that day's fourteen were his own tests and the
+    // page showed them all as one undifferentiated column of `$0.003`s.
+    //
+    // A CATEGORY IS NOT AN IDENTITY. The paid `/api/sales` sells how to FIND and
+    // VERIFY a payment — the 66-character hash, the sender address, the route,
+    // the block. `payer_class` says only whether a payment was our own probe, a
+    // market robot, or a stranger, which reveals nothing BaseScan does not and is
+    // exactly what is needed to read the ledger honestly. None of those four
+    // fields is served here.
+    const pubCls = h.payer_class || '';
+    const pubWords = lb[pubCls] || CLS_WORDS[pubCls] || '';
+    // `data-v` IS EMITTED EVEN WHEN EMPTY. Every cell carries the value its
+    // column sorts on; a cell without one sorts as an empty string, which is
+    // silently wrong rather than loudly broken — and a test here caught exactly
+    // that on the first version of this column.
+    const pubWho =
+      `<td data-v="${esc(pubCls)}">` +
+      (pubWords
+        ? `<span class="tag ${esc(pubCls)}">${esc(pubWords)}</span>`
+        : '<span class="evi">—</span>') +
+      '</td>';
+    if (!isAdmin) return '<tr>' + cells + pubWho + '</tr>';
     const cls = h.payer_class || '';
     const words = lb[cls] || CLS_WORDS[cls] || cls || '—';
     // Кой точно плати: класът (разцветката) плюс собственото име на клиента,

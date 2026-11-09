@@ -43,7 +43,7 @@ def test_onchain_history_carries_route_from_granted_claim(dash):
     hist = payload["sections"]["onchain"]["history"]
     assert len(hist) == 2
     for r in hist:
-        assert set(r.keys()) <= {"ts", "amount"}
+        assert set(r.keys()) <= {"ts", "amount", "payer_class"}
         assert "route" not in r and "tx_hash" not in r and "sender" not in r
 
 
