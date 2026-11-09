@@ -240,6 +240,40 @@ def echo_extensions(payload: dict, challenge: dict) -> dict:
             payload = dict(payload)
         payload["resource"] = res
         log(f"      echoing resource: {res['url']}")
+
+    # ── `accepted` — THE FIELD THAT MADE PAYAI REJECT EVERY PAYMENT ─────────
+    #
+    # Reproduced by calling the facilitator directly and reading the body, which
+    # is the only thing that says what it objected to:
+    #
+    #     HTTP 400
+    #     {"success":false,"errorReason":"invalid_payload",
+    #      "errorMessage":"accepted: Invalid input: expected object,
+    #                      received undefined"}
+    #
+    # x402 v2 names the buyer's chosen option `accepted` — ONE OBJECT. Our 402
+    # ships `accepts`, an ARRAY, and this helper echoed `extensions` and
+    # `resource` while leaving the option itself out. So every settlement through
+    # a spec-strict facilitator was refused, which is why PayAI never settled for
+    # us and everything that DID succeed went through CDP.
+    #
+    # ONE OPTION WAS OFFERED, so the accepted one is unambiguous. Both spellings
+    # now travel: `accepted` satisfies the facilitator, `accepts` stays for
+    # anything reading the array, and our own verifier reads either by
+    # `_accepted_option` in services/connectors.py.
+    accepts = challenge.get("accepts")
+    single = challenge.get("accepted")
+    if not isinstance(single, dict):
+        if isinstance(accepts, list) and accepts and isinstance(accepts[0], dict):
+            single = accepts[0]
+        elif isinstance(accepts, dict):
+            single = accepts
+    if isinstance(single, dict) and single:
+        if payload is orig:
+            payload = dict(payload)
+        payload["accepted"] = single
+        log("      echoing accepted: %s (%s)"
+            % (single.get("scheme", "?"), single.get("amount", "?")))
     return payload
 
 
