@@ -1957,6 +1957,121 @@ def _mcp_tools(base_url):
 _MCP_FALLBACK_PROTOCOL = "2025-11-25"
 
 
+def _example_arguments(input_schema: dict) -> dict:
+    """The smallest argument object an agent could plausibly send.
+
+    Used as the Bazaar `example`. For a PAID tool it does not need to succeed —
+    it needs to reach the payment check and provoke a 402, which any call to a
+    priced tool does. It still has to be VALID against the schema, because the
+    catalog validates `info.input` against `schema.properties.input` and a
+    rejected declaration is a missing listing.
+
+    Required properties get a typed placeholder — an EVM address, a small
+    integer, a short string — so a tool that takes a `receiver` is described by
+    something an agent could actually copy.
+    """
+    if not isinstance(input_schema, dict):
+        return {}
+    required = input_schema.get("required") or []
+    props = input_schema.get("properties") or {}
+    if not required:
+        return {}
+    out: dict = {}
+    for key in required:
+        spec = props.get(key) or {}
+        kind = spec.get("type")
+        lowered = key.lower()
+        if any(word in lowered for word in ("receiver", "address", "wallet",
+                                            "payer", "account")):
+            # Named like an address, so describe it with one. USDC's own
+            # contract is public, belongs to nobody, and satisfies any 0x
+            # pattern — an agent copying the example gets something usable
+            # rather than the literal string "example".
+            out[key] = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        elif kind == "integer" or kind == "number":
+            out[key] = spec.get("default", 7)
+        elif kind == "boolean":
+            out[key] = False
+        elif kind == "array":
+            out[key] = []
+        elif kind == "object":
+            out[key] = {}
+        elif isinstance(spec.get("pattern"), str) and "0x" in spec["pattern"]:
+            out[key] = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        else:
+            out[key] = "example"
+    return out
+
+
+def _retype_bazaar_for_mcp(extensions, tool, name: str,
+                           transport: str = "streamable-http") -> None:
+    """Rewrite `extensions.bazaar` from the HTTP shape into the MCP shape.
+
+    IN PLACE AND BEST-EFFORT. The caller has already built a valid challenge, and
+    a discovery nicety must never be able to break the paid call it describes —
+    so an unexpected shape leaves the extension exactly as it was.
+
+    WHY IT IS NEEDED AT ALL. `_x402_challenge_core` is shared with the HTTP path
+    deliberately, so it emits `info.input = {type: "http", method: "GET",
+    queryParams: {}}`. Measured live: the CDP catalog carries 515 resources with
+    `type: "mcp"`, and our seven MCP tools were none of them — an MCP tool that
+    advertises `type: "http"` is not an MCP resource, so it cannot be found by an
+    agent searching the MCP half of the catalog.
+
+    The `example` is the part Coinbase singles out: it is passed as the tool's
+    `arguments`, and "if the example is missing or the tool returns success
+    instead of a payment challenge, Bazaar cannot index the tool".
+    """
+    if not isinstance(extensions, dict):
+        return
+    bazaar = extensions.get("bazaar")
+    if not isinstance(bazaar, dict):
+        return
+    info = bazaar.get("info")
+    if not isinstance(info, dict):
+        return
+    if not isinstance(tool, dict):
+        return
+
+    schema = tool.get("inputSchema") or {"type": "object", "properties": {}}
+    example = _example_arguments(schema)
+
+    info["input"] = {
+        "type": "mcp",
+        "toolName": tool.get("name") or name,
+        "transport": transport,
+        "description": tool.get("description") or "",
+        "example": example,
+        "inputSchema": schema,
+    }
+    # The declaration is validated against `schema.properties.input`, so the
+    # schema has to describe what was just declared — a mismatch is a rejection,
+    # which is a missing listing rather than a visible error.
+    bazaar["schema"] = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "input": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "const": "mcp"},
+                    "toolName": {"type": "string"},
+                    "transport": {"type": "string"},
+                    "description": {"type": "string"},
+                    "example": {"type": "object"},
+                    "inputSchema": {"type": "object"},
+                },
+                "required": ["type", "toolName"],
+            },
+            "output": {
+                "type": "object",
+                "properties": {"type": {"type": "string"}},
+                "required": ["type"],
+            },
+        },
+    }
+
+
 def _mcp_dispatch(body):
     """Shared JSON-RPC dispatcher for BOTH transports (POST /mcp and the SSE
     message POST). Returns (kind, payload):
@@ -2050,6 +2165,30 @@ def _mcp_dispatch(body):
             accepts, resource, extensions = _x402_challenge_core(
                 path, float(x.get("price_usdc") or 0),
                 description=CHALLENGE_DESCRIPTIONS.get(path, ""))
+            # RETYPE THE BAZAAR EXTENSION FOR MCP, and this is the whole reason
+            # our seven tools were invisible to half the catalog.
+            #
+            # `_x402_challenge_core` is shared with the HTTP path on purpose — one
+            # price, one receiver, one network — but it therefore emits the HTTP
+            # shape:
+            #
+            #     "input": {"type": "http", "method": "GET", "queryParams": {}}
+            #
+            # Measured against the live catalog: 515 resources carry `type: "mcp"`
+            # and ours were none of them, because an MCP tool advertising itself
+            # as `type: "http"` is not an MCP resource. The shape the catalog
+            # actually stores is:
+            #
+            #     "input": {"type": "mcp", "toolName": ..., "transport": ...,
+            #               "description": ..., "example": {...},
+            #               "inputSchema": {...}}
+            #
+            # and Coinbase's own guidance names the `example` as the thing that
+            # decides it: "Provide an example that causes the tool to return an
+            # x402 payment-required response. If the example is missing or the
+            # tool returns success instead of a payment challenge, Bazaar cannot
+            # index the tool."
+            _retype_bazaar_for_mcp(extensions, tool, name, transport="streamable-http")
             payment_required = {
                 "x402Version": 2,
                 "error": "payment_required",
