@@ -7463,6 +7463,33 @@ _DASHBOARD_REFRESHING: set = set()
 #: error instead of reporting an endless warm-up.
 _DASHBOARD_LAST_ERROR: Dict[Tuple[bool, bool], dict] = {}
 
+#: Where the last good PUBLIC board is kept so that a restart is not an outage.
+#:
+#: WHY THIS EXISTS. `_DASHBOARD_LAST_GOOD` is process memory, so every deploy —
+#: and auto-deploy is on, so every push, including a docs-only one — emptied it.
+#: The next visitor then waited `KRISTO_DASHBOARD_COLD_WAIT_SECONDS` for the
+#: first build and, if it had not finished, got **503 warming**, which the page
+#: paints as "ГРЕШКА: HTTP 503 … НЕАКТУАЛНИ". The owner's requirement is that the
+#: board is permanently operational, and a board that reports an error for a
+#: minute after every deployment is not.
+#:
+#: Stored in `dashboard_meta` — the DURABLE store — and deliberately not in a
+#: file: this service has NO persistent disk (`disk: null`), so `data/*.db` is
+#: wiped by every deploy. `dashboard_meta` is the table that survived for the
+#: whale watermarks for exactly this reason.
+#:
+#: ONLY THE PUBLIC VARIANT IS PERSISTED. `(False, False)` is the payload an
+#: anonymous caller already receives; the admin and operator variants carry the
+#: CRM/Stripe section and must never be written to shared storage. `_dashboard_build`
+#: enforces the grant check, and `_dashboard_seed_from_store` reads only this key.
+_DASHBOARD_BOARD_META_KEY = "dashboard_payload_public_v1"
+
+#: Don't rewrite ~50 KB of board into Postgres on every 30-second revalidation;
+#: the age only has to be close enough to serve after a restart.
+_DASHBOARD_PERSIST_SECONDS = max(
+    5.0, float(os.getenv("KRISTO_DASHBOARD_PERSIST_SECONDS", "60")))
+_DASHBOARD_PERSISTED_AT = 0.0
+
 #: Age at which a served payload triggers a BACKGROUND refresh. Below this the
 #: cached read is simply returned.
 _DASHBOARD_REVALIDATE_SECONDS = max(
@@ -7509,7 +7536,87 @@ def _dashboard_build(key, include_crm: bool, include_sales_detail: bool) -> dict
         # and never rewritten after the fact.
         _DASHBOARD_LAST_GOOD[key] = (dict(payload), time.time())
         _DASHBOARD_LAST_ERROR.pop(key, None)
+    _dashboard_persist_board(key, payload)
     return payload
+
+
+def _dashboard_meta_store():
+    """The durable store the board is persisted in.
+
+    One accessor on purpose: the suite shares the developer's real database, and
+    a test that wrote a board into it would seed every later test's cold path
+    (and a test that read one could hide a warming regression). `conftest.py`
+    points this at `None` for every test, and the tests that are ABOUT
+    persistence point it at a fake of their own.
+    """
+    return globals().get("dashboard_db")
+
+
+def _dashboard_persist_board(key, payload) -> None:
+    """Keep the public board in the durable store so a restart can serve it.
+
+    Best-effort by construction: a board that has just been built is already
+    being served from memory, so a store that refuses the write costs the NEXT
+    restart a cold wait and nothing else. It must never fail the build.
+    """
+    global _DASHBOARD_PERSISTED_AT
+    if key != (False, False):
+        # The admin/operator variants carry the CRM section. They are not
+        # persisted, ever — see `_DASHBOARD_BOARD_META_KEY`.
+        return
+    now = time.time()
+    if now - _DASHBOARD_PERSISTED_AT < _DASHBOARD_PERSIST_SECONDS:
+        return
+    store = _dashboard_meta_store()
+    if store is None:
+        return
+    try:
+        store.set_meta(_DASHBOARD_BOARD_META_KEY, json.dumps(
+            {"built_at": now, "payload": payload}, separators=(",", ":")))
+        _DASHBOARD_PERSISTED_AT = now
+    except Exception as exc:      # pragma: no cover - defensive
+        log.debug("dashboard board could not be persisted: %s", exc)
+
+
+def _dashboard_seed_from_store(key) -> bool:
+    """Replay the last board after a restart. True if the cache was seeded.
+
+    The payload was real when it was built, and the serving path still applies
+    its own freshness rules (`stale`, `stale_since`, `stale_age_seconds`), so
+    what a visitor gets after a deploy is the same bytes as before plus an
+    honest age — never a 503 and never a zero.
+    """
+    if key != (False, False):
+        return False
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        if _DASHBOARD_LAST_GOOD.get(key) is not None:
+            return False
+    store = _dashboard_meta_store()
+    if store is None:
+        return False
+    try:
+        raw = store.get_meta(_DASHBOARD_BOARD_META_KEY)
+        if not raw:
+            return False
+        doc = json.loads(raw)
+        payload = doc.get("payload")
+        built_at = float(doc.get("built_at") or 0)
+        if not isinstance(payload, dict) or built_at <= 0:
+            return False
+    except Exception as exc:
+        # A corrupt or unreadable stored board is not allowed to become an
+        # error either: it just means this process starts cold, as before.
+        log.debug("dashboard board seed skipped: %s", exc)
+        return False
+    with _DASHBOARD_LAST_GOOD_LOCK:
+        if _DASHBOARD_LAST_GOOD.get(key) is None:
+            _DASHBOARD_LAST_GOOD[key] = (payload, built_at)
+        else:
+            return False
+    log.warning("dashboard board restored from the durable store (built %.0fs "
+                "ago) — serving it instead of a cold 503",
+                max(0.0, time.time() - built_at))
+    return True
 
 
 def _dashboard_refresh_in_background(key, include_crm: bool,
@@ -7629,7 +7736,11 @@ def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) 
       * nothing is invented. This replays bytes that were real once, never a
         guess, never a zero, never an extrapolation;
       * the first build with no cached payload still raises, so a genuinely
-        broken service reports an error rather than an empty success.
+        broken service reports an error rather than an empty success — but the
+        PUBLIC payload is not lost across a restart: it is replayed from the
+        durable store (`_dashboard_persist_board`, `_dashboard_seed_from_store`),
+        so the ordinary "the process restarted" case answers with the previous
+        real figures and their age instead of an error.
 
     The cache is keyed by the EXACT GRANT PAIR, never by anything about the
     caller, so a public request can never be answered from an admin variant.
@@ -7638,6 +7749,18 @@ def _dashboard_payload_resilient(include_crm: bool, include_sales_detail: bool) 
 
     with _DASHBOARD_LAST_GOOD_LOCK:
         cached = _DASHBOARD_LAST_GOOD.get(key)
+
+    if cached is None:
+        # A RESTART IS NOT AN ERROR. Memory is empty after every deploy, and the
+        # board must answer anyway: the last good PUBLIC payload is replayed from
+        # the durable store, with its real build time, so the visitor gets the
+        # previous figures and an honest age instead of 503 "warming". The admin
+        # and operator variants are never persisted, so they still cold-start —
+        # that is the price of never writing the CRM section to shared storage,
+        # and it is paid by the one caller who has to authenticate anyway.
+        if _dashboard_seed_from_store(key):
+            with _DASHBOARD_LAST_GOOD_LOCK:
+                cached = _DASHBOARD_LAST_GOOD.get(key)
 
     if cached is not None:
         previous, built_at = cached

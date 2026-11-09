@@ -105,4 +105,26 @@ def _reset_request_summary_caches():
     yield
     _clear()
 
+
+@pytest.fixture(autouse=True)
+def _no_board_persistence_in_the_shared_store(monkeypatch):
+    """Keep the dashboard board out of the developer's real database.
+
+    Since 09.11 a successful build persists the PUBLIC board into the durable
+    store so that a restart serves it instead of answering 503 "warming". Under
+    pytest that store is the developer's own working database, which would mean:
+
+      * a board written by one test seeding the cold path of every later test,
+        exactly the leak the caches above are cleared to prevent; and
+      * a real database write per test session for no benefit.
+
+    So the accessor is pointed at nothing here, and the tests that are ABOUT
+    persistence point it at a fake of their own. Nothing about production
+    changes — this fixture exists only so that "no test can forget".
+    """
+    import main
+    if hasattr(main, "_dashboard_meta_store"):
+        monkeypatch.setattr(main, "_dashboard_meta_store", lambda: None)
+
+
 os.environ.setdefault("VALUE_CHECK_ENABLED", "0")

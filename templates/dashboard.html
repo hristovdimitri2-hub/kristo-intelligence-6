@@ -1268,6 +1268,19 @@ function renderCallers(s) {
 async function load() {
   try {
     const r = await fetch('/api/dashboard/data', {cache: 'no-store'});
+    // РЕСТАРТЪТ НЕ Е ГРЕШКА. 503 значи „още не е готово", не „счупено":
+    // сървърът отговаря така, докато първото зареждане на таблото след deploy
+    // още върви ({"warming": true}), а Render връща 503 и докато сменя
+    // инстанцията. И в двата случая числата идват след секунди, затова тук
+    // НЕ се пише „ГРЕШКА" и НЕ се чака 45s — питаме пак след 2.5s.
+    if (r.status === 503) {
+      const w = $('live-badge');
+      w.className = 'badge stale'; w.textContent = 'ЗАГРЯВА';
+      $('generated-at').textContent =
+        ' · таблото се зарежда след рестарт — числата идват след секунди';
+      setTimeout(load, 2500);
+      return;
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     const s = d.sections || {};
@@ -1326,6 +1339,10 @@ async function load() {
     b.className = 'badge err'; b.textContent = 'ГРЕШКА: ' + e.message;
     $('generated-at').textContent =
       ' · Данните по-долу са НЕАКТУАЛНИ (грешка при зареждане: ' + e.message + ')';
+    // Досега се чакаше следващият 45s цикъл, тоест една кратка мрежова грешка
+    // оставяше таблото червено до минута. Питаме пак след 5s — грешката остава
+    // написана, докато не се оправи, но вече не се самозаключва.
+    setTimeout(load, 5000);
   }
 }
 

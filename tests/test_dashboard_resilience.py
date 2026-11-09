@@ -594,3 +594,191 @@ def test_the_page_checks_stale_before_it_declares_live():
         "the stale branch does not return, so execution falls through into "
         "the LIVE path")
     assert "ЗАСТАРЕЛИ" in branch
+
+# ── 10. a restart must not be an outage ────────────────────────────────────
+#
+# 09.11: every deploy emptied the in-memory board, the next visitor waited the
+# cold-wait window and got 503 {"warming": true} — which the page painted as
+# "ГРЕШКА: HTTP 503 … НЕАКТУАЛНИ". A docs-only push did it. The owner's
+# requirement is that the board is ALWAYS operational, so the last good PUBLIC
+# board is now kept in the durable store (Postgres — this service has no disk,
+# `data/*.db` is wiped on deploy) and replayed on a cold start.
+
+class _FakeMetaStore:
+    """Only the two calls the board's persistence uses."""
+
+    def __init__(self, doc=None, fail_write=False):
+        self.doc = dict(doc or {})
+        self.writes = []
+        self.fail_write = fail_write
+
+    def get_meta(self, key, default=None):
+        return self.doc.get(key, default)
+
+    def set_meta(self, key, value):
+        if self.fail_write:
+            raise RuntimeError("the store refused the write")
+        self.writes.append((key, value))
+        self.doc[key] = value
+
+
+def _seeded_store(main, age_seconds=0.0, payload=None):
+    """A store holding a board that was built `age_seconds` ago."""
+    doc = {"built_at": time.time() - age_seconds,
+           "payload": payload if payload is not None else {"ok": True,
+                                                           "signed": "REAL"}}
+    return _FakeMetaStore({main._DASHBOARD_BOARD_META_KEY: json.dumps(doc)})
+
+
+@pytest.fixture()
+def meta_store(monkeypatch, main_module):
+    """Give a test its own durable store and reset the write rate-limiter."""
+    monkeypatch.setattr(main_module, "_DASHBOARD_PERSISTED_AT", 0.0)
+
+    def _install(store):
+        monkeypatch.setattr(main_module, "_dashboard_meta_store", lambda: store)
+        return store
+
+    return _install
+
+
+def test_a_restart_serves_the_persisted_board_instead_of_503(
+        main_module, meta_store):
+    """THE FIX. Empty memory + a stored board must answer, not raise."""
+    main = main_module
+    store = meta_store(_seeded_store(main, age_seconds=600))
+
+    out = main._dashboard_payload_resilient(False, False)
+
+    assert out["signed"] == "REAL", "the stored board was not replayed"
+    assert out["stale"] is True, "a 10-minute-old board was painted fresh"
+    assert abs(out["stale_age_seconds"] - 600) < 30
+    assert store.writes == [], "serving a stored board triggered a write"
+
+
+def test_a_fresh_persisted_board_is_served_without_a_cold_wait(
+        main_module, monkeypatch, meta_store, refreshes):
+    """The common case: the deploy was seconds ago, so no refresh is even due."""
+    main = main_module
+    monkeypatch.setattr(main, "_DASHBOARD_COLD_WAIT_SECONDS", 0.01)
+    meta_store(_seeded_store(main, age_seconds=1.0))
+
+    t0 = time.time()
+    out = main._dashboard_payload_resilient(False, False)
+
+    assert time.time() - t0 < 1.0, "a stored board still waited for a cold build"
+    assert out["stale"] is False
+    assert refreshes == [], "a 1-second-old board should not rebuild"
+
+
+def test_the_data_route_answers_200_after_a_restart(main_module, monkeypatch,
+                                                    meta_store):
+    """End to end, through the route the page actually calls."""
+    main = main_module
+    monkeypatch.setattr(main, "_is_admin_request", lambda: False)
+    monkeypatch.setattr(main, "_operator_view_enabled", lambda: False)
+    meta_store(_seeded_store(main, age_seconds=5.0))
+
+    r = main.app.test_client().get("/api/dashboard/data")
+
+    assert r.status_code == 200, (
+        "a restart still answers %s — that is the error the owner saw"
+        % r.status_code)
+    assert r.get_json()["signed"] == "REAL"
+
+
+def test_the_admin_and_operator_variants_are_never_persisted(
+        main_module, meta_store):
+    """The CRM section must not reach shared storage — that is why the key is
+    the grant pair and why only (False, False) is written."""
+    main = main_module
+    store = meta_store(_FakeMetaStore())
+
+    main._dashboard_persist_board((False, False), {"public": True})
+    main._dashboard_persist_board((True, True), {"crm": {"leads": 7}})
+    main._dashboard_persist_board((True, False), {"crm": {"leads": 7}})
+    main._dashboard_persist_board((False, True), {"sales_detail": ["0xdead"]})
+
+    assert [k for k, _ in store.writes] == [main._DASHBOARD_BOARD_META_KEY]
+    assert "crm" not in store.writes[0][1]
+    assert "0xdead" not in store.writes[0][1]
+
+
+def test_a_restart_never_reads_a_non_public_board(main_module, meta_store):
+    """Symmetry with the write rule: only the public key is ever looked up."""
+    main = main_module
+    store = meta_store(_seeded_store(main))
+
+    assert main._dashboard_seed_from_store((True, True)) is False
+    assert main._dashboard_seed_from_store((True, False)) is False
+    assert store.writes == []
+    assert main._dashboard_seed_from_store((False, False)) is True
+
+
+def test_a_corrupt_stored_board_does_not_become_an_error(
+        main_module, monkeypatch, meta_store):
+    """Bad bytes in the store must degrade to the old cold behaviour, not to a
+    crash on every request."""
+    main = main_module
+    monkeypatch.setattr(main, "_DASHBOARD_COLD_WAIT_SECONDS", 0.01)
+    gate = threading.Event()
+    _fake_payload(monkeypatch, main, gate=gate)     # the build will not finish
+    meta_store(_FakeMetaStore({main._DASHBOARD_BOARD_META_KEY: "{not json"}))
+
+    with pytest.raises(main.DashboardWarming):
+        main._dashboard_payload_resilient(False, False)
+    gate.set()
+
+
+def test_a_store_that_refuses_the_write_does_not_break_the_build(
+        main_module, meta_store):
+    """Persistence is best-effort: the board is served from memory either way."""
+    main = main_module
+    meta_store(_FakeMetaStore(fail_write=True))
+
+    main._dashboard_persist_board((False, False), {"ok": True})   # must not raise
+
+
+def test_the_persist_is_rate_limited(main_module, meta_store):
+    """~50 KB into Postgres every 30-second revalidation would be waste."""
+    main = main_module
+    store = meta_store(_FakeMetaStore())
+
+    main._dashboard_persist_board((False, False), {"n": 1})
+    main._dashboard_persist_board((False, False), {"n": 2})
+
+    assert len(store.writes) == 1, "the board was rewritten on every build"
+
+
+# ── 11. the page must not call a restart an error ──────────────────────────
+def test_the_page_treats_503_as_warming_not_as_an_error():
+    """Structural, because this is the text the owner reads."""
+    from pathlib import Path
+
+    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
+
+    warm_at = html.find("r.status === 503")
+    throw_at = html.find("throw new Error('HTTP ' + r.status)")
+    assert warm_at != -1, "the page no longer recognises a warming 503"
+    assert throw_at != -1, "the generic error path moved"
+    assert warm_at < throw_at, (
+        "503 falls through to the error path, so a restart is still an error")
+
+    branch = html[warm_at:throw_at]
+    assert "ЗАГРЯВА" in branch, "a warming board is not labelled as warming"
+    assert "ГРЕШКА" not in branch, (
+        "the warming branch still writes the word ERROR on the board")
+    assert "setTimeout(load, 2500)" in branch, (
+        "the page does not retry quickly, so the board stays empty for a cycle")
+
+
+def test_the_page_retries_a_real_error_without_waiting_a_full_cycle():
+    from pathlib import Path
+
+    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
+
+    err_at = html.find("b.className = 'badge err'")
+    assert err_at != -1
+    assert "setTimeout(load, 5000)" in html[err_at:err_at + 900], (
+        "one failed fetch leaves the board red until the next 45s cycle")
+    assert "setInterval(load, 45000)" in html, "the LIVE cycle must stay"
