@@ -782,3 +782,29 @@ def test_the_page_retries_a_real_error_without_waiting_a_full_cycle():
     assert "setTimeout(load, 5000)" in html[err_at:err_at + 900], (
         "one failed fetch leaves the board red until the next 45s cycle")
     assert "setInterval(load, 45000)" in html, "the LIVE cycle must stay"
+
+def test_a_transient_dropped_connection_is_not_painted_as_an_error():
+    """Measured 09.11 20:10:32 during a restart: the instance swap closes the
+    connection once, `fetch` throws, and the next poll 6s later answers 200. A
+    board that shouts ГРЕШКА for that is reporting its own deployment."""
+    from pathlib import Path
+
+    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
+
+    assert "let failures = 0;" in html, "the failure counter is gone"
+    transient_at = html.find("failures <= 3")
+    err_at = html.find("b.className = 'badge err'")
+    assert transient_at != -1, "a dropped connection is no longer tolerated"
+    assert err_at != -1
+    assert transient_at < err_at, (
+        "every single failure goes straight to the error badge again")
+
+    branch = html[transient_at:err_at]
+    assert "ПРЕЗАРЕЖДАНЕ" in branch
+    assert "ГРЕШКА" not in branch, (
+        "the transient branch still writes the word ERROR on the board")
+    assert "setTimeout(load, 2500)" in branch, (
+        "a dropped connection is not retried quickly")
+
+    assert "failures = 0;" in html[:html.find("async function load()")] or \
+        "failures = 0;" in html, "the counter is never reset"

@@ -1265,6 +1265,11 @@ function renderCallers(s) {
     'сигурност стои човек; автоматизиран браузър се отчита като робот.';
 }
 
+// Колко поредни опита са се провалили. Единственото, което разделя
+// „таблото се рестартира" от „таблото не работи", и затова се брои, вместо
+// всеки провал да се пише като грешка (виж catch-а долу).
+let failures = 0;
+
 async function load() {
   try {
     const r = await fetch('/api/dashboard/data', {cache: 'no-store'});
@@ -1274,6 +1279,7 @@ async function load() {
     // инстанцията. И в двата случая числата идват след секунди, затова тук
     // НЕ се пише „ГРЕШКА" и НЕ се чака 45s — питаме пак след 2.5s.
     if (r.status === 503) {
+      failures = 0;                 // сървърът отговори: връзката е налице
       const w = $('live-badge');
       w.className = 'badge stale'; w.textContent = 'ЗАГРЯВА';
       $('generated-at').textContent =
@@ -1282,6 +1288,7 @@ async function load() {
       return;
     }
     if (!r.ok) throw new Error('HTTP ' + r.status);
+    failures = 0;
     const d = await r.json();
     const s = d.sections || {};
     // Отговорите първи — това е, което човек търси, и е най-отгоре на страницата.
@@ -1332,6 +1339,23 @@ async function load() {
     const b = $('live-badge');
     b.className = 'badge live'; b.textContent = 'LIVE';
   } catch (e) {
+    // ПРЕКЪСНАТАТА ВРЪЗКА НЕ Е ГРЕШКА НА ТАБЛОТО. При смяна на инстанцията
+    // Render затваря конекцията веднъж и `fetch` хвърля „Failed to fetch" —
+    // измерено на 09.11 20:10:32, а следващият опит 6 секунди по-късно върна
+    // 200. Затова първите няколко поредни провала се показват като
+    // „ПРЕЗАРЕЖДАНЕ" (данните отдолу остават) и се препитват след 2.5s;
+    // „ГРЕШКА" се пише чак когато провалите са повече от три, тоест когато
+    // таблото наистина не отговаря, а не когато се е рестартирало.
+    failures++;
+    if (failures <= 3) {
+      const w = $('live-badge');
+      w.className = 'badge stale'; w.textContent = 'ПРЕЗАРЕЖДАНЕ';
+      $('generated-at').textContent =
+        ' · връзката с таблото се възстановява (опит ' + failures +
+        ') — питаме пак след секунди';
+      setTimeout(load, 2500);
+      return;
+    }
     // А5: при грешка старите данни НЕ бива да изглеждат „live" — цялото съдържание
     // се обозначава като неактуално (по-ниска прозрачност), badge-ът носи грешката.
     document.querySelector('.wrap').classList.add('stale-data');

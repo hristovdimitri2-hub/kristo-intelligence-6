@@ -423,6 +423,57 @@ live, **$0.003 + $0.123** for the seven PayAI listings. Tooling:
 `payai_mcp_verify_probe.py`, `payai_mcp_settle_row.py`, `payai_mcp_row_check.py`,
 `payai_mcp_list_all.py`.
 
+### 09.11 20:00–20:35 — „таблото да е активно винаги": рестартът вече не е грешка
+
+The owner saw **„ГРЕШКА: HTTP 503 … Данните по-долу са НЕАКТУАЛНИ"** on the dashboard and asked
+for it to be fixed immediately and to be permanently operational. Both halves were real, and
+one of them was mine.
+
+**Why it happened.** `/api/dashboard/data` returns `503 {"warming": true}` while the first board
+build runs — by design, so a visitor never holds a worker for the length of a slow build. But
+the board cache (`_DASHBOARD_LAST_GOOD`) is process memory, and auto-deploy is on, so **every
+push** — including the docs-only handover commit `d49787a` — emptied it and produced that error
+for the next visitor. The template turned it into a hard error and then waited out the whole 45 s
+cycle before trying again.
+
+**The fix (`9468c4f`) — the board survives a restart.** The last good **PUBLIC** payload is
+written into `dashboard_meta` in the durable store and replayed on a cold start, so
+"the process restarted" answers with the previous real figures plus their age instead of a 503.
+Deliberately not a file: measured through the Render API, this service has **no persistent disk**
+(`disk: null`), so `data/*.db` is wiped by every deploy — `dashboard_meta` is the table that
+already survives for exactly this reason. Only the `(False, False)` grant is persisted, because
+the admin and operator variants carry the CRM/Stripe section and must never reach shared storage;
+the write is rate-limited to once a minute so a 30-second revalidation does not push 50 KB into
+Postgres each time. A corrupt stored board degrades to the old cold behaviour, and a store that
+refuses the write cannot fail a build.
+
+**The page (`templates/dashboard.html`).** A 503 is now „ЗАГРЯВА" with a 2.5 s retry — checked on
+the STATUS, because Render's own 503 while swapping instances carries no JSON. A dropped
+connection is counted: the first three consecutive failures read „ПРЕЗАРЕЖДАНЕ" and keep the
+figures on screen, and only past that does the badge say ГРЕШКА, which is the honest line between
+"the board is being redeployed" and "the board is not answering". A genuine error also retries in
+5 s now instead of staying red until the next 45 s tick.
+
+**Proven live, by restarting the service** (`_forensics/verify_dashboard_always_on.py`): deploy
+`9468c4f` live at 20:09:54, the board built and persisted itself, then `POST /services/{id}/restart`
+— polling across the restart gave **6 × HTTP 200, 0 × 503**, one dropped connection
+(transport error at 20:10:32, from the instance swap) and a 200 in 0.9 s six seconds later, with
+the log saying:
+
+```
+20:10:03 WARNING | kristo.v6.main | dashboard board restored from the durable store
+         (built 7s ago) — serving it instead of a cold 503
+```
+
+Tests: 12 new (44 in `test_dashboard_resilience.py`, suite **1,272**). The ones that carry the
+weight: a restart serves the stored board through the real route with 200; a 10-minute-old stored
+board is LABELLED stale rather than painted fresh; the admin and operator grants are never written
+and never read back; a corrupt board still cold-starts; and structurally — the page's 503 branch
+comes before the throw, the transient branch before the error badge, and neither contains „ГРЕШКА".
+`tests/conftest.py` now points the store accessor at nothing for every test, because the suite
+shares the developer's real database and a board written by one test would seed every later
+test's cold path.
+
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
 Check what the demo key is really paying for. Why it is now a task with teeth —
