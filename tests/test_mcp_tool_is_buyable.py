@@ -99,7 +99,6 @@ def test_a_200_without_a_settlement_is_refused(monkeypatch):
     monkeypatch.setattr(main.app, "test_client", lambda: FakeClient())
     assert discovery._serve_paid_mcp_tool("/api/v1/whaleflow", 0.003, "x") is None
 
-
 def test_a_settlement_makes_it_servable(monkeypatch):
     """The positive half, so the guard cannot be satisfied by refusing always."""
     class FakeResponse:
@@ -143,15 +142,160 @@ def test_the_forward_carries_the_callers_own_header(monkeypatch):
         def __exit__(self, *a):
             return False
 
-        def get(self, path, headers=None):
+        def get(self, path, headers=None, query_string=None):
             seen["path"] = path
             seen["headers"] = headers or {}
+            seen["query_string"] = query_string
             return FakeResponse()
 
     monkeypatch.setattr(main.app, "test_client", lambda: FakeClient())
     discovery._serve_paid_mcp_tool("/api/v1/whaleflow", 0.003, "BUYER-HEADER")
     assert seen["headers"].get("PAYMENT-SIGNATURE") == "BUYER-HEADER"
     assert seen["path"] == "/api/v1/whaleflow"
+
+
+# ── the tool's arguments must reach the route they paid for ─────────────────
+#
+# Measured live, 09.11 19:26:49: `verify_seller_receiver` was paid for ($0.10,
+# tx 0x697923104b312862fc333fd6464e542a77a7253a635a2070125ccbff9d7413f0, status
+# 0x1) with a valid `receiver`, and the forward dropped it. The route answered
+# 400 `receiver_required`, the tool fell back to the challenge, and the money was
+# gone with the nonce already spent. Six tools without input in the same run
+# worked, which is exactly why it went unnoticed.
+
+def test_the_forward_carries_the_tools_arguments_as_query_parameters(monkeypatch):
+    """THE BUG. Without this, a paid call to the one input-taking tool is
+    unservable and the buyer's USDC is already settled."""
+    seen = {}
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"PAYMENT-RESPONSE": "ok"}
+
+        def get_json(self, silent=False):
+            return {"ok": True}
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, path, headers=None, query_string=None):
+            seen["path"] = path
+            seen["query_string"] = query_string
+            return FakeResponse()
+
+    monkeypatch.setattr(main.app, "test_client", lambda: FakeClient())
+    body = discovery._serve_paid_mcp_tool(
+        "/api/v1/verify-seller", 0.10, "H",
+        {"receiver": "0xd4cda900839c0fed4374ee37ea0dbe8e4c6fd08f", "days": 7})
+    assert body == {"ok": True}
+    assert seen["path"] == "/api/v1/verify-seller"
+    assert seen["query_string"] == {
+        "receiver": "0xd4cda900839c0fed4374ee37ea0dbe8e4c6fd08f", "days": 7}
+
+
+def _paid_forward_recorder(monkeypatch):
+    """Replace the rail with a recorder: what reached it, and with what."""
+    calls = []
+
+    def fake(path, price, header, arguments=None):
+        calls.append({"path": path, "price": price, "arguments": arguments})
+        return {"ok": True, "served": True}
+
+    monkeypatch.setattr(discovery, "_serve_paid_mcp_tool", fake)
+    return calls
+
+
+def _call_verify(client, arguments, header="PAYMENT-SIGNATURE-GOES-HERE"):
+    resp = client.post("/mcp", headers={"PAYMENT-SIGNATURE": header}, json={
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "verify_seller_receiver", "arguments": arguments}})
+    return resp.get_json() or {}
+
+
+def test_a_paid_call_with_a_valid_receiver_reaches_the_route_with_it(monkeypatch):
+    calls = _paid_forward_recorder(monkeypatch)
+    with main.app.test_client() as client:
+        body = _call_verify(client, {"receiver":
+                                     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"})
+    assert calls, "the paid call never reached the rail"
+    assert calls[0]["path"] == "/api/v1/verify-seller"
+    assert calls[0]["arguments"] == {
+        "receiver": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"}
+    assert ((body.get("result") or {}).get("structuredContent") or {}).get("ok")
+
+
+def test_a_paid_call_that_names_no_receiver_is_refused_before_the_rail(monkeypatch):
+    """THE MONEY GUARD. The rail settles before the route handler runs, so a
+    call the route will reject must be rejected before it is ever forwarded —
+    otherwise the buyer pays for a 400."""
+    calls = _paid_forward_recorder(monkeypatch)
+    with main.app.test_client() as client:
+        body = _call_verify(client, {})
+    assert not calls, "an argument-less paid call was forwarded to the rail"
+    err = (body.get("error") or {}).get("message") or ""
+    assert "receiver" in err, body
+    assert "charged" in err, "the caller must be told nothing was charged"
+
+
+def test_a_paid_call_with_a_malformed_receiver_is_refused_before_the_rail(monkeypatch):
+    calls = _paid_forward_recorder(monkeypatch)
+    with main.app.test_client() as client:
+        body = _call_verify(client, {"receiver": "0xnot-an-address"})
+    assert not calls, "a typo'd receiver was forwarded to the rail"
+    assert "receiver" in ((body.get("error") or {}).get("message") or "")
+
+
+def test_a_paid_call_with_an_unknown_argument_is_refused_before_the_rail(monkeypatch):
+    """Every schema here declares additionalProperties false, so the contract
+    says what happens to an argument the tool does not declare."""
+    calls = _paid_forward_recorder(monkeypatch)
+    with main.app.test_client() as client:
+        body = _call_verify(client, {"receiver": "0x" + "11" * 20,
+                                     "network": "base"})
+    assert not calls
+    assert "network" in ((body.get("error") or {}).get("message") or "")
+
+
+def test_an_unpaid_call_still_sees_the_terms_even_with_bad_arguments(monkeypatch):
+    """Validation lives on the PAID path only. An agent that has not been
+    charged must still be able to read the price and the schema."""
+    calls = _paid_forward_recorder(monkeypatch)
+    with main.app.test_client() as client:
+        resp = client.post("/mcp", json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "verify_seller_receiver", "arguments": {}}})
+    sc = ((resp.get_json() or {}).get("result") or {}).get("structuredContent") or {}
+    assert sc.get("error") == "payment_required"
+    assert sc.get("accepts")
+    assert not calls
+
+
+def test_arguments_are_read_from_the_tools_own_schema():
+    """No second copy of the rules: the tool's inputSchema decides."""
+    from app.blueprints.discovery import _mcp_forward_arguments
+    tool = next(t for t in discovery._mcp_tools("https://example.test")
+                if t["name"] == "verify_seller_receiver")
+
+    query, problem = _mcp_forward_arguments(tool, {"receiver": "0x" + "AB" * 20})
+    assert problem is None
+    assert query == {"receiver": "0x" + "ab" * 20}
+
+    query, problem = _mcp_forward_arguments(tool, {"receiver": "0x" + "AB" * 20,
+                                                   "days": "14"})
+    assert problem is None and query["days"] == 14
+
+    query, problem = _mcp_forward_arguments(tool, {"receiver": "0x" + "AB" * 20,
+                                                   "days": "soon"})
+    assert query == {} and "integer" in problem
+
+    plain = next(t for t in discovery._mcp_tools("https://example.test")
+                 if t["name"] == "get_whale_flow")
+    assert _mcp_forward_arguments(plain, {}) == ({}, None)
+    assert _mcp_forward_arguments(plain, None) == ({}, None)
 
 
 # ── the buyable path exists at all ──────────────────────────────────────────

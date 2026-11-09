@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1254
+SUITE_TESTS_PASSED = 1261
 SUITE_LAST_RUN = "2026-11-09"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2072,7 +2072,78 @@ def _retype_bazaar_for_mcp(extensions, tool, name: str,
     }
 
 
-def _serve_paid_mcp_tool(path: str, price: float, payment_header: str):
+def _mcp_forward_arguments(tool, arguments):
+    """A tool's arguments as the route's query string. Returns (query, problem).
+
+    WHY THIS EXISTS AT ALL, and it is not a nicety: the forward below used to call
+    the route with NO query string, so a tool that takes input lost it. Measured
+    on the live service, 09.11 19:26:49 — `verify_seller_receiver` was called with
+    a valid `receiver`, the rail settled $0.10 (tx
+    0x697923104b312862fc333fd6464e542a77a7253a635a2070125ccbff9d7413f0, status
+    0x1), the forwarded GET arrived with no `receiver`, the route answered the
+    honest 400 `receiver_required` — and the buyer was handed the challenge back
+    with the money gone and the nonce already spent. Every tool without input
+    worked, which is why six payments in a row hid it.
+
+    The rules are the tool's OWN `inputSchema`, so the declaration, the challenge
+    and the call cannot drift: required keys must be present, types must match,
+    and unknown keys are refused because every schema here declares
+    `additionalProperties: false`. A `receiver` is normalized to lowercase hex —
+    the route checksums it, and a mixed-case typo would otherwise fail there
+    instead of here, after the money had moved.
+    """
+    schema = tool.get("inputSchema") or {}
+    props = schema.get("properties") or {}
+    args = arguments if isinstance(arguments, dict) else {}
+    name = tool.get("name") or "?"
+
+    unknown = sorted(set(args) - set(props))
+    if unknown:
+        return {}, ("Unknown argument(s) for tool '%s': %s. This tool accepts "
+                    "%s." % (name, ", ".join(unknown),
+                             ", ".join(sorted(props)) or "no arguments"))
+
+    query = {}
+    for key in schema.get("required") or []:
+        if key not in args or args[key] in ("", None):
+            return {}, ("Missing required argument '%s' for tool '%s'. It is "
+                        "required by the tool's own inputSchema; nothing was "
+                        "charged." % (key, name))
+    for key, value in args.items():
+        spec = props.get(key) or {}
+        kind = spec.get("type")
+        if kind == "string":
+            if not isinstance(value, str) or not value.strip():
+                return {}, ("Argument '%s' for tool '%s' must be a non-empty "
+                            "string." % (key, name))
+            query[key] = value.strip()
+        elif kind == "integer":
+            try:
+                query[key] = int(value)
+            except (TypeError, ValueError):
+                return {}, ("Argument '%s' for tool '%s' must be an integer."
+                            % (key, name))
+        elif kind == "boolean":
+            if not isinstance(value, bool):
+                return {}, ("Argument '%s' for tool '%s' must be a boolean."
+                            % (key, name))
+            query[key] = value
+        else:
+            query[key] = value
+
+    receiver = query.get("receiver")
+    if receiver is not None:
+        body = receiver[2:] if receiver.lower().startswith("0x") else receiver
+        if len(body) != 40 or any(c not in "0123456789abcdefABCDEF" for c in body):
+            return {}, ("Argument 'receiver' for tool '%s' must be a "
+                        "40-hex-character EVM address, with or without the 0x "
+                        "prefix; got %r. Nothing was charged." % (name, receiver))
+        query["receiver"] = "0x" + body.lower()
+    return query, None
+
+
+def _serve_paid_mcp_tool(path: str, price: float, payment_header: str,
+                         arguments: dict | None = None):
     """Settle through the HTTP rail, then return the route's own answer.
 
     WHY A FORWARD RATHER THAN A SECOND IMPLEMENTATION. The rail already verifies,
@@ -2095,7 +2166,12 @@ def _serve_paid_mcp_tool(path: str, price: float, payment_header: str):
         from main import app as _app
 
         with _app.test_client() as client:
-            resp = client.get(path, headers={"PAYMENT-SIGNATURE": payment_header})
+            # The tool's arguments ARE the route's query string. Dropping them
+            # (which this did until 09.11 19:26, at a cost of $0.10 and a spent
+            # nonce) makes a paid call to an input-taking tool unservable: the
+            # route answers 400 `receiver_required` and the buyer gets nothing.
+            resp = client.get(path, query_string=arguments or {},
+                              headers={"PAYMENT-SIGNATURE": payment_header})
 
         # A 200 IS NOT PROOF OF PAYMENT, and the first version of this shipped
         # that defect. The forward arrives from 127.0.0.1 — loopback — and the
@@ -2241,8 +2317,21 @@ def _mcp_dispatch(body):
                 or (request.headers.get("X-PAYMENT") or "").strip()
             )
             if payment_header:
+                # VALIDATE BEFORE THE RAIL IS TOUCHED. Settling is what spends
+                # the buyer's money, and the rail settles before the route
+                # handler runs — so an argument the route will refuse has to be
+                # refused HERE, where no nonce is spent and the caller can fix
+                # the call and reuse the same signature. An unpaid call is left
+                # exactly as it was: it still gets the challenge, because an
+                # agent reading the terms has not been charged and must be able
+                # to see them.
+                query, problem = _mcp_forward_arguments(tool, params.get("arguments"))
+                if problem:
+                    return "response", {"jsonrpc": "2.0", "id": msg_id,
+                                        "error": {"code": -32602,
+                                                  "message": problem}}
                 paid_response = _serve_paid_mcp_tool(
-                    path, float(x.get("price_usdc") or 0), payment_header)
+                    path, float(x.get("price_usdc") or 0), payment_header, query)
 
             accepts, resource, extensions = _x402_challenge_core(
                 path, float(x.get("price_usdc") or 0),
