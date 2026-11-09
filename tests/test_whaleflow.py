@@ -5,6 +5,7 @@ resilience, truthful empty result, the 402 paywall path with the correct
 price/description, and the unlisted-until-canary guarantee (condition 4).
 """
 
+import pathlib
 import sys
 import types
 from datetime import datetime, timezone
@@ -371,6 +372,47 @@ def test_whale_scan_halves_a_refused_window_instead_of_giving_up(
     # …and the whole range is covered, with no silent gap.
     assert int(store.get_meta("whaleflow_safe_scanned_block")) == 10_400
     assert store.get_meta("whaleflow_last_error") in ("", None)
+
+
+def test_the_published_chunk_is_two_numbers_not_one_misreadable_one(
+        tmp_path, monkeypatch):
+    """09.11: the live payload said `effective_chunk_blocks: 50` after
+    WHALEFLOW_CHUNK_BLOCKS was raised to 1000, and 50 was TRUE — it is the
+    MINIMUM span the RPC accepted during a walk, because the adaptive helper
+    halves on ANY error and never grows back inside that walk. On its own it
+    reads as "we scan 50-block windows" while we ask for 1,000. So both are
+    recorded and both are published: what we ASK for, and the worst we settled
+    for. Measured when this was found: twelve consecutive 1,000-block windows,
+    12 accepted, 0 refused, 8,839 logs on average against the RPC's 20,000 cap.
+    """
+    from integrations.dashboard_store import DashboardStore
+
+    monkeypatch.setenv("WHALE_THRESHOLD", "50000")
+    monkeypatch.setenv("WHALEFLOW_CHUNK_BLOCKS", "1000")
+    logs = [_whale_log("11", 60000.0, "aa" * 32, "bb" * 32, 10_010)]
+    # A range wider than the configured span, or the first request would be
+    # capped by the range itself (401 blocks) and the assertion below would be
+    # measuring the test, not the chunking.
+    attempts = _install_refusing_web3(monkeypatch, logs, {10_010: NOW_TS},
+                                      latest=12_000, max_span=250)
+    store = DashboardStore(tmp_path / "chunk.db")
+    store.scan_whale_window(10_000, 12_000, rpc_url="http://fake")
+
+    assert max(attempts) == 1000, "must ask for the configured width first"
+    configured = int(store.get_meta("whaleflow_configured_chunk"))
+    effective = int(store.get_meta("whaleflow_effective_chunk"))
+    assert configured == 1000, "the setting is recorded as a fact of its own"
+    assert effective <= 250, "and the worst accepted span is still reported"
+
+    summary = store.whaleflow_summary(window_hours=24)
+    assert summary["configured_chunk_blocks"] == 1000
+    assert summary["effective_chunk_blocks"] == effective
+
+    # The page must not print the halved number alone.
+    page = (pathlib.Path(__file__).resolve().parents[1]
+            / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    assert "configured_chunk_blocks" in page
+    assert "настроена:" in page
 
 
 def test_whale_backfill_hours_really_means_hours(tmp_path, monkeypatch):

@@ -23,6 +23,7 @@ import logging
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -1154,20 +1155,38 @@ def _eip3009_detail() -> str:
     Live health of the standard rail: checks the CDP JWT build for real
     (not just env presence) so a bad PEM shows up HERE instead of failing
     a canary with a misleading reason.
+
+    THE ORDER IS READ FROM THE CHAIN, NOT TYPED (09.11). This string used to
+    hardcode `... → CDP ({cdp}) → payai`, which was only true while the
+    dual-rail pair was configured. With `X402_FACILITATOR_URL` set, or with the
+    FACILITATOR_CDP_* pair removed — the exact configuration used to prove the
+    PayAI leg on the live rail — the public registry would still have claimed
+    CDP goes first. A public claim about our own failover has to come from the
+    code that does the failing over.
     """
     gas = bool(os.getenv("WALLET_PRIVATE_KEY"))
-    key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
-              os.getenv("CDP_API_KEY_ID") or "").strip()
-    if not key_id:
-        cdp = "keys missing"
-    else:
-        token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
-                                     "/platform/v2/x402/verify")
-        cdp = "JWT OK" if token else f"JWT FAIL ({cdp_detail})"
-    return (
-        f"verify=local canonical; settle=self-broadcast "
-        f"(gas={gas}) → CDP ({cdp}) → payai"
-    )
+    chain = _facilitator_chain()
+    # "env" is whatever X402_FACILITATOR_URL names; call it by its host so the
+    # line stays readable, and never print a token or a credential.
+    parts = []
+    for name, url in chain:
+        label = {"cdp": "CDP", "payai": "payai"}.get(name)
+        if label is None:
+            host = urllib.parse.urlparse(url).netloc or url
+            label = "env(%s)" % host
+        parts.append(label)
+    detail = " → ".join(parts) or "none configured"
+    if any(name == "cdp" for name, _ in chain):
+        key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
+                  os.getenv("CDP_API_KEY_ID") or "").strip()
+        if not key_id:
+            cdp = "keys missing"
+        else:
+            token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
+                                         "/platform/v2/x402/verify")
+            cdp = "JWT OK" if token else f"JWT FAIL ({cdp_detail})"
+        detail += " (cdp: %s)" % cdp
+    return f"verify=local canonical; settle=self-broadcast (gas={gas}) → {detail}"
 
 
 def registry_status(wallet_state: dict, reveal_wallet: bool = False) -> list:

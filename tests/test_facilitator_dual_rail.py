@@ -108,3 +108,27 @@ def test_eip3009_detail_picks_up_new_pair(clean_env):
     detail = _eip3009_detail()
     assert "keys missing" not in detail
     assert "JWT" in detail
+
+
+def test_the_public_health_line_follows_the_real_chain_order(clean_env):
+    """09.11: the string used to hardcode `→ CDP ({cdp}) → payai`, which was
+    only true while the dual-rail pair was configured. During the live PayAI
+    proof the pair was deliberately removed — chain [payai, cdp] — and the
+    public registry would still have advertised CDP first. A claim about our own
+    failover has to be read from the code that does the failing over."""
+    from services.connectors import _eip3009_detail
+
+    default = _eip3009_detail()
+    assert default.index("payai") < default.index("CDP"), default
+
+    clean_env.setenv(NEW_ID, "id")
+    clean_env.setenv(NEW_SECRET, "secret")
+    dual = _eip3009_detail()
+    assert dual.index("CDP") < dual.index("payai"), dual
+
+    clean_env.delenv(NEW_ID)
+    clean_env.delenv(NEW_SECRET)
+    clean_env.setenv("X402_FACILITATOR_URL", "https://facilitator.payai.network")
+    override = _eip3009_detail()
+    assert "env(facilitator.payai.network)" in override, override
+    assert override.index("env(facilitator.payai.network)") < override.index("CDP")

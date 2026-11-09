@@ -3937,6 +3937,10 @@ HYBRID since 14.09:
         # Chunking / pacing / halving live in ONE shared helper — the same
         # machine the whale scan uses (free-tier range caps + rate limits are
         # a solved problem; never solved twice).
+        # What we ASK for, next to what the RPC settled for (09.11): the
+        # effective span is a MINIMUM over the walk and halves on ANY error, so
+        # it alone reads as "we scan 50-block windows" when the setting is 1000.
+        self.set_meta("sales_configured_chunk", str(chunk_size))
         safe_end, effective_span = _adaptive_get_logs(
             w3, from_block, to_block, [TRANSFER_TOPIC, None, padded],
             chunk_size, pause_seconds, _collect,
@@ -4058,6 +4062,9 @@ HYBRID since 14.09:
                                                 str(chunk_blocks or 100))))
         except ValueError:
             chunk_blocks = 100
+        # What we ASK for, recorded before the walk so the public number can
+        # never be the halved one alone (see whaleflow_summary).
+        self.set_meta("whaleflow_configured_chunk", str(chunk_blocks))
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
@@ -4226,6 +4233,7 @@ HYBRID since 14.09:
         last_attempt = self.get_meta("whaleflow_last_attempt")
         last_error = self.get_meta("whaleflow_last_error")
         effective_chunk = self.get_meta("whaleflow_effective_chunk")
+        configured_chunk = self.get_meta("whaleflow_configured_chunk")
         # Rows and the all-time context come from the history backend, so the
         # PAID feed's history survives a deploy instead of resetting to zero.
         h = self.history.whale_rows(window_hours, limit, threshold)
@@ -4269,4 +4277,15 @@ HYBRID since 14.09:
             "last_error": last_error or None,
             "effective_chunk_blocks": (int(effective_chunk)
                                        if effective_chunk else None),
+            # TWO numbers, because one of them lies by omission (09.11).
+            # `effective_chunk_blocks` is the MINIMUM span the RPC accepted
+            # during a walk — `_adaptive_get_logs` halves on any error and never
+            # grows back INSIDE a walk — so a single transient 429 leaves it at
+            # the floor and it reads as "we scan 50-block windows" while the
+            # configured span is 1,000. Measured when this was found: twelve
+            # consecutive 1,000-block windows, 12 accepted, avg 8,839 logs
+            # (44% of the RPC's 20,000 cap). The configured value is what we
+            # ASK for; the effective one is the worst we settled for.
+            "configured_chunk_blocks": (int(configured_chunk)
+                                        if configured_chunk else None),
         }

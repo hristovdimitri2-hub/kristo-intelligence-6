@@ -743,7 +743,9 @@ function renderWhales(w) {
     'all-time записи: ' + (w.all_time_count || 0) +
     (w.last_event_at ? ' · последен: ' + utc(w.last_event_at) + ' (блок ' + w.last_event_block + ')' : '') +
     (w.last_attempt_at ? ' · последен скан: ' + utc(w.last_attempt_at) : '') +
-    (w.effective_chunk_blocks ? ' · ширина на чанка: ' + w.effective_chunk_blocks + ' блока' : '') +
+    (w.effective_chunk_blocks ? ' · ширина на чанка: ' + w.effective_chunk_blocks + ' блока' +
+       (w.configured_chunk_blocks && w.configured_chunk_blocks !== w.effective_chunk_blocks
+          ? ' (настроена: ' + w.configured_chunk_blocks + ')' : '') : '') +
     ' · ' + (w.last_error ? 'ГРЕШКА: ' + w.last_error : (w.note || ''));
 }
 
