@@ -339,6 +339,90 @@ Suite **1,254 green**. Tooling (outside the repo, as always):
 `_forensics/payai_settle_probe.py`, `toggle_payai_first.py`, `check_whale_chunk_repeat.py`,
 `wait_payai_first_deploy.py`, `final_state_payai.py`.
 
+### 09.11 19:20–19:27 — paying for the seven MCP tools found a bug that took $0.10 for nothing
+
+The owner's order was to pay for the remaining MCP tools so the tools enter the catalogue.
+Six had never had a paid call (`get_whale_flow` settled post-fix at 15:11). All six were paid
+in one run, `_forensics/pay_mcp_six.py`, after a dry pass that spends nothing and aborts on any
+mismatch — the live challenge had to name the TOOL (`<host>/mcp#<tool>`), carry
+`input.type=mcp` with a matching `toolName` and a valid `example`, and quote our own receiver,
+token, CAIP-2 network and list price. All six passed, and all six settled on-chain
+(`status=0x1`, nonce found as an `AuthorizationUsed` log for our payer, $0.123 total).
+
+**One of them was then handed the payment challenge again.** `verify_seller_receiver` is the
+only tool that takes input; its call settled $0.10
+(tx `0x697923104b312862fc333fd6464e542a77a7253a635a2070125ccbff9d7413f0`) and answered with the
+challenge. Cause, in `app/blueprints/discovery.py`: `_serve_paid_mcp_tool` forwarded the buyer's
+header with `client.get(path)` — **no query string, so the tool's arguments were dropped**. The
+route requires `receiver` and answered its honest `400 receiver_required`; the forward accepts
+only a 200 with a `PAYMENT-RESPONSE` header, so the tool fell back to the challenge. The rail
+settles BEFORE the route handler runs, so the money was gone and the nonce was spent — the buyer
+could not even retry with the same signature. Six no-input tools settled and served in the same
+run, which is exactly why six payments in a row hid it.
+
+Fixed in `eb42e7d`: the arguments now travel as the route's query string, and the rules are the
+tool's OWN `inputSchema` (required keys, types, `receiver` normalized to lowercase hex, unknown
+keys refused). Validation runs **before the rail is touched**, so a call the route would reject
+is rejected where no nonce is spent and the same signature stays usable. The unpaid path is
+unchanged: an agent that has not been charged still gets the challenge and the schema.
+
+Proven live for the price of ONE payment, `_forensics/verify_mcp_forward_fix.py`: one signed
+authorization was sent with no arguments — JSON-RPC `-32602`, *"…nothing was charged"*, nonce
+unspent, balance unchanged — and then the **same signature** with a valid `receiver` was served
+the real audit report and settled (tx `0x04bcd09f099b2819cb0a7c11811508dd7d7f40f5eb1eb076557351d5626b2eaf`,
+`read: clean`, coverage complete). Seven new tests pin both halves.
+
+### 09.11 19:45–19:56 — the seven tools ARE in a live MCP catalogue; CDP's MCP half is frozen
+
+Two indexes, measured from outside (`_forensics/mcp_index_freshness.py`):
+
+```
+CDP   type=mcp  515 rows   newest lastUpdated 2026-11-08T23:36:43Z   FROZEN (>20 h)
+CDP   type=http 32,761     newest lastUpdated 2026-11-09T19:46:48Z   a minute old
+PayAI type=mcp  116 rows   alive
+```
+
+So our seven corrected CDP settlements cannot be indexed yet **whatever the app does** — their
+MCP crawl has not run since 08.11 23:36, while their HTTP half updates every minute. Nothing in
+the repo was changed for that.
+
+PayAI's half is alive, and its `Bazaar Discovery` docs (fetched 09.11) say three things that
+decided the next step: the catalog key is `(resource, toolName)` — the MCP **endpoint** plus the
+tool name as two fields; listing is automatic from payments the facilitator processes that carry
+the declaration; and **an MCP resource's first listing needs a settled payment** (a `/verify`
+alone is deferred as `resource_needs_settlement`, and a probe answering `GET /mcp` with anything
+but 402 is refused as `resource_not_x402` — measured: our `/verify` probe for `get_market_stats`
+was rejected with exactly that reason, because our `GET /mcp` answers 200).
+
+Also measured, and it is the fallback story getting stronger: PayAI's `/verify` returns
+`{"isValid": true, "payer": 0xE50c…5763}` for the post-fix MCP payload — the 14 November rail
+verifies our MCP identity too, not just the HTTP routes.
+
+**A false negative first.** `listing-status` was queried with the URL *including* `#toolName`
+and no `toolName` parameter, and the `resources` walk scanned rows written before the settle.
+PayAI stores `resource` and `toolName` separately, so a row filed under `/mcp` could only ever
+answer 404 to that query. Re-asked in the right shape, the 19:51 settle answered
+`listed=True, lastWrite status=listed source=settle, probe alive 200`.
+
+Six more settles through PayAI's leg of our own rail (CDP and the gas wallet removed, no deploy,
+no env change) — `_forensics/payai_mcp_list_all.py`, $0.123 — and each tool was listed within
+**seconds**: `get_market_stats`, `get_onchain_sales`, `get_bot_status`, `get_whale_flow`,
+`get_arbitrage_opportunities`, `verify_seller_receiver`. All seven now answer
+`type=mcp&payTo=0xd4cd…d08f` with `resource=https://kristo-intelligence-api.onrender.com/mcp`
+and their own `toolName`.
+
+One stale row remains and cannot be fixed from here: `(resource=…/api/v1/whaleflow,
+toolName=get_whale_flow)`, written 14:06 from the pre-fix payload. PayAI refreshes **forward
+only** and delisting a live entry is a manual request — so the corrected row is created
+alongside it, not in place of it. Worth one Discord/issue note if it matters later.
+
+Demo-wallet cost of the whole MCP-catalogue exercise, 2.060515 → 1.711515 USDC: **$0.123** for
+the six CDP-rail payments (including the $0.10 the bug consumed), **$0.10** to prove the fix
+live, **$0.003 + $0.123** for the seven PayAI listings. Tooling:
+`pay_mcp_six.py`, `verify_mcp_forward_fix.py`, `mcp_index_freshness.py`,
+`payai_mcp_verify_probe.py`, `payai_mcp_settle_row.py`, `payai_mcp_row_check.py`,
+`payai_mcp_list_all.py`.
+
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
 Check what the demo key is really paying for. Why it is now a task with teeth —
