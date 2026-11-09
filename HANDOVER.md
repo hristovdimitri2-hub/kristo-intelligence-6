@@ -274,6 +274,71 @@ WORST span of a walk, never the configured one. Recommended follow-up (not done 
 touches the shared chunking machine late in a session): publish the configured span next
 to it, or let the span grow back after a few accepted windows.
 
+### 09.11 20:20–20:30 — the PayAI leg is PROVEN, on the live rail, with real money
+
+The 14 November risk was "if CDP is down, does a payment actually settle through PayAI?"
+It is now answered twice, with $0.006 of the demo wallet and two real on-chain transfers.
+
+**One: through our own chain code, against the live facilitators.** `_forensics/payai_settle_probe.py`
+loads `services.connectors.settle_standard_payment` with `WALLET_PRIVATE_KEY`,
+`CDP_API_KEY_*`, `FACILITATOR_CDP_API_KEY_*` and `X402_FACILITATOR_URL` REMOVED, so
+self-broadcast cannot run and CDP cannot be the settler — if it settles, PayAI settled it,
+and the chain it walks is exactly the [payai, cdp] default that runs when CDP is down.
+Result:
+
+```
+self-broadcast  0.00s  FAILED — self_broadcast: no WALLET_PRIVATE_KEY configured
+payai-settle    1.34s  ok
+x402 settle TOTAL 1.34s (settled via payai)
+tx 0x371010332488ce52ce86f3490b1d167b66ccc1bc1df8a457a31a48c35f7c3646
+receipt status 0x1 · one ERC-20 Transfer payer → receiver, exactly 3000 atomic
+balance: payer 2,066,515 → 2,063,515 · receiver 317,000 → 320,000
+EXTENSION-RESPONSES: {"bazaar":{"status":"processing"}}
+```
+
+**Two: through the DEPLOYED service.** The only thing tests still owned was the live chain
+*selection*, so the service was put in the same configuration for one paid call —
+`_forensics/toggle_payai_first.py` removed the `FACILITATOR_CDP_API_KEY_*` pair (backed up
+first; 38 → 36 variables), deployed `dep-dbp10jff3r`, and `scripts/demo_sponsored_pay.py
+--send` paid $0.003. The production log:
+
+```
+18:27:41 standard x402 locally verified: payer=0xE50c5212…5763
+18:27:43 x402 rail step find_settlement_by_nonce     1.570s
+18:27:43 x402 settle phase self-broadcast  0.40s FAILED — gas wallet 0x9c1e…50dd has 0.00000000 ETH
+18:27:44 x402 settle phase payai-settle    0.83s ok
+18:27:44 standard x402 settled via payai: tx=0x64b9f77fe24f4dad7132786f82108406b7a2de2c351f4ebdf2221a70d8757dad
+18:27:44 x402 settle TOTAL 1.23s (settled via payai)
+18:27:45 Recorded real sale: USDC $0.003000 (tx=0x64b9f77f…)
+```
+
+Two extra things that log proves. The client got **HTTP 200** with
+`PAYMENT-RESPONSE success=True network=eip155:8453`, so the buyer's side is intact. And the
+NEW nonce search ran in production for the first time:
+`find_settlement_by_nonce 1.570s` — the 90,000-block reach (5 h) cost 1.6 s inside a 5 s
+deadline, i.e. the widened window does not menace the request path.
+
+**Restored immediately, and verified.** The pair was put back (36 → 38 variables) and
+`7608b8c` deployed; `/api/connectors` now reads
+`self-broadcast (gas=True) → CDP → payai (cdp: JWT OK)` and the whale section reads
+`effective=1000 configured=1000`. Two $0.003 payments both went to OUR OWN receiver, so the
+board is honest about it: 18 tx / $0.159 / **0 real customers** on the day.
+
+**Two public claims were lying and are fixed (`7608b8c`).** (a) `_eip3009_detail()` hardcoded
+`→ CDP ({cdp}) → payai`; during the test above the live service ran PayAI FIRST and
+`/api/connectors` still advertised CDP first — caught live, not in theory. The order is now
+read from `_facilitator_chain()` itself. (b) The chunk telemetry: after the env raise the
+public payload said `effective_chunk_blocks: 50`, which is TRUE and misleading —
+`_adaptive_get_logs` reports the MINIMUM span accepted in a walk and never grows back, so one
+transient 429 leaves the floor showing. Twelve consecutive 1,000-block windows were then
+measured against the production RPC: **12 accepted, 0 refused, 8,839 logs on average
+(44% of the 20,000 cap)**. `configured_chunk_blocks` is now published beside it and the page
+prints the second only when the two differ.
+
+Suite **1,254 green**. Tooling (outside the repo, as always):
+`_forensics/payai_settle_probe.py`, `toggle_payai_first.py`, `check_whale_chunk_repeat.py`,
+`wait_payai_first_deploy.py`, `final_state_payai.py`.
+
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
 Check what the demo key is really paying for. Why it is now a task with teeth —
