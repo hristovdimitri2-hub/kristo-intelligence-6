@@ -473,11 +473,37 @@ def _format_bulletin_text(snapshot: dict) -> str:
     degen_change = degen.get("change_24h")
 
     def _fmt(val, suffix=""):
+        """A price printed with enough SIGNIFICANT digits to still be that price.
+
+        THE DEFECT THIS FIXES, seen on a bulletin the owner actually received:
+
+            CoinGecko     DEGEN  $0.00079304
+            our bulletin  DEGEN  $0.0008
+
+        `f"{val:,.4f}"` prints four DECIMAL places. That is right for ETH at
+        $2,090.77 and destroys a sub-cent token: rounding 0.00079304 to 0.0008 is
+        a 0.9% error, and this is a number we SELL as a trading signal. Anyone
+        checking our DEGEN figure against anywhere else would find we disagree by
+        nearly a percent, on the output of the product.
+
+        Four decimals was a formatting choice made for one token and applied to
+        every token. The magnitude now decides, and sub-dollar prices are printed
+        with trailing zeros stripped so the number stays recognisable whatever
+        its size — with a fixed ceiling, because an unbounded format would print
+        machine noise as though it were precision.
+        """
         if val is None:
             return "N/A"
-        if isinstance(val, float):
-            return f"{val:,.4f}{suffix}"
-        return f"{val}{suffix}"
+        if not isinstance(val, float):
+            return f"{val}{suffix}"
+        magnitude = abs(val)
+        if magnitude >= 1000:
+            text = f"{val:,.2f}"                  # 2,090.77
+        elif magnitude >= 1:
+            text = f"{val:,.4f}"                  # 1.2345
+        else:
+            text = f"{val:.8f}".rstrip("0").rstrip(".")   # 0.00079304
+        return f"{text}{suffix}"
 
     def _fmt_change(val):
         if val is None:
