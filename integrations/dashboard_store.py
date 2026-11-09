@@ -3252,13 +3252,30 @@ HYBRID since 14.09:
 """
 
     def __init__(self, file_path: str | Path | None = None,
-                 ensure_schema: bool = True):
+                 ensure_schema: bool = True, share_sqlite_from=None):
         self.file_path = Path(
             file_path or os.getenv("KRISTO_DASHBOARD_DB") or default_db_path()
         )
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        self._write_lock = threading.Lock()
-        self._ensure_db()
+        # SHARE THE LOCAL SQLITE CONNECTION AND ITS LOCK when asked.
+        #
+        # THE BUG THIS FIXES, measured live: `whaleflow store unavailable:
+        # database is locked` on a PAID route, in production, where the durable
+        # tables are PostgreSQL. "database is locked" is a SQLITE message.
+        #
+        # Every isolated store opened its own SQLite connection to the SAME file,
+        # and SQLite permits one writer at a time. But an isolated store exists to
+        # own a separate POSTGRES LINK — the local file was never part of the
+        # problem, and giving each job its own handle to it re-created contention
+        # in the one place that has no queue to absorb it.
+        #
+        # So the durable side stays per-pool and the local side is shared.
+        if share_sqlite_from is not None:
+            self._write_lock = share_sqlite_from._write_lock
+            self._connect = share_sqlite_from._connect
+        else:
+            self._write_lock = threading.Lock()
+            self._ensure_db()
         # request_log + whaleflow_events + onchain_sales + payment_guards follow
         # DATABASE_URL (PostgreSQL when set, SQLite otherwise), so HISTORY, THE
         # MONEY TABLE and THE REPLAY LOCK all survive a deploy — see HistoryStore.

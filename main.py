@@ -6996,7 +6996,13 @@ def _isolated_store(purpose: str):
                 # those locks and the board's first build step waits behind them
                 # and never completes. The owning store has already created
                 # everything this one will ever read.
-                store = DashboardStore(DASHBOARD_DB_FILE, ensure_schema=False)
+                store = DashboardStore(DASHBOARD_DB_FILE, ensure_schema=False,
+                                       # Share the LOCAL file's connection and
+                                       # lock with the owning store. The durable
+                                       # side is what needed isolating; giving
+                                       # each job its own SQLite handle produced
+                                       # `database is locked` on a paid route.
+                                       share_sqlite_from=dashboard_db)
                 _isolated_stores[purpose] = store
                 log.info("isolated store %r: own Postgres link (backend=%s), so "
                          "it cannot contend with the request path",
