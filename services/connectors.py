@@ -366,6 +366,51 @@ def _local_recover_signer(payload: dict):
         return None, f"{type(e).__name__}: {e}"
 
 
+def _with_accepted(payload: dict, requirements: dict) -> dict:
+    """Ensure the forwarded payload names the option the buyer accepted.
+
+    THE GAP THIS CLOSES, and it is what makes our fallback real.
+
+    Measured 09.11 by calling PayAI directly and reading the body:
+
+        HTTP 400
+        {"errorReason":"invalid_payload",
+         "errorMessage":"accepted: Invalid input: expected object,
+                         received undefined"}
+
+    x402 v2 names the chosen option `accepted` — ONE OBJECT. Our 402 ships
+    `accepts`, an ARRAY, and a client that simply echoes what it was given sends
+    the array back. CDP tolerates that; PayAI does not.
+
+    So until now the facilitator chain was only a fallback for clients that spell
+    the field the spec way. Everyone else — including most agents echoing our own
+    402 — had exactly ONE working facilitator, and Coinbase has scheduled system
+    maintenance on 14 November with up to four hours of degraded performance
+    across multiple products. A single point of failure with a maintenance window
+    announced in advance is not a fallback.
+
+    FILLING IT IN IS RECONSTRUCTION, NOT FALSIFICATION. The server built the 402,
+    so it knows the options it offered; `accepted` records WHICH ONE was taken, and
+    when only one was offered there is nothing to guess. The buyer's signature is
+    over the authorization, not over this field, and `paymentRequirements` is
+    already merged from the buyer's own accepted values.
+
+    A client that sent `accepted` keeps it, byte for byte — its answer wins.
+    """
+    if not isinstance(payload, dict) or payload.get("accepted"):
+        return payload
+    option = _accepted_option(payload)
+    if not option:
+        return payload
+    out = dict(payload)
+    out["accepted"] = option
+    log.warning("x402 payload carried no `accepted` — filled it from the "
+                "client's own terms (%s %s) so the facilitator chain is not a "
+                "single point of failure",
+                option.get("scheme", "?"), option.get("amount", "?"))
+    return out
+
+
 def _merged_requirements(payload: dict, requirements: dict) -> dict:
     """Requirements as the CLIENT accepted them (echoed accepted fields win)."""
     merged = dict(requirements)
@@ -962,6 +1007,11 @@ def settle_standard_payment(payment_header, requirements: dict):
                     (" — %s" % str(detail)[:100]) if detail else "")
 
     payload = decode_payment_payload(payment_header)
+    # ENSURED BEFORE THE CHAIN, so that EVERY facilitator in it can read the
+    # payload — not just the lenient one. See `_with_accepted`: without this the
+    # chain was a fallback only for clients that spell `accepted` the spec way,
+    # and Coinbase has a four-hour maintenance window on 14 November.
+    payload = _with_accepted(payload, requirements)
     payment_requirements = _merged_requirements(payload, requirements)
 
     # Shape detection: transaction-shape → broadcast the CLIENT's signed tx
