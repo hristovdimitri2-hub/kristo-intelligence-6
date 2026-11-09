@@ -180,7 +180,99 @@ numbers — read the totals as an upper bound. `x402.nsgoods.org` (the report's 
 Nikolaos Dimitriadis) sells 12 x402 oracles including an **x402 Payability Check** at
 $0.005/call; its free preview ignores the `resource` you pass and always checks its own
 demo endpoint, so getting a third-party verdict on *our* 402 envelope costs $0.005 and
-needs the owner's go-ahead.
+needed the owner's go-ahead — see the next subsection for what happened when we tried.
+
+### 09.11 19:25–19:45 — the owner said yes to four things; every one was checked first
+
+«Да, за всичко, но преди това проверки, за да не се обърка нещо.» So each item below is
+the MEASUREMENT first, then the change — and where the measurement said "this would hurt",
+the change was not made.
+
+**1. Nonce-search reach — raised to 90,000 blocks (5 h), because measuring showed it is
+free.** The production RPC is `api.developer.coinbase.com` (from `BASE_RPC_URL`) and it
+refuses a range wider than 100,000 blocks: `-32602 query exceeds max block range 100000`.
+Below that ceiling the width costs nothing at all — this exact query (USDC + 
+`AuthorizationUsed` + payer topic) answered in **0.28 s at 5,000 blocks, 0.27 s at 20,000,
+0.31 s at 50,000**. The old 5,000 was "2.8 hours" when the chain was 2 s/block; at the
+measured 0.2 s it was 17 minutes, so the search was covering a tenth of what the code
+claimed. `NONCE_SEARCH_BLOCKS_DEFAULT` is now 90,000 (5 h) with
+`NONCE_SEARCH_BLOCKS_MAX` clamping it: an env var above the RPC's ceiling would not "search
+further", it would fail on every payment. Two tests pin the reach and the clamp.
+
+**2. `competitor_recon` — divisor fixed to 0.2 AND made affordable.** Fixing only the
+divisor would have turned a `--days 30` recon into ~13,000 getLogs. Measured with exactly
+this receiver filter: 1,000 blocks OK 0.25 s · 10,000 OK 0.34 s · **50,000 OK 0.36 s** ·
+100,000 REFUSED. A receiver filter matches a handful of logs, so the limit is the range,
+not the result count: `DEFAULT_CHUNK_BLOCKS` 1,000 → **50,000** turns a 30-day window into
+~260 requests. Verified live, not just in theory — `--days 2` against the production RPC
+scanned `54412507..55276507` (**the true 2 days**, 864,000 blocks at 5 blocks/s) and
+reported the honest answer: 0 micro-payments, 16 `own_key` transactions excluded.
+Reports produced BEFORE 09.11 were computed with the old divisor and cover a tenth of the
+window they name; they are not re-run, they are superseded. `crawler_cadence` imports the
+same constant, so it follows.
+
+**3. Whale chunk raised in the live env, 50 → 1000 — fixing a risk the cadence fix
+introduced.** The honest 24 h whale window is 432,000 blocks; at the live chunk of 50 that
+is **8,640 getLogs on a genuinely cold start**. Measured with the network-wide USDC
+Transfer shape: 50 blocks = 540 logs / 0.58 s · **1,000 blocks = 9,862 logs / 4.34 s** ·
+5,000 REFUSED (`query exceeds max results 20000`). 1,000 sits at half that ceiling and cuts
+the cold-start cost to 432 requests; `scan_whale_window` already halves its own chunk on
+refusal, so a busy window costs a retry, never a gap. Applied through the single-key
+endpoint (`PUT …/env-vars/WHALEFLOW_CHUNK_BLOCKS`), with the full 38-variable env backed up
+first and re-read after: **38 before, 38 after, only that one value changed.** Do NOT use
+the collection PUT for this — it replaces the whole set and would delete every variable not
+in the payload.
+
+**4. PayAI accepted our payload.** `scripts/phase2_verify.py` (verify only, no settle)
+answered **HTTP 200 `{"isValid":true,"payer":"0xE50c5212…5763"}`** with the post-`48e4dfc`
+payload — `accepted` present, `bazaar` extension echoed, exact 3000 atomic. That closes the
+"does the other facilitator even accept the shape we send" half of the 14 November risk;
+**a live `/settle` through PayAI is still unproven** and stays an open item.
+
+**5. The $0.005 nsgoods check could not be paid — by them, not by us.** Two independent
+attempts, each with a fresh authorization, each refused with **HTTP 402 and an empty `{}`
+body** (distinct from their normal 402, which carries the full 3831-byte challenge):
+the v2 shape (`PAYMENT-SIGNATURE`, `accepted` + extensions) and the v1 shape
+(`X-PAYMENT`, what `x402-fetch` — the client THEIR OWN docs recommend — sends). Their
+manifest is otherwise standard: `GET /payable?resource=<url>`, $0.005, `settles_on`
+Base + Solana, `PAYMENT-REQUIRED` header plus `accepts[]`. **No money moved**: the payer's
+USDC read 2.066515 before and after both attempts and there were **zero** USDC transfers
+from the payer. So there is no third-party verdict, and the finding is itself the news —
+the service that sells "is this endpoint payable" answered "unpayable" to a well-formed v2
+client. Worth an email to `nikos@nsgoods.org`; not worth a third blind variant. Our own
+payload is not the suspect: PayAI's facilitator returned `isValid: true` for the same
+signing code minutes later.
+The reproducible scripts live in
+`C:\Users\AlienWare\.dsh\state\superagent\_forensics\` (`check_nonce_reach.py`,
+`check_whale_chunk.py`, `check_recon_window.py`, `pay_nsgoods_payability.py`,
+`diag_nsgoods_402.py`, `set_whale_chunk.py`) — deliberately outside the repo, like every
+other probe in this project.
+
+Committed as `0d61e01` (code + docs) and pushed; suite **1,252 green**. One honest note
+about that suite: `tests/test_audit_fixes.py::test_a5_reverted_receipt_polls_then_overrides_to_delivery`
+failed ONCE inside a full run (`3 failed, 1249 passed` — the other two were the stale
+counts this commit fixes), then passed alone and in the next full run
+(`1252 passed`). It is documented flaky in its own docstring (it patches `time.sleep`
+process-wide, so another test's background loop can land in its list). Not caused by
+these changes, and not hidden.
+
+Also worth knowing for the next deploy: **an env-var change does not restart the service.**
+`set_whale_chunk.py` verified `WHALEFLOW_CHUNK_BLOCKS = 1000` on the service while the
+RUNNING instance was still on 50 — the new value only takes effect with the next deploy or
+restart, which is why the code push above is also what carries it into production.
+
+**And a caveat about that change, measured rather than assumed.** After the deploy the
+live payload still said `effective_chunk_blocks: 50`, so "1000" was not taken on faith:
+twelve consecutive 1,000-block windows were walked directly against the production RPC —
+**12 accepted, 0 refused, 8,839 logs on average (44% of the RPC's 20,000 cap), ~2.2 s
+each**. 1,000 is genuinely usable. The 50 is a TELEMETRY ARTEFACT, and it is worth knowing
+before anyone trusts that number again: `_adaptive_get_logs` returns
+`effective_span = MIN(span accepted during the walk)` and never grows the span back inside
+a walk, so a single transient error (a 429, a timeout — not a size limit) ratchets the
+reported span to its floor and leaves it there. So `effective_chunk_blocks` reports the
+WORST span of a walk, never the configured one. Recommended follow-up (not done here — it
+touches the shared chunking machine late in a session): publish the configured span next
+to it, or let the span grow back after a few accepted windows.
 
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
