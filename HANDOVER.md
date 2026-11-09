@@ -101,7 +101,7 @@ silently** — the logs showed a window, not a warning.
 
 | where | promised | actually walked (at 0.2 s) |
 |---|---|---|
-| `dashboard_store.retro_scan(days=30)` — first-run sales backfill | 30 days | ~3 days |
+| `dashboard_store.retro_scan(days=30)` — first-run sales backfill | 30 days (default) · **10 days (the live env `KRISTO_DASHBOARD_RETRO_DAYS`)** | ~3 days · **~1 day** |
 | `dashboard_store.whaleflow_backfill(hours=24)` — the paid whale feed | 24 hours | ~2.4 hours |
 | `arb_radar` `data_age_blocks` in the PAID response | real age | 10× too small |
 | `main.py` `NONCE_SEARCH_BLOCKS_DEFAULT = 5000` | "≈2.8 h" | ~17 minutes |
@@ -146,6 +146,28 @@ divisor became honest, "24 hours" = 432,000 blocks and `max(1, 100_000 − 432_0
 block **1** — the window silently collapsed to nothing. Both were re-derived from
 `blocks_for_seconds()` against a realistic head. The old tests were not wrong; they were
 pinned to a number that had stopped being true.
+
+**Verified on the live instance, not only in tests.** `e95b248` went live at 17:27:14 UTC
+(`health: status=ok`, blockchain ready) and the production log carries the measurement and
+the clamp together:
+
+```
+Whale flow scan loop started (backfill=24h, interval=60s).
+WARNING | integrations.dashboard_store | Sales backfill: 10 days requested = 4320000
+  blocks at 0.2000s/block, but the budget is 1500000 blocks — scanning 3.47 days
+  instead. Raise KRISTO_SALES_RETRO_MAX_BLOCKS to cover more.
+Whale flow backfill: 0 whale event(s) persisted.
+```
+
+Three things to read out of that: the production instance MEASURED 0.2000 s/block (the
+mechanism works against the real RPC, not just a fake chain); the live
+`KRISTO_DASHBOARD_RETRO_DAYS` is **10**, not the code's default 30, so that backfill was
+washing 10 days into 1 and now covers 3.47; and the whale backfill finished in ~6 seconds
+with **0** events, i.e. it resumed from a watermark already at the head and paid nothing
+for the corrected window — the 432,000-block walk happens only on a genuinely cold start.
+The suite is 1,249 green. (A new, unrelated non-fatal warning appeared in the same log —
+`Track record issue failed (non-fatal): SSL error: decryption failed or bad record mac` —
+not chased here, and not caused by this change.)
 
 Two other things read out of the same r/x402 thread, for context rather than action:
 Report 13 counts **34,137 resources / 3,250 hosts, 32,878 payable (96.31%)** — against
