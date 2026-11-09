@@ -95,6 +95,21 @@ KNOWN_PAYERS = {
     # (19.09). Machine by our own threshold → HEARTBEAT, never a launch
     # signal; kept in the totals as a real settlement.
     "0x4c29ec4f680ca88d0019edbfe3a8ff5c80499494": "market_crawler_4c29ec",
+    # ── OUR OWN DEMO KEY (09.11.2026) ──────────────────────────────────────
+    #
+    # HERE BECAUSE OF WHAT THE BOARD TOLD THE OWNER, and it was a lie by
+    # omission. Nine settlements made by `scripts/phase1_paid_call.py` with
+    # `DEMO_PRIVATE_KEY` — paying ourselves, to exercise the rail and to trigger
+    # CDP Bazaar indexing — fell through to `external`, the class whose Bulgarian
+    # label is **"истински клиент"**. The board showed nine customers where there
+    # were nine self-payments, the owner looked at it, could not tell where the
+    # money came from, and asked why.
+    #
+    # `own_key` is a NEW class rather than `canary` on purpose. A canary is
+    # somebody ELSE verifying us — Chet's paid probes, the market samplers. This
+    # is us paying ourselves. Both are "not a customer", and the owner should be
+    # able to tell them apart without reading this file.
+    "0xe50c5212e8211639c49276da190e248b83935763": "own_key",
 }
 
 # ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──

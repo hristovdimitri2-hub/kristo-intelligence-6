@@ -324,16 +324,35 @@ def test_the_summary_agrees_with_the_tables_it_summarises():
 
 
 def test_the_payer_labels_no_longer_speak_in_internal_names():
-    """The owner read "canary (Chet — верификация)" and could not decode it."""
+    """The owner read "canary (Chet — верификация)" and could not decode it.
+
+    THE PROPERTY, not the roster. This used to assert the label set was exactly
+    {canary, sampler, external}, which turned every new class into a test edit
+    without saying anything about the words. It now asserts what actually
+    matters and cannot go stale:
+
+      * every label is written for a human — no internal vocabulary in it;
+      * every label says whether the money is a CUSTOMER, because that is the one
+        thing the owner reads this section to find out;
+      * the customer class is the only one that claims a customer.
+    """
     labels = main.PAYER_CLASS_LABELS_BG
-    assert set(labels) == {"canary", "sampler", "external"}
-    for text in labels.values():
+    assert labels, "no payer labels at all"
+    for key, text in labels.items():
         lowered = text.lower()
-        for jargon in ("canary", "sampler", "chet", "crawler", "external"):
-            assert jargon not in lowered, (text, jargon)
+        for jargon in ("canary", "sampler", "chet", "crawler", "external",
+                       "own_key", "payapi"):
+            assert jargon not in lowered, (key, text, jargon)
+        assert "клиент" in lowered, (
+            "%s does not say whether the money is a customer: %r" % (key, text))
     assert "клиент" in labels["external"]
-    assert "не е клиент" in labels["canary"]
-    assert "не е клиент" in labels["sampler"]
+    assert "не е клиент" not in labels["external"], (
+        "the customer class must be the one that claims a customer")
+    for key in ("canary", "sampler", "own_key"):
+        assert key in labels, "%s lost its label" % key
+        assert "не е клиент" in labels[key], (
+            "%s must say plainly that it is NOT a customer: %r"
+            % (key, labels[key]))
 
 
 # ── the wiring: it reaches the page, and it stays inside F-01 ────────────────

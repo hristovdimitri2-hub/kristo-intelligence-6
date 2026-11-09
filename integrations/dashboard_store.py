@@ -226,6 +226,18 @@ PAYER_CLASSES = {
     # Class `sampler` = heartbeat, never a launch signal (external humans stay
     # 0x4dB7 / 0x902dcf / 0xce4fbd).
     "market_crawler_4c29ec": "sampler",
+    # 09.11: OUR OWN DEMO KEY — `DEMO_PRIVATE_KEY`, used by
+    # `scripts/phase1_paid_call.py` to settle against ourselves in order to
+    # exercise the rail and to trigger CDP Bazaar indexing.
+    #
+    # IT IS ITS OWN CLASS, not `canary`, because every existing class would say
+    # something untrue. `external` (its class until now, by falling through)
+    # reads "истински клиент" on the board and reported nine self-payments as
+    # nine customers. `sampler` reads "пазарна проверка, робот" — we are not a
+    # market robot. `canary` reads "наш тест" and would be closest, but a canary
+    # is somebody ELSE verifying us, and the owner asked precisely because he
+    # could not tell whose money it was.
+    "own_key": "own_key",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"

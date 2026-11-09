@@ -6763,6 +6763,17 @@ PAYER_CLASS_LABELS_BG = {
     "canary": "наш тест — не е клиент",
     "sampler": "пазарна проверка, робот — не е клиент",
     "external": "истински клиент",
+    # 09.11: the owner looked at nine settlements on the board and could not tell
+    # whose money it was. They were OURS — `DEMO_PRIVATE_KEY`, paid to ourselves
+    # to exercise the rail and trigger CDP Bazaar indexing — and the board called
+    # them "истински клиент". This says it plainly instead, because a board that
+    # cannot distinguish a customer from a self-payment is not an instrument the
+    # business can be steered by.
+    #
+    # Lowercase "не е клиент", matching the other two exactly. An earlier draft
+    # shouted "НЕ" for emphasis and it read as a typo beside its neighbours — the
+    # wording is already unambiguous without it.
+    "own_key": "нашият демо ключ — не е клиент",
 }
 
 
