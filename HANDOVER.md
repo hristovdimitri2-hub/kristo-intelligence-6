@@ -1540,6 +1540,41 @@ Caveat kept: the sample is a 12,000-row slice of ~33,000 taken on consecutive pa
 not a random sample, so the numbers describe that slice. The direction is consistent
 in every band.
 
+### 10.11 23:05 — who looks at us and does not pay, and the 402 is not the blocker
+
+Three hours of Render access logs (1,187 parsed request lines) name every user agent
+that touches a PAID route. Roughly twenty automated agents crawl us hourly and **not
+one pays** — they are directories, liveness monitors and rankers:
+
+    Agent402/1.0            CarbonMonitor/0.1 healthcheck
+    x402station/0.1         AgentRankProbe/0.1 (spark.tail6ec125.ts.net)
+    alalanet-prober/1.0     SentinelOracle/0.1 (glimind.com)
+    mcp-health-probe/0.1    agents-trust-probe/1
+    lumiere-paycheck-prober nohumans.directory-probe/1.0
+    mcpbeat/0.1             mcptry.com indexer
+    CreoraPublicReader/1.0  JarvisClaw-HealthCheck/1.0
+    Mekler-Conformance/1.0  InterfaceDeltaBot/1.0 (interfacedelta.com)
+    x402-list-monitor/1.0   protogrid-probe/0.1
+    copilot-cli/1.0.103-unstable
+
+One tell worth keeping: `nohumans.directory-probe` fetched the free `/sample` routes
+first (200) and the paid ones after (402) — some of these agents check what they would
+get before deciding.
+
+**The "our 402 is unreadable" hypothesis is dead.** The live `PAYMENT-REQUIRED` header
+base64-decodes to a valid v2 object, and header and body agree on every payment field
+(scheme exact, network eip155:8453, atomic amount, payTo, asset, maxTimeoutSeconds,
+extra = USD Coin v2 domain) on /api/v1/signal, /api/v1/verify-seller and
+/api/v1/whaleflow. **So the pending "clean up the three copies of accepts and the
+manual X-Payment-Proof flow" question is cosmetic, not a blocker** — a standard client
+can pay us today.
+
+The two measurements together say the constraint is not discovery. Twenty agents see
+us every hour and none buys, we rank first for the words we sell, and the 402 conforms.
+What is left is the price (§22: 46 paid rows at $0.01 against 10 at $0.10 in our own
+category) and asking someone to try — both outside the code.
+
+
 
 
 
