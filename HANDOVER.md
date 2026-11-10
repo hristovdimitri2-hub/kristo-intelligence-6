@@ -1371,3 +1371,60 @@ New probes: `why_the_whale_alias_never_surfaces.py`,
 `who_funded_the_demo_wallet.py`; data in `agent402_route_top50.json` and
 `who_funded_the_demo_wallet.json`.
 
+### 10.11 21:35 — CDP search reads `tags` and the description, NOT the URL. Every route now says its own job.
+
+The one sentence this project kept repeating — "CDP ranks on the words in a
+resource URL" — is wrong, and the proof is impossible to explain any other way:
+
+    query "verify seller"   ->  /api/v1/verify-seller is ABSENT from all 9 rows
+                                (the query is a literal substring of that path)
+    same query, rank 2/17   ->  /api/v1/seller-check — SAME handler, SAME price,
+                                same service; the only difference is its tags and
+                                its description
+
+Every row that wins a query contains the buyer's words verbatim in `tags` or in
+the description: `dex-arbitrage` for "dex arbitrage", `seller check` for "seller
+check", `is this token safe` for "token safety". The URL is decoration.
+
+**What was broken.** `X402_RESOURCE_TAGS` had entries only for the five aliases, so
+all seven canonical paid routes fell back to `X402_DEFAULT_RESOURCE_TAGS` and
+published the same five words — `crypto, whale-tracking, x402, arbitrage, signals`.
+None of the five is the job any of the seven does, and the dearest route
+(`/api/v1/verify-seller`, $0.10) was findable by another route's words. Across 20
+buyer-intent queries we appeared for **11 of 20 — every one through an alias, never
+through a canonical route**.
+
+**The fix** (commit `865bae5`, deployed and verified on the live 402s — all 12
+routes publish the committed tags): each canonical route owns its five tags and its
+description now OPENS with the words the job is asked for in, keeping the honest
+scope after the em dash.
+
+    /api/v1/verify-seller  verify-seller, seller-audit, x402-seller,
+                           payment-evidence, due-diligence
+    /api/v1/whaleflow      whale-flow, whale-transfers, large-transfers,
+                           smart-money, base
+    /api/v1/signal         defi-signals, trading-signals, market-signal,
+                           crypto-signals, base
+    /api/bot-status        telegram-bot-status, sales-bot, heartbeat, uptime,
+                           service-status
+    /api/arb/opportunities dex-arbitrage, price-spread, cross-venue, defi, base
+    /api/sales             usdc-revenue, onchain-sales, settlement-history,
+                           payment-history, base
+    /api/stats             service-stats, usage-stats, market-snapshot,
+                           fear-and-greed, base
+
+The two honest limits survive as **tests, not intentions**: `/api/stats` may not
+claim "market stats" (no market cap, no volume) and `/api/bot-status` must still
+say whose bot it reports. The decision to leave those two without an *alias* is
+unchanged — this changes what they publish, not what they pose as.
+
+**Not yet visible in CDP.** Its catalogue rows still carry the old generic tags
+(read at 21:47), which is "not yet", not "no": CDP re-read our 10.11 descriptions
+on its own schedule, so it does re-read. The claim to measure next round is whether
+`/api/v1/verify-seller` enters the results for "verify seller" and whether canonical
+rows win places that only aliases won before.
+
+**And the goal's own number, unchanged:** 19 CDP rows, 34 calls, every row
+`l30DaysUniquePayers = 1`; over the last 120,000 Base blocks the receiver took 2
+payments, both from the demo key. **No external payer.**
+
