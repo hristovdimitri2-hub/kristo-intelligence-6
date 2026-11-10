@@ -1459,4 +1459,39 @@ is made. Ten cheap rows total **$0.042**; the two $0.10 rows add **$0.20**. If t
 two drop to $0.01 for the pilot, the same refresh costs **$0.062** and matches the
 $0.010 median of the 163 competitors in the "is it safe to pay" category.
 
+### 10.11 22:20 — PayAI is a second live catalogue and ranks us first; the free validator refreshes nothing
+
+PayAI runs its own Bazaar with a search:
+`GET https://facilitator.payai.network/discovery/search?query=…&limit=…`. It had
+never been measured, and it is friendlier than CDP:
+
+    "verify seller"        rank 1 of 5        "arbitrage"          rank 1 of 50
+    "trading signal"       rank 1 of 18       "whale flow"         rank 3 of 24
+    "telegram bot status"  rank 1 of 2        "whale alerts"       absent
+    "onchain sales"        rank 1 of 3
+
+Seven of eight buyer queries find us; five of them put us first.
+
+**But its metadata is stale too, and two rows are broken.** `/api/sales` and
+`/api/stats` still carry the PLACEHOLDER "`Kristo Intelligence - paid API data
+(/api/sales)`" — text the code stopped producing on **05.11**. So in a live
+buyer-facing catalogue two of our rows still describe nothing.
+
+**And the free path to publish is closed.** The only keyless entrance to CDP
+(`POST https://api.cdp.coinbase.com/platform/v2/x402/validate`,
+`{"resource": …, "method": "GET"}`) answers `valid=true` for our routes but does not
+touch the stored copy. Experiment: three test rows validated once each plus two
+CONTROL rows left untouched, compared after 12 minutes — **no row changed, on either
+side**. Publishing the new words has a price:
+
+    ten cheap HTTP rows            $0.042
+    all twelve HTTP rows           $0.242   ($0.20 of it the two seller-audit rows)
+    all nineteen rows (with MCP)   $0.368
+    same, if the three $0.10 rows become $0.01  $0.062 / $0.098
+
+The tool already exists — `scripts/phase1_paid_call.py --path <route>` makes exactly
+one paid call, so the refresh is one call per row. **Nothing is spent without the
+owner's explicit "Да".**
+
+
 
