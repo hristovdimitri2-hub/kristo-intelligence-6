@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1305
+SUITE_TESTS_PASSED = 1313
 SUITE_LAST_RUN = "2026-11-09"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1639,6 +1639,11 @@ def agent_card():
     """
     base_url = request.host_url.rstrip("/")
     products = _a2a_products(base_url)
+    # The A2A card and the x402 challenge must advertise the SAME icon in the
+    # SAME format. They were two hand-written "/static/icons/kristo.svg" strings,
+    # and the Bazaar accepts JPG/JPEG/PNG/WebP/GIF but not SVG — so the shared
+    # constant is what stops one surface being fixed and the other left stale.
+    from main import X402_ICON_PATH
     return jsonify({
         "protocolVersion": A2A_PROTOCOL_VERSION,
         "name": "Kristo Intelligence",
@@ -1657,7 +1662,7 @@ def agent_card():
         "preferredTransport": "JSONRPC",
         "provider": {"organization": "Kristo Intelligence", "url": base_url},
         "documentationUrl": "%s/llms.txt" % base_url,
-        "iconUrl": "%s/static/icons/kristo.svg" % base_url,
+        "iconUrl": "%s%s" % (base_url, X402_ICON_PATH),
         # Declared false because they are NOT implemented. See the note above.
         "capabilities": {
             "streaming": False,

@@ -227,6 +227,24 @@ def test_payment_payload_with_echoed_extensions_still_verifies():
 
 # ── 5. EXTENSION-RESPONSES decoding + icon asset ────────────────────────────
 
+#: The formats `resource.iconUrl` may use, straight from the discovery docs.
+#: SVG is deliberately absent — it is the one format the list excludes.
+BAZAAR_ICON_FORMATS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def _looks_like_a_raster_image(data: bytes) -> bool:
+    """Whether the bytes are one of the formats the docs list.
+
+    Magic numbers rather than the URL's suffix: a directory fetches the bytes,
+    and the suffix is a claim about them.
+    """
+    return (
+        data[:8] == b"\x89PNG\r\n\x1a\n"          # PNG
+        or data[:3] == b"\xff\xd8\xff"            # JPEG
+        or data[:6] in (b"GIF87a", b"GIF89a")     # GIF
+        or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")  # WebP
+    )
+
 def test_read_extension_responses_decodes_bazaar_status(capsys):
     receipt = {"bazaar": {"status": "listed", "tx": "0xdead"}}
     hdr_val = base64.b64encode(json.dumps(receipt).encode()).decode().rstrip("=")
@@ -243,11 +261,40 @@ def test_read_extension_responses_tolerates_absent_or_garbage(capsys):
     assert "undecodable" in err
 
 
-def test_icon_url_asset_serves_svg(client):
+def test_icon_url_asset_is_served_and_is_a_format_the_bazaar_accepts(client):
+    """`resource.iconUrl` must be a picture the index can actually render.
+
+    docs.cdp.coinbase.com/x402/seller/get-discovered, verbatim: "Supported
+    formats are JPG, JPEG, PNG, WebP, and GIF. SVG is not supported."
+
+    We published the SVG and this test asserted it by name, so the guard held
+    the mistake in place: the one format we advertised was the one format the
+    Bazaar refuses. The check is now against the documented list rather than
+    against our own asset, and it reads the SERVED BYTES — a URL ending in .png
+    that returns an SVG is the same defect with better manners.
+    """
     d = _challenge_body(client)
     icon = d["resource"]["iconUrl"]
     # strip the scheme+host the test client uses — request the path directly
     path = "/" + icon.split("/", 3)[-1]
+    assert path.lower().endswith(BAZAAR_ICON_FORMATS), (
+        "resource.iconUrl points at %r; the Bazaar accepts %s and SVG is "
+        "explicitly not supported" % (path, ", ".join(BAZAAR_ICON_FORMATS)))
     r = client.get(path)
-    assert r.status_code == 200, f"iconUrl asset {path} must be served, got {r.status_code}"
+    assert r.status_code == 200, \
+        f"iconUrl asset {path} must be served, got {r.status_code}"
+    assert _looks_like_a_raster_image(r.data), (
+        "%s is served as %r, which is not one of the documented raster "
+        "formats" % (path, r.data[:16]))
+    assert b"<svg" not in r.data, "an SVG under a .png name is still an SVG"
+
+
+def test_the_web_favicon_is_still_an_svg(client):
+    """Fixing the Bazaar icon must not break the asset browsers use.
+
+    The SVG is the site's favicon and a browser is not the Bazaar; the two
+    surfaces legitimately differ. Only the format the INDEX reads was wrong.
+    """
+    r = client.get("/favicon.svg")
+    assert r.status_code == 200
     assert b"<svg" in r.data

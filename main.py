@@ -203,6 +203,18 @@ X402_RESOURCE_TAGS = {
 X402_DEFAULT_RESOURCE_TAGS = ["crypto", "whale-tracking", "x402", "arbitrage",
                               "signals"]
 
+# The listing icon, in a format the Bazaar actually accepts.
+#
+# The CDP discovery docs are explicit about `resource.iconUrl`: "Supported
+# formats are JPG, JPEG, PNG, WebP, and GIF. SVG is not supported." We published
+# an SVG and a test asserted it, so the one format we advertised was the one
+# format the index cannot render. The SVG is still served — it is the web
+# favicon, and a browser is not the Bazaar — but this is what the 402 points a
+# directory at. One constant, read by the HTTP challenge and the A2A card alike,
+# because two hand-written copies of one URL is how they drift.
+# The raster is generated from the same geometry by scripts/make_brand_icon.py.
+X402_ICON_PATH = "/static/icons/kristo.png"
+
 # ── Challenge descriptions ("caught by the hand") ───────────────────────────
 # The 402 challenge description is the machine's first impression of the
 # product. Only the description STRING varies per endpoint — the canonical
@@ -212,23 +224,29 @@ CHALLENGE_DESCRIPTIONS = {
     "/api/v1/signal": (
         "Live DeFi trading signal: action, confidence and one-line reasoning "
         "for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed under 5 minutes from "
-        "live market data."
+        "live market data. Useful when an agent has to act on a market view "
+        "and needs a stated action and its reason rather than raw prices."
     ),
     "/api/v1/whaleflow": (
         "Live whale flow: USDC transfers ≥ $5M on Base with labeled "
         "counterparties — scanned continuously (freshness follows the RPC "
-        "provider's limits; the response always states the block scanned to)."
+        "provider's limits; the response always states the block scanned to). "
+        "Worth reading when one very large transfer is the thing that would "
+        "change a position."
     ),
     "/api/bot-status": (
         "Telegram sales bot status: heartbeat, subscribers, processed "
-        "commands and service wallet state — updated live."
+        "commands and service wallet state — updated live. Useful when an "
+        "agent has just taken a signal from this service and needs to know "
+        "the engine behind it is alive."
     ),
     "/api/v1/verify-seller": (
         "On-chain audit of any Base address you name: incoming USDC transfers "
         "read from the chain, with distinct paying addresses, repeat-payer "
         "concentration, treasury-sized flows separated out and the read's own "
         "coverage stated — so you can check whether a seller is really being "
-        "paid before you pay them."
+        "paid before you pay them. This answers the question an agent has "
+        "immediately before paying an unfamiliar x402 seller."
     ),
     # ── The aliases' own sentences ─────────────────────────────────────────
     # Same product, said in the words a buyer uses when searching, because this
@@ -239,28 +257,35 @@ CHALLENGE_DESCRIPTIONS = {
         "Live whale alerts for Base: large USDC transfers as they land, with "
         "from/to wallets, counterparty labels and USD value, for tracking smart "
         "money and feeding trading bots. Refreshed continuously; the response "
-        "states the block it scanned to."
+        "states the block it scanned to. Relevant when an agent is watching "
+        "for large transfers and needs the counterparty, not only the amount."
     ),
     "/api/v1/trading-signals": (
         "Crypto trading signals for ETH, ONDO, KAITO and DEGEN: action, "
         "confidence, price and a one-line reasoning, refreshed under five "
-        "minutes from live market data."
+        "minutes from live market data. Useful when an agent has to act on a "
+        "market view and wants action, confidence and reasoning in one call."
     ),
     "/api/v1/arbitrage-opportunities": (
         "Arbitrage opportunities across Base DEX venues: live price gaps per "
         "pair with both venues, the spread percentage and estimated profit, "
-        "refreshed every 60 seconds."
+        "refreshed every 60 seconds. Relevant when an agent is comparing "
+        "venues and needs to know whether a spread is still open."
     ),
     "/api/v1/seller-check": (
         "Check whether an x402 seller is really being paid before you pay them: "
         "a read of any Base address you name, with distinct paying addresses, "
         "repeat-payer concentration, treasury-sized flows separated from "
-        "per-call payments, and the read's own coverage stated."
+        "per-call payments, and the read's own coverage stated. Useful "
+        "immediately before paying an unfamiliar x402 seller, when on-chain "
+        "evidence is wanted first."
     ),
     "/api/v1/onchain-sales": (
         "On-chain sales read from Base: every USDC settlement into this "
         "service's receiver — amount, payer address, tx hash and time — with "
-        "totals by token. Real settlement history, not a projection."
+        "totals by token. Real settlement history, not a projection. Worth "
+        "reading when an agent wants proof that this service is paid for what "
+        "it sells."
     ),
 }
 
@@ -2242,7 +2267,7 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
         # agentcash/x402scan audit also reads them for the marketplace card.
         "serviceName": "Kristo Intelligence",
         "tags": X402_RESOURCE_TAGS.get(endpoint, X402_DEFAULT_RESOURCE_TAGS),
-        "iconUrl": request.host_url.rstrip("/") + "/static/icons/kristo.svg",
+        "iconUrl": request.host_url.rstrip("/") + X402_ICON_PATH,
     }
     # Bazaar discovery extension: `info` carries the HTTP request structure,
     # `schema` carries the JSON-Schema view. The agentcash/x402scan audit
@@ -2787,7 +2812,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "signal",
         "name": "Trading-Agent Signals",
-        "description": "Action, confidence, price_usd and one-line reasoning for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data.",
+        "description": "Action, confidence, price_usd and one-line reasoning for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data. Useful when an agent has to act on a market view and needs a stated action and its reason rather than raw prices.",
         "category": "intelligence",
         "endpoint": "/api/v1/signal",
         "method": "GET",
@@ -2796,7 +2821,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "stats",
         "name": "Market Activity & Daily Stats",
-        "description": "Live market snapshot (CoinGecko, DEXScreener, Fear & Greed), daily request/sales aggregates and full payment receiver info.",
+        "description": "Live market snapshot (CoinGecko, DEXScreener, Fear & Greed), daily request/sales aggregates and full payment receiver info. Useful at the start of a session, when an agent needs current market context and this service's payment details before deciding what to call.",
         "category": "market",
         "endpoint": "/api/stats",
         "method": "GET",
@@ -2805,7 +2830,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "arb-opportunities",
         "name": "Cross-DEX Arbitrage Radar",
-        "description": "Live cross-DEX arbitrage spreads on Base (DEXScreener), refreshed every 60 seconds.",
+        "description": "Live cross-DEX arbitrage spreads on Base (DEXScreener), refreshed every 60 seconds. Relevant when an agent is comparing venues and needs to know whether a spread is still open.",
         "category": "market",
         "endpoint": "/api/arb/opportunities",
         "method": "GET",
@@ -2814,7 +2839,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "bot-status",
         "name": "Bot & Service Status",
-        "description": "Telegram bot status, service uptime and operational counters.",
+        "description": "Telegram bot status, service uptime and operational counters. Useful when an agent has just taken a signal from this service and needs to know the engine behind it is alive.",
         "category": "market",
         "endpoint": "/api/bot-status",
         "method": "GET",
@@ -2823,7 +2848,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "sales",
         "name": "On-Chain Sales History",
-        "description": "Real, on-chain-verifiable USDC sales history (ERC-20 Transfer monitoring) — unique to this API.",
+        "description": "Real, on-chain-verifiable USDC sales history (ERC-20 Transfer monitoring) — unique to this API. Worth reading when an agent wants proof that this service is paid for what it sells, rather than a claim.",
         "category": "onchain_intelligence",
         "endpoint": "/api/sales",
         "method": "GET",
@@ -2840,7 +2865,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "whale-flow",
         "name": "Whale Flow (Live Base Feed)",
-        "description": "Network-wide USDC transfers ≥ $5M on Base with honestly labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the feed reports the block it has scanned to).",
+        "description": "Network-wide USDC transfers ≥ $5M on Base with honestly labeled counterparties — scanned continuously (freshness follows the RPC provider's limits; the feed reports the block it has scanned to). Worth reading when one very large transfer is the thing that would change a position.",
         "category": "onchain_intelligence",
         "endpoint": "/api/v1/whaleflow",
         "method": "GET",
@@ -2860,7 +2885,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "verify-seller",
         "name": "Seller Verification (Any Receiver)",
-        "description": "On-chain audit of any Base address you name: incoming USDC transfers read from the chain, with distinct paying addresses, repeat-payer concentration, treasury-sized flows separated out from per-call payments, and the read's own coverage stated. Answers whether an x402 seller is really being paid, and by how many distinct addresses, before you pay them.",
+        "description": "On-chain audit of any Base address you name: incoming USDC transfers read from the chain, with distinct paying addresses, repeat-payer concentration, treasury-sized flows separated out from per-call payments, and the read's own coverage stated. Answers whether an x402 seller is really being paid, and by how many distinct addresses, before you pay them. This is the question an agent has immediately before paying an unfamiliar x402 seller.",
         "category": "verification",
         "endpoint": "/api/v1/verify-seller",
         "method": "GET",
