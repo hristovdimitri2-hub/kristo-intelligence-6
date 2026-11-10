@@ -1428,3 +1428,35 @@ rows win places that only aliases won before.
 `l30DaysUniquePayers = 1`; over the last 120,000 Base blocks the receiver took 2
 payments, both from the demo key. **No external payer.**
 
+### 10.11 21:50 — the third field: `serviceName` was one name for twelve routes. And CDP reads a 402 only at settlement.
+
+§19's fix covered `tags` and the description. The third field CDP matches was still
+hard-coded: `"serviceName": "Kristo Intelligence"` on every route, and a company
+name matches nothing a buyer types. In CDP's index every winning row is named after
+its job — "Check an x402 seller's trust", "x402 seller dossier", "Token Safety
+Check" — and one seller legitimately carries several such names (agent402 has four
+across four endpoints), so a per-route name is the normal shape.
+
+`X402_RESOURCE_SERVICE_NAMES` (commit `785fb7e`, deployed and verified — **12 of 12
+live 402s publish their committed name**): `Kristo x402 seller audit`, `Kristo whale
+transfers`, `Kristo crypto signals`, `Kristo DEX arbitrage`, `Kristo USDC revenue`,
+`Kristo market snapshot`, `Kristo telegram bot status`, `Kristo whale alerts`,
+`Kristo trading signals`, `Kristo DEX arbitrage spread`, `Kristo seller check`,
+`Kristo onchain sales`. The three descriptions that come from `REAL_X402_ROUTES`
+(and therefore `/.well-known/x402.json`) now open with the buyer's words too.
+
+**The operational fact that matters more than the edit.** CDP snapshots the live 402
+**at settlement** and keeps that copy until the row settles again. Proof from its own
+rows: `verify-seller`'s `lastCalledAt` is 09.11 07:10 and its stored description is
+the 09.11 text; `whaleflow` settled at 10.11 17:47 and stores the text that was live
+at 17:47 — both changes to that text came later.
+
+So: crawling surfaces (agent402 every 30 min, `/.well-known/x402`) pick the new words
+up for free on their own; **CDP — the only catalogue where a buyer chooses and pays —
+picks them up only on the next settlement of each row.** Refreshing is therefore not
+"keeping rows alive", it is the only way this fix reaches the place where the choice
+is made. Ten cheap rows total **$0.042**; the two $0.10 rows add **$0.20**. If those
+two drop to $0.01 for the pilot, the same refresh costs **$0.062** and matches the
+$0.010 median of the 163 competitors in the "is it safe to pay" category.
+
+
