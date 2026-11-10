@@ -1,12 +1,21 @@
 # -*- coding: utf-8 -*-
 """The buyer-worded alias routes — five claims, each of them checked.
 
-WHY THIS FILE EXISTS. The CDP catalogue's search ranks largely on the words in a
-resource URL. For "whale" all sixteen rows above us carried that word in host or
-path; ours is /api/v1/whaleflow, one token, and "whale" is not in it. So we
-ranked first for our own name and host and were absent for every word a buyer
-types. The aliases fix the vocabulary; this file is what stops the fix from becoming
-a second, quieter way to be wrong.
+WHY THIS FILE EXISTS. The CDP catalogue's search ranks on the words a resource
+PUBLISHES. When the aliases were added the premise was written down as "the words
+in a resource URL"; that premise was measured on 10.11.2026 and is wrong. CDP does
+not read the URL at all: the query "verify seller" misses /api/v1/verify-seller —
+a literal substring of that path — while /api/v1/seller-check, the same handler at
+the same price, ranks #2 of 17, and the only difference between those two rows is
+their `tags` and their description. Every row that wins a query contains the
+buyer's words verbatim in one of those two fields.
+
+The original problem was real (we ranked first for our own name and host and were
+absent for every word a buyer types); only the mechanism was mis-stated. The
+aliases were the first fix — they are the rows that carry buyer-worded tags and
+descriptions. The second fix, asserted below, gives the canonical routes their own
+tags too, because until 10.11.2026 all seven of them published the same five
+generic words, none of which was the job any of them does.
 
 An alias is only legitimate if it is the SAME product: same price, same receiver,
 same handler, same output example — under a name a buyer can find. Every one of
@@ -171,7 +180,81 @@ def test_an_alias_spends_its_tags_on_its_own_job(client):
             f"job: {tags}")
 
 
+def test_every_canonical_route_also_spends_its_tags_on_its_own_job(client):
+    """The second half of the 10.11 fix, and the one that was missing for a month.
+
+    Until this change only the aliases had an entry in X402_RESOURCE_TAGS; all
+    seven canonical routes fell back to X402_DEFAULT_RESOURCE_TAGS and published
+    the SAME five words — crypto, whale-tracking, x402, arbitrage, signals. None
+    of those five is the job any of the seven does, and CDP matches tags. The
+    measurement: "verify seller" misses /api/v1/verify-seller while its alias,
+    whose tags are its own job's words, ranks #2 of 17.
+
+    The same honesty bar as the alias test applies, and it bites harder here:
+    /api/stats must not claim the words "market stats" (its response is this
+    service's own counters plus a market snapshot), and /api/bot-status must not
+    claim a generic "bot health" for other people's bots. What the tags claim is
+    what the response returns."""
+    app_client, main = client
+    # Seven routes, and the two that were deliberately left without an alias are
+    # exactly the two the old generic tag set hurt most — they had no second row
+    # to be found by.
+    canonical = sorted(set(main.X402_PATH_ALIASES.values())
+                       | {"/api/stats", "/api/bot-status"})
+    assert len(canonical) == 7, "the canonical paid surface is seven routes"
+    for route in canonical:
+        tags = _challenge(app_client, route)["resource"]["tags"]
+        assert tags == main.X402_RESOURCE_TAGS[route], (
+            f"{route} does not publish its own tags — it fell back to the "
+            "generic set, which is the defect this test exists for")
+        assert tags != main.X402_DEFAULT_RESOURCE_TAGS, (
+            f"{route} still publishes the generic tag set verbatim")
+        assert len(tags) <= 5 and len(set(tags)) == len(tags), tags
+        for tag in tags:
+            assert len(tag) <= 32 and all(" " <= ch <= "~" for ch in tag), tag
+        own = [t for t in tags if t not in main.X402_DEFAULT_RESOURCE_TAGS]
+        assert len(own) >= 3, (
+            f"{route} spends only {len(own)} of {len(tags)} tag slots on its own "
+            f"job: {tags}")
+
+    # The two honest limits are asserted as words, not as intentions.
+    stats_tags = " ".join(_challenge(app_client, "/api/stats")["resource"]["tags"])
+    assert "market-stats" not in stats_tags and "market stats" not in stats_tags, (
+        "/api/stats does not return market cap or volume — it must not claim "
+        "the words the endpoints that do are found by")
+    bot_desc = _challenge(app_client, "/api/bot-status")["resource"]["description"]
+    assert "this service" in bot_desc, (
+        "/api/bot-status reports OUR bot — the description has to say whose bot "
+        "it is, not offer a generic bot health check")
+
+
+def test_every_canonical_description_opens_with_the_buyers_words(client):
+    """CDP does not read the resource URL; it reads this string. So the first
+    clause has to be the words the job is asked for in, and the rest must still
+    describe what the response actually returns."""
+    app_client, main = client
+    openings = {
+        "/api/v1/signal": "crypto trading signal",
+        "/api/v1/whaleflow": "whale flow",
+        "/api/v1/verify-seller": "verify an x402 seller",
+        "/api/bot-status": "telegram bot status",
+    }
+    for route, opener in openings.items():
+        desc = _challenge(app_client, route)["resource"]["description"]
+        assert desc.lower().startswith(opener), (
+            f"{route} does not open with {opener!r}: {desc[:90]!r}")
+        assert len(desc) >= 120, (
+            f"{route}'s description is too short to be a pitch: {desc!r}")
+    # And the buyer's words must differ per route — a shared opening would mean
+    # the vocabulary was not spent, only the generic set re-typed.
+    texts = {r: _challenge(app_client, r)["resource"]["description"]
+             for r in main.X402_RESOURCE_TAGS}
+    assert len(set(texts.values())) == len(texts), (
+        "two routes publish the same description")
+
+
 # ── the deliberate omissions, which a later edit must argue with ────────────
+
 
 def test_two_routes_were_left_without_an_alias_on_purpose(client):
     """/api/stats answers with this service's own counters plus an ETH price; the

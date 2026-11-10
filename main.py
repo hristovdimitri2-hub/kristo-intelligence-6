@@ -188,7 +188,46 @@ X402_PATH_ALIASES = {
 # they are not keyword stuffing for terms the response does not serve.
 # Max 5 entries, each printable ASCII and <= 32 chars (asserted in
 # tests/test_bazaar_output_example.py).
+#
+# WHY THE CANONICAL ROUTES NOW HAVE THEIR OWN TAGS TOO (10.11.2026, measured).
+# Until this change only the five aliases had an entry here; the seven canonical
+# routes all fell back to X402_DEFAULT_RESOURCE_TAGS, so /api/v1/whale-flow,
+# /api/v1/verify-seller, /api/bot-status and /api/stats published the SAME five
+# words — "crypto, whale-tracking, x402, arbitrage, signals" — and none of those
+# five is the job any of them does.
+#
+# The measurement that settled it, from CDP's own search (20 buyer-intent
+# queries, top 20 rows each): CDP does NOT match the resource URL. The query
+# "verify seller" misses /api/v1/verify-seller completely — the query is a
+# literal substring of that path — while /api/v1/seller-check, the SAME handler
+# at the SAME price, ranks #2/17, and the only difference between the two rows is
+# what they say: seller-check's tags are its own job's words and its description
+# opens "Check whether an x402 seller is really being paid before you pay them".
+# The winners for every query are the rows whose tags or description contain the
+# buyer's words verbatim ('dex-arbitrage' for "dex arbitrage", 'seller check' for
+# "seller check", 'is this token safe' for "token safety"), and we already appear
+# for 11 of 20 words — every one of them through an alias's vocabulary, never
+# through a canonical route's.
+#
+# So the tags below are the words the job is asked for in, kept inside what the
+# response actually returns: /api/stats still does not claim to be market data and
+# /api/bot-status still describes OUR bot, because the test below this line says a
+# name that overpromises costs one sale and the trust permanently.
 X402_RESOURCE_TAGS = {
+    "/api/v1/signal": ["defi-signals", "trading-signals", "market-signal",
+                       "crypto-signals", "base"],
+    "/api/v1/whaleflow": ["whale-flow", "whale-transfers", "large-transfers",
+                          "smart-money", "base"],
+    "/api/v1/verify-seller": ["verify-seller", "seller-audit", "x402-seller",
+                              "payment-evidence", "due-diligence"],
+    "/api/arb/opportunities": ["dex-arbitrage", "price-spread", "cross-venue",
+                               "defi", "base"],
+    "/api/sales": ["usdc-revenue", "onchain-sales", "settlement-history",
+                   "payment-history", "base"],
+    "/api/bot-status": ["telegram-bot-status", "sales-bot", "heartbeat",
+                        "uptime", "service-status"],
+    "/api/stats": ["service-stats", "usage-stats", "market-snapshot",
+                   "fear-and-greed", "base"],
     "/api/v1/whale-alerts": ["whale-alerts", "whale-flow", "large-transfers",
                              "usdc", "base"],
     "/api/v1/trading-signals": ["trading-signals", "buy-sell-signal",
@@ -220,33 +259,44 @@ X402_ICON_PATH = "/static/icons/kristo.png"
 # product. Only the description STRING varies per endpoint — the canonical
 # x402 v2 shape (scheme, network, atomic amounts, payTo, asset, bazaar
 # extension) is untouched.
+#
+# WHY EVERY CANONICAL ROUTE NOW OPENS WITH THE BUYER'S WORDS (10.11.2026).
+# Measured in CDP's own search over 20 buyer-intent queries: the ranking reads
+# `tags` and this description, and does NOT read the resource URL. The query
+# "verify seller" misses /api/v1/verify-seller — a literal substring of that path
+# — while /api/v1/seller-check, the same handler at the same price, ranks #2/17
+# because its text opens "Check whether an x402 seller is really being paid
+# before you pay them". Every row that wins a query contains the buyer's words
+# verbatim. So each string below starts with the words the job is asked for in;
+# the clause after the em dash is still the honest scope, unchanged.
 CHALLENGE_DESCRIPTIONS = {
     "/api/v1/signal": (
-        "Live DeFi trading signal: action, confidence and one-line reasoning "
-        "for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed under 5 minutes from "
-        "live market data. Useful when an agent has to act on a market view "
-        "and needs a stated action and its reason rather than raw prices."
+        "Crypto trading signal and DeFi signals for Ethereum (ETH)/ONDO/KAITO/"
+        "DEGEN: action, confidence and one-line reasoning — refreshed under 5 "
+        "minutes from live market data. Useful when an agent has to act on a "
+        "market view and needs a stated action and its reason rather than raw "
+        "prices."
     ),
     "/api/v1/whaleflow": (
-        "Live whale flow: USDC transfers ≥ $5M on Base with labeled "
-        "counterparties — scanned continuously (freshness follows the RPC "
-        "provider's limits; the response always states the block scanned to). "
+        "Whale flow and whale transfers on Base: USDC transfers ≥ $5M with "
+        "labeled counterparties — scanned continuously (freshness follows the "
+        "RPC provider's limits; the response always states the block scanned to). "
         "Worth reading when one very large transfer is the thing that would "
         "change a position."
     ),
     "/api/bot-status": (
-        "Telegram sales bot status: heartbeat, subscribers, processed "
-        "commands and service wallet state — updated live. Useful when an "
-        "agent has just taken a signal from this service and needs to know "
-        "the engine behind it is alive."
+        "Telegram bot status and bot health for this service: heartbeat, "
+        "subscribers, processed commands and service wallet state — updated live. "
+        "Useful when an agent has just taken a signal from this service and needs "
+        "to know the engine behind it is alive."
     ),
     "/api/v1/verify-seller": (
-        "On-chain audit of any Base address you name: incoming USDC transfers "
-        "read from the chain, with distinct paying addresses, repeat-payer "
-        "concentration, treasury-sized flows separated out and the read's own "
-        "coverage stated — so you can check whether a seller is really being "
-        "paid before you pay them. This answers the question an agent has "
-        "immediately before paying an unfamiliar x402 seller."
+        "Verify an x402 seller before you pay it — a seller audit on chain: "
+        "incoming USDC transfers for any Base address you name, with distinct "
+        "paying addresses, repeat-payer concentration, treasury-sized flows "
+        "separated out and the read's own coverage stated. This answers the "
+        "question an agent has immediately before paying an unfamiliar x402 "
+        "seller."
     ),
     # ── The aliases' own sentences ─────────────────────────────────────────
     # Same product, said in the words a buyer uses when searching, because this

@@ -382,8 +382,15 @@ def test_signal_challenge_description_sells_and_v2_untouched(client, monkeypatch
     payload = resp.get_json()
 
     desc = payload["resource"]["description"]
-    assert "Live DeFi trading signal" in desc
-    assert "confidence" in desc and "reasoning" in desc
+    # REWORDED 10.11.2026, on a measurement rather than a preference: CDP's own
+    # search ranks rows whose text contains the buyer's words verbatim and does
+    # NOT read the resource URL — "verify seller" misses /api/v1/verify-seller
+    # while the same handler under a differently-worded alias ranks #2. So every
+    # canonical description now opens with the words the job is asked for in.
+    # The assertion keeps its original job: the string must still sell the
+    # product, not merely name it.
+    assert desc.startswith("Crypto trading signal and DeFi signals")
+    assert "action, confidence and one-line reasoning" in desc
     assert "under 5 minutes" in desc
 
     # Canonical v2 shape untouched

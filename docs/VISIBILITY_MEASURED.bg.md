@@ -789,3 +789,71 @@ anyone -> receiver   47        и всичките са от демо ключа
 ли е да плащам“ имат медиана $0.010, а ние искаме $0.10.
 
 
+## 19. CDP търсенето НЕ чете URL-а — чете `tags` и описанието (2026-11-10, късно)
+
+§17 и §18 оставят един лост: намираемостта в каталога. Този раздел показва как точно
+работи тя и какво беше счупено у нас.
+
+### 19.1. Доказателството, което не може да се обясни по друг начин
+
+Търсим в CDP каталога низа **„verify seller“**. Нашият ресурс е
+`/api/v1/verify-seller` — низът е буквално подниз на пътя. Ако класацията четеше
+URL-а, този ред щеше да е първи. **Той не е сред деветте върнати реда изобщо.**
+
+А редът, който е втори за същата заявка, е `/api/v1/seller-check` — **същият
+обработчик, същата цена, същата услуга**. Единствената разлика между двата реда е
+какво казват:
+
+| | `tags` | описание (началото) |
+|---|---|---|
+| `/api/v1/verify-seller` | `crypto, whale-tracking, x402, arbitrage, signals` | „On-chain audit of any Base address you name…“ |
+| `/api/v1/seller-check` | `seller-check, seller-verification, x402-seller, onchain-audit, base` | „Check whether an x402 seller is really being paid before you pay them…“ |
+
+Победителят за всяка заявка съдържа думите на купувача **дословно** в `tags` или в
+описанието: `dex-arbitrage` за „dex arbitrage“, `seller check` за „seller check“,
+`is this token safe` за „token safety“.
+
+### 19.2. Какво още беше счупено: седем еднакви реда
+
+`X402_RESOURCE_TAGS` имаше записи само за петте псевдонима. Всичките **седем
+канонични** платени маршрута падаха на `X402_DEFAULT_RESOURCE_TAGS` и публикуваха
+едни и същи пет думи — `crypto, whale-tracking, x402, arbitrage, signals`. Нито една
+от петте не е работата, която върши съответният маршрут. Най-скъпият ни маршрут
+(`verify-seller`, $0.10) се намираше по думите на чужда работа.
+
+Измерено на 20 заявки с купувашки намерения, топ 20 реда: **появяваме се при 11 от
+20 — и всеки път чрез псевдоним**, никога чрез каноничен маршрут.
+
+### 19.3. Поправката
+
+Всеки каноничен маршрут вече носи своите пет `tags` и описание, което **започва с
+думите, с които се търси работата**, а после казва честния обхват (тирето не е
+променено):
+
+```
+/api/v1/verify-seller   verify-seller, seller-audit, x402-seller, payment-evidence,
+                        due-diligence
+                        „Verify an x402 seller before you pay it — a seller audit on chain: …“
+/api/v1/whaleflow       whale-flow, whale-transfers, large-transfers, smart-money, base
+/api/v1/signal         defi-signals, trading-signals, market-signal, crypto-signals, base
+/api/bot-status        telegram-bot-status, sales-bot, heartbeat, uptime, service-status
+/api/arb/opportunities dex-arbitrage, price-spread, cross-venue, defi, base
+/api/sales             usdc-revenue, onchain-sales, settlement-history, payment-history, base
+/api/stats             service-stats, usage-stats, market-snapshot, fear-and-greed, base
+```
+
+Двете честни граници са запазени и вече са **тестове, не намерения**: `/api/stats` не
+бива да твърди „market stats“, защото не връща пазарна капитализация и обем, а
+`/api/bot-status` продължава да казва, че е за **нашия** бот, а не обща проверка на
+бот на купувача.
+
+### 19.4. Какво трябва да се провери следващия кръг
+
+CDP вече показва новите описания (надграденията от 10.11 с „when to use“ се виждат в
+каталожните редове), значи препрочита живия 402 и няма нужда да се плаща за
+опресняване. Твърдението, което остава да се измери, е дали след поправката
+`/api/v1/verify-seller` влиза в резултатите за „verify seller“ и дали каноничните
+редове печелят места, които досега печелеха само псевдонимите.
+
+
+
