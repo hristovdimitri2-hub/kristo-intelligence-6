@@ -583,6 +583,37 @@ the instance, so it proved less than it looked. The log settles it: the NEW proc
 `/api/dashboard/data` **HTTP 200 in 0.95 s** at 05:35:50 — a board five seconds after boot, with
 **8 × 200 and 0 × 503** across the swap.
 
+### 10.11 05:39 — the monitor said `down`; the app was never down. The service had no health check.
+
+The owner's monitor reported `ok → down` with
+`Read timed out (read timeout=30)`. Every endpoint answered **200 in 0.3–0.4 s** at the same time,
+so the alert was real but the diagnosis in it was not.
+
+**What actually happened.** The docs-only commit `4f24119` — which exists only to record the
+previous verification — triggered a deploy, because the service is `autoDeployTrigger: commit`.
+The new instance went live at **05:37:36**; the OLD worker was stopped at **05:39:36**
+(`Worker exiting (pid: 76)` / `Shutting down: Master`). A connection that landed on the dying
+instance hung until the monitor's own 30-second read timeout, and the monitor called that "down".
+
+**The root cause was configuration, and it is the same one behind the original complaint.** The
+service had `healthCheckPath: ""` — NO health check. Render therefore routed traffic as soon as the
+port opened, never verified that the new instance actually answered, and drained the old instance
+about two minutes later. That is the same mechanism as the 503 the owner first reported, which was
+triggered by the docs-only handover commit `d49787a`.
+
+**The fix (owner-approved, infra, 10.11 05:42).** `healthCheckPath` is now **`/health`** on
+`srv-d9maroe7bikc73adkaug`, applied through `PATCH /v1/services/{id}` → `serviceDetails.healthCheckPath`
+and read back as `"/health"`. Render now sends traffic to an instance only once that path answers,
+so a deploy is zero-downtime by construction rather than by luck. Nothing about the application
+changed for this — `/health` is the endpoint the app's own keep-alive already pings, and it answers
+in ~0.4 s.
+
+**Not done, deliberately:** `autoDeployTrigger: commit` is unchanged, so a docs-only commit still
+redeploys. Stopping that would need a build filter, and the current service API does not expose one
+(`serviceDetails` has no `buildFilter` key). It is recorded here as the next lever if the monitor
+still reports transient blips.
+
+
 
 
 
