@@ -563,6 +563,28 @@ Tests: 3 new (38 in `test_dashboard_resilience.py`, suite **1,277**) — a six-m
 refresh is superseded and a young one is not, and structurally: the page's stale branch reads
 `stale_reason`, re-asks in 5 s, and bounds that re-ask.
 
+**Proven live, `c8d2be5`, 10.11 05:33** (`_forensics/verify_deploy_no_503.py`): the deploy went live
+at 05:33:47 and the board returned **20 × HTTP 200, 0 × 503**, every one in **0.3–0.7 s**, with the
+log naming the restart fix itself:
+
+```
+05:34:00 WARNING | kristo.v6.main | dashboard board restored from the durable store
+         (built 5s ago) — serving it instead of a cold 503
+```
+
+For contrast, the same check on `0f55a01` at 20:49 saw one 503 at 50.4 s — the OLD instance still
+draining a request during the swap, since the new process had a board 0.4 s after it went live.
+`c8d2be5` produced none.
+
+**And a real restart, verified to have actually rolled** (`_forensics/verify_restart_rolled.py`).
+The first restart poll finished in 27 s — fast enough that it may have ended before Render replaced
+the instance, so it proved less than it looked. The log settles it: the NEW process booted at
+**05:35:45** (`Durable store ready (postgresql)`, `isolated store 'dashboard-scan'`) and answered
+`/api/dashboard/data` **HTTP 200 in 0.95 s** at 05:35:50 — a board five seconds after boot, with
+**8 × 200 and 0 × 503** across the swap.
+
+
+
 
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
