@@ -39,6 +39,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+#: One Web3 per (class, url, timeout) per process. This module built a fresh
+#: `Web3(Web3.HTTPProvider(...))` in six scan paths and in the block-timestamp
+#: helper, and never closed any of them; the sales scan and the whale scan run on
+#: a 60-second cadence, so those sessions were the bulk of the service's memory
+#: growth. See services/rpc_pool.py for the measurement.
+from services.rpc_pool import get_web3
+
 log = logging.getLogger(__name__)
 
 #: RPC providers embed the API key in the URL, e.g.
@@ -3877,8 +3884,7 @@ HYBRID since 14.09:
         from web3 import Web3
 
         out: Dict[int, datetime] = {}
-        tw3 = Web3(Web3.HTTPProvider(
-            "https://mainnet.base.org", request_kwargs={"timeout": 30}))
+        tw3 = get_web3("https://mainnet.base.org", 30)
         for b in dict.fromkeys(blocks):
             for attempt in range(3):
                 try:
@@ -3935,7 +3941,7 @@ HYBRID since 14.09:
         if not receiver:
             return 0
 
-        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        w3 = get_web3(rpc_url, 30)
         if not w3.is_connected():
             # AUDIT (13.09): `is_connected()` is a web3_clientVersion probe, and
             # a rate-limited provider (Alchemy answers 429 under load) makes it
@@ -4015,7 +4021,7 @@ HYBRID since 14.09:
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
-        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        w3 = get_web3(rpc_url, 30)
         latest = w3.eth.block_number
         block_time = measure_block_time_seconds(w3)
         wanted = blocks_for_seconds(days * 86400, block_time)
@@ -4048,7 +4054,7 @@ HYBRID since 14.09:
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
-        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        w3 = get_web3(rpc_url, 30)
         latest = w3.eth.block_number
         last = int(self.get_meta("last_scanned_block", "0") or 0)
         if last <= 0:
@@ -4101,7 +4107,7 @@ HYBRID since 14.09:
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
-        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        w3 = get_web3(rpc_url, 30)
         if not w3.is_connected():
             # Same reasoning as the sales scan: a 429 makes this probe lie, and
             # raising discarded the whole whale cycle.
@@ -4197,7 +4203,7 @@ HYBRID since 14.09:
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
-        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        w3 = get_web3(rpc_url, 30)
         latest = w3.eth.block_number
         # HOURS, honestly (18.09): this line used to read `hours * 86400 / …`, i.e.
         # it treated the parameter as DAYS while the name, the env var and the
@@ -4238,7 +4244,7 @@ HYBRID since 14.09:
         from web3 import Web3
 
         rpc_url = rpc_url or os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
-        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+        w3 = get_web3(rpc_url, 30)
         latest = w3.eth.block_number
         last = int(self.get_meta("whaleflow_last_block", "0") or 0)
         if last <= 0:

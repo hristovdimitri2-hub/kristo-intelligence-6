@@ -840,8 +840,11 @@ def _connect_monitor_only(rpc_url: str, fee_receiver: str, usdc_address: str):
     SEVERAL endpoints without repeating this block. Returns (wallet_like, chain_id).
     """
     from web3 import Web3
+    from services.rpc_pool import get_web3
 
-    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+    # Shared, not per call: see services/rpc_pool.py for the measured leak this
+    # replaces. `Web3` itself is still imported here for `is_address` below.
+    w3 = get_web3(rpc_url, 30)
     connected = w3.is_connected() if hasattr(w3, "is_connected") else w3.isConnected()
     if not connected:
         raise ConnectionError("rpc_unreachable")
@@ -990,9 +993,11 @@ def _fetch_receiver_usdc_balance():
     """
     try:
         from web3 import Web3
-        w3 = Web3(Web3.HTTPProvider(
-            os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
-            request_kwargs={"timeout": 20}))
+        from services.rpc_pool import get_web3
+        # Called once per blockchain-monitor cycle (~2/min): the per-call Web3
+        # this replaces leaked a session and its sockets every time.
+        w3 = get_web3(os.getenv("BASE_RPC_URL",
+                                "https://mainnet.base.org"), 20)
         if not w3.is_connected():
             return None
         usdc = os.getenv("BASE_USDC_CONTRACT",
@@ -3418,10 +3423,10 @@ def _confirmations_ok_with_lag_refresh(*, receipt_block, read_head, required,
 
 def _read_block_hash(height: int) -> str:
     """The hash of the block currently at `height` ('' when unreadable)."""
-    from web3 import Web3 as _W3
-    w3 = _W3(_W3.HTTPProvider(
-        os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
-        request_kwargs={"timeout": 20}))
+    # Up to 25 of these per agent cycle (every 5 min) is the single largest source
+    # of per-call Web3 constructions; they used to leak 25 sessions per cycle.
+    from services.rpc_pool import get_web3
+    w3 = get_web3(os.getenv("BASE_RPC_URL", "https://mainnet.base.org"), 20)
     raw = w3.eth.get_block(int(height)).get("hash") or b""
     return (raw.hex() if hasattr(raw, "hex") else str(raw)).lower()
 
@@ -4076,10 +4081,9 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     block_hash = ""
     receipt = None
     try:
-        from web3 import Web3 as _W3
-        _w3 = _W3(_W3.HTTPProvider(
-            os.getenv("BASE_RPC_URL", "https://mainnet.base.org"),
-            request_kwargs={"timeout": 20}))
+        from services.rpc_pool import get_web3
+        _w3 = get_web3(os.getenv("BASE_RPC_URL",
+                                 "https://mainnet.base.org"), 20)
         receipt = _w3.eth.get_transaction_receipt(tx_hash)
     except Exception as exc:
         log.warning("settlement receipt fetch failed: %s: %s",
