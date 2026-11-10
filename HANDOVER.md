@@ -525,6 +525,45 @@ Tests: 2 new (35 in `test_dashboard_resilience.py`, suite **1,274**). The ones t
 weight here: a store that takes five seconds still returns from the request path in under three; the
 seed is attempted **once per process**; and a corrupt stored board is skipped rather than raised.
 
+### 10.11 05:12–05:21 — the board aged nine minutes in silence; the flag was a set, not a lease
+
+The morning after `0f55a01`, the honest check (not a happy-path one) was: poll the board, then read
+the log **hour by hour across the whole night** rather than trusting the first 500 lines, which
+cover about a minute.
+
+**What the fix bought, measured.** Across nine sampled hours (21:00 → 05:00) the log contained
+**0 × `database is locked`, 0 × `background refresh failed`, 0 × `dashboard warmer`**. The only lock
+line of the night was at **20:50:45** — one minute after the deploy, while the boot-time backfill
+was still running. `last_build_timings_ms` is now `requests_summary` 2,311 ms, `get_payapi_state`
+**0.6 ms** (it was 30,067 ms), `last_error_type: {}`, and the board answers in 0.3–0.9 s.
+The deployment check gave **19 × 200 at 0.3–0.5 s** in place of the 50.4 s requests.
+
+**What it left.** The first two probes of the morning served a **545-second-old** payload —
+`stale=True` — and the very next request produced a fresh build in ~2 s. So the board was never an
+error and never 503; it was *behind*, and only because a build had stalled: nine minutes with
+`generated_at` frozen at 05:12:44, **not one error in the log**, and recovery on the first request.
+That is the signature of one build hanging while holding `_DASHBOARD_REFRESHING`: the warmer ticked
+every 30 s, saw "a refresh is already running", did nothing, and logged nothing. A bare **set** made
+that state last exactly as long as the hang did — the precise opposite of «винаги активно».
+
+**The fix — the flag is now a LEASE.** `_DASHBOARD_REFRESHING` maps a variant to *when* its refresh
+started, and `_DASHBOARD_REFRESH_LEASE_SECONDS` (default **180**, env-overridable) is how long a
+build may be "in flight" before a later caller calls it abandoned, logs a warning, and starts its
+own. Generous on purpose: the slowest real step measures 2.3 s, so nothing healthy comes near three
+minutes, and the one-build-per-variant guarantee still holds — both halves are pinned by tests.
+
+**The page stops waiting a whole cycle.** The server has always sent a truthful `stale_reason`, and
+the page ignored it, asserting instead that «живият прочит се провали» — not why a board that was
+merely left unopened is stale. It now shows the server's reason, and while stale it re-asks after
+**5 s** rather than waiting out the 45 s tick, bounded to six quick attempts (reset on the next fresh
+paint) so a genuinely stuck board cannot turn into permanent 5-second polling. Net effect: the first
+visitor after a quiet period sees LIVE in seconds instead of up to 45.
+
+Tests: 3 new (38 in `test_dashboard_resilience.py`, suite **1,277**) — a six-minute-old in-flight
+refresh is superseded and a young one is not, and structurally: the page's stale branch reads
+`stale_reason`, re-asks in 5 s, and bounds that re-ask.
+
+
 ## The owner's instruction, verbatim: «провери какво плаща с демо ключа»
 
 Check what the demo key is really paying for. Why it is now a task with teeth —

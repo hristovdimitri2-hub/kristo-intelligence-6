@@ -7456,7 +7456,25 @@ _DASHBOARD_LAST_GOOD_LOCK = threading.Lock()
 #: The result was not a slow dashboard — it was a dead service: the static `/`
 #: took 15s and /health returned 502. One build per variant, started and
 #: awaited rather than repeated, removes that failure mode entirely.
-_DASHBOARD_REFRESHING: set = set()
+#:
+#: Maps a variant to WHEN its in-flight refresh started, not just that one is
+#: running. The timestamp is the whole point: it makes the flag a LEASE.
+#:
+#: WHY, measured 10.11 05:12–05:21. The public board went nine minutes without a
+#: rebuild — with not one error in the log — and then came back the moment a
+#: request arrived. That is the signature of a single build that hung: while it
+#: hung it held this flag, so the warmer ticked every 30 seconds, found a refresh
+#: "already running", did nothing, and logged nothing. A plain set can therefore
+#: wedge the board for as long as one stalled network read lasts, which is the
+#: exact opposite of "таблото да е активно винаги".
+_DASHBOARD_REFRESHING: Dict[Tuple[bool, bool], float] = {}
+
+#: How long a refresh may be "in flight" before a later caller treats it as
+#: abandoned and starts its own. Generous on purpose: a real build measures
+#: ~2.3 s at its slowest step, so nothing healthy comes near three minutes, and a
+#: lease that fires early would only duplicate a build that is still working.
+_DASHBOARD_REFRESH_LEASE_SECONDS = max(
+    30.0, float(os.getenv("KRISTO_DASHBOARD_REFRESH_LEASE_SECONDS", "180")))
 
 #: Why the last build for a variant FAILED, if it did. Kept so the cold path
 #: can tell "still building" apart from "this is broken" and raise the real
@@ -7674,10 +7692,22 @@ def _dashboard_refresh_in_background(key, include_crm: bool,
     serve, and the point of this path is that no visitor ever waits on the
     database again.
     """
+    now = time.time()
     with _DASHBOARD_LAST_GOOD_LOCK:
-        if key in _DASHBOARD_REFRESHING:
-            return False
-        _DASHBOARD_REFRESHING.add(key)
+        started_at = _DASHBOARD_REFRESHING.get(key)
+        if started_at is not None:
+            if now - started_at < _DASHBOARD_REFRESH_LEASE_SECONDS:
+                return False
+            # LEASE EXPIRED. One build must never be able to freeze the board:
+            # if it has been "in flight" for this long it is stalled, not busy,
+            # so a new one starts and the old one's completion is harmless (the
+            # publish path only ever writes the newest payload it built). This
+            # line is the only trace such a stall leaves, so it is a warning.
+            log.warning(
+                "dashboard: the refresh of variant %s has been in flight for "
+                "%.0fs — treating it as abandoned and starting a new one",
+                key, now - started_at)
+        _DASHBOARD_REFRESHING[key] = now
 
     def _work():
         try:
@@ -7688,7 +7718,7 @@ def _dashboard_refresh_in_background(key, include_crm: bool,
                 key, redact_rpc(exc))
         finally:
             with _DASHBOARD_LAST_GOOD_LOCK:
-                _DASHBOARD_REFRESHING.discard(key)
+                _DASHBOARD_REFRESHING.pop(key, None)
 
     threading.Thread(target=_work, name="dashboard-refresh",
                      daemon=True).start()

@@ -892,3 +892,82 @@ def test_the_seed_is_attempted_once_per_process(
 
     assert len(calls) == 1, "the store was read %d times" % len(calls)
     gate.set()
+
+
+# ── 11. a stalled build must not be able to freeze the board ──────────────
+#
+# MEASURED 10.11 05:12–05:21: the public board went NINE MINUTES without a
+# rebuild, with no error in the log, and recovered the moment a request arrived.
+# The signature is one build that hung while holding `_DASHBOARD_REFRESHING`, so
+# the warmer ticked every 30s, saw "a refresh is already running", did nothing,
+# and logged nothing. A bare set makes that state permanent for as long as the
+# hang lasts; the flag is now a LEASE that expires.
+
+def test_a_stalled_refresh_is_abandoned_after_its_lease(
+        main_module, monkeypatch):
+    """An in-flight refresh older than the lease may be superseded.
+
+    Deliberately WITHOUT the `refreshes` fixture: that fixture replaces
+    `_dashboard_refresh_in_background` with a fake, and this test is about the
+    real scheduling decision.
+    """
+    main = main_module
+    calls = _fake_payload(monkeypatch, main)
+    monkeypatch.setattr(main, "_DASHBOARD_REFRESH_LEASE_SECONDS", 5.0)
+
+    # A build that started long ago and never finished.
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_REFRESHING[(False, False)] = time.time() - 600.0
+
+    started = main._dashboard_refresh_in_background((False, False), False, False)
+
+    assert started is True, (
+        "a six-minute-old in-flight refresh still blocked a new one — this is "
+        "the 05:12–05:21 freeze, where the board aged nine minutes in silence")
+    assert _wait_for(lambda: calls["n"] == 1), (
+        "the superseding refresh did not actually build")
+
+
+def test_a_healthy_in_flight_refresh_is_still_respected(
+        main_module, monkeypatch):
+    """The lease must not defeat the one-build-per-variant guarantee."""
+    main = main_module
+    calls = _fake_payload(monkeypatch, main)
+    monkeypatch.setattr(main, "_DASHBOARD_REFRESH_LEASE_SECONDS", 180.0)
+
+    with main._DASHBOARD_LAST_GOOD_LOCK:
+        main._DASHBOARD_REFRESHING[(False, False)] = time.time()
+
+    started = main._dashboard_refresh_in_background((False, False), False, False)
+
+    assert started is False, "a young in-flight refresh was duplicated"
+    assert calls["n"] == 0, "a second build ran while one was legitimately busy"
+
+
+def test_the_page_does_not_wait_a_whole_cycle_to_show_live_again():
+    """The stale branch must re-ask in seconds, and must not invent a reason.
+
+    The server sends `stale_reason`; the page used to ignore it and assert that
+    "живият прочит се провали", which is not why a board that was simply left
+    unopened is stale.
+    """
+    from pathlib import Path
+
+    html = Path("templates/dashboard.html").read_text(encoding="utf-8")
+
+    live_at = html.find("b.className = 'badge live'")
+    stale_at = html.find("d.stale === true")
+    branch = html[stale_at:live_at]
+
+    assert "stale_reason" in branch, (
+        "the page ignores the reason the server sends and states its own")
+    assert "setTimeout(load, 5000)" in branch, (
+        "a stale board waits for the next 45s tick to show live figures again")
+    assert "staleRetries" in branch, (
+        "the quick re-ask is unbounded, so a permanently stale board would poll "
+        "every 5s forever")
+    # The quick re-ask must be bounded and reset when the board is fresh again.
+    assert "staleRetries = 0" in html, (
+        "the stale retry counter is never reset, so a second stale episode "
+        "would stop re-asking early")
+
