@@ -228,6 +228,42 @@ def test_every_canonical_route_also_spends_its_tags_on_its_own_job(client):
         "it is, not offer a generic bot health check")
 
 
+def test_every_route_is_NAMED_after_its_job_not_only_after_the_company(client):
+    """`resource.serviceName` was "Kristo Intelligence" on all twelve paid routes.
+
+    It is the third field CDP matches (its rows carry it beside `tags` and
+    `description`), and a buyer's agent searching "seller audit" or "token safety"
+    cannot match a company name. Measured in CDP's index: every row that wins a
+    query is named after its job — "Check an x402 seller's trust", "x402 seller
+    dossier", "Token Safety Check" — and one seller legitimately carries several
+    such names, so this is the normal catalogue shape.
+
+    The 32-character ceiling and printable-ASCII rule are the spec's, asserted in
+    tests/test_bazaar_output_example.py; here the claim is that the name says what
+    the route does and that no two routes hide behind one generic label."""
+    app_client, main = client
+    paid = sorted(main.X402_PAID_ENDPOINTS)
+    assert len(paid) == 12
+    names = {}
+    for route in paid:
+        res = _challenge(app_client, route)["resource"]
+        name = res["serviceName"]
+        names[route] = name
+        assert name != main.X402_DEFAULT_SERVICE_NAME, (
+            f"{route} still publishes only the company name {name!r}")
+        assert name.startswith("Kristo "), (
+            f"{route} drops the brand entirely: {name!r} — the catalogue row is "
+            "also how a buyer finds the service again")
+        assert name == main.X402_RESOURCE_SERVICE_NAMES[route], (
+            f"{route} does not publish its committed name")
+        assert len(name) <= 32 and all(" " <= ch <= "~" for ch in name), name
+        # The job words, not just the brand: at least two words after "Kristo".
+        assert len(name.split()) >= 3, (
+            f"{route} is named {name!r}, which says nothing about the job")
+    assert len(set(names.values())) == len(names), (
+        "two routes share a serviceName — a catalogue cannot tell them apart")
+
+
 def test_every_canonical_description_opens_with_the_buyers_words(client):
     """CDP does not read the resource URL; it reads this string. So the first
     clause has to be the words the job is asked for in, and the rest must still

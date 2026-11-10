@@ -242,6 +242,40 @@ X402_RESOURCE_TAGS = {
 X402_DEFAULT_RESOURCE_TAGS = ["crypto", "whale-tracking", "x402", "arbitrage",
                               "signals"]
 
+# ── What each route is CALLED in a catalogue ────────────────────────────────
+# `resource.serviceName` was the literal string "Kristo Intelligence" for all
+# twelve paid routes, and it is the third field the CDP catalogue matches (its own
+# rows carry it next to `tags` and `description`). A buyer's agent searching
+# "seller audit" or "token safety" cannot match a company name, and ours was the
+# only name we published.
+#
+# The measurement, from CDP's index (10.11.2026): every row that wins a query is
+# named after its job — "Check an x402 seller's trust", "x402 seller dossier",
+# "PennyAPI x402 Seller Preflight", "Token Safety Check", "Crypto Market Signals"
+# — and a single seller carries several of those names side by side (agent402 has
+# four different serviceNames on four endpoints), so a per-route name is the
+# normal shape, not an inconsistency. Our twelve rows all read "Kristo
+# Intelligence", which matches nothing a buyer types.
+#
+# Brand first, job second, inside the spec's 32-character budget, and the job must
+# be one the response returns — /api/stats stays a snapshot, not "market data".
+# The default below is what anything unlisted falls back to.
+X402_RESOURCE_SERVICE_NAMES = {
+    "/api/v1/signal": "Kristo crypto signals",
+    "/api/v1/whaleflow": "Kristo whale transfers",
+    "/api/v1/verify-seller": "Kristo x402 seller audit",
+    "/api/arb/opportunities": "Kristo DEX arbitrage",
+    "/api/sales": "Kristo USDC revenue",
+    "/api/bot-status": "Kristo telegram bot status",
+    "/api/stats": "Kristo market snapshot",
+    "/api/v1/whale-alerts": "Kristo whale alerts",
+    "/api/v1/trading-signals": "Kristo trading signals",
+    "/api/v1/arbitrage-opportunities": "Kristo DEX arbitrage spread",
+    "/api/v1/seller-check": "Kristo seller check",
+    "/api/v1/onchain-sales": "Kristo onchain sales",
+}
+X402_DEFAULT_SERVICE_NAME = "Kristo Intelligence"
+
 # The listing icon, in a format the Bazaar actually accepts.
 #
 # The CDP discovery docs are explicit about `resource.iconUrl`: "Supported
@@ -2315,7 +2349,8 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
         # Bazaar listing metadata (discovery extension): PayAI auto-lists
         # endpoints carrying these fields — no manual registration. The
         # agentcash/x402scan audit also reads them for the marketplace card.
-        "serviceName": "Kristo Intelligence",
+        "serviceName": X402_RESOURCE_SERVICE_NAMES.get(
+            endpoint, X402_DEFAULT_SERVICE_NAME),
         "tags": X402_RESOURCE_TAGS.get(endpoint, X402_DEFAULT_RESOURCE_TAGS),
         "iconUrl": request.host_url.rstrip("/") + X402_ICON_PATH,
     }
@@ -2871,7 +2906,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "stats",
         "name": "Market Activity & Daily Stats",
-        "description": "Live market snapshot (CoinGecko, DEXScreener, Fear & Greed), daily request/sales aggregates and full payment receiver info. Useful at the start of a session, when an agent needs current market context and this service's payment details before deciding what to call.",
+        "description": "Market snapshot and daily service stats: live prices and Fear & Greed (CoinGecko, DEXScreener), plus this service's request/sales aggregates and full payment receiver info. Useful at the start of a session, when an agent needs current market context and this service's payment details before deciding what to call.",
         "category": "market",
         "endpoint": "/api/stats",
         "method": "GET",
@@ -2880,7 +2915,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "arb-opportunities",
         "name": "Cross-DEX Arbitrage Radar",
-        "description": "Live cross-DEX arbitrage spreads on Base (DEXScreener), refreshed every 60 seconds. Relevant when an agent is comparing venues and needs to know whether a spread is still open.",
+        "description": "DEX arbitrage spreads across Base venues: live price gaps (DEXScreener), refreshed every 60 seconds. Relevant when an agent is comparing venues and needs to know whether a spread is still open.",
         "category": "market",
         "endpoint": "/api/arb/opportunities",
         "method": "GET",
@@ -2898,7 +2933,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "sales",
         "name": "On-Chain Sales History",
-        "description": "Real, on-chain-verifiable USDC sales history (ERC-20 Transfer monitoring) — unique to this API. Worth reading when an agent wants proof that this service is paid for what it sells, rather than a claim.",
+        "description": "USDC revenue and on-chain sales history for this service, read from Base (ERC-20 Transfer monitoring) — real settlements, not a projection. Worth reading when an agent wants proof that this service is paid for what it sells, rather than a claim.",
         "category": "onchain_intelligence",
         "endpoint": "/api/sales",
         "method": "GET",
