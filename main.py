@@ -2111,6 +2111,64 @@ _BAZAAR_OUTPUT_EXAMPLES = {
 for _alias, _canonical in X402_PATH_ALIASES.items():
     _BAZAAR_OUTPUT_EXAMPLES[_alias] = _BAZAAR_OUTPUT_EXAMPLES[_canonical]
 
+# ── The declared INPUT, which the 402 used to get wrong ────────────────────
+# Every paid route published `queryParams: {}` with additionalProperties False
+# and the sentence "No query parameters: none are required — call this route as
+# plain GET without a query string". That was true of six of the seven and
+# false of /api/v1/verify-seller, which reads `receiver` and returns 400
+# without it. The service therefore contradicted itself: its OpenAPI document
+# (app/blueprints/discovery.py) declares `receiver` required and `days` bounded
+# for that same path, while the 402 challenge — the copy CDP indexes out of
+# paymentPayload.extensions.bazaar — told the agent no input was needed.
+#
+# The cost was exact and measured on 10.11: an agent that trusted the challenge
+# paid $0.10 and got HTTP 400 receiver_required. The challenge is the machine's
+# first and often only impression, so a false declaration here is worse than a
+# missing one — it is an instruction to call the route in a way that cannot work.
+#
+# Only routes that actually read request.args get an entry. Everything else
+# keeps the explicit empty map, because an undeclared input reads as "may need
+# params we cannot see" (x402 Doctor bazaar-input). `days` is declared because
+# the handler reads it, even though it is optional and clamped.
+X402_INPUT_QUERY_PARAMS = {
+    "/api/v1/verify-seller": {
+        "properties": {
+            "receiver": {
+                "type": "string",
+                "description": (
+                    "The USDC receiver address to audit: an EVM address, with "
+                    "or without the 0x prefix, checksummed before the chain is "
+                    "read. Required."
+                ),
+            },
+            "days": {
+                "type": "integer",
+                "description": (
+                    "Lookback window in days, 1 to 30, default 7. Clamped to "
+                    "the engine's own bounds; the window actually walked is "
+                    "published in the report as coverage.lookback_days."
+                ),
+            },
+        },
+        "required": ["receiver"],
+        "example": {
+            "receiver": "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
+            "days": 7,
+        },
+        "note": (
+            "`receiver` is REQUIRED: without it the route answers HTTP 400 "
+            "receiver_required and reads nothing. A free copy of the exact "
+            "report shape is at /api/v1/verify-seller/sample."
+        ),
+    },
+}
+# The alias declares the same input as the route it fronts, by reference for the
+# same reason the output example is shared: two hand-written copies of one
+# contract drift, and the alias is the one buyers reach through the catalogue.
+for _alias, _canonical in X402_PATH_ALIASES.items():
+    if _canonical in X402_INPUT_QUERY_PARAMS:
+        X402_INPUT_QUERY_PARAMS[_alias] = X402_INPUT_QUERY_PARAMS[_canonical]
+
 
 def _x402_challenge_description(endpoint: str, description: str = "") -> str:
     """What a 402 says about a product — never a placeholder if we have better.
@@ -2192,11 +2250,16 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     # realistic sample of the PAID response so agents can construct the call
     # (docs: get-discovered → complete input and output schemas with examples).
     # x402 Doctor "bazaar-input" (21.10): the declared input must SHOW what a
-    # request looks like. All 6 paid routes take no query parameters (no
-    # request.args anywhere in their handlers — verified), so the honest
-    # example is an explicit EMPTY queryParams map, per @x402/extensions
-    # QueryDiscoveryInfo: input.queryParams is the declared parameter map.
-    info = {"input": {"type": "http", "method": "GET", "queryParams": {}}}
+    # request looks like. Six of the seven paid routes take no query parameters,
+    # so for them the honest example is an explicit EMPTY queryParams map, per
+    # @x402/extensions QueryDiscoveryInfo: input.queryParams is the declared
+    # parameter map. /api/v1/verify-seller is the exception and was the bug —
+    # it reads `receiver`, so declaring the map empty told an agent to call a
+    # route in a way that cannot succeed. Routes that read request.args declare
+    # it in X402_INPUT_QUERY_PARAMS and get a real example instead.
+    declared = X402_INPUT_QUERY_PARAMS.get(endpoint)
+    info = {"input": {"type": "http", "method": "GET",
+                      "queryParams": dict(declared["example"]) if declared else {}}}
     example = _BAZAAR_OUTPUT_EXAMPLES.get(endpoint)
     if example is not None:
         # `type` is REQUIRED whenever info.output is present — bazaar.md
@@ -2215,25 +2278,41 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
                     "input": {
                         "type": "object",
                         "properties": {
-                            # Mirrors @x402/extensions ParamMapSchemaProperty:
-                            # type + properties + additionalProperties. The
-                            # map is DECLARED empty on purpose — none of the
-                            # 6 paid GET routes reads request.args, and an
-                            # undeclared input reads as "may need params"
-                            # (x402 Doctor bazaar-input: agents could pay
-                            # and then guess). description states the zero.
+                            # `type` and `method` are the two the spec requires
+                            # on the input object ("required": ["type","method"]);
+                            # they were here before the queryParams fix and stay.
                             "type": {"type": "string", "const": "http"},
                             "method": {"type": "string", "const": "GET"},
-                            "queryParams": {
-                                "type": "object",
-                                "properties": {},
-                                "additionalProperties": False,
-                                "description": (
-                                    "No query parameters: none are "
-                                    "required — call this route as plain "
-                                    "GET without a query string."
-                                ),
-                            },
+                            # Mirrors @x402/extensions ParamMapSchemaProperty:
+                            # type + properties + additionalProperties. Six of
+                            # the seven paid GET routes read no request.args, so
+                            # their map is DECLARED empty on purpose — an
+                            # undeclared input reads as "may need params"
+                            # (x402 Doctor bazaar-input: agents could pay and
+                            # then guess). /api/v1/verify-seller reads `receiver`
+                            # and MUST NOT claim otherwise: the empty map made
+                            # the 402 contradict our own OpenAPI document and
+                            # sent a paying agent into a 400.
+                            "queryParams": (
+                                {
+                                    "type": "object",
+                                    "properties": dict(declared["properties"]),
+                                    "required": list(declared["required"]),
+                                    "additionalProperties": False,
+                                    "description": declared["note"],
+                                }
+                                if declared else
+                                {
+                                    "type": "object",
+                                    "properties": {},
+                                    "additionalProperties": False,
+                                    "description": (
+                                        "No query parameters: none are "
+                                        "required — call this route as plain "
+                                        "GET without a query string."
+                                    ),
+                                }
+                            ),
                         },
                         "required": ["type", "method"],
                     },
