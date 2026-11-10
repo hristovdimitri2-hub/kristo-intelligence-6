@@ -1574,6 +1574,42 @@ us every hour and none buys, we rank first for the words we sell, and the 402 co
 What is left is the price (§22: 46 paid rows at $0.01 against 10 at $0.10 in our own
 category) and asking someone to try — both outside the code.
 
+### 10.11 23:30 — final state of the objective, and one correction
+
+The goal's own number, at the end: **no external payer.** 19 CDP rows, 34 calls in 30
+days, every row `l30DaysUniquePayers = 1`, **zero rows with 2 or more**; on chain over
+the last 120,000 Base blocks the receiver took 2 payments, both from the demo key
+0xe50c5212… (last at block 55,712,490). Nothing in this session changed that.
+
+What is live and what is frozen:
+
+    live 402s (12 routes)      new tags, serviceName and descriptions -- PUBLISHED
+    /.well-known/x402, x402.json   the new descriptions
+    PayAI Bazaar               rank 1/5 "verify seller", 1/3 "onchain sales",
+                               3/24 "whale flow" -- but with the OLD text
+    CDP catalogue and search   FROZEN at each row's last settlement, so we are still
+                               absent for "verify seller", "x402 seller audit",
+                               "token safety"
+    agent402                   has NOT re-read the metadata, two hours after deploy
+
+**Correction to §20.** That section said agent402 "re-crawls every 30 minutes" and
+would therefore take the new words for free. It does not: two hours after the deploy
+its index is byte-identical (32,798 bytes, `Kristo Intelligence` ×5, `Live whale flow`
+×3). Its 30-minute cycle is liveness, not metadata.
+
+What remains, all three outside the code:
+
+  1. publish into CDP — one paid call per row: $0.042 for the ten cheap rows, $0.242
+     for all twelve HTTP rows, $0.368 for all nineteen. Tool already exists:
+     `scripts/phase1_paid_call.py --path <route>`.
+  2. the price — §22: 46 paid rows at $0.01 against 10 at $0.10 in our own category;
+     a $0.01 pilot on the two seller-audit rows makes step 1 cost $0.062.
+  3. ask someone to try — the only channel with a short time constant, and an external
+     send, so it needs the owner's explicit "Да".
+
+Nothing was spent and nothing was sent this session.
+
+
 
 
 
