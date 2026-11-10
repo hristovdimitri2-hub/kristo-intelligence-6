@@ -140,6 +140,69 @@ X402_PRICE_MAP = {
     "/api/v1/verify-seller": KRISTO_VERIFY_SELLER_PRICE,
 }
 
+# ── Buyer-worded URL aliases (10.11.2026) ───────────────────────────────────
+# WHY THESE EXIST, in one measurement. The CDP catalogue carries a live hybrid
+# search over 33,220 rows, and the ranking is dominated by a LITERAL match on the
+# words in the resource URL. For "whale" all sixteen rows above us contain
+# "whale" in their host or path; ours is /api/v1/whaleflow, one token, and
+# "whale" is not in it. The result: we rank #1 for our own name, host, tool name
+# and the token "whaleflow", and are ABSENT from the top results for every word a
+# buyer would actually type — "whale flow", "whale alerts", "trading signal",
+# "arbitrage", "verify seller". A listing that can only be found by someone who
+# already knows the name is an address book, not discovery.
+#
+# So each alias serves the SAME handler, the SAME price and the SAME receiver as
+# its canonical route — only the path, and therefore the sentence an indexer
+# reads, changes. Aliases are additive: the canonical paths stay live and keep
+# their existing catalogue rows, because two of them are already indexed and paid
+# for.
+#
+# FIVE, NOT SEVEN, ON PURPOSE. Two candidate names would have been misleading
+# rather than merely optimistic, and a name that overpromises costs a buyer's
+# $0.005 once and their trust permanently:
+#   * /api/stats is this service's own counters plus an ETH price and the Fear &
+#     Greed index. Calling it "crypto market stats" competes with endpoints that
+#     return real market cap and volume, and loses on substance, not on ranking.
+#   * /api/bot-status reports OUR Telegram bot's health. The measured demand for
+#     "bot health check" is an agent wanting to probe ITS OWN endpoint.
+# Both are left without an alias until the response itself earns the name.
+X402_PATH_ALIASES = {
+    "/api/v1/whale-alerts": "/api/v1/whaleflow",
+    "/api/v1/trading-signals": "/api/v1/signal",
+    "/api/v1/arbitrage-opportunities": "/api/arb/opportunities",
+    "/api/v1/seller-check": "/api/v1/verify-seller",
+    "/api/v1/onchain-sales": "/api/sales",
+}
+
+# An alias is NOT given its own entry in X402_PRICE_MAP. That map is the
+# PUBLISHED price list — server.json for the official MCP Registry and the
+# "verify-seller is the dearest route we sell" invariant both read it whole — so
+# a duplicate row in it would advertise a product we do not have. The price is
+# resolved from the canonical route at charge time instead (see
+# _get_dynamic_price), which cannot disagree with itself.
+
+# The resource `tags` are matched by the same search (a query for our own tag
+# "whale-tracking" returned us fourth of nine), and the bazaar spec caps the list
+# at five, so an alias cannot simply inherit a generic set and add to it — it has
+# to spend its five on the words of its own job. These describe the endpoint;
+# they are not keyword stuffing for terms the response does not serve.
+# Max 5 entries, each printable ASCII and <= 32 chars (asserted in
+# tests/test_bazaar_output_example.py).
+X402_RESOURCE_TAGS = {
+    "/api/v1/whale-alerts": ["whale-alerts", "whale-flow", "large-transfers",
+                             "usdc", "base"],
+    "/api/v1/trading-signals": ["trading-signals", "buy-sell-signal",
+                                "market-signal", "crypto", "base"],
+    "/api/v1/arbitrage-opportunities": ["arbitrage", "dex-arbitrage",
+                                        "price-spread", "defi", "base"],
+    "/api/v1/seller-check": ["seller-check", "seller-verification",
+                             "x402-seller", "onchain-audit", "base"],
+    "/api/v1/onchain-sales": ["onchain-sales", "usdc-settlements",
+                              "payment-history", "revenue", "base"],
+}
+X402_DEFAULT_RESOURCE_TAGS = ["crypto", "whale-tracking", "x402", "arbitrage",
+                              "signals"]
+
 # ── Challenge descriptions ("caught by the hand") ───────────────────────────
 # The 402 challenge description is the machine's first impression of the
 # product. Only the description STRING varies per endpoint — the canonical
@@ -167,6 +230,38 @@ CHALLENGE_DESCRIPTIONS = {
         "coverage stated — so you can check whether a seller is really being "
         "paid before you pay them."
     ),
+    # ── The aliases' own sentences ─────────────────────────────────────────
+    # Same product, said in the words a buyer uses when searching, because this
+    # string is what aggregators copy verbatim (PayAI Bazaar, x402-list,
+    # x402scan) and what the paid recommenders embed. Same rule as above: describe
+    # the endpoint, do not instruct the agent reading it.
+    "/api/v1/whale-alerts": (
+        "Live whale alerts for Base: large USDC transfers as they land, with "
+        "from/to wallets, counterparty labels and USD value, for tracking smart "
+        "money and feeding trading bots. Refreshed continuously; the response "
+        "states the block it scanned to."
+    ),
+    "/api/v1/trading-signals": (
+        "Crypto trading signals for ETH, ONDO, KAITO and DEGEN: action, "
+        "confidence, price and a one-line reasoning, refreshed under five "
+        "minutes from live market data."
+    ),
+    "/api/v1/arbitrage-opportunities": (
+        "Arbitrage opportunities across Base DEX venues: live price gaps per "
+        "pair with both venues, the spread percentage and estimated profit, "
+        "refreshed every 60 seconds."
+    ),
+    "/api/v1/seller-check": (
+        "Check whether an x402 seller is really being paid before you pay them: "
+        "a read of any Base address you name, with distinct paying addresses, "
+        "repeat-payer concentration, treasury-sized flows separated from "
+        "per-call payments, and the read's own coverage stated."
+    ),
+    "/api/v1/onchain-sales": (
+        "On-chain sales read from Base: every USDC settlement into this "
+        "service's receiver — amount, payer address, tx hash and time — with "
+        "totals by token. Real settlement history, not a projection."
+    ),
 }
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
@@ -185,6 +280,13 @@ FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
 X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
                        "/api/arb/opportunities", "/api/v1/signal",
                        "/api/v1/whaleflow", "/api/v1/verify-seller"}
+
+# An alias is a paid route in every sense — it must be paywalled, priced,
+# funnelled and described exactly like the canonical path, or it becomes a free
+# back door to a paid product. Adding them to the canonical set is what makes
+# every existing invariant (bazaar output examples, the payment funnel, the
+# discovery docs) cover them without a second list to keep in sync.
+X402_PAID_ENDPOINTS |= set(X402_PATH_ALIASES)
 
 # Endpoints that are always free (discovery, health, dashboard, manifest)
 X402_FREE_ENDPOINTS = {
@@ -1820,7 +1922,8 @@ def _get_dynamic_price(ip: str, endpoint: str = "") -> float:
     After X402_VOLUME_THRESHOLD (10) paid calls, the price drops to
     X402_FEE_USDC_DISCOUNT to incentivize batch/frequent on-chain usage.
     """
-    base = X402_PRICE_MAP.get(endpoint, BASE_FEE_AMOUNT_USDC)
+    base = X402_PRICE_MAP.get(X402_PATH_ALIASES.get(endpoint, endpoint),
+                              BASE_FEE_AMOUNT_USDC)
     with _lock:
         paid_count = _paid_calls_usage.get(ip, 0)
     if paid_count >= X402_VOLUME_THRESHOLD:
@@ -1999,6 +2102,15 @@ _BAZAAR_OUTPUT_EXAMPLES = {
     },
 }
 
+# An alias publishes the SAME output example as the route it fronts — not a copy
+# retyped here, but a reference to the same object. Two hand-written examples for
+# one response shape would be two things to keep true; one would eventually stop
+# being. `test_bazaar_output_example.py` requires this map and
+# X402_PAID_ENDPOINTS to hold the same keys, so the loop is also what keeps the
+# aliases from silently publishing a challenge with no output declaration.
+for _alias, _canonical in X402_PATH_ALIASES.items():
+    _BAZAAR_OUTPUT_EXAMPLES[_alias] = _BAZAAR_OUTPUT_EXAMPLES[_canonical]
+
 
 def _x402_challenge_description(endpoint: str, description: str = "") -> str:
     """What a 402 says about a product — never a placeholder if we have better.
@@ -2066,7 +2178,7 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
         # endpoints carrying these fields — no manual registration. The
         # agentcash/x402scan audit also reads them for the marketplace card.
         "serviceName": "Kristo Intelligence",
-        "tags": ["crypto", "whale-tracking", "x402", "arbitrage", "signals"],
+        "tags": X402_RESOURCE_TAGS.get(endpoint, X402_DEFAULT_RESOURCE_TAGS),
         "iconUrl": request.host_url.rstrip("/") + "/static/icons/kristo.svg",
     }
     # Bazaar discovery extension: `info` carries the HTTP request structure,
@@ -8306,6 +8418,49 @@ def _start_background_threads():
         "Background threads started (blockchain monitor + agent + catalog analytics "
         "+ keep-alive + sentinel + telegram sales)."
     )
+
+
+# ── Register the buyer-worded alias URL rules ───────────────────────────────
+# Placed at the END of the module, after every route decorator, because
+# app.url_map only holds the canonical rules once they have all been declared —
+# /api/v1/verify-seller lives on the discovery blueprint and /api/v1/whaleflow is
+# defined far below the point where the aliases are declared. Registering here
+# means the alias points at whatever view function the canonical path actually
+# resolved to, rather than at a name this file has to remember.
+#
+# `add_url_rule` reuses the SAME view function: an alias can never drift from the
+# handler it fronts, because there is only one handler. Flask needs a distinct
+# endpoint name per rule, hence the derived one.
+def _register_x402_alias_routes() -> list:
+    existing = {str(rule) for rule in app.url_map.iter_rules()}
+    registered = []
+    for alias, canonical in X402_PATH_ALIASES.items():
+        if alias in existing:
+            log.warning("x402 alias %s already exists as a real route — skipped",
+                        alias)
+            continue
+        rule = next((r for r in app.url_map.iter_rules()
+                     if str(r) == canonical), None)
+        if rule is None:
+            log.warning("x402 alias %s: canonical route %s not found — skipped",
+                        alias, canonical)
+            continue
+        view = app.view_functions.get(rule.endpoint)
+        if view is None:
+            log.warning("x402 alias %s: no view function for %s — skipped",
+                        alias, canonical)
+            continue
+        methods = sorted((rule.methods or {"GET"}) - {"HEAD", "OPTIONS"}) or ["GET"]
+        app.add_url_rule(alias, endpoint="x402_alias_" + alias.strip("/").replace(
+            "/", "_"), view_func=view, methods=methods)
+        registered.append((alias, canonical))
+    if registered:
+        log.info("x402 alias routes registered: %s",
+                 ", ".join("%s→%s" % (a, c) for a, c in registered))
+    return registered
+
+
+X402_ALIAS_ROUTES_REGISTERED = _register_x402_alias_routes()
 
 
 # Start threads when module loads (works with gunicorn / Procfile).

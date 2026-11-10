@@ -316,6 +316,16 @@ FUNNEL_ROUTES = [
     "/api/arb/opportunities",
     "/api/v1/whaleflow",
     "/api/v1/verify-seller",
+    # Buyer-worded aliases (10.11.2026). They front the same handlers at the same
+    # prices, so a sale through one is a sale of the same product — and a paid
+    # route missing from this list is invisible in the funnel, which is exactly
+    # the gap the whale flow left until 13.09. test_dashboard_v2 asserts this list
+    # and main.X402_PAID_ENDPOINTS hold the same paths.
+    "/api/v1/whale-alerts",
+    "/api/v1/trading-signals",
+    "/api/v1/arbitrage-opportunities",
+    "/api/v1/seller-check",
+    "/api/v1/onchain-sales",
 ]
 
 # ── Payment attempts: the four things that can happen to a presented payload ──
