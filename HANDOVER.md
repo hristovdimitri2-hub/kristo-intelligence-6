@@ -519,6 +519,37 @@ Three hypotheses are now excluded BY MEASUREMENT, and the list matters as much a
 probe" (false — CDP's validator fails three ALREADY-LISTED MCP resources identically); "the metadata
 reads as instructions" (reworded, re-crawled, still unlisted).
 
+**PROVEN: the spec shape was the cause.** With `6f808a2` live, one more `get_whale_flow` paid
+through CDP (tx `0xb417ecb8…c9eb`, $0.003, `bazaar: {"status": "processing"}`) and the entry was in
+the catalog **within seconds**:
+
+```
+type=mcp total 511 -> 512
+newest lastUpdated  2026-11-10T07:15:05.725Z   (settlement at 07:14:5x)
+  [mcp] https://kristo-intelligence-api.onrender.com/mcp#get_whale_flow#get_whale_flow
+        description  "Live whale flow: USDC transfers >= $5M on Base ..."
+        accepts[0]   exact / eip155:8453 / 3000
+        bazaar input type='mcp' toolName='get_whale_flow' example={}
+        input keys   [description, example, inputSchema, toolName, transport, type]
+        quality      {"lastCalledAt": "2026-11-10T07:15:05.725Z"}
+```
+
+`_forensics/watch_cdp_mcp_listing.py` caught it on its FIRST sweep, thirteen seconds after the
+settlement — there was no 15-minute wait, and no re-crawl needed. For contrast, the same script sat
+through a full 24-minute window twice (06:00 and 06:45) with `ours=0` while the declaration was
+accepted and the crawler kept visiting. **The declaration was never the problem; the response to the
+crawler was.**
+
+The doubled fragment (`…/mcp#get_whale_flow#get_whale_flow`) is CDP appending `#toolName` to a
+resource URL that already carries it; `mcp.xrpl-utilities.io` has byte-identical doubling on one of
+its listed rows, so it is tolerated and is NOT worth "fixing" by dropping the fragment we need.
+
+**Remaining: the other six tools.** Each needs its own settled CDP payment, exactly as this one did:
+four at $0.005 (`get_market_stats`, `get_onchain_sales`, `get_bot_status`,
+`get_arbitrage_opportunities`), `get_trading_signal` at $0.003, and `verify_seller_receiver` at
+$0.10 — **$0.123 in total**, against a demo balance of 1.702515 USDC. Not yet spent.
+
+
 
 
 
