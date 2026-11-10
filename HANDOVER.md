@@ -1049,51 +1049,113 @@ availability ≈99.95% ✅, health probe ✅, validate 12/12 ✅, agent-ready me
 and 14 distinct external addresses have paid us $0.126 on chain. **No new external
 payer has arrived from any of this work.** Suite 1313.
 
-### 10.11 20:00–21:00 — WHY CDP HAS NEVER SEEN OUR MONEY. Read this first.
+### 10.11 20:00–21:30 — CDP DOES see our money. The rail was never the blocker.
 
 Round 2 left one question open: external payments exist on chain, yet CDP reports
-`payers=1` on every row of ours with last-called equal to our own activity. Both
-cannot describe the same settlements. It is answered now, by our own log.
+`payers=1` on every row of ours. My first answer, written here an hour earlier, was
+that PayAI settles instead of CDP and CDP therefore never sees us. **That answer was
+wrong, and it is left in the git history on purpose.**
 
-The newest external payment (tx `0x2ca6e79f…`, $0.003, 04.11 02:46 UTC):
+It rested on one log line from the newest external payment (tx `0x2ca6e79f…`,
+$0.003, 04.11 02:46 UTC):
 
-    02:46:12 | services.connectors | standard x402 locally verified: payer=0xA19F621581DBc851a21D6179868111709a52aCCC
-    02:46:14 | services.connectors | standard x402 settled via payai: tx=0x2ca6e79f46943070f8d903f028c14fbf72e47bea658358738fa259cd4d882d87
-    02:46:17 | kristo.v6.main       | standard x402 payment settled: tx=0x2ca6e79f… payer=0xA19F621581DBc851a21D61798681…
+    02:46:14 | services.connectors | standard x402 settled via payai: tx=0x2ca6e79f…
 
-**`settled via payai`.** Standard rail, not legacy — but the facilitator was
-**PayAI, not CDP**.
+**One line is not a measurement.** All ten settlements we have in our logs since
+09.11 read `settled via cdp` (09.11: 14:14:39, 15:11:36, 16:29:08, 16:30:11 …;
+10.11: 08:12:53.696, 08:12:57.063, 08:13:00.699, 08:13:04.177). Zero read
+`settled via payai`. The 04.11 line is the only payai settlement in our history and
+predates the verification change.
 
-**Why:** `_DEFAULT_CHAIN` in `services/connectors.py` is `[payai, cdp]` — PayAI
-FIRST, CDP as the transport fallback ("needs CDP API keys (401 without); kept last
-so a deployment with CDP credentials can adopt it"). So by default every payment,
-ours and everyone else's, is settled by PayAI.
+**What the app actually does** (paid call, 10.11 08:12:52–53 UTC,
+`_forensics/render_2026-11-10_0800_0900_rails.txt`):
 
-**Why that is the whole problem.** CDP's catalogue, ranking and curation are
-computed from the settlements CDP processes. While PayAI is first, CDP sees none of
-our traffic — hence `payers=1`, hence no usage accrual, hence the one lever with a
-large measured effect (§12: `curated` rows, 30.8% with ≥20 payers vs 0.76%
-market-wide) is structurally unreachable.
+    x402 rail step challenge_core             0.000s
+    x402 verify step precheck_payment_payload 0.000s
+    x402 verify step _local_recover_signer    0.041s
+    standard x402 locally verified: payer=0xE50c5212… (canonical EIP-712, no facilitator needed for verification)
+    x402 rail step extract_nonce              0.000s
+    x402 rail step find_settlement_by_nonce   0.316s
+    x402 settle phase self-broadcast          0.34s  FAILED — gas wallet 0x9c1eb97e… has 0.00000000 ETH
+    CDP JWT built successfully (kid=organizations/3dc43ce6-0…, PEM=True)
+    x402 settle phase cdp-jwt                 0.11s  ok
+    x402 settle phase cdp-settle              0.64s  ok
+    standard x402 settled via cdp: tx=0xafc230574538924888e313c2e26f3e39a4676d17037868f5d5bf073fe55ed8ad
+    standard x402 payment settled: payer=0xE50c5212… amount=$0.0030
 
-**The switch already exists and is dormant.** `connectors.py`, "Dual-rail CDP
-selection": when BOTH `FACILITATOR_CDP_API_KEY_ID` and
-`FACILITATOR_CDP_API_KEY_SECRET` are present, the chain becomes `[cdp, payai]`.
-Neither is set on Render. The same block says activation is "OUT OF SCOPE and
-separately gated" — which is why this is measured, not flipped.
+Three facts, none of which were known before:
 
-**Measured, with no money moved.** CDP `/verify` (not `/settle`) with a real signed
-EIP-3009 payload in exactly the shape the server sends, using the CDP credentials
-already in `render_env_restore.json`:
+1. **Verification is local.** `_local_recover_signer` and "canonical EIP-712, no
+   facilitator needed for verification". The `[payai, cdp]` chain is about
+   *fact-checking a payload*, and it is no longer even called. It does not describe
+   settlement.
+2. **Self-broadcast has been broken for a long time.** Gas wallet
+   `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd` holds **0.00000000 ETH** (confirmed
+   on Base, not just from the log), so our own broadcast always fails and the flow
+   falls through.
+3. **CDP settles our payments**, successfully, in about a second.
 
-    CDP token: minted, 611 chars  (alg ES256, kid organizations/3dc43ce6…/apiKeys/ad07bd0b…)
-    POST /platform/v2/x402/verify -> HTTP 200
-    {"isValid": true, "payer": "0xE50c5212e8211639C49276dA190E248B83935763"}
+**Corrected reading of `payers=1`.** CDP sees our money; the only payer it has ever
+seen is us. Read from CDP's own free merchant endpoint
+(`GET /platform/v2/x402/discovery/merchant?payTo=0xd4cdA900…`, `_forensics/what_cdp_merchant_knows.py`):
+19 rows, `l30DaysTotalCalls` 1–5 each, **`l30DaysUniquePayers = 1` on every single
+row**, sum 34 calls / 19 "payers" — and that sum is 19×1, not 19 distinct people.
+Rows with ≥2 payers: **zero**. Every `lastCalledAt` coincides to the second with our
+own canaries, paid from `0xE50c5212e8211639C49276dA190E248B83935763` = the demo key.
 
-So the CDP rail accepts our payload. Activating it is two missing environment
-variables, not a hypothesis. `_forensics/would_cdp_settle_for_us.py` reproduces it.
-**Do not flip this without the owner: it changes the settlement path of every
-buyer's payment.** PayAI stays behind CDP, and `X402_FACILITATOR_TIMEOUT` was
-already shortened for the 14 November window, so the fallback risk is bounded.
+So `payers=1` is not a verdict on the rail. It is the exact record of the fact that
+**no external payer has ever settled through CDP** — which is a statement about
+demand, not about plumbing. The two sound alike and lead to opposite decisions.
+
+**What this retracts.** The pending owner decision to activate the dual-rail CDP
+switch is **withdrawn as unnecessary**: the CDP rail is already active and settling,
+and `FACILITATOR_CDP_API_KEY_*` must already be present in the environment, because
+the JWT is built with a real `kid=organizations/3dc43ce6-0…/apiKeys/ad07bd0b…` and
+`PEM=True`. Nothing needed flipping; nothing was flipped.
+
+**What it opens.** Settlement now depends on exactly one outside service, because
+the fallback path is disabled by an empty gas wallet. If CDP is unavailable in the
+14 November window there is no second working path. Funding that address with a
+little ETH restores an independent path — but it spends money and needs the owner.
+
+**And the real conclusion stands unchanged:** the only lever with a large measured
+effect (§12: `curated` rows, 30.8% with ≥20 payers vs 0.76% market-wide) is given
+editorially. What CDP currently sees is the demo key, so from the platform's point
+of view we look like a seller buying from itself.
+
+### 10.11 21:00 — the radar that found us, and the free number it quotes
+
+A forwarded GitHub notification (`Nikolife2016/pulsefeed-x402` issue #3, "radar: N
+веток ждут ответа") is a bot that scans GitHub threads naming x402 endpoints and
+quotes CDP's per-host stats. It mentioned us four times between 03.09 and 09.10,
+always from our own outreach: `kristo-intelligence-api.onrender.com: N листинг(ов)
+в Bazaar, оплаченных вызовов за 30 дней M, уникальных плательщиков K` — it walked
+1 listing/3 calls/1 payer → 2 listings/4 calls/2 payers (+1 listing, +1 payer,
+consistent with 1+1, not with two distinct humans).
+
+**Its numbers come from the endpoint above**, which is free and authoritative; the
+radar is not a new data source, it is a nicer wrapper. `_forensics/what_cdp_merchant_knows.py`
+reads it directly.
+
+Two things it does tell us:
+
+* **Cold GitHub outreach is a saturated, now-filtered channel.** The radar cut us as
+  a bulk mailer in its 10-13 round (`⛔ Отсечено как рассылки: … @hristovdimitri2-hub
+  ×1`), and its own note says keyword arguments were tested on 123 threads, fired 88
+  times, and only 4 were kept. Our September integration suggestion to
+  `AnthonWinther/Trading_bot#1` is still open with no reply.
+* **Neighbour benchmarks, measured by a third party:** `agent402.tools` 539
+  listings / 4,899 calls / 29 payers; `api.clawfetch.ai` 8 / 478 / 14;
+  `api.craigmbrown.com` 31 / 155 / 7; most hosts 1–8 payers. Our own 19 rows sit in
+  the same band. This is the same ceiling §9 states, from a source that is not us.
+
+Also confirmed the same round: the free CDP `/validate` call does **not** credit a
+row (`_forensics/does_validate_inflate_cdp_counts.py`: two rows read 1 call / 1 payer,
+two validations sent, unchanged after ~15 minutes). So CDP's counters are real
+settlements — our own canaries — and not probe noise. And our x402scan listing
+request (`Merit-Systems/x402scan#1270`) has been open since 08.10 with no maintainer
+reply; the only answers are from `lowkeybuilds`, who was right on both counts but is
+selling a $29 "Listing Fix". The diagnosis matched our own measurement; do not buy.
 
 ### 10.11 — two independent measurers, and a correction to the 99.95% above
 
