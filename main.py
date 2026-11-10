@@ -7268,7 +7268,22 @@ def _isolated_store(purpose: str):
                                        # each job its own SQLite handle produced
                                        # `database is locked` on a paid route.
                                        share_sqlite_from=dashboard_db)
-                _isolated_stores[purpose] = store
+                # Keyed by POOL, not by purpose. Reading above is
+                # `_isolated_stores.get(pool)`, so writing `[purpose]` meant the
+                # memo could never hit for the 7 purposes in `_ISOLATION_POOLS`
+                # whose pool name differs from their own — every sentinel beat,
+                # reorg tick and snapshot warm built a FRESH DashboardStore and a
+                # fresh Postgres link while dropping the previous object without
+                # closing it. The log line below is the memo's own proof: a
+                # working cache prints it once per process, and it was printing
+                # 8 times in 7 seconds on one boot and 10 times in 14 minutes.
+                #
+                # This is the failure the pool was introduced to prevent, and it
+                # is the one the comment above describes: a connection per job
+                # exhausts the database's connection limit and the board's build
+                # fails with DatabaseError. Measured 10.11: /api/dashboard/data
+                # answering 500 and the chain monitor's heartbeat frozen.
+                _isolated_stores[pool] = store
                 log.info("isolated store %r: own Postgres link (backend=%s), so "
                          "it cannot contend with the request path",
                          purpose, store.backend)
