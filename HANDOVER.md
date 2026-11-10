@@ -480,21 +480,45 @@ nothing about eligibility** and it must not be quoted as the reason we are absen
 
 **Where that leaves the question.** After 24 minutes (`_forensics/watch_cdp_mcp_listing.py`,
 sweeping every 3 minutes) the catalog still held exactly **511 `type=mcp` rows and 0 quoting our
-receiver**. So, measured: the facilitator ACCEPTED the declaration, their crawler CRAWLED us, and
-the catalog did not take the entry. The next candidate is the one the docs describe as silently
-fatal — the [metadata content policy](https://docs.cdp.coinbase.com/x402/seller/get-discovered):
-the Bazaar refuses metadata that "could instruct an agent instead of describing the endpoint", and
-a screened-out resource is simply not listed, with no error anywhere. Our challenge text is
-literally an instruction to an agent:
+receiver**.
 
-```
-Tool 'get_market_stats' is pay-per-call via x402: send 0.005 USDC on 8453 to
-0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f, then call https://…/api/stats with the payment header.
-```
+### 10.11 07:05 — THE CAUSE, and it is a spec MUST we were violating
 
-That wording is a plausible trigger and it is entirely in our control. It is a HYPOTHESIS, not a
-measurement — testing it costs one more $0.003 settlement after rewording, and it has not been
-run.
+The metadata-tone hypothesis was tested and excluded: the wording was rewritten to describe rather
+than instruct (commit `c8c24c7`), the deploy went live, CDP settled a second MCP payment
+(tx `0xf96b3a71…3a47`, $0.003) and their crawler came back — and 24 minutes later the catalog still
+held 511 rows and none of ours.
+
+What was left was the SPEC. `specs/transports-v2/mcp.md`, "Payment Required Signaling", uses MUST:
+
+> When a tool requires payment, servers MUST return a tool result with **`isError: true`**
+> containing the PaymentRequired data.
+>
+> Servers MUST provide the PaymentRequired in both formats:
+> 1. **`structuredContent`** (REQUIRED): Direct PaymentRequired object
+> 2. **`content[0].text`** (REQUIRED): JSON-encoded string of the same PaymentRequired object
+
+**We satisfied neither.** Measured live, an unpaid `tools/call` returned result keys
+`['content', 'structuredContent']` — no `isError` — with `content[0].text` a human sentence and the
+challenge pushed into `content[1]`. To anything checking the documented signal, our unpaid call was
+indistinguishable from a **successful** tool call, and Coinbase states the consequence in the same
+breath: "if the tool returns success instead of a payment challenge, Bazaar cannot index the tool."
+
+**The fix (`6f808a2`).** `content[0]` is now the JSON PaymentRequired, byte-identical to
+`structuredContent`'s `accepts`; the human sentence moved to `content[1]`; the challenge result
+carries `isError: true`. `x402` stays in `structuredContent` for clients already reading it.
+
+`test_mcp_streamable_tools_call_returns_payment_instructions_not_execution` had pinned the OLD shape
+(asserting "USDC" in `content[0].text`, i.e. the sentence first) — it was replaced with a stronger
+assertion of the mandated shape rather than relaxed: `isError is True`, `content[0]` parses as the
+PaymentRequired, its `accepts` equal `structuredContent`'s, and the sentence survives at
+`content[1]`. Suite 1,277 passed.
+
+Three hypotheses are now excluded BY MEASUREMENT, and the list matters as much as the finding:
+"their MCP crawl is frozen" (false — it runs on settlement); "we must answer HTTP 402 on a bare
+probe" (false — CDP's validator fails three ALREADY-LISTED MCP resources identically); "the metadata
+reads as instructions" (reworded, re-crawled, still unlisted).
+
 
 
 
