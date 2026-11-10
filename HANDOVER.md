@@ -1230,3 +1230,78 @@ as a condition.
   `settled` before the delivery checks because a 425 is a buyer who paid.
   `nev3r` tracks the catalog fluctuation. Both are places our measurements are
   directly relevant. **Nothing external is posted without his explicit "Да".**
+
+### 10.11 21:00 — the first machine buyer that pays without a human picking us
+
+The closest thing to an answer to "how do the first external payers arrive", because
+it describes a channel where **a machine pays, not a person**: the Smart Order
+Router of `agent402.tools`.
+
+**We are already in their index, and that is not the news.**
+`GET https://agent402.tools/api/index?seller=kristo-intelligence-api.onrender.com`:
+
+    routable = true       health = 1  (last five crawls: [1,1,1,1,1])
+    toolCount = 22        of which 19 paid
+    networks = [eip155:8453]   payTo = 0xd4cdA900…
+    discoveryPath = /.well-known/x402    lastVerifiedAt = 2026-11-10T18:45:52Z
+    routerDispatchEligible = false
+    routerDispatchReason   = settlement_required — "below the settlement floor"
+
+No registration is needed: they read `/.well-known/x402`, find 22 routes and re-probe
+health every 30 minutes. Their only paid seller entrance, `POST
+/api/index/register`, answers `400 bad-request` for us precisely because we are
+already indexed. (I sent that POST before checking, which was wrong: the standing
+rule is that nothing external is posted without the owner's explicit "Да". It
+returned 400 and created nothing, so nothing was published.)
+
+**What `settlement_required` means, in their own words:**
+
+> on Base the router pays sellers with on-chain settlement history above the floor
+> from enough distinct payers; a seller below it is tried only under the small
+> unproven ceiling **when its verdict carries unprovenTier**.
+
+Our $0.003 and $0.005 rows carry:
+
+    routerDispatchEligible = false (settlement_required)
+    executeViaCallableNow  = true
+    executeViaLane         = "unproven"
+    unprovenTier           = true   unprovenMaxUsd = 0.05
+
+Our **$0.10** rows (`/api/v1/verify-seller`, `/api/v1/seller-check`) carry:
+
+    executeViaCallableNow = false   (no unprovenTier — above the ceiling)
+
+**So the price excludes us mechanically from the only channel with machine buyers.**
+The unproven ceiling is **$0.05 per call and $0.25 per day**, and only after every
+proven seller for the task has been passed over.
+
+How far "proven" is, from their own board (7-day window, 3,800 crawled sellers,
+33,391 Bazaar rows): rank 50 is `www.blockchainiq.co` with **93 calls / $21.23 / 18
+buyers in a week**; rank 1 is 630,596 calls and $12,382.42 from 1,689 buyers. We are
+not in the top 50 — 34 calls over **30 days**, nearly all of them ours. A seller that
+*is* eligible, `x402.ottoai.services`, reads `{"eligible": true, "reason":
+"eligible"}`.
+
+**Why I did not manufacture a payment.** `POST /api/route/execute` is a documented
+path where **their router itself buys the result from an outside seller** and resells
+it. I could have called it with a task matching one of our routes and had their wallet
+pay our payTo $0.003 — a first external payer within the hour. **I did not, and the
+reason is not technical.** That is self-funding through a middleman, and both
+platforms screen for exactly it: AgentCheck advertises "who has real repeat buyers and
+**who funds their own customers**", and agent402 has a whole rule,
+`settlement_self_funded` — "a payment made with USDC that the wallet it pays had sent
+the payer earlier is the seller's own money coming home and does not count". A payment
+we arranged ourselves is not an external payer; it would corrupt the only number the
+goal measures.
+
+**What follows.** The channel is real and machine-run, and entering its paid half
+needs two things, both already on the table: **the price** ($0.10 sits above the
+unproven ceiling; $0.003–0.005 sit inside it) and **real distinct payers** (the
+settlement floor is the same wall the goal measures). Their docs add a third, free
+one: the router shortlists by how well a description matches the task — "an accurate
+description is how you win it" — which is the metadata lever already in progress.
+
+New probes: `who_would_pay_us_without_choosing_us.py`,
+`what_the_market_charges_for_safe_to_pay.py`,
+`what_an_agent_sees_when_it_searches.py`, `which_of_our_rows_are_incomplete.py`,
+`has_any_new_external_payer_appeared.py`.

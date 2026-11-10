@@ -628,6 +628,96 @@ standard x402 payment settled: payer=0xE50c5212… amount=$0.0030
 затворен — той е „в момента здрав, исторически под прага“, и 30-дневното число
 ще се вдигне само ако 07–08.11 остареят без нов инцидент.
 
+## 17. Първият машинен купувач, който плаща без човек да ни избере (2026-11-10)
+
+Това е най-близкото до отговора на въпроса „как се печелят първите външни платци“,
+защото описва канал, в който **плаща машина, а не човек**: Smart Order Router на
+`agent402.tools`.
+
+### 17.1. Вече сме в индекса им, и това не е новината
+
+`GET https://agent402.tools/api/index?seller=kristo-intelligence-api.onrender.com`:
+
+```
+routable = true          health = 1 (последните 5 обхождания: [1,1,1,1,1])
+toolCount = 22           от тях платени 19
+networks = [eip155:8453] payTo = 0xd4cdA900…
+discoveryPath = /.well-known/x402     lastVerifiedAt = 2026-11-10T18:45:52Z
+routerDispatchEligible = false
+routerDispatchReason   = settlement_required — "below the settlement floor"
+```
+
+Регистрация не е нужна: обхождат `/.well-known/x402`, откриват 22 маршрута и
+проверяват живостта на всеки 30 минути. Единственият им платен вход за продавач е
+`POST /api/index/register`, който при нас връща `400 bad-request` — защото вече
+сме в индекса.
+
+### 17.2. Какво значи `settlement_required`
+
+От тяхната собствена легенда:
+
+> on Base the router pays sellers with on-chain settlement history above the floor
+> from enough distinct payers; a seller below it is tried only under the small
+> unproven ceiling **when its verdict carries unprovenTier**.
+
+Ред по ред, нашите $0.003 и $0.005 маршрути носят:
+
+```
+routerDispatchEligible      = false   (reason: settlement_required)
+executeViaCallableNow       = true
+executeViaLane              = "unproven"
+unprovenTier                = true    unprovenMaxUsd = 0.05
+```
+
+А нашите **$0.10** маршрути (`/api/v1/verify-seller`, `/api/v1/seller-check`) носят:
+
+```
+executeViaCallableNow = false      (без unprovenTier — над тавана)
+```
+
+**Тоест: цената от $0.10 ни изключва механично от единствения канал с машинни
+купувачи.** Прагът за непроверен продавач е **$0.05 на повикване и $0.25 на ден**,
+и то само след като всички проверени продавачи за задачата са пропуснати.
+
+Класацията им (7-дневен прозорец, 3 800 обхождани продавача, 33 391 реда в Bazaar)
+показва колко далеч е „проверен“: 50-ото място е `www.blockchainiq.co` с **93
+повиквания / $21,23 / 18 купувача** за седмица, а първото — 630 596 повиквания и
+$12 382 с 1 689 купувача. Ние не сме в топ 50 (34 повиквания за **30 дни**, почти
+всичките наши собствени).
+
+За сравнение, продавач, който е `eligible: true` — `x402.ottoai.services`, 74
+маршрута, `{"eligible": true, "reason": "eligible"}`.
+
+### 17.3. Защо не предизвиках плащане изкуствено
+
+`POST /api/route/execute` е документиран канал, при който **техният рутер сам
+купува резултата от външен продавач** и ни го препродава. Технически можех да го
+извикам със задача, която съвпада с наш маршрут, и рутерът да плати на нашия payTo
+$0.003 — първи външен платец за деня.
+
+**Не го направих, и причината е принципна.** Това е самофинансиране през
+посредник, а и двете платформи го проверяват изрично: AgentCheck рекламира
+„who has real repeat buyers and **who funds their own customers**“, а agent402 има
+цяло правило `settlement_self_funded` — „a payment made with USDC that the wallet
+it pays had sent the payer earlier is the seller's own money coming home and does
+not count“. Плащане, което сме си организирали сами, не е външен платец; то би
+замърсило единственото число, което целта мери.
+
+### 17.4. Какво следва от това
+
+Каналът е реален и е машинен — `/api/route/execute` плаща на външни продавачи със
+свой портфейл. За да влезем в платената му част, трябват две неща, и двете вече са
+на масата:
+
+1. **цената** — $0.10 е над тавана на непроверения слой; $0.003–0.005 са в него;
+2. **истински различни платци** — „settlement floor“ е същият зид, който мери и
+   целта.
+
+Успоредно: тяхната документация казва, че рутерът подрежда по **съвпадение на
+описанието със задачата** — „an accurate description is how you win it“. Тоест
+описанията са лостът, който вече сме започнали да оправяме, а не нов.
+
+
 
 
 
