@@ -59,13 +59,38 @@ def test_mcp_streamable_ping(client):
 
 
 def test_mcp_streamable_tools_call_returns_payment_instructions_not_execution(client):
+    """The unpaid challenge, in the shape specs/transports-v2/mcp.md MANDATES.
+
+    This test used to assert that `content[0].text` contained "x402" and "USDC" —
+    i.e. that the human sentence came first. The spec says otherwise and says it
+    as a MUST: `content[0].text` is the JSON-encoded PaymentRequired, and the
+    result carries `isError: true`. That is not cosmetic here: an unpaid call
+    without `isError` is indistinguishable from a SUCCESSFUL tool call, and
+    Coinbase's "Get discovered" states the consequence plainly — "if the tool
+    returns success instead of a payment challenge, Bazaar cannot index the
+    tool". The old assertion was therefore locking in the very shape that kept
+    our seven tools out of the catalog, so it is replaced rather than relaxed.
+    """
     r = _post(client, {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                        "params": {"name": "get_market_stats", "arguments": {}}})
     assert r.status_code == 200
     body = r.get_json()["result"]
-    text = body["content"][0]["text"]
-    assert "x402" in text and "USDC" in text
-    # The paid endpoint is NOT executed here — the tool points at the 402 flow.
+
+    # 1. the documented signal: NOT a success
+    assert body["isError"] is True, (
+        "an unpaid call must be an error result, or an indexer reads it as a "
+        "successful tool call")
+
+    # 2. content[0] IS the PaymentRequired, byte-identical to structuredContent
+    challenge = json.loads(body["content"][0]["text"])
+    assert challenge["x402Version"] == 2
+    assert challenge.get("accepts"), "the challenge must carry payable terms"
+    assert challenge["accepts"] == body["structuredContent"]["accepts"]
+
+    # 3. the human sentence is still there, for humans
+    assert any("USDC" in c.get("text", "") for c in body["content"][1:])
+
+    # The paid endpoint is NOT executed here — x402 keeps pointing at the route.
     assert body["structuredContent"]["x402"]["endpoint"].endswith("/api/stats")
 
 

@@ -2427,6 +2427,26 @@ def _mcp_dispatch(body):
         # endpoint stay machine-readable in `x402` and in the `accepts` block
         # below, and the full challenge is still repeated as text for clients that
         # read only content[].
+        # THE SPEC SHAPE, and this is the fix for the missing listing.
+        #
+        # specs/transports-v2/mcp.md, "Payment Required Signaling", is a MUST:
+        #
+        #   "When a tool requires payment, servers MUST return a tool result with
+        #    `isError: true` containing the PaymentRequired data."
+        #   "Servers MUST provide the PaymentRequired in both formats:
+        #     1. structuredContent (REQUIRED): Direct PaymentRequired object
+        #     2. content[0].text (REQUIRED): JSON-encoded string of the same
+        #        PaymentRequired object"
+        #
+        # We satisfied neither. Measured live before this change: the result had
+        # only ['content', 'structuredContent'] — NO isError — and content[0].text
+        # was a human sentence with the challenge relegated to content[1]. To
+        # anything checking the documented signal, an unpaid call looked like a
+        # SUCCESSFUL tool call, and Coinbase says plainly what that costs: "if the
+        # tool returns success instead of a payment challenge, Bazaar cannot index
+        # the tool". That matches every measurement we have — CDP accepted the
+        # declaration (`bazaar: processing`), its crawler hit /mcp six times, and
+        # the catalog still gained nothing.
         tool_text = (
             f"Payment required. Tool '{name}' is billed per call in USDC on "
             f"chain {x.get('chain_id')} via x402, at the price stated in this "
@@ -2449,12 +2469,17 @@ def _mcp_dispatch(body):
             }
         if payment_required is not None:
             # `x402` above is kept for clients already reading it; the canonical
-            # object is added alongside, AND repeated as text, because a client
-            # that only reads content[] must still be able to pay.
+            # object is added alongside. content[0] is the JSON, as the spec
+            # requires, and the sentence moves to second place — a client that
+            # reads only content[] still finds the challenge, and now at the index
+            # it is specified to look at.
             structured.update(payment_required)
-            content.append({"type": "text",
-                            "text": json.dumps(payment_required)})
-        result = {"content": content, "structuredContent": structured}
+            content = [{"type": "text", "text": json.dumps(payment_required)},
+                       {"type": "text", "text": tool_text}]
+            result = {"content": content, "structuredContent": structured,
+                      "isError": True}
+        else:
+            result = {"content": content, "structuredContent": structured}
     else:
         return "response", {"jsonrpc": "2.0", "id": msg_id,
                             "error": {"code": -32601,
