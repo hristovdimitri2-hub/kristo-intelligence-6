@@ -1305,3 +1305,69 @@ New probes: `who_would_pay_us_without_choosing_us.py`,
 `what_the_market_charges_for_safe_to_pay.py`,
 `what_an_agent_sees_when_it_searches.py`, `which_of_our_rows_are_incomplete.py`,
 `has_any_new_external_payer_appeared.py`.
+
+### 10.11, later — CORRECTION: the price is NOT the gate, and our own money buys nothing
+
+The paragraph above ends "**So the price excludes us mechanically from the only
+channel with machine buyers**", and lists the price as the first of two levers.
+**That is wrong. Retracted, in writing, the same day.**
+
+The router honours `top: 25` (it ignores `limit: 25`) and then returns 25 candidates
+instead of 5 — enough to see not just who wins but the flag each row carries. With
+`top: 50`, our own rows:
+
+| task | our rank | price | `routerDispatchEligible` |
+|---|---|---|---|
+| live DeFi trading signal for ETH | **1/5** | $0.003 | **false** |
+| arbitrage spreads between Base DEX venues | **1/5** | $0.005 | **false** |
+| audit incoming USDC payments of any Base address | **1/5** | $0.10 | false |
+| is this x402 seller really being paid… | **1/5** | $0.10 | false |
+| on-chain USDC sales and revenue history | 3/5 | $0.005 | **false** |
+| verify a seller before paying it on Base | 5/5 | $0.10 | false |
+
+Three first places, three price points, six times `settlement_required`.
+
+Three independent measurements say price decides nothing:
+
+1. our **$0.003** row ranks **#1** and is still `false` — a $0.05 ceiling would
+   have let it through;
+2. across 200 rows from 8 tasks, **ten price points carry both verdicts** — $0.001,
+   $0.002, $0.003, $0.005, $0.01, $0.02, $0.03, $0.05, $0.10, $0.15 each have
+   `eligible: true` *and* `eligible: false` rows;
+3. **five `eligible: true` rows have exactly ONE payer** — `insider` on FilingsPulse
+   is $0.10 with 1 payer and 14 calls, the same price as our excluded
+   `verify-seller`; and `eligible: false` rows run up to **304 payers**. So the count
+   is not the gate either.
+
+**Our own payments buy nothing.** Traced on Base over the last 800,000 blocks:
+
+    payer -> receiver    47 payments, 0.7590 USDC, blocks 55,082,300 .. 55,712,490
+    receiver -> payer     0
+    anyone -> payer       0     (the demo wallet received no USDC in this window)
+    anyone -> receiver   47     every one of them from the demo key 0xE50c5212…
+
+So the literal reading of `settlement_self_funded` ("the receiver had sent the payer
+the money") does **not** explain the refusal — no such transfer exists. The
+conclusion is worse than the explanation: **47 self-payments, zero open gate.**
+Whatever the condition is, it does not count our own money and cannot be bought with
+it.
+
+**What follows.** The retraction above removes a planned fix: a $0.005 pilot would
+not make `verify-seller` routable, because our $0.003 row is already #1 and still
+excluded. The router is a real machine channel and **already ranks us first for 4 of
+10 real tasks**, but will not execute to us, and the gate is a quality of settlement
+history that **cannot be self-manufactured**. Therefore the first external payer
+cannot come from the router. It has to come from a surface that does **not**
+pre-check our history and instead selects by name and description: CDP catalogue
+search, `x402scan`, AgentCheck. There we already rank #1 for our own name and are
+absent for the words buyers type — that lever is the one that stays.
+
+The price question does not disappear, it changes role: it does not open the machine
+channel, it decides whether a buyer picks us in the catalogue, where 163 competitors
+for "is it safe to pay" have a median of $0.010 and we ask $0.10.
+
+New probes: `why_the_whale_alias_never_surfaces.py`,
+`what_opens_the_settlement_floor.py`, `is_our_payer_our_own_money.py`,
+`who_funded_the_demo_wallet.py`; data in `agent402_route_top50.json` and
+`who_funded_the_demo_wallet.json`.
+
