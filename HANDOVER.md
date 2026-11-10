@@ -544,10 +544,40 @@ The doubled fragment (`…/mcp#get_whale_flow#get_whale_flow`) is CDP appending 
 resource URL that already carries it; `mcp.xrpl-utilities.io` has byte-identical doubling on one of
 its listed rows, so it is tolerated and is NOT worth "fixing" by dropping the fragment we need.
 
-**Remaining: the other six tools.** Each needs its own settled CDP payment, exactly as this one did:
-four at $0.005 (`get_market_stats`, `get_onchain_sales`, `get_bot_status`,
-`get_arbitrage_opportunities`), `get_trading_signal` at $0.003, and `verify_seller_receiver` at
-$0.10 — **$0.123 in total**, against a demo balance of 1.702515 USDC. Not yet spent.
+**Remaining: the other six tools.** Each needed its own settled CDP payment, exactly as this one did
+— and all six were done on 10.11 with `_forensics/cdp_mcp_settle_six.py` (dry run by default,
+`--send` to spend; the paid call's `arguments` are the tool's own declared `example`, which is
+exactly what the crawler sends). Cost: four at $0.005 (`get_market_stats`, `get_onchain_sales`,
+`get_bot_status`, `get_arbitrage_opportunities`), `get_trading_signal` at $0.003 and
+`verify_seller_receiver` at $0.10 — **$0.123**.
+
+**ALL SEVEN ARE LISTED IN THE CDP MCP CATALOG.** Verified from outside, sweeping every page of
+`type=mcp`:
+
+```
+07:23:27  total=512  ours=1  ['get_whale_flow']
+07:26:02  total=518  ours=7
+
+toolName                         amount   type  example  lastUpdated
+get_market_stats                   5000   mcp   {}       2026-11-10T07:17:16.070Z
+get_onchain_sales                  5000   mcp   {}       2026-11-10T07:17:24.360Z
+get_bot_status                     5000   mcp   {}       2026-11-10T07:17:29.201Z
+get_arbitrage_opportunities        5000   mcp   {}       2026-11-10T07:17:33.484Z
+get_trading_signal                 3000   mcp   {}       2026-11-10T07:17:37.392Z
+verify_seller_receiver           100000   mcp   yes      2026-11-10T07:17:42.397Z
+get_whale_flow                     3000   mcp   {}       2026-11-10T07:15:05.725Z
+```
+
+Indexing took about **three minutes** for the six (not the 15 the docs allow), and 13 seconds for
+the first one. Total demo-wallet cost of the whole CDP MCP exercise: **$0.132** (three $0.003
+diagnostic settlements + $0.123 to list the six), balance 1.702515 → **1.579515 USDC**.
+
+A NOTE ON THE TIMEOUT THAT ENDED THAT RUN: `cdp_mcp_settle_six.py` died with a read timeout while
+verifying the LAST settlement's nonce, i.e. AFTER all six payments had been made. The money is what
+settles that question — exactly $0.123 had left the wallet, matching the six prices and nothing else
+— so nothing was retried blindly, and the catalog then showed all six rows. Recovering a lost run by
+measuring the wallet first is the pattern to keep: a read timeout is not a failed payment.
+
 
 
 
