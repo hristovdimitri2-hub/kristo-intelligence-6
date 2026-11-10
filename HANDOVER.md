@@ -1049,6 +1049,77 @@ availability ≈99.95% ✅, health probe ✅, validate 12/12 ✅, agent-ready me
 and 14 distinct external addresses have paid us $0.126 on chain. **No new external
 payer has arrived from any of this work.** Suite 1313.
 
+### 10.11 20:00–21:00 — WHY CDP HAS NEVER SEEN OUR MONEY. Read this first.
+
+Round 2 left one question open: external payments exist on chain, yet CDP reports
+`payers=1` on every row of ours with last-called equal to our own activity. Both
+cannot describe the same settlements. It is answered now, by our own log.
+
+The newest external payment (tx `0x2ca6e79f…`, $0.003, 04.11 02:46 UTC):
+
+    02:46:12 | services.connectors | standard x402 locally verified: payer=0xA19F621581DBc851a21D6179868111709a52aCCC
+    02:46:14 | services.connectors | standard x402 settled via payai: tx=0x2ca6e79f46943070f8d903f028c14fbf72e47bea658358738fa259cd4d882d87
+    02:46:17 | kristo.v6.main       | standard x402 payment settled: tx=0x2ca6e79f… payer=0xA19F621581DBc851a21D61798681…
+
+**`settled via payai`.** Standard rail, not legacy — but the facilitator was
+**PayAI, not CDP**.
+
+**Why:** `_DEFAULT_CHAIN` in `services/connectors.py` is `[payai, cdp]` — PayAI
+FIRST, CDP as the transport fallback ("needs CDP API keys (401 without); kept last
+so a deployment with CDP credentials can adopt it"). So by default every payment,
+ours and everyone else's, is settled by PayAI.
+
+**Why that is the whole problem.** CDP's catalogue, ranking and curation are
+computed from the settlements CDP processes. While PayAI is first, CDP sees none of
+our traffic — hence `payers=1`, hence no usage accrual, hence the one lever with a
+large measured effect (§12: `curated` rows, 30.8% with ≥20 payers vs 0.76%
+market-wide) is structurally unreachable.
+
+**The switch already exists and is dormant.** `connectors.py`, "Dual-rail CDP
+selection": when BOTH `FACILITATOR_CDP_API_KEY_ID` and
+`FACILITATOR_CDP_API_KEY_SECRET` are present, the chain becomes `[cdp, payai]`.
+Neither is set on Render. The same block says activation is "OUT OF SCOPE and
+separately gated" — which is why this is measured, not flipped.
+
+**Measured, with no money moved.** CDP `/verify` (not `/settle`) with a real signed
+EIP-3009 payload in exactly the shape the server sends, using the CDP credentials
+already in `render_env_restore.json`:
+
+    CDP token: minted, 611 chars  (alg ES256, kid organizations/3dc43ce6…/apiKeys/ad07bd0b…)
+    POST /platform/v2/x402/verify -> HTTP 200
+    {"isValid": true, "payer": "0xE50c5212e8211639C49276dA190E248B83935763"}
+
+So the CDP rail accepts our payload. Activating it is two missing environment
+variables, not a hypothesis. `_forensics/would_cdp_settle_for_us.py` reproduces it.
+**Do not flip this without the owner: it changes the settlement path of every
+buyer's payment.** PayAI stays behind CDP, and `X402_FACILITATOR_TIMEOUT` was
+already shortened for the 14 November window, so the fallback risk is bounded.
+
+### 10.11 — two independent measurers, and a correction to the 99.95% above
+
+Registered on **x402dash** (`POST https://api.x402dash.com/v1/register`), where
+1,895 providers existed and none was ours (`/v1/providers?q=kristo` → 0). First
+four endpoints accepted, HTTP 201, `verified: true`; the rest wait on the
+documented 5/hour/IP limit — `_forensics/register_on_x402dash.py N` continues it.
+
+**x402-list.com has indexed us since 2026-10-29** and publishes independent
+numbers: compliance **A, 14/14 checks, none failed**; `payment_ready: true`;
+`verified: false` (their FORTE tier is *they* pay a real x402 call — 13 of 1,271
+services have it); `reliability_uptime_30d: **98.6%**`.
+
+Day by day: **11-09 and 11-10 are 100%**; the entire deficit is **11-07 (92.13%)
+and 11-08 (89.39%)** — the SQLite/dashboard incident days, before the fixes. Their
+probe runs every ~16 minutes (67-90/day), so 8-second OOM restarts are essentially
+never caught; those two days were ~2 hours of real outage each.
+
+**Correction to the section above:** "availability ≈ 99.95%, the memory leak is not
+what blocks curation" was a one-day, 70-minute sample. A third party measures
+**98.6% over 30 days**. The honest statement is narrower and more useful: we are at
+100% today and yesterday, and we sit below 99% because of two specific days that
+predate the fixes. The memory question is not closed — it is "currently healthy,
+historically below the bar", and the 30-day number only climbs if 07-08.11 age out
+without a new incident.
+
 ## Hard-won facts — do not relearn these
 
 - **`accepted` (singular, ONE OBJECT) must travel in the payment payload.** A
