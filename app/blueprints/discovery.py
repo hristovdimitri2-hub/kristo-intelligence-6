@@ -2240,11 +2240,16 @@ def _mcp_dispatch(body):
                 "version": SERVICE_VERSION,
                 "title": "Kristo Intelligence — DeFi signals (x402/USDC on Base)",
             },
+            # SAME REASON AS THE TOOL TEXT BELOW: this string is discovery
+            # metadata the Bazaar screens, and the previous wording was an
+            # instruction ("pay the exact USDC amount to the listed receiver and
+            # retry the target endpoint with the payment header"). It now states
+            # the same facts as a description of the service.
             "instructions": (
-                "Kristo Intelligence — paid DeFi signals on Base. Tools "
-                "advertise their x402 price; pay the exact USDC amount to "
-                "the listed receiver and retry the target endpoint with "
-                "the payment header."
+                "Kristo Intelligence — paid DeFi signals on Base, billed per "
+                "call in USDC via x402. Each tool's x402 metadata states its "
+                "price, network, receiver and asset; an unpaid call returns the "
+                "payment requirements this server accepts."
             ),
         }
     elif method == "ping":
@@ -2404,12 +2409,29 @@ def _mcp_dispatch(body):
             logging.getLogger(__name__).debug(
                 "MCP %s: could not build x402 terms: %s", name, exc)
 
+        # DESCRIBES, DOES NOT INSTRUCT — load-bearing, not politeness.
+        #
+        # This is the text the Bazaar's crawler reads when it calls the tool with
+        # the declared `example`, and the metadata content policy refuses text
+        # that "could instruct an agent instead of describing the endpoint" — with
+        # no error anywhere, just a resource that never appears. Measured 10.11:
+        # CDP ACCEPTED our declaration (`bazaar: processing`), their crawler hit
+        # this endpoint six times, and 24 minutes later the catalog still held 0
+        # of our rows. The old wording was the shape that policy screens for:
+        #
+        #     "is pay-per-call via x402: send 0.005 USDC on 8453 to 0xd4cd…, then
+        #      call https://…/api/stats with the payment header."
+        #
+        # an amount, a receiver and a URL delivered as orders to the reader.
+        # Nothing is LOST by rewording: the price, receiver, chain, asset and
+        # endpoint stay machine-readable in `x402` and in the `accepts` block
+        # below, and the full challenge is still repeated as text for clients that
+        # read only content[].
         tool_text = (
-            f"Tool '{name}' is pay-per-call via x402: send "
-            f"{x.get('price_usdc')} USDC on {x.get('chain_id')} "
-            f"to {x.get('receiver')}, then call "
-            f"{x.get('endpoint')} with the payment header. "
-            "The 402 challenge at that endpoint is self-describing."
+            f"Payment required. Tool '{name}' is billed per call in USDC on "
+            f"chain {x.get('chain_id')} via x402, at the price stated in this "
+            "response's payment requirements. The accepted payment terms are "
+            "carried in the structured content below."
         )
         content = [{"type": "text", "text": tool_text}]
         structured = {"x402": x}
