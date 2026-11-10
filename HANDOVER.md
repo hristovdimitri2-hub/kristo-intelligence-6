@@ -423,6 +423,81 @@ live, **$0.003 + $0.123** for the seven PayAI listings. Tooling:
 `payai_mcp_verify_probe.py`, `payai_mcp_settle_row.py`, `payai_mcp_row_check.py`,
 `payai_mcp_list_all.py`.
 
+### 10.11 06:00 — CORRECTION: CDP's MCP half is NOT frozen. It indexes on settlement.
+
+The heading above says "CDP's MCP half is frozen". **That was an inference, not a measurement, and
+it is wrong.** Two pieces of evidence overturn it, both from a single CDP-settled MCP payment.
+
+**1. CDP's indexer crawls us the instant a payment settles through CDP.** In the server log, in the
+same second as the settlement:
+
+```
+05:57:19 2026-11-10 05:57:19,431 INFO  services.connectors | standard x402 settled via cdp:
+         tx=0xdb7ccdcfeba1516a542bef65977e615472d0c157ce60b06fbcf685c9323f3dc1
+05:57:19 10.195.116.51 POST /mcp 200  95  "CoinbaseBazaarDiscovery/1.0"
+05:57:19 10.193.30.153 POST /mcp 200 436  "CoinbaseBazaarDiscovery/1.0"
+05:57:19 10.193.30.153 GET  /mcp 200 325  "CoinbaseBazaarDiscovery/1.0"
+05:57:20 10.194.107.244 POST /mcp 202  0  "CoinbaseBazaarDiscovery/1.0"
+05:57:20 10.195.135.23 POST /mcp 200 6060 "CoinbaseBazaarDiscovery/1.0"
+05:57:20 10.194.107.244 POST /mcp 200 5318 "CoinbaseBazaarDiscovery/1.0"
+```
+
+`CoinbaseBazaarDiscovery/1.0` is their crawler, and it reached our MCP endpoint six times. An
+indexer that has not run since 08.11 23:36 cannot do that. **The reason our tools were absent is
+that no MCP payment had ever been settled through the CDP facilitator** — our earlier MCP
+settlements went through PayAI, and each index only lists what its own facilitator processed.
+
+**2. CDP ACCEPTS our declaration.** The settle answered
+`EXTENSION-RESPONSES: {"bazaar": {"status": "processing"}}` — accepted, not `rejected`, with no
+`rejectedReason`. So the MCP-shaped declaration (`type: "mcp"`, `toolName`, `transport`,
+`example`, `inputSchema`, `bazaar.schema`) is valid as far as CDP is concerned, and the docs'
+`input.example` trap that closed [issue #4075](https://github.com/x402-foundation/x402/issues/4075)
+is one we do not fall into.
+
+The payment: one `get_whale_flow` call, **$0.003** (1.711515 → 1.708515 USDC), settled via the CDP
+rail in 1.07 s, tool served 50 whales. Tooling: `_forensics/cdp_mcp_settle_decisive.py` (dry run by
+default, `--send` to spend), `_forensics/watch_cdp_mcp_listing.py`.
+
+**Still true, but NOT a cause: CDP's validation endpoint fails our MCP resource on its REQUIRED
+checks — and it fails every listed MCP resource the same way.** `POST
+https://api.cdp.coinbase.com/platform/v2/x402/validate` (free, no key) with `resource=…/mcp`
+reports `returns_402` failed (we answer 200/400, never 402 with a `PAYMENT-REQUIRED` header) and
+`bazaarExtension: null`.
+
+SUPERSEDED, and the correction matters: I first read that as the cause. It is not. The same
+validator, run against three resources that ARE listed in CDP's MCP catalog, fails identically:
+
+```
+https://mcp.xrpl-utilities.io/mcp     POST returns_402 passed=False actual=406  bazaarExtension=null
+https://x402.magneta.finance/mcp      POST returns_402 passed=False actual=406  bazaarExtension=null
+https://api.crawlwitness.com/mcp      POST returns_402 passed=False actual=400  bazaarExtension=null
+```
+
+`mcp.xrpl-utilities.io` is the project whose issue #4075 was closed as solved — it is IN the
+catalog with 6+ tools. So `returns_402` is not a gate for MCP resources, `bazaarExtension: null` is
+simply what this endpoint says about MCP, and the validator is HTTP-shaped. **Failing it proves
+nothing about eligibility** and it must not be quoted as the reason we are absent.
+
+**Where that leaves the question.** After 24 minutes (`_forensics/watch_cdp_mcp_listing.py`,
+sweeping every 3 minutes) the catalog still held exactly **511 `type=mcp` rows and 0 quoting our
+receiver**. So, measured: the facilitator ACCEPTED the declaration, their crawler CRAWLED us, and
+the catalog did not take the entry. The next candidate is the one the docs describe as silently
+fatal — the [metadata content policy](https://docs.cdp.coinbase.com/x402/seller/get-discovered):
+the Bazaar refuses metadata that "could instruct an agent instead of describing the endpoint", and
+a screened-out resource is simply not listed, with no error anywhere. Our challenge text is
+literally an instruction to an agent:
+
+```
+Tool 'get_market_stats' is pay-per-call via x402: send 0.005 USDC on 8453 to
+0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f, then call https://…/api/stats with the payment header.
+```
+
+That wording is a plausible trigger and it is entirely in our control. It is a HYPOTHESIS, not a
+measurement — testing it costs one more $0.003 settlement after rewording, and it has not been
+run.
+
+
+
 ### 09.11 20:00–20:35 — „таблото да е активно винаги": рестартът вече не е грешка
 
 The owner saw **„ГРЕШКА: HTTP 503 … Данните по-долу са НЕАКТУАЛНИ"** on the dashboard and asked
