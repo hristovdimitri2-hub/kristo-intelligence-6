@@ -613,6 +613,19 @@ redeploys. Stopping that would need a build filter, and the current service API 
 (`serviceDetails` has no `buildFilter` key). It is recorded here as the next lever if the monitor
 still reports transient blips.
 
+**Why `/health` and not `/ready`.** The codebase already assumed this config: `/health`'s docstring
+says it is "liveness, and only liveness … what platform health checks (Render, Docker) and the
+keep-alive loop act on", it makes **no RPC call** on purpose ("/health is what the platform restarts
+us on"), and it answers 200 even with the database unreachable. `/ready` is the opposite by design —
+503 when a dependency is unusable, precisely so that a dependency problem does NOT cause a restart.
+Pointing Render's health check at `/ready` would turn every database hiccup into a restart loop.
+
+**Verified across the next deploy** (`_forensics/monitor_sim_across_deploy.py`), by doing exactly
+what the monitor does — `GET /health` with a **30-second read timeout** — every 5 s for four
+minutes, deliberately spanning the ~2-minute drain that caused the alert. Deploy `44075f6` went live
+at 05:43:55; the result was **44 × HTTP 200, 0 timeouts, worst latency 1.78 s, typical 0.3–0.4 s**.
+
+
 
 
 
