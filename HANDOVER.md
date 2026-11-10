@@ -1493,5 +1493,53 @@ The tool already exists — `scripts/phase1_paid_call.py --path <route>` makes e
 one paid call, so the refresh is one call per row. **Nothing is spent without the
 owner's explicit "Да".**
 
+### 10.11 22:40 — what is actually paid for today, and a false alarm cleared
+
+**The false alarm first.** The local sqlite store carried a repeating pattern today:
+pairs of `/api/v1/whaleflow` and `/api/v1/signal` payments REJECTED every 10–30
+minutes between 15:15 and 19:50, with our own two refusal strings —
+
+    "authorization expired: validBefore=0 <= now=1794340148"   (connectors.py:262)
+    "verify exceeded the 0s deadline — the rail refused"       (main.py:4037)
+
+It looked exactly like an external client being turned away every half hour, which
+would have made the blocker OURS rather than discovery. It is not: every user agent in
+that table is `Werkzeug/3.1.8` (the Flask test client), `X402_STEP_DEADLINE_SECONDS`
+is **unset on Render** (so the live deadline is the 20 s default, not 0), and an hour
+of Render logs — 1000 lines, 19:55–20:10 — contains **zero** rejections, zero
+`validBefore`, zero `settled via` and zero rail steps. The rows are local test noise.
+Render also runs on Postgres (`DATABASE_URL` is set), so the local sqlite is an
+artifact, not a copy of production.
+
+**Then the measurement that settles the price decision.** 12,000 CDP rows sampled
+(12 pages × 1000, `type=http`), split by `quality.lastCalledAt`:
+
+    12,000 rows, paid within 48h: 2,325 (19.4%)
+      median price of the paid ones: $0.0085   (p25 $0.0028, p75 $0.0200)
+      median payers: 3     72.8% have >=2 payers  (66.1% of all rows do)
+
+    share paid within 48h by price band
+      $0.001-0.005   4,141 rows   17.2%
+      $0.005-0.01    1,823 rows   25.7%   <- the densest
+      $0.01-0.02     2,146 rows   22.0%
+      $0.02-0.05     1,541 rows   21.0%
+      $0.05-0.099      968 rows   18.4%
+      ~$0.10           470 rows   14.3%   <- ours
+      >$0.10           847 rows   11.1%
+
+    in our own category (tags with security/audit/safety/trust/risk):
+      170 rows paid recently -- 46 at $0.01, only 10 at $0.10
+
+So $0.10 IS paid, at about half the rate of the $0.005–0.01 band, and in the
+"is it safe to pay" family the buyers cluster at $0.01 by 46 rows to 10. The pilot is
+not a preference; it is where the paid rows in our category actually are. Also
+recorded: our twelve rows have one payer each while the median recently-paid row has
+three.
+
+Caveat kept: the sample is a 12,000-row slice of ~33,000 taken on consecutive pages,
+not a random sample, so the numbers describe that slice. The direction is consistent
+in every band.
+
+
 
 
