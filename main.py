@@ -5054,6 +5054,12 @@ def _x402_paywall():
         allowed = sorted(
             (getattr(request.routing_exception, "valid_methods", None) or [])
         ) or ["GET"]
+        # `valid_methods` already carries HEAD and OPTIONS, so appending OPTIONS
+        # unconditionally produced `Allow: GET, HEAD, OPTIONS, OPTIONS` — legal
+        # but sloppy, and a header that lists a method twice reads like a bug in
+        # the thing that is supposed to be reporting a bug.
+        if "OPTIONS" not in allowed:
+            allowed.append("OPTIONS")
         log.info("x402 payment NOT taken: method=%s endpoint=%s ip=%s "
                  "— this route does not answer that method, so nothing is settled",
                  request.method, path, _get_client_ip())
@@ -5072,47 +5078,7 @@ def _x402_paywall():
             "payment_taken": False,
             "request_id": getattr(g, "request_id", ""),
         })
-        resp.headers["Allow"] = ", ".join(allowed + ["OPTIONS"])
-        return resp, 405
-
-    # ── A method we do not serve is never paid for ─────────────────────────
-    #
-    # `before_request` runs even when URL matching already failed, so a POST to
-    # a GET-only route reached the paywall, was challenged, was SETTLED, and only
-    # then died with 405 from the dispatcher. That is not hypothetical: on
-    # 21.10.2026 `JarvisClaw-Federation/1.0` POSTed /api/v1/signal, paid
-    # $0.003, and got a 405 — the row is in `payment_guards` with
-    # `delivered_at IS NULL`, which is exactly the `n_paid_undelivered` a payer
-    # agent counts against us.
-    #
-    # The refusal has to happen before any credential is looked at, so it runs
-    # here rather than beside `_x402_unservable_payload` (which needs a
-    # credential present to be sure a payment is even in play). A 405 with
-    # `Allow` is the truthful answer and costs the caller nothing.
-    from werkzeug.exceptions import MethodNotAllowed
-    if isinstance(getattr(request, "routing_exception", None), MethodNotAllowed):
-        allowed = sorted(
-            (getattr(request.routing_exception, "valid_methods", None) or [])
-        ) or ["GET"]
-        log.info("x402 payment NOT taken: method=%s endpoint=%s ip=%s "
-                 "— this route does not answer that method, so nothing is settled",
-                 request.method, path, _get_client_ip())
-        resp = jsonify({
-            "ok": False,
-            "error": "method_not_allowed",
-            "message": (
-                "No payment was taken and none will be: this route answers %s, "
-                "not %s. Nothing was settled, so any payment authorization you "
-                "sent has not been used and your balance is unchanged — repeat "
-                "the request with %s and the same credential."
-                % (", ".join(allowed), request.method, allowed[0])
-            ),
-            "method": request.method,
-            "allowed": allowed,
-            "payment_taken": False,
-            "request_id": getattr(g, "request_id", ""),
-        })
-        resp.headers["Allow"] = ", ".join(allowed + ["OPTIONS"])
+        resp.headers["Allow"] = ", ".join(allowed)
         return resp, 405
 
     # Always-free endpoints — no paywall

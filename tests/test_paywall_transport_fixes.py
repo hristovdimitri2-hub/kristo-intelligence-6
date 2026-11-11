@@ -141,7 +141,10 @@ def test_a_method_the_route_does_not_answer_is_refused_with_405(client):
     body = r.get_json()
     assert body["payment_taken"] is False
     assert "GET" in body["allowed"]
-    assert "GET" in r.headers.get("Allow", "")
+    allow = r.headers.get("Allow", "")
+    assert "GET" in allow
+    assert allow.count("OPTIONS") == 1, (
+        "`Allow` must not list a method twice; got %r" % allow)
 
 
 def test_a_wrong_method_never_reaches_the_settlement_rail(client, monkeypatch):

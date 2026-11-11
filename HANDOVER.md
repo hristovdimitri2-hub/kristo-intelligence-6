@@ -1863,3 +1863,92 @@ everywhere except the operator's own machine.
 
 Suite 1342.
 
+## 29. The direction, chosen from the data (11.11.2026)
+
+The owner's answer to "where should Kristo go?" was **"не зная още — избери ти от
+данните"**. This is that choice, with the evidence it rests on.
+
+### What the measurements actually say
+
+* **The market is small and the money is at the top.** x402scan, 30 days to
+  11.11.2026: **4,731,875 payments, $1,753,871, 30,248 buyers, 13,979 sellers** —
+  an average ticket of **$0.37**. Chainalysis (03.06.2026) puts **95% of settled
+  VOLUME in payments above $1**, with the $0.10–$1 band at 4%.
+* **Roughly half the boom was fake.** Artemis: ~50% of peak transactions were
+  "gamified" (wallet-to-wallet between one operator); an earlier reading put 48%
+  of the count and 81% of the dollar volume as non-organic. The daily count fell
+  from 731,000 (Dec 2025) to ~57,000 (Feb 2026) — **−92%** — and then matured.
+  Our 11 external payers being bots is therefore the NORM, not our failure.
+* **Chain: we are on the right one.** x402scan, same window: Base **3,928,600**
+  (83.0%) vs Solana **798,702** (16.9%) — the two sum exactly to the headline.
+  Headlines claiming "Solana 65–90%" use other scopes; Sato Hub documents why the
+  numbers are not comparable.
+* **The largest real 402 traffic is not agent→agent.** Cloudflare: **over 1
+  billion HTTP 402 responses a day** to AI crawlers, "well above payments between
+  agents", plus a Monetization Gateway (01.07.2026) and default crawler blocking
+  from 15.09.2026.
+* **Our own record.** 11 distinct external payers, 27 payments, **$0.089
+  lifetime**, all bots (`probe402-settle-leg`, `JarvisClaw-Federation`, CDP's own
+  crawler). 13 routes at $0.003–$0.10. The highest-priced route,
+  `/api/v1/verify-seller` at $0.10, has **zero external buyers** — and
+  `tradingagentstack.com` sells the same product at **$0.01**.
+
+### The one asset nobody else has
+
+We are ourselves an x402 seller, and we keep a **delivery ledger**:
+`payment_guards.delivered_at`, 90 settled / 82 delivered, written by the
+`after_request` hook. That lets us measure **settled-but-not-delivered per
+seller** from the seller side — the exact axis the raters cannot see:
+
+* Lumière PayCheck grades `/api/v1/verify-seller` **C** purely because "delivery
+  not yet confirmed";
+* TradingAgentStack's product is a check *before* you pay, and its own docs admit
+  delivery is what it cannot confirm;
+* vet402 carries `n_paid_undelivered` but only ever measures its OWN probes.
+
+Add `request_log.user_agent` plus the existing `classify_payer`
+(`integrations/dashboard_store.py`, categories canary/sampler/external) and we
+can publish the **agent / script / noise** classification that PayAI named as an
+open problem on 05.11.2026 — the industry is explicitly asking for it.
+
+### The move
+
+**One paid product at $1.00 — a Delivery Report — and one free public page.**
+
+The paid route answers what a payer agent needs *after* it has been burned: does
+this seller actually deliver what it settles? Filled from data we already hold —
+settlement vs delivery per seller, facilitator settlements into the payTo, payer
+concentration and the repeat-payer curve, the agent/script/noise label, the
+seller's own catalogue declaration vs what it serves, and the published ratings
+from agenteconomy / Lumière / vet402 with their dates.
+
+The free page is the distribution engine: one page per seller scored on
+**delivery**, updated daily. It costs us nothing — the data is already collected —
+and every listed seller is a reason for someone to visit. The $1 report is the
+deep version.
+
+**Keep all 13 micro routes exactly as they are.** They cost nothing, they keep us
+in every catalogue, and they are the funnel.
+
+### Rejected, with the number that rejects it
+
+* **Solana** — 16.9% of indexed payments. Our bottleneck is delivery quality and
+  visibility, not chain coverage.
+* **PayAI as facilitator** — $0.00179 per Base settlement against a $0.003 sale
+  is **60% of the transaction**. CDP gives us 1,000 free settlements a month and
+  we do ~90 in two months, i.e. $0 today.
+* **A token** — x402 has no token. $PING is **−98.5%** from its ATH ($0.0786 →
+  $0.00116, $80M+ → $1.16M cap); the whole x402 token sector is two orders of
+  magnitude down. Buying $PING was as much exposure to the protocol as buying a
+  token named "HTTPS" is to the encrypted web.
+* **More routes at $0.003** — we already have 13 and the dollars are above $1.
+
+### The test of this decision
+
+Not "did we get paid" but **"does the $1 band convert where $0.003 never did"**.
+Implementation is small: one route, one `_BAZAAR_OUTPUT_EXAMPLES` entry, one
+`X402_INPUT_QUERY_PARAMS` entry — all three already exist as mechanisms.
+
+Suite 1346.
+
+
