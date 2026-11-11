@@ -1951,4 +1951,96 @@ Implementation is small: one route, one `_BAZAAR_OUTPUT_EXAMPLES` entry, one
 
 Suite 1346.
 
+## 30. Two more measurement layers, and both rate us well (12.11.2026)
+
+Found while checking a paste about three.ws. There are now **three** independent
+indices that score us, and the two new ones are the serious ones.
+
+### Settled (settled.tools) — the one that BUYS
+
+Its scout pays from `0xA1d1C0cf717402ff3651aA4873CcF96410B01978`, and that
+address is in our `payment_guards`:
+
+```
+purchases 3 · delivered 3 · not_delivered 0 · paid $0.009
+2026-10-14 14:19  /api/v1/whaleflow  $0.003  tx 0x31207b30…b8123
+2026-10-14 23:18  /api/v1/signal     $0.003  tx 0xe0789c99…9746d
+2026-10-30 11:20  /api/v1/whaleflow  $0.003  tx 0x7f8bcea7…4102c
+"bought from this wallet 3 times since 2026-10-14, and all 3 delivered."
+```
+
+Public pages `/e/7070` (signal) and `/e/10270` (whaleflow); seller badge
+`/badge/seller/0xd4cd…d08f.svg` reads "bought 3× · all delivered".
+
+Quality (0–100): whaleflow **85**, signal **79**, verify-seller **73**, with
+`delivery 15/15` on both bought routes and recommendation **pay**. What drags
+the score:
+
+* `latency 1/10` on signal, from `avg_latency_ms 2123`. **NOT a code defect** —
+  measured live on 12.11 the 402 answers in **330–840 ms**; the average is a
+  30-day window polluted by 4 failed probes out of 29 (one is the 09.11
+  outage) and it decays as fresh probes accumulate. Do not "fix" this.
+* `activity 8/20` everywhere — 8 distinct payers in 30 days. Not fakeable.
+* verify-seller: `delivery 0` and flag `price_changed` (band $0.01–$0.1),
+  because `KRISTO_VERIFY_SELLER_PRICE=0.01` moved the price off the $0.1 base.
+* `delivery_receipt.checks.verdict = nothing_to_compare` — "the listing has no
+  sample response to compare against". The receipt is from **14.10**, i.e.
+  BEFORE the L2 `properties` fix of 11.11. A re-test should now read
+  `as_advertised`.
+
+Also listed on **PayAPI Market** as `kristo-intelligence-defi-signals-api`
+(provider "Dimitri Hristov", Finance, `settlement_verified: true`, reliability
+69.7 "established").
+
+### x402-trust (x402-trust.com) — we are a VERIFIED provider
+
+```
+providerVerified: TRUE      host score 78.68 · grade B · 21 endpoints · 808 probes/30d
+https://x402-trust.com/provider/kristo-intelligence-api.onrender.com
+```
+
+Paid rows: **1×A** (`/api/v1/signal` 80.4), **11×B** (65.0–79.3), zero C/F.
+The eight docs rows are `?` (no payment flow to grade). The A/B split is
+canonical routes 78.9–80.4 vs aliases 65.0–66.8.
+
+`/.well-known/x402-trust.txt` carries the P-256 public half; the **private half
+lives outside the repo** and is what signs `update-profile` and `remove`.
+
+**The dead Vercel copy is here too — 18 rows, 14 of them grade F (28.7), 4 `?`.**
+And unlike x402scan, where delisting is admin-only, x402-trust has
+**self-service removal**: `POST /verify/<host>/action {"action":"remove"}` signed
+with the provider key, which "deletes the provider's data and blocklists the host
+against all automated discovery, permanently". Fallback without the key is a
+`x402-trust-remove` line in `/.well-known/x402-trust.txt` — impossible on a 404
+host. Lost key → `POST /verify/<host>/rotate-request` mails a rotation link to
+the contact address on file.
+
+Our provider profile is empty (`orgName`, `supportUrl`, `docsUrl`, `address`,
+`description` all null) — we hold a verified badge and publish nothing.
+
+### Ecosystem numbers worth keeping (x402-trust, 12.11)
+
+```
+listed 395,796 · active 236,960 · delisted 158,836 · reachable 36%
+402-spec-compliant 95% of reachable · payTo wallets ever paid 27% · earning 6,196
+all time $57.61M / 258,512,256 settlements / 226,927 payers
+Base $46.89M (81.4%) · Solana $10.73M (18.6%) · +148% MoM (Oct vs Sep 2026)
+#1 earner is ONE unlisted address at $2.00M = 49.4% of all volume
+```
+
+Half the ecosystem's dollars are one address; the directory is "mostly phantom".
+Discovery sources, and where we are: x402scan 206,225 ✅ · bazaar 54,695 ✅ ·
+**thirdweb 53,401 ❌** · payai 17,737 ✅ · threews 4,923 ❌ (samples only 500 per
+facilitator) · ultravioletadao 4,589 ❌ · dexter 3,164 ❌ · mcpregistry 332 ✅.
+
+### Added 12.11
+
+`GET /.well-known/paycheck.json` → `{"payTo": ["0xd4cd…d08f"]}`, read from
+`X402_RECEIVER_ADDRESS` so the declaration can never disagree with the 402 quote.
+Lumière PayCheck cross-checks it against wallet rotations; without it a rotation
+is `avoid` for 24 h then `caution`. Free, added to `X402_FREE_ENDPOINTS`.
+
+Suite 1350.
+
+
 

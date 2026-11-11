@@ -410,6 +410,11 @@ X402_FREE_ENDPOINTS = {
     "/api/dashboard/data",
     "/api/connectors", "/api/v1/quickstart", "/favicon.ico", "/favicon.svg",
     "/.well-known/x402-trust.txt",
+    # Lumière PayCheck's payout-wallet declaration. Their monitor watches the
+    # payTo of every endpoint it lists, and a change nobody can confirm is
+    # "avoid" for 24 hours, then "caution" — this file is what turns a rotation
+    # into a recognised event instead of an incident.
+    "/.well-known/paycheck.json",
     # A2A discovery. Classified explicitly rather than left to fall through the
     # allow-list, which is the gap F-21 records: a route in NEITHER set is
     # unclassified, and "unclassified" is not the same as "free".
@@ -3324,6 +3329,30 @@ def x402_trust_verification_file():
         "iR9vVLxioMCzIfkBim1CwZP9F+cR+ASHpkJ2P2trmw9p5GAX3J0g4xsSNA=="
     )
     return line + "\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@app.route("/.well-known/paycheck.json")
+def paycheck_declaration():
+    """The payout wallet, declared — Lumière PayCheck's `paycheck.json`.
+
+    WHAT IT IS FOR, and it is not decoration. Lumière PayCheck watches the payTo
+    of every endpoint it lists. When that address changes it cross-checks the
+    seller's own declaration, the seller's earlier wallets and direct transfers
+    between the old and the new wallet on Base; a change it cannot confirm is
+    `avoid` for 24 hours and then `caution`. This file is the declaration it
+    cross-checks against, so a deliberate rotation is recognised as one instead
+    of reading as a hijack. Their own guidance: publish
+    `{"payTo": ["0x…"]}` at this path.
+
+    The address is read from `X402_RECEIVER_ADDRESS` rather than typed again.
+    A declaration that can disagree with the 402 quote it describes is worse
+    than no declaration, and the two are the same fact.
+
+    The shape is exactly what their documentation asks for — no extra keys,
+    because a parser written against `{"payTo": [...]}` is the only contract
+    here and adding fields would be guessing at one we cannot see.
+    """
+    return jsonify({"payTo": [X402_RECEIVER_ADDRESS]})
 
 
 @app.route("/f/<channel>")
