@@ -1609,6 +1609,51 @@ What remains, all three outside the code:
 
 Nothing was spent and nothing was sent this session.
 
+### 11.11 — the owner said yes to the pilot. Executed, and CDP finds us now.
+
+**The price** is a deployment setting, not a code change: `KRISTO_VERIFY_SELLER_PRICE=0.01`
+set as a SINGLE env key on Render (38 → 39 variables, nothing else touched; the
+collection `PUT /env-vars` that replaces everything was never used). `config.py` is
+untouched because the constant already reads `os.getenv`, so the live 402s AND the
+manifests built from the same constant publish $0.01, while the repository keeps its
+default and the "verify-seller is the dearest route" test stays true. **Note for next
+time: an env change does NOT trigger a deploy on this service — an explicit
+`POST /services/<id>/deploys` was needed.** Reverts 11.12.2026 (reminder armed).
+
+**The publish: 12 paid calls, $0.062** — signal/whaleflow/whale-alerts/trading-signals
+at $0.003, arb-opportunities/arbitrage-opportunities/sales/onchain-sales/stats/
+bot-status at $0.005, verify-seller and seller-check at $0.010. Eleven returned
+`{"ok":true}` with a tx hash; the twelfth (`/api/v1/verify-seller`) **paid and did not
+deliver** — the route needs a `receiver` query parameter and the helper did not send
+one, so it answered `receiver_required` and $0.01 bought nothing. Re-run correctly with
+`?receiver=…` on the alias `seller-check`. On chain: 12 transfers, exactly $0.062.
+
+**The result.** The catalogue view lagged ~20 minutes, then all twelve rows carried the
+new `serviceName`. The search, which is the actual measure:
+
+    query                     before              after
+    verify seller             ABSENT of 9         rank 3/11
+    x402 seller audit         ABSENT of 17        rank 4/17
+    defi signals              ABSENT              rank 1/6
+    market stats              ABSENT              rank 2/4
+    whale flow                rank 9/12           rank 3/13
+    whale transfers           --                  rank 3/9
+    seller check              --                  rank 1/15
+    telegram bot status       --                  rank 1/13
+    onchain sales/usdc rev    --                  rank 1/3 and 1/6
+    dex arbitrage             --                  rank 1/14
+    trading signal            --                  rank 4/12
+
+**12 of 14 queries find us, five of them first.** We are still absent only for "is this
+seller safe to pay" and "token safety", both honestly: we do not give a safety verdict
+and we do not check tokens.
+
+**A defect this found:** paying `/api/v1/verify-seller` WITHOUT `?receiver=` takes the
+money and answers `receiver_required` — the buyer loses the call. The parameter is
+declared in the bazaar extension, so a careful agent sends it, but the refusal is on our
+side and fixable (return something useful without the parameter, or put a working
+default address in the 402's resource). **Not touched without a decision.**
+
 
 
 
