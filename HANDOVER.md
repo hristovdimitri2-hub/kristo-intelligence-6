@@ -2042,5 +2042,74 @@ is `avoid` for 24 h then `caution`. Free, added to `X402_FREE_ENDPOINTS`.
 
 Suite 1350.
 
+## 31. The three PayAI follow-ups, and only one of them was code (12.11.2026)
+
+### 1. Does the CDP facilitator charge us? No. Measured.
+
+CDP gives **1,000 free onchain transactions a month**, then $0.001 each;
+verification is free. Our own settlements, counted from `payment_guards` and
+`payment_attempts`:
+
+```
+2026-09:   4 settlements
+2026-10:  26
+2026-11:  60 (month to date)   — of which 53 settled, 16 rejected, 4 settle_failed
+```
+
+That is **0.4–6% of the free tier**, and the rejected attempts cost nothing
+because verification is free. **Our facilitator cost is $0** and there is no
+hidden line item. Do not move to PayAI for Base: at $0.00179 a settlement it
+would be **60% of a $0.003 sale**.
+
+### 2. Asking PayAI to crawl faster — no-op, it is their schedule.
+
+### 3. Solana as a second `accepts[]` network — BLOCKED, and it is not a config change.
+
+There is **no Solana wallet and no Solana configuration anywhere**: zero
+mentions of Solana in the codebase (bar one test fixture about a token pair) and
+none of the 40 Render env vars names one. Advertising a Solana accept would mean
+quoting a `payTo` we do not control, and our whole settlement rail
+(`_try_consume_standard_payment`) verifies Base EIP-3009 through the CDP
+facilitator — it cannot verify an SPL transfer at all. **An accept we cannot
+verify is worse than no accept**, so this needs a real prerequisite first:
+create a Solana wallet, decide the custody story, and add a Solana verification
+path. It is a project, not an envelope edit.
+
+### 4. The classifier — published, and it does not flatter us
+
+`GET /api/v1/settlement-classes`, **free** (added to `X402_FREE_ENDPOINTS`: a
+statement nobody can read without paying is not a statement).
+
+PayAI's ask, 05.11.2026: *"x402 data mixes real agent spend with cron jobs, bots
+and wash activity. Nobody can say how much of it is genuinely agentic. Build the
+open classifier: label every settlement as agent, script or noise, then publish
+the clean number."*
+
+The number, from `onchain_sales` in production (113 rows, $0.997):
+
+```
+own_key   n=74  $0.8680  1 payer    ← us, exercising the rail
+sampler   n=17  $0.0570  4 payers   ← crawl infrastructure, a heartbeat
+external  n=16  $0.0520  9 payers   ← the only class that is demand
+canary    n=6   $0.0200  1 payer    ← a third party verifying us
+
+THIRD PARTY: 39 settlements, $0.129, 14 distinct paying addresses.
+             $0.868 of $0.997 — 87% — is our own money.
+```
+
+`payer_class` is already persisted per sale and is derived from **on-chain
+behaviour** (fan-out fingerprinting, self-payment) plus our own key's identity —
+see `scripts/competitor_recon.KNOWN_PAYERS` / `PAYER_CLASSES`. A payer cannot
+relabel itself by changing its User-Agent, which is the whole reason the number
+is worth anything.
+
+The route states what it is NOT: our ledger, not the ecosystem's; 113 settlements
+is not a market. Settled (4,787 paid test purchases) and x402-trust (395,796
+endpoints) measure far more than we can, and the honest use of ours is as a
+worked example of the method.
+
+Suite 1358.
+
+
 
 

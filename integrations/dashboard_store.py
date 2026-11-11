@@ -2458,6 +2458,90 @@ class HistoryStore:
             )
             updated += max(0, rowcount)
         return updated
+
+    #: What each payer class MEANS, in the words the public route publishes.
+    #:
+    #: Kept beside the taxonomy rather than inside the route, so a class cannot
+    #: be added to `PAYER_CLASSES` without a meaning being written next to it.
+    #: Every one of these sentences is a description of evidence, never of
+    #: intent: we say what the chain shows, not what we assume the payer wanted.
+    SETTLEMENT_CLASS_MEANINGS = {
+        "own_key": ("Us, paying ourselves to exercise the payment rail and to "
+                    "trigger catalogue indexing. A real settlement on chain and "
+                    "not demand."),
+        "canary": ("A third party verifying us with a real payment. A real "
+                   "settlement, and not a customer: the payment is the point of "
+                   "the probe."),
+        "sampler": ("Market crawl infrastructure, fingerprinted on chain by "
+                    "fan-out — 50 or more distinct receivers in 30 days. Its "
+                    "payment is a heartbeat: it means we are in the crawl set."),
+        "external": ("Every other paying address, i.e. one we hold no evidence "
+                     "against. A real customer until proven otherwise."),
+    }
+
+    def settlement_class_summary(self) -> dict:
+        """Settlements into our receiver, split by what the payer actually is.
+
+        THE QUESTION THIS ANSWERS, and it is the one the x402 ecosystem keeps
+        asking. PayAI put it plainly on 05.11.2026: *"x402 data mixes real agent
+        spend with cron jobs, bots and wash activity. Nobody can say how much of
+        it is genuinely agentic."* We can say it for our own ledger, and the
+        number is unflattering — most of our settled volume is us. Publishing
+        that is the point; a seller that only publishes the flattering half is
+        what makes the ecosystem number untrustworthy in the first place.
+
+        WHY THE CLASSES ARE NOT A SELF-REPORT. `payer_class` is written from the
+        payer's ON-CHAIN behaviour (fan-out fingerprinting, self-payment) plus
+        the identity of our own key — see `scripts/competitor_recon.KNOWN_PAYERS`
+        and `PAYER_CLASSES` above. Nothing here is taken from what a payer says
+        about itself.
+
+        Read-only and bounded: one grouped aggregate over `onchain_sales`, which
+        is the durable money table, not a scan.
+        """
+        rows, _ = self._run(
+            """SELECT payer_class,
+                      COUNT(*),
+                      COALESCE(SUM(amount_usdc), 0),
+                      COUNT(DISTINCT lower(sender))
+               FROM onchain_sales
+               GROUP BY payer_class""",
+            (), "all")
+
+        classes = []
+        total_n = total_usdc = 0
+        third_n = third_usdc = third_payers = 0
+        for row in rows or []:
+            name = (row[0] or "external")
+            n = int(row[1] or 0)
+            usdc = round(float(row[2] or 0.0), 6)
+            payers = int(row[3] or 0)
+            classes.append({
+                "class": name,
+                "meaning": self.SETTLEMENT_CLASS_MEANINGS.get(
+                    name, "Unclassified payer."),
+                "settlements": n,
+                "usdc": usdc,
+                "distinct_payers": payers,
+            })
+            total_n += n
+            total_usdc += usdc
+            if name != "own_key":
+                third_n += n
+                third_usdc += usdc
+                third_payers += payers
+
+        classes.sort(key=lambda c: (-c["usdc"], c["class"]))
+        return {
+            "classes": classes,
+            "settlements": total_n,
+            "usdc": round(total_usdc, 6),
+            "third_party_settlements": third_n,
+            "third_party_usdc": round(third_usdc, 6),
+            "third_party_distinct_payers": third_payers,
+            "own_share_of_usdc": (round(1 - (third_usdc / total_usdc), 6)
+                                  if total_usdc else None),
+        }
     def set_durable_meta(self, key: str, value: str) -> None:
         """Persist small operational state in the DURABLE store (see dashboard_meta)."""
         self._run(
@@ -3528,6 +3612,15 @@ HYBRID since 14.09:
         the sales rows live in the durable store rather than the local file.
         """
         return self.history.reclassify_known_payers()
+
+    def settlement_class_summary(self) -> dict:
+        """Settlements by payer class — see HistoryStore.settlement_class_summary.
+
+        A thin wrapper for the same reason `reclassify_known_payers` is one: the
+        money table lives on the durable backend, and a caller should not have to
+        know that to read it.
+        """
+        return self.history.settlement_class_summary()
 
     def purge_old_whale_events(self, days: int = WHALE_RETENTION_DAYS_DEFAULT) -> int:
         """Retention pass — see HistoryStore.purge_old_whale_events (30 days)."""

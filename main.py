@@ -415,6 +415,11 @@ X402_FREE_ENDPOINTS = {
     # "avoid" for 24 hours, then "caution" — this file is what turns a rotation
     # into a recognised event instead of an incident.
     "/.well-known/paycheck.json",
+    # The settlement classifier. FREE ON PURPOSE: it is a statement about our
+    # own ledger, and a statement nobody can read without paying is not a
+    # statement. See `api_settlement_classes` for what it publishes and why the
+    # number is unflattering.
+    "/api/v1/settlement-classes",
     # A2A discovery. Classified explicitly rather than left to fall through the
     # allow-list, which is the gap F-21 records: a route in NEITHER set is
     # unclassified, and "unclassified" is not the same as "free".
@@ -3353,6 +3358,83 @@ def paycheck_declaration():
     here and adding fields would be guessing at one we cannot see.
     """
     return jsonify({"payTo": [X402_RECEIVER_ADDRESS]})
+
+
+@app.route("/api/v1/settlement-classes")
+def api_settlement_classes():
+    """What actually paid us, classified — and the unflattering part too.
+
+    THE QUESTION, and it comes from the ecosystem rather than from us. PayAI
+    posted it on 05.11.2026: *"x402 data mixes real agent spend with cron jobs,
+    bots and wash activity. Nobody can say how much of it is genuinely
+    agentic. Build the open classifier: label every settlement as agent, script
+    or noise, then publish the clean number."*
+
+    This is that number for our own ledger. It is small and it is mostly us, and
+    publishing it anyway is the entire point — a seller that publishes only the
+    flattering half is what makes an ecosystem number untrustworthy.
+
+    WHAT IT IS NOT. It is not a claim about the ecosystem: 113 settlements is
+    not a market, and Settled and x402-trust both measure far more than we can.
+    It is not inferred from what a payer says about itself either — the classes
+    come from on-chain behaviour (fan-out fingerprinting, self-payment) plus the
+    identity of our own key, so a payer cannot relabel itself by changing its
+    User-Agent.
+
+    Free, deliberately. See `X402_FREE_ENDPOINTS`.
+    """
+    _record_request("api_settlement_classes", True)
+    try:
+        summary = dashboard_db.settlement_class_summary()
+    except Exception as exc:
+        log.warning("settlement classes unavailable: %s", redact_rpc(exc))
+        return _safe_jsonify({
+            "ok": False,
+            "error": "classifier_unavailable",
+            "message": ("The settlement ledger could not be read just now. This "
+                        "is a reporting route, so nothing was charged and "
+                        "nothing was settled — retry shortly."),
+        }), 503
+
+    total = summary["usdc"] or 0.0
+    return _safe_jsonify({
+        "ok": True,
+        "source": "real_blockchain",
+        "window": "all_time",
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "method": (
+            "Every USDC settlement into this service's receiver is classified "
+            "from the payer's ON-CHAIN behaviour, never from a self-report: "
+            "fan-out fingerprinting (a payer sending to 50+ distinct receivers "
+            "in 30 days is crawl infrastructure), whether the payer is our own "
+            "key, and whether a known verifier sent it. The taxonomy and the "
+            "fingerprints behind it are in scripts/competitor_recon.py."
+        ),
+        "classes": summary["classes"],
+        "clean_number": {
+            "settlements": summary["settlements"],
+            "usdc": summary["usdc"],
+            "third_party_settlements": summary["third_party_settlements"],
+            "third_party_usdc": summary["third_party_usdc"],
+            "third_party_distinct_payers": summary[
+                "third_party_distinct_payers"],
+            "third_party_share_of_usdc": (
+                round(summary["third_party_usdc"] / total, 6) if total else None),
+        },
+        "caveat": (
+            "This is OUR ledger, not the ecosystem's. It is what one small "
+            "seller can say about itself, and it is offered as a worked example "
+            "of the method rather than as a market measurement. Nothing here is "
+            "a claim about any other seller's traffic."
+        ),
+        "reading_it": (
+            "'external' is the only class that is demand, and it is the "
+            "smallest by volume. 'sampler' means a crawler paid us because we "
+            "are in its crawl set — a heartbeat, not a buyer. 'own_key' is us. "
+            "The honest summary of a young x402 seller is usually this shape."
+        ),
+    })
+
 
 
 @app.route("/f/<channel>")
