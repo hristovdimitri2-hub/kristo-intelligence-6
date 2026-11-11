@@ -258,6 +258,57 @@ def _split_params(text: str) -> list:
     return parts
 
 
+def test_every_paid_challenge_header_is_ascii(client):
+    """A non-ASCII header value makes gunicorn reject the WHOLE response.
+
+    Measured on the 21:29 deploy: the MPP `description` carried an em-dash from
+    our own selling copy, gunicorn answered
+
+        [WARNING] Invalid request: Invalid HTTP Header: '\\'Payment id=…\\''
+
+    and the edge turned that into a 502 — the paid route became UNPAYABLE, which
+    is strictly worse than the warning the challenge was added to silence.
+    """
+    c, main, _dash = client
+    _exhaust_free_tier(main)
+    for endpoint in sorted(main.X402_PAID_ENDPOINTS):
+        _exhaust_free_tier(main)
+        r = c.get(endpoint)
+        if r.status_code != 402:
+            continue
+        for name, value in r.headers.items():
+            try:
+                str(value).encode("ascii")
+            except UnicodeEncodeError:
+                raise AssertionError(
+                    "%s: header %s is not ASCII (%r) — gunicorn will reject the "
+                    "response and the route becomes unpayable"
+                    % (endpoint, name, value))
+
+
+def test_the_description_is_folded_not_dropped(client):
+    """The prose is decoration, but it should survive the fold when it can."""
+    c, main, _dash = client
+    folded = main._header_safe("Verify a seller — before you pay it \u2014 twice")
+    assert folded == "Verify a seller - before you pay it - twice"
+    assert '"' not in main._header_safe('say "hi"')
+    assert "\\" not in main._header_safe("back\\slash")
+    assert len(main._header_safe("x" * 500)) == 180
+
+
+def test_the_challenge_still_goes_out_without_a_description(client, monkeypatch):
+    """An endpoint with no selling copy must still get a valid challenge."""
+    c, main, _dash = client
+    monkeypatch.setitem(main.CHALLENGE_DESCRIPTIONS, PAID_ROUTE, "")
+    _exhaust_free_tier(main)
+    r = c.get(PAID_ROUTE)
+    assert r.status_code == 402
+    raw = [v for v in _www_authenticate_values(r)
+           if v.strip().lower().startswith("payment ")]
+    assert raw, "the Payment challenge must not depend on a description existing"
+    assert "description=" not in raw[0]
+
+
 # ── 4. A native MPP credential ──────────────────────────────────────────────
 
 def test_a_native_mpp_credential_is_refused_without_charging(client, monkeypatch):

@@ -2591,6 +2591,44 @@ def _mpp_challenge_id(realm: str, method: str, intent: str, request_b64: str,
     return base64.urlsafe_b64encode(mac).decode().rstrip("=")[:32]
 
 
+#: Punctuation that appears in our own selling copy and is NOT ASCII.
+#:
+#: WHY THIS LIST EXISTS, and it is the difference between a 402 and a 502.
+#: An HTTP header value must be ASCII (RFC 9110 field-value is latin-1 at
+#: best). Our challenge descriptions are written in prose and contain em-dashes
+#: and curly quotes — `CHALLENGE_DESCRIPTIONS["/api/v1/verify-seller"]` starts
+#: "Verify an x402 seller before you pay it — …". Putting that into
+#: `WWW-Authenticate` produced a header gunicorn refused outright:
+#:
+#:   [WARNING] Invalid request from ip=…: Invalid HTTP Header: '\'Payment id=…'
+#:
+#: which the edge turns into a 502 — i.e. adding the MPP challenge made the paid
+#: route UNPAYABLE. Measured on the deploy at 21:29:31Z and fixed immediately.
+#: The legacy `x402` token was never affected because it carries no description.
+_HEADER_ASCII_FOLD = {
+    "\u2014": "-", "\u2013": "-", "\u2018": "'", "\u2019": "'",
+    "\u201c": '"', "\u201d": '"', "\u2026": "...", "\u00a0": " ",
+    "\u00b7": "-", "\u2192": "->", "\u2265": ">=", "\u2264": "<=",
+}
+
+
+def _header_safe(text: str, limit: int = 180) -> str:
+    """A value that can go in an HTTP header without breaking the response.
+
+    Folds the punctuation our prose actually uses, drops anything still outside
+    ASCII, escapes the two characters that would end or split the quoted string,
+    collapses whitespace, and truncates. The caller keeps a header that is
+    always encodable — a description is decoration, and no decoration is worth
+    an unpayable route.
+    """
+    for src, dst in _HEADER_ASCII_FOLD.items():
+        text = text.replace(src, dst)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    text = text.replace("\\", "/").replace('"', "'")
+    text = " ".join(text.split())
+    return text[:limit].strip()
+
+
 def _mpp_payment_challenge(endpoint: str, amount: float,
                            description: str = "") -> str:
     """A `WWW-Authenticate: Payment` Challenge for one paid route.
@@ -2635,8 +2673,20 @@ def _mpp_payment_challenge(endpoint: str, amount: float,
         'header="PAYMENT-SIGNATURE"',
     ]
     if description:
-        parts.append('description="%s"' % description.replace('"', "'")[:180])
-    return ", ".join(parts)
+        safe = _header_safe(description)
+        if safe:
+            parts.append('description="%s"' % safe)
+    challenge = ", ".join(parts)
+    # LAST LINE OF DEFENCE. If anything in here is still not ASCII the response
+    # must not go out at all — drop the optional description rather than serve a
+    # 402 the edge rejects. `verify-seller` proved this is not theoretical.
+    try:
+        challenge.encode("ascii")
+    except UnicodeEncodeError:                       # pragma: no cover
+        challenge = ", ".join(p for p in parts
+                              if not p.startswith("description="))
+        challenge.encode("ascii")                    # must not raise
+    return challenge
 
 
 def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] = None):
