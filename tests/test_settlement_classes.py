@@ -138,3 +138,32 @@ def test_the_store_summary_survives_an_unknown_class(client):
     entry = [e for e in r.get_json()["classes"]
              if e["class"] == "brand_new_class"][0]
     assert entry["meaning"] == "Unclassified payer."
+
+
+# ── the backend-shape trap ──────────────────────────────────────────────────
+
+def test_the_summary_reads_rows_by_column_name(client, monkeypatch):
+    """Postgres hands back `dict_row`; SQLite hands back `sqlite3.Row`.
+
+    ONLY the second supports integer indexing, so a reader written as `row[0]`
+    passes the whole suite on SQLite and raises `KeyError: 0` on production —
+    which is exactly what shipped, and what the log reported as the unhelpful
+    "settlement classes unavailable: 0". This pins the contract: the reader must
+    work on dicts, because that is what the live backend returns.
+    """
+    c, _main, dash = client
+    rows = [
+        {"cls": "own_key", "n": 74, "usdc": 0.868, "payers": 1},
+        {"cls": "external", "n": 16, "usdc": 0.052, "payers": 9},
+    ]
+    monkeypatch.setattr(dash.history, "_run", lambda *a, **kw: (rows, 0))
+
+    r = c.get("/api/v1/settlement-classes")
+    assert r.status_code == 200, (
+        "the reader must accept the row shape the live backend returns; got %s "
+        "%s" % (r.status_code, r.get_json()))
+    clean = r.get_json()["clean_number"]
+    assert clean["settlements"] == 90
+    assert clean["third_party_settlements"] == 16
+    assert clean["third_party_usdc"] == pytest.approx(0.052, abs=1e-9)
+

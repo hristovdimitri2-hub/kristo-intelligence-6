@@ -2500,10 +2500,10 @@ class HistoryStore:
         is the durable money table, not a scan.
         """
         rows, _ = self._run(
-            """SELECT payer_class,
-                      COUNT(*),
-                      COALESCE(SUM(amount_usdc), 0),
-                      COUNT(DISTINCT lower(sender))
+            """SELECT payer_class            AS cls,
+                      COUNT(*)               AS n,
+                      COALESCE(SUM(amount_usdc), 0) AS usdc,
+                      COUNT(DISTINCT lower(sender)) AS payers
                FROM onchain_sales
                GROUP BY payer_class""",
             (), "all")
@@ -2512,10 +2512,15 @@ class HistoryStore:
         total_n = total_usdc = 0
         third_n = third_usdc = third_payers = 0
         for row in rows or []:
-            name = (row[0] or "external")
-            n = int(row[1] or 0)
-            usdc = round(float(row[2] or 0.0), 6)
-            payers = int(row[3] or 0)
+            # BY NAME, not by position. Postgres hands back `dict_row` and SQLite
+            # hands back `sqlite3.Row`; only the second supports integer
+            # indexing, so `row[0]` worked in every test and raised
+            # `KeyError: 0` — logged as the unhelpful "settlement classes
+            # unavailable: 0" — on the one backend that matters.
+            name = (row["cls"] or "external")
+            n = int(row["n"] or 0)
+            usdc = round(float(row["usdc"] or 0.0), 6)
+            payers = int(row["payers"] or 0)
             classes.append({
                 "class": name,
                 "meaning": self.SETTLEMENT_CLASS_MEANINGS.get(
