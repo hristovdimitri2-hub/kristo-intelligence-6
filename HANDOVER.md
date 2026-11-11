@@ -1694,6 +1694,49 @@ Also: CDP's `quality` block has not yet recorded today's settlements (still
 refresh — metadata and quality update on different schedules. And a new catalogue turned
 up in the logs: `x402rank-probe/1.0 (+https://x402rank.com/methodology)`.
 
+### 11.11 — the owner said yes to three things; all three done
+
+**1. The verify-seller defect is fixed** (commit `e3590b5`, deployed and proven with
+money). The rule now: **a request we cannot serve is never settled.**
+`_x402_unservable_payload(endpoint)` reads the SAME declaration the 402 publishes
+(`X402_INPUT_QUERY_PARAMS` and its `required` list), and `_x402_paywall` calls it only
+when a payment credential is PRESENT — so an unpaid GET of the bare path still returns
+the canonical 402, because that challenge is what the catalogues read to index the route.
+Refusing the bare path outright would take the route out of discovery to fix a billing
+edge.
+
+Verified live:
+
+    bare path, no credential          402  (catalogues keep working)
+    fake credential, no receiver      400  missing_required_parameter
+    same via the seller-check alias   400  missing_required_parameter
+    fake credential, WITH receiver    401  (reaches verification, as it should)
+    argument-free route               401  (the guard never applies)
+
+And the money proof: a real signed payment without `receiver` answered
+`missing_required_parameter` and the demo wallet's balance was **unchanged**
+(1.378515 → 1.378515, **$0.00**). The same call cost $0.01 and delivered nothing before
+the fix. Six new tests in `tests/test_declared_input_matches_handler.py` pin the ORDER,
+not just the status: the settle function is monkeypatched and must never be called. Two
+of them stub the view function — letting /api/v1/verify-seller run made the file hang ten
+minutes doing live chain reads.
+
+**2. x402dash registration, in batches.** It reported 4 of our 12 routes; the old script
+always submitted `PATHS[:N]`, so it could never reach the rest — the new
+`_forensics/register_x402dash_batch.py <offset> <limit>` takes an offset and treats 409
+"already registered" as progress rather than a stop. Result so far: **4 → 7**
+(whaleflow, signal, stats registered; whale-alerts was already there), then the 5/hour
+limit answered. The remaining four (`/api/sales`, `/api/bot-status`,
+`/api/arb/opportunities`, `/api/v1/verify-seller`) have a reminder armed ~65 minutes out.
+
+**3. TASK.md refreshed and committed.** It was a 30.09 snapshot claiming 6 paid routes,
+423 tests and a werkzeug production server. It is now a short entry point naming
+HANDOVER.md and docs/VISIBILITY_MEASURED.bg.md as the sources of truth, with today's
+verified numbers, the open decisions and the rules that are not broken. Two audit
+documents reference it, so refreshing beat deleting.
+
+Suite 1322.
+
 
 
 
