@@ -1654,6 +1654,46 @@ declared in the bazaar extension, so a careful agent sends it, but the refusal i
 side and fixable (return something useful without the parameter, or put a working
 default address in the 402's resource). **Not touched without a decision.**
 
+### 11.11 — the board audit the owner asked for: the 02:47 payment, traced
+
+The owner saw `2026-11-11 02:47:06 · $0.003 · пазарна проверка, робот — не е клиент` and
+asked where it came from. Traced through the chain, the service's own logs and the
+board's API:
+
+    block 55,874,253   tx 0xdc6dea0e…c2cd74b   0.0030 USDC
+    payer  0xA19F621581DBc851a21D6179868111709a52aCCC
+    02:46:58  x402 payment required: endpoint=/api/v1/signal, price=$0.003
+    02:47:04  standard x402 locally verified: payer=0xA19F…aCCC
+    02:47:06  standard x402 settled via cdp (settle TOTAL 1.36s)
+    02:47:06  Recorded real sale: USDC $0.003000
+
+So it is a real x402 payment for **/api/v1/signal**, settled through CDP, with a locally
+verified signature. Not an artefact and not ours.
+
+**Is the "robot" label right? Re-fingerprinted today rather than trusted.** The address
+was promoted from the watchlist to `market_crawler_a19f` on 17.09 on a 30-day
+fingerprint (125 transfers / 98 distinct receivers), and the file itself says judgements
+are revisable. Last 1,000,000 blocks (2.3 days): **508 outgoing transfers to 269 distinct
+receivers** (~220/day), our receiver among them. The label holds — it crawls the whole
+market, so its payment means "we are in the crawl set", not "someone chose us". Its
+SECOND payment to us (the first was 09.09).
+
+**The board's numbers check out**, read from its own API rather than a screenshot:
+`{"date": "2026-11-11", "requests": 11671, "sales_count": 13, "sales_volume_usd": 0.065}`
+= 12 refresh payments ($0.062) + 1 crawler payment ($0.003). The demo key stays a
+separate class (`own_key`), the crawler is `sampler`, and "real customer" stays empty.
+
+**The honest note.** By the goal's LITERAL wording ("measured with a different payer …
+on chain") this payment satisfies it: the payer is not the demo key and is a real
+external agent. By its MEANING ("one that chooses us") it does not: the same address
+pays 269 different receivers in two days. Both readings are on the table and the choice
+is the owner's — not mine to make for him.
+
+Also: CDP's `quality` block has not yet recorded today's settlements (still
+`l30DaysUniquePayers = 1`, `lastCalledAt = 09.11`) even though the row's metadata did
+refresh — metadata and quality update on different schedules. And a new catalogue turned
+up in the logs: `x402rank-probe/1.0 (+https://x402rank.com/methodology)`.
+
 
 
 
