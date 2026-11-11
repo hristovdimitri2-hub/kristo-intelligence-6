@@ -3931,6 +3931,15 @@ on-chain check (`amount >= price`) and the excess is NOT refunded.
   decide which route to buy. Free, no payment, no key.
 - GET /api/v1/quickstart — step-by-step first-call walkthrough
 - GET /validation — checkable facts: status, uptime, on-chain payment history
+- GET /api/v1/settlement-classes — every USDC settlement into our receiver,
+  split by what the payer actually IS: us, crawl infrastructure, a verifier, or
+  a customer. Includes the method and the unflattering half — most of our
+  settled volume is our own money, and the number says so. The classifier reads
+  on-chain behaviour, not a self-report, so a payer cannot relabel itself by
+  changing its User-Agent. Free.
+- GET /.well-known/paycheck.json — the payout wallet, declared as
+  {{"payTo": ["0x…"]}}, so a deliberate rotation is recognised by monitors that
+  watch it instead of reading as a hijack. Free.
 - GET /pricing — every paid route and its exact price, and both payment rails
 - GET /terms — licence, what the data is not, how paying works
 - GET /health — Service health check
