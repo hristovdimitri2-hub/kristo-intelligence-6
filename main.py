@@ -4601,6 +4601,62 @@ def _nohumans_claim_header(response):
     return response
 
 
+# ── NEVER CHARGE FOR A REQUEST WE CANNOT SERVE ─────────────────────────────
+# Measured on 11.11.2026, with our own money: a paid call to /api/v1/verify-seller
+# without `?receiver=` SETTLED $0.01 and then answered HTTP 400
+# receiver_required. The buyer's money moved on-chain and the buyer got nothing.
+#
+# The declaration was already correct by then — the 402 names `receiver` as
+# required, see X402_INPUT_QUERY_PARAMS — so this was not a metadata defect but an
+# ORDERING one: the paywall verified and settled before anything asked whether the
+# request could be answered at all.
+#
+# The rule this restores: a request we cannot serve is never settled. The check
+# runs only when a payment credential is PRESENT. An unpaid GET of the bare path
+# still returns the canonical 402, because that challenge is what every catalogue
+# reads to index the route — turning it into a 400 would take the route out of
+# discovery in order to fix a billing edge.
+#
+# Nothing is consumed: an EIP-3009 authorization is executed only at the
+# facilitator, so a refused request leaves the client's signature unused and their
+# balance untouched. The client can re-send the SAME signed payload with the
+# parameter added, while its validBefore window lasts.
+def _x402_unservable_payload(endpoint: str):
+    """A 400 body when the request cannot be answered, else None.
+
+    Driven by the SAME declaration the 402 publishes, so a route that starts
+    requiring a parameter is covered by the challenge and this guard at once,
+    instead of by two lists that drift.
+    """
+    spec = X402_INPUT_QUERY_PARAMS.get(endpoint) or {}
+    required = [p for p in (spec.get("required") or []) if p]
+    if not required:
+        return None
+    missing = [p for p in required if not (request.args.get(p) or "").strip()]
+    if not missing:
+        return None
+    example = spec.get("example") or {}
+    query = "&".join("%s=%s" % (k, v) for k, v in example.items())
+    canonical = X402_PATH_ALIASES.get(endpoint, endpoint)
+    return {
+        "ok": False,
+        "error": "missing_required_parameter",
+        "message": (
+            "No payment was taken and none will be: this route cannot answer a "
+            "request without %s. Nothing was settled, so the payment "
+            "authorization you sent has not been used and your balance is "
+            "unchanged — add the parameter and send the same request again."
+            % ", ".join(missing)
+        ),
+        "missing": missing,
+        "required": required,
+        "call_it_like": "?%s" % query if query else "",
+        "declared_input": spec,
+        "free_sample": request.host_url.rstrip("/") + canonical + "/sample",
+        "payment_taken": False,
+    }
+
+
 @app.before_request
 def _x402_paywall():
     """
@@ -4662,6 +4718,20 @@ def _x402_paywall():
         else:
             # Free tier exhausted — accept a valid on-chain payment proof
             # (X-Payment-Proof header) before demanding a new payment.
+
+            # A CREDENTIAL IS PRESENT, so a settlement is about to be attempted:
+            # refuse HERE, before any money can move, if this request cannot be
+            # answered. See _x402_unservable_payload for why this runs only when
+            # a credential is present, and what it does not consume.
+            if (_get_standard_payment_header()
+                    or (request.headers.get("X-Payment-Proof") or "").strip()):
+                unservable = _x402_unservable_payload(path)
+                if unservable is not None:
+                    log.info(
+                        "x402 payment NOT taken: endpoint=%s missing=%s ip=%s "
+                        "— the request cannot be served, so nothing is settled",
+                        path, unservable["missing"], ip)
+                    return jsonify(unservable), 400
 
             # Rail 1: STANDARD x402 clients (EIP-3009 via facilitator) —
             # v2 spec header PAYMENT-SIGNATURE (x402-fetch, x402scan wallet,

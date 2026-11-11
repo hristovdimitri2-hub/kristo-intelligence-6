@@ -169,3 +169,121 @@ def test_only_routes_that_read_arguments_have_a_declarations_entry():
             f"{path} declares input but is not a paid route")
         assert _handler_reads(path), (
             f"{path} declares input but reads no request.args")
+
+
+# ── 5. a request we cannot serve is never settled ───────────────────────────
+# Measured on 11.11.2026 with our own money: a paid call to
+# /api/v1/verify-seller without `?receiver=` settled $0.01 and THEN answered 400
+# receiver_required. The declaration was already correct, so the defect was one
+# of ordering — the paywall settled before asking whether the request could be
+# answered at all. These tests pin the order, not just the status code.
+
+def _credential():
+    """Any non-empty payment credential: the guard fires on PRESENCE."""
+    return {"PAYMENT-SIGNATURE": "present-but-never-verified"}
+
+
+def test_a_payment_credential_without_the_required_parameter_settles_NOTHING(
+        client, monkeypatch):
+    """The money must not move. Asserted on the settle call, not on the reply."""
+    import main
+    settled = []
+
+    def _never(path, price, ip):
+        settled.append((path, price))
+        return True
+
+    monkeypatch.setattr(main, "_try_consume_standard_payment", _never)
+    r = client.get(CANONICAL_SELLER, headers=_credential())
+    assert r.status_code == 400, (
+        f"expected a refusal, got {r.status_code} — a 402 would invite a second "
+        "payment and a 200 would charge for nothing")
+    body = r.get_json()
+    assert body["error"] == "missing_required_parameter"
+    assert body["missing"] == ["receiver"]
+    assert body["payment_taken"] is False
+    assert settled == [], (
+        "the settle path ran for a request that cannot be answered: %r" % settled)
+
+
+def test_the_same_guard_covers_the_alias(client, monkeypatch):
+    """The alias is a paid route in every sense, so it cannot be the loose one."""
+    import main
+    settled = []
+    monkeypatch.setattr(main, "_try_consume_standard_payment",
+                        lambda *a: settled.append(a) or True)
+    r = client.get(ALIAS_SELLER, headers=_credential())
+    assert r.status_code == 400 and r.get_json()["missing"] == ["receiver"]
+    assert settled == []
+
+
+def test_the_refusal_hands_the_caller_the_call_it_should_have_made(client):
+    """A refusal that does not say how to succeed is only half a refusal."""
+    r = client.get(CANONICAL_SELLER, headers=_credential())
+    body = r.get_json()
+    assert body["call_it_like"].startswith("?receiver=0x")
+    assert body["required"] == ["receiver"]
+    assert body["free_sample"].endswith("/api/v1/verify-seller/sample")
+    assert "nothing was settled" in body["message"].lower() or \
+        "Nothing was settled" in body["message"]
+
+
+def _stub_view(monkeypatch, path):
+    """Replace a route's view with a stub, so a test about the PAYWALL does not
+    also run the product.
+
+    /api/v1/verify-seller reads Base mainnet per call; letting it run made this
+    file hang for ten minutes, which is a slow test pretending to be a guard.
+    """
+    import main
+    rule = next(r for r in main.app.url_map.iter_rules() if str(r) == path)
+    monkeypatch.setitem(main.app.view_functions, rule.endpoint,
+                        lambda **kw: ({"ok": True, "stub": path}, 200))
+
+
+def test_a_credential_WITH_the_parameter_still_reaches_the_rail(client, monkeypatch):
+    """The guard must not become a wall: the correct call still pays and passes."""
+    import main
+    seen = []
+
+    def _ok(path, price, ip):
+        seen.append((path, price))
+        return True
+
+    monkeypatch.setattr(main, "_try_consume_standard_payment", _ok)
+    monkeypatch.setattr(main, "_get_dynamic_price", lambda ip, path: 0.01)
+    _stub_view(monkeypatch, CANONICAL_SELLER)
+    r = client.get(CANONICAL_SELLER + "?receiver=0x" + "a1" * 20,
+                   headers=_credential())
+    assert seen == [(CANONICAL_SELLER, 0.01)], (
+        "the rail was not reached for a well-formed paid call: %r" % seen)
+    assert r.status_code == 200, r.get_json()
+
+
+def test_an_UNPAID_bare_path_still_publishes_the_402(client):
+    """The catalogues read this challenge to index the route.
+
+    Refusing the bare path outright would take /api/v1/verify-seller out of
+    discovery in order to fix a billing edge, which is a worse trade.
+    """
+    for path in (CANONICAL_SELLER, ALIAS_SELLER):
+        r = client.get(path)
+        assert r.status_code == 402, (
+            f"{path} answered {r.status_code} without a credential — an unpaid "
+            "call must still be offered the challenge")
+        assert r.get_json()["accepts"][0]["amount"]
+
+
+def test_routes_without_required_parameters_are_untouched(client, monkeypatch):
+    """The guard is driven by the declaration, so argument-free routes never see
+    it: their paid calls still settle exactly as before."""
+    import main
+    seen = []
+    monkeypatch.setattr(main, "_try_consume_standard_payment",
+                        lambda path, price, ip: seen.append(path) or True)
+    monkeypatch.setattr(main, "_get_dynamic_price", lambda ip, path: 0.003)
+    for path in ("/api/v1/signal", "/api/stats"):
+        _stub_view(monkeypatch, path)
+        r = client.get(path, headers=_credential())
+        assert r.status_code != 400, f"{path} was refused: {r.get_json()}"
+    assert set(seen) == {"/api/v1/signal", "/api/stats"}, seen
