@@ -2110,6 +2110,67 @@ worked example of the method.
 
 Suite 1358.
 
+## 32. WE DO NOT HOLD THE payTo WALLET'S PRIVATE KEY (12.11.2026)
+
+Read this before promising any action that needs the receiver to sign. It was
+found while trying to claim the Settled page, on the owner's explicit
+"да, извади ключа за подписа".
+
+**The three wallets, each confirmed on chain:**
+
+```
+payTo (receiver)     0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f   EOA — KEY NOT HELD
+WALLET_PRIVATE_KEY   0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd   EOA — the GAS wallet
+secrets/demo_private_key.txt
+                     0xE50c5212e8211639C49276dA190E248B83935763   EOA — the test payer
+```
+
+`WALLET_PRIVATE_KEY` on Render is **not** the receiver. It is the gas /
+self-broadcast key (`services/connectors.py:456` — "a dust of Base ETH for
+gas"). Deriving the address from it was the first thing that failed, and it is
+the reason never to assume that env var is the money key again.
+
+**Exhaustive search, not a guess.** `_forensics/hunt_payto_key.py` walks the
+repo (minus venv/.git/node_modules), `secrets/`, the DSH state directory and the
+Desktop, finds every 64-hex string and derives an address from each:
+
+```
+files scanned      7,715
+64-hex candidates  8,398
+MATCHES            0
+```
+
+**The payTo key is not on this machine.**
+
+### What this blocks
+
+* **Settled's claim** — their only path is a signature by the payTo wallet
+  (EIP-191, or ERC-1271 for contract wallets). The payTo is an **EOA with no
+  code**, so ERC-1271 does not apply either. We cannot claim there.
+* Any future service that asks the payTo to sign: x402-trust's `remove` and
+  `update-profile` (those need their own P-256 provider key, also lost),
+  wallet-gated listings, and every "prove you own the payout address" flow.
+
+### What it does NOT block
+
+* **Receiving.** The receiver works with no key at all, which is why 91
+  settlements landed in it.
+* **agenteconomy.** They offer a domain-control path for exactly this case, and
+  it worked: `claimed: true, method: domain_control, verified_at
+  2026-11-11T23:02:49Z`, with the owner badge, the card and rating e-mails.
+
+### The risk nobody has confirmed yet
+
+**If no human holds that key, the revenue in it can never be moved.** 0.926 USDC
+is small today and it grows with every sale, and a payout address whose key is
+gone eventually has to be rotated — which is a far worse problem once buyers and
+catalogues point at it. The most likely answer is that the owner holds it in a
+browser wallet, in which case the two remaining claims are 30 seconds each.
+**Ask, and get the answer on the record.**
+
+Suite 1361.
+
+
 
 
 
