@@ -2231,6 +2231,44 @@ _BAZAAR_OUTPUT_EXAMPLES = {
 for _alias, _canonical in X402_PATH_ALIASES.items():
     _BAZAAR_OUTPUT_EXAMPLES[_alias] = _BAZAAR_OUTPUT_EXAMPLES[_canonical]
 
+# ── vet402's L2 declaration: the "example" object must be a SCHEMA ──────────
+# vet402's L2 reader (src/lib/observatory/l2-check.ts, catalogOutputOf) reads
+# the declaration as extensions.bazaar.schema.properties.output.properties.example
+# and takes `.required` and `.properties` from THAT object. It never reads
+# output.required. With neither, the endpoint reports `l2_undeclared`
+# ("the listing declares no output schema") and stays a WARN on the buyer page.
+#
+# Our canonical output object carried only {type: "object", description: ...},
+# so the declaration read as empty. We therefore add the top-level keys of the
+# sample the handler actually returns. Deliberately NO `required`: a key we
+# cannot prove would turn a real delivery into a mismatch (a BLOCK), and the
+# point of the declaration is to say "the answer is an object with these keys".
+_BAZAAR_EXAMPLE_SCHEMA_TYPES = {
+    "bool": "boolean",
+    "int": "integer",
+    "float": "number",
+    "str": "string",
+    "list": "array",
+    "dict": "object",
+    "NoneType": "null",
+}
+
+
+def _bazaar_example_properties(endpoint: str) -> dict:
+    """JSON-Schema `properties` for the output example, derived from the sample.
+
+    Derived from the same _BAZAAR_OUTPUT_EXAMPLES dict the 402 publishes, so the
+    declaration can never drift from the example the buyer is shown. A route
+    without an example gets no properties, which is the honest answer.
+    """
+    example = _BAZAAR_OUTPUT_EXAMPLES.get(endpoint)
+    if not isinstance(example, dict):
+        return {}
+    return {
+        key: {"type": _BAZAAR_EXAMPLE_SCHEMA_TYPES.get(type(value).__name__, "object")}
+        for key, value in example.items()
+    }
+
 # ── The declared INPUT, which the 402 used to get wrong ────────────────────
 # Every paid route published `queryParams: {}` with additionalProperties False
 # and the sentence "No query parameters: none are required — call this route as
@@ -2456,6 +2494,13 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
                             "example": {
                                 "type": "object",
                                 "description": "Paid JSON response payload",
+                                # vet402 reads the output declaration from THIS
+                                # object (see _bazaar_example_properties): its
+                                # `.required` and `.properties`. With neither it
+                                # reports l2_undeclared and the endpoint stays a
+                                # WARN. Declaring the real top-level keys is what
+                                # turns that into "the declaration names output".
+                                "properties": _bazaar_example_properties(endpoint),
                             },
                         },
                         "required": ["type"],
