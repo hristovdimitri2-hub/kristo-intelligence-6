@@ -195,12 +195,39 @@ def test_bot_status_output_example_mirrors_the_handler(client):
 
 
 def test_input_declaration_is_unchanged(client):
-    """Regression guard: the declared input stays an explicit empty query map.
+    """Regression guard: an explicit empty query map stays explicit.
 
-    All six paid GET routes read no request.args; an undeclared input reads as
-    "may need params", which is the x402 Doctor bazaar-input finding.
+    A route that reads no request.args must declare an empty map, not omit it:
+    an undeclared input reads as "may need params", which is the x402 Doctor
+    bazaar-input finding. `/api/v1/whaleflow` is the exception as of 11.11.2026
+    — it reads `?limit=` and `?hours=` because its 50-row default response costs
+    the buyer more in tokens than the call costs in USDC. That route is asserted
+    separately below, so the empty-map guard keeps its teeth for the routes that
+    still read nothing.
     """
-    for path in ("/api/v1/whaleflow", "/api/arb/opportunities", "/api/sales"):
+    for path in ("/api/arb/opportunities", "/api/sales"):
         info = _info_for(client, path)
         assert info["input"] == {"type": "http", "method": "GET",
                                  "queryParams": {}}
+
+
+def test_whaleflow_declares_the_two_token_levers(client):
+    """The buyer's own bill is the reason these two parameters exist.
+
+    The 50-row default is ~16.9 KB / ~4.2k tokens. A caller paying $0.003 for the
+    call and 4x-20x that for the model tokens cannot be told "no, you may not
+    ask for fewer". The declaration must name them, and the alias must inherit
+    them — a buyer reaching the alias through the catalogue would otherwise be
+    told the same "no parameters" lie.
+    """
+    for path in ("/api/v1/whaleflow", "/api/v1/whale-alerts"):
+        info = _info_for(client, path)
+        assert info["input"]["type"] == "http"
+        assert info["input"]["method"] == "GET"
+        declared = info["input"]["queryParams"]
+        assert "limit" in declared, f"{path} does not declare ?limit="
+        assert "hours" in declared, f"{path} does not declare ?hours="
+        # The example is a real request shape, not a full 50-row feed.
+        assert declared["limit"] <= 10, (
+            f"{path} example asks for {declared['limit']} rows — the example "
+            "itself should be the small one, not the full feed")

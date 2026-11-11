@@ -2319,6 +2319,40 @@ X402_INPUT_QUERY_PARAMS = {
             "report shape is at /api/v1/verify-seller/sample."
         ),
     },
+    # The whale feed is the one paid route whose response is large enough to
+    # cost the buyer more in tokens than the call costs in USDC (50 rows =
+    # ~16.9 KB / ~4.2k tokens, against $0.003). Declaring the two knobs is the
+    # discovery half of the fix: the caller cannot read the handler's code, so
+    # the 402 is the only place it can learn that it may ask for fewer.
+    "/api/v1/whaleflow": {
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": (
+                    "Maximum whale events to return, 1 to 200, default 50. "
+                    "Lower it when the caller bills for the tokens in the "
+                    "response — the default is the full feed."
+                ),
+            },
+            "hours": {
+                "type": "integer",
+                "description": (
+                    "Rolling window in hours, 1 to 168, default 24. Lower it "
+                    "to narrow the window; the default is the full day."
+                ),
+            },
+        },
+        "required": [],
+        "example": {
+            "limit": 5,
+            "hours": 24,
+        },
+        "note": (
+            "Both parameters are optional. `limit` is the honest lever: the "
+            "default 50 rows is ~4.2k tokens, and an agent that only needs a "
+            "few whales can ask for 5 and pay for a fraction of the tokens."
+        ),
+    },
 }
 # The alias declares the same input as the route it fronts, by reference for the
 # same reason the output example is shared: two hand-written copies of one
@@ -8439,14 +8473,24 @@ def api_whaleflow():
     Honest labels only — zero invention (SKU-cleanup rule).
     """
     _record_request("api_whaleflow", True)
+    # THE CALLER WINS OVER THE ENV DEFAULT, and it is the caller's bill that
+    # matters: the 50-row default is ~16.9 KB / ~4.2k tokens, which costs the
+    # buyer 4x the $0.003 we charge on a mid model and 20x on a frontier one.
+    # The caller pays for the tokens, so it must be able to ask for fewer. The
+    # caps are deliberate: a request may LOWER the response, never raise it past
+    # the ceiling the env already enforces. `limit` is clamped to 200 and
+    # `hours` to 168 (the same week ceiling the dashboard uses); a non-numeric
+    # value falls back to the env default instead of failing the paid call.
     try:
-        window_hours = max(1, int(os.getenv("WHALE_WINDOW_HOURS",
-                                            str(dashboard_store_defaults(
-                                                )["window_hours"]))))
+        window_hours = max(1, min(168, int(request.args.get(
+            "hours",
+            os.getenv("WHALE_WINDOW_HOURS",
+                      str(dashboard_store_defaults()["window_hours"]))))))
     except ValueError:
         window_hours = 24
     try:
-        limit = max(1, min(200, int(os.getenv("WHALEFLOW_LIMIT", "50"))))
+        limit = max(1, min(200, int(request.args.get(
+            "limit", os.getenv("WHALEFLOW_LIMIT", "50")))))
     except ValueError:
         limit = 50
     # Audit #4 / F3: this is the one paid route whose data path is a raw DB
