@@ -415,6 +415,10 @@ X402_FREE_ENDPOINTS = {
     # "avoid" for 24 hours, then "caution" — this file is what turns a rotation
     # into a recognised event instead of an incident.
     "/.well-known/paycheck.json",
+    # Agent Economy Report's domain-control claim. Needed because their normal
+    # path signs a message with the payTo wallet, and we do not keep that key
+    # anywhere a request could reach. See `agenteconomy_verify_file`.
+    "/.well-known/agenteconomy-verify.txt",
     # The settlement classifier. FREE ON PURPOSE: it is a statement about our
     # own ledger, and a statement nobody can read without paying is not a
     # statement. See `api_settlement_classes` for what it publishes and why the
@@ -3358,6 +3362,37 @@ def paycheck_declaration():
     here and adding fields would be guessing at one we cannot see.
     """
     return jsonify({"payTo": [X402_RECEIVER_ADDRESS]})
+
+
+#: Agent Economy Report's domain-control token for this host.
+#:
+#: PUBLIC BY DESIGN, which is why it is a literal here rather than a secret. The
+#: value exists to be served at /.well-known/agenteconomy-verify.txt so that the
+#: host itself can be checked; anyone can read it, and reading it proves nothing.
+#: What confirms the claim is the separate `request` value, which is NOT in this
+#: file and never will be.
+#:
+#: WHY DOMAIN CONTROL AT ALL. Their normal path signs a message with the payTo
+#: wallet. We hold that key only on Render, deliberately, and it was not worth
+#: moving it into a request path to save a file — so we use the route they
+#: document for exactly this case. It gives the same owner block, badges and
+#: rating e-mails, and a wallet-signed claim would still take precedence over it.
+#:
+#: The file is re-checked daily and the claim lapses after three failed checks,
+#: so it has to stay served: a token that is removed is a claim that quietly
+#: expires.
+_AGENTECONOMY_VERIFY_TOKEN = "aer-576966fcf59cc23f92f0b67a83ff3822"
+
+
+@app.route("/.well-known/agenteconomy-verify.txt")
+def agenteconomy_verify_file():
+    """Domain-control proof for agenteconomy.report — one line, plain text.
+
+    Free and unpaywalled on purpose: a proof that costs a payment is a proof
+    that stops being served the moment the crawler is over its free tier.
+    """
+    return (_AGENTECONOMY_VERIFY_TOKEN + "\n", 200,
+            {"Content-Type": "text/plain; charset=utf-8"})
 
 
 @app.route("/api/v1/settlement-classes")

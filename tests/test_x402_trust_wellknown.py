@@ -41,3 +41,35 @@ def test_wellknown_stays_free_with_exhausted_tier(client):
             "x402-trust-verification=v1:")
     finally:
         main._free_tier_usage.pop("127.0.0.1", None)
+
+
+# ── Agent Economy Report's domain-control proof ─────────────────────────────
+
+def test_agenteconomy_proof_is_one_plain_text_line(client):
+    """Their check reads the file as plain text and compares the token.
+
+    Domain control is the path they document for a payTo wallet that cannot
+    sign — ours lives only on Render, deliberately — and it gives the same owner
+    block and badges a wallet-signed claim does.
+    """
+    r = client.get("/.well-known/agenteconomy-verify.txt")
+    assert r.status_code == 200
+    assert r.content_type.startswith("text/plain")
+    body = r.get_data(as_text=True)
+    assert body.startswith("aer-"), body[:40]
+    assert body.count("\n") == 1 and body.endswith("\n"), (
+        "the file must be ONE line; their checker reads the token as the whole "
+        "body. Got %r" % body)
+
+
+def test_agenteconomy_proof_stays_free_with_exhausted_tier(client):
+    """The file is re-checked daily and the claim lapses after 3 misses, so it
+    must not depend on the crawler being under a free tier."""
+    import main
+    main._free_tier_usage["127.0.0.1"] = 999
+    try:
+        r = client.get("/.well-known/agenteconomy-verify.txt")
+        assert r.status_code == 200
+        assert r.get_data(as_text=True).startswith("aer-")
+    finally:
+        main._free_tier_usage.pop("127.0.0.1", None)
