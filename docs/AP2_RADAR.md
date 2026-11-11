@@ -1,8 +1,6 @@
 # AP2 RADAR — какво се промени от миналия път
 
-Проверено: 2026-11-07 18:02 UTC · read-only, публични артефакти, без идентичности.
-
-**ТИХО — няма нови комити, релийзи, WG repos или цензус.**
+Проверено: 2026-11-11 18:00 UTC · read-only, публични артефакти, без идентичности.
 
 ## Промени по мониторирани repos
 
@@ -16,15 +14,272 @@
 - Няма нови комити от миналата проверка.
 
 
+### Merit-Systems/x402scan
+
+- `20bba0ff30` 2026-08-24 — remove trpc routers
+  - файл: apps/scan/src/trpc/routers/public/facilitator-observability.ts
+  - файл: apps/scan/src/trpc/routers/public/index.ts
+  - файл: apps/scan/src/trpc/routers/public/observability.ts
+  - файл: pnpm-lock.yaml
+- `37c10ade3a` 2026-08-24 — remove upsert from proxy
+  - файл: apps/proxy/.env.example
+  - файл: apps/proxy/package.json
+  - файл: apps/proxy/src/routes/proxy.ts
+  - файл: apps/proxy/src/server.ts
+- `80b9f357b1` 2026-08-24 — remove db from the scan and admin
+  - файл: apps/scan/package.json
+  - файл: apps/scan/src/app/(app)/_contexts/sorting/resource-search/context.ts
+  - файл: apps/scan/src/app/(app)/admin/resource-search/_components/table/columns.tsx
+  - файл: apps/scan/src/app/(app)/admin/resource-search/_components/table/results-table.tsx
+  - файл: apps/scan/src/env.ts
+  - файл: apps/scan/src/services/resource-search/clickhouse-search.ts
+- `b305581faa` 2026-08-24 — remove trigger job and delete clickaus db since it is no longer used
+  - файл: .changeset/config.json
+  - файл: .changeset/pre.json
+  - файл: .github/workflows/deploy-analytics.yml
+  - файл: knip.config.ts
+  - файл: package.json
+  - файл: packages/internal/databases/analytics/.gitignore
+- `4b29346e90` 2026-08-24 — Merge pull request #1096 from Merit-Systems/aec/cleanup-db
+  - файл: .changeset/config.json
+  - файл: .changeset/pre.json
+  - файл: .github/workflows/deploy-analytics.yml
+  - файл: apps/proxy/.env.example
+  - файл: apps/proxy/package.json
+  - файл: apps/proxy/src/routes/proxy.ts
+- `f6fc282bf5` 2026-08-25 — Merge remote-tracking branch 'origin/main' into feat/svm-channel-schemes-indexing
+  - файл: .changeset/config.json
+  - файл: .changeset/pre.json
+  - файл: .github/workflows/deploy-analytics.yml
+  - файл: .oxlintrc.json
+  - файл: apps/proxy/.env.example
+  - файл: apps/proxy/package.json
+- `32249e1c59` 2026-08-25 — chore(svm): type payout extractor input structurally, run sync tests in CI
+  - файл: package.json
+  - файл: sync/transfers/scripts/probe-channels.ts
+  - файл: sync/transfers/test/channels-query.test.ts
+  - файл: sync/transfers/trigger/chains/solana/bitquery-channels/query.ts
+- `ab37d7322d` 2026-08-25 — fix(svm): track a sync-state cursor for the channels sync
+  - файл: sync/transfers/trigger/chains/solana/bitquery-channels/config.ts
+  - файл: sync/transfers/trigger/sync.ts
+- `e2526d65fe` 2026-08-25 — Merge pull request #1091 from lgalabru/feat/svm-channel-schemes-indexing
+  - файл: package.json
+  - файл: packages/internal/databases/transfers/prisma/migrations/20260821000000_transfer_event_scheme/migration.sql
+  - файл: packages/internal/databases/transfers/prisma/schema.prisma
+  - файл: pnpm-lock.yaml
+  - файл: sync/transfers/db/services.ts
+  - файл: sync/transfers/package.json
+- `f1f3428e5c` 2026-09-01 — Remove unused example servers and evals
+  - файл: .changeset/config.json
+  - файл: evals/.gitignore
+  - файл: evals/README.md
+  - файл: evals/fixtures/express-openapi/package.json
+  - файл: evals/fixtures/express-openapi/server.js
+  - файл: evals/fixtures/next-wellknown/app/.well-known/x402/route.js
+- `3700a520dc` 2026-09-01 — Merge pull request #1130 from Merit-Systems/json/remove-example-servers-and-evals
+  - файл: .changeset/config.json
+  - файл: evals/.gitignore
+  - файл: evals/README.md
+  - файл: evals/fixtures/express-openapi/package.json
+  - файл: evals/fixtures/express-openapi/server.js
+  - файл: evals/fixtures/next-wellknown/app/.well-known/x402/route.js
+- `dbe073f50d` 2026-09-16 — better warnings ← КЛЮЧОВИ ДУМИ: discovery
+  - файл: apps/scan/src/app/(app)/(home)/resources/register/_components/form.tsx
+  - файл: apps/scan/src/app/(app)/_components/discovery/discovery-actions.tsx
+  - файл: apps/scan/src/app/(app)/_components/discovery/discovery-panel.tsx
+  - файл: apps/scan/src/lib/discovery/favicon-blocked.test.ts
+  - файл: apps/scan/src/lib/discovery/favicon-blocked.ts
+  - файл: apps/scan/src/lib/discovery/server-host-mismatch.test.ts
+- `131a5d3ca9` 2026-09-16 — rm cal link
+  - файл: apps/scan/src/app/(app)/(home)/resources/register/_components/form.tsx
+- `c0c178675c` 2026-10-14 — rm cal link from register support links
+  - файл: apps/scan/src/app/(app)/(home)/resources/register/page.tsx
+- `5732bb83c8` 2026-10-14 — fix build: use <a> for mailto link (typedRoutes rejects string href)
+  - файл: apps/scan/src/app/(app)/(home)/resources/register/_components/form.tsx
+
+
+### developerfred/x402-conformance-probe
+
+- `e6904c30d5` 2026-11-02 — feat: x402 conformance probe with 20 endpoints, fixtures, report, test endpoint, and paid retry
+  - файл: .gitignore
+  - файл: REPORTED.md
+  - файл: discover.ts
+  - файл: endpoints-discovered.json
+  - файл: fixtures/averray-verify-verify-runs.json
+  - файл: fixtures/browserbase-x402-endpoint.json
+- `25883ed0b0` 2026-11-02 — feat: add REPORTED.md with issue links for all defects
+  - файл: REPORTED.md
+- `9918c61ab1` 2026-11-02 — feat: expand to 30 endpoints, add response time/body size columns, CI workflow, Vercel deploy
+  - файл: .github/workflows/conformance.yml
+  - файл: .gitignore
+  - файл: fixtures/averray-verify-verify-runs.json
+  - файл: fixtures/browserbase-x402-endpoint.json
+  - файл: fixtures/coinmarketcap-dex-search.json
+  - файл: fixtures/exa-search-api.json
+- `e0fb7d3161` 2026-11-02 — feat: add landing page and vercel config so production site has full documentation
+  - файл: index.html
+- `8344b30a8b` 2026-11-02 — feat: track vercel.json in repo (remove from gitignore)
+  - файл: .gitignore
+  - файл: vercel.json
+- `8d9bf500bc` 2026-11-02 — feat: melhorar diagramação do REPORTED.md e templates de issue no GitHub
+  - файл: .github/ISSUE_TEMPLATE/config.yml
+  - файл: .github/ISSUE_TEMPLATE/x402-conformance-defect.md
+  - файл: REPORTED.md
+  - файл: discover-all.ts
+  - файл: endpoints-discovered.json
+  - файл: generate-config.ts
+
+
+### alchemyplatform/alchemy-x402
+
+- `1cf2ff51ae` 2026-03-10 — Merge branch 'main' into chris/architecture-required
+  - файл: .changeset/config.json
+  - файл: .changeset/switch-changelog-github.md
+  - файл: .github/workflows/publish.yml
+  - файл: CHANGELOG.md
+  - файл: MAINTAINERS.md
+  - файл: package.json
+- `99aa16e2b4` 2026-03-10 — Merge pull request #24 from alchemyplatform/chris/architecture-required
+  - файл: README.md
+- `fdd3b3934d` 2026-03-11 — gp/revert changes - i give up for now (#36)
+  - файл: .github/workflows/publish.yml
+  - файл: package.json
+- `2960f9edef` 2026-03-11 — chore: add changeset for v0.6.3 (#37)
+  - файл: .changeset/update-readme-solana-support.md
+  - файл: .claude/skills/changeset/SKILL.md
+  - файл: MAINTAINERS.md
+- `a6337cf358` 2026-03-11 — chore: release v0.6.3
+  - файл: .changeset/update-readme-solana-support.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+- `a4b4575e38` 2026-03-11 — chore: add husky pre-commit hook with lint-staged (#38)
+  - файл: .husky/pre-commit
+  - файл: package.json
+  - файл: pnpm-lock.yaml
+- `d6527e270e` 2026-03-11 — fix(ci): restore GitHub release creation in publish workflow (#39)
+  - файл: .changeset/fix-github-release.md
+  - файл: .github/workflows/publish.yml
+- `24e04a21eb` 2026-03-11 — chore: release v0.6.4
+  - файл: .changeset/fix-github-release.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+- `fef4a164ec` 2026-03-11 — fix(ci): upgrade GitHub Actions to Node.js 24-compatible versions (#40)
+  - файл: .github/workflows/ci.yml
+  - файл: .github/workflows/publish.yml
+- `b88e5d2c09` 2026-03-11 — gp/test OIDC again (#41)
+  - файл: .changeset/puny-doodles-thank.md
+  - файл: .github/workflows/publish.yml
+- `9f40ecd33e` 2026-03-11 — chore: release v0.6.4
+  - файл: .changeset/puny-doodles-thank.md
+- `97584c3122` 2026-03-11 — fix: add missing version bump and validate changeset files in CI (#42)
+  - файл: .changeset/fix-missed-version-bump.md
+  - файл: .github/workflows/ci.yml
+- `34163bc903` 2026-03-11 — chore: release v0.6.5
+  - файл: .changeset/fix-missed-version-bump.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+- `3c691c6580` 2026-03-11 — fix: add repository URL to package.json for npm provenance verification (#43)
+  - файл: .changeset/fix-repository-url.md
+  - файл: package.json
+- `b5253ae81d` 2026-03-11 — chore: release v0.6.6
+  - файл: .changeset/fix-repository-url.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+
+
+### tanaka-77/mart402-agent-kit
+
+- `d8884449d5` 2026-07-22 — Initial commit
+  - файл: LICENSE
+  - файл: README.md
+- `d58c305a44` 2026-07-22 — Create pay_and_parse.py
+  - файл: examples/python/pay_and_parse.py
+- `eaa122b2e8` 2026-07-22 — Create extract.ts
+  - файл: examples/typescript/extract.ts
+- `4809a6f695` 2026-07-22 — Create config.json
+  - файл: examples/mcp/config.json
+- `bf9ea7c93d` 2026-07-22 — Create selftest.yml
+  - файл: .github/workflows/selftest.yml
+- `d5800b9f65` 2026-07-22 — Update README.md
+  - файл: README.md
+
+
+### node4dev/x402-agent-toolkit
+
+- `26ff86cf8d` 2026-04-19 — Initial commit
+- `753973ea1d` 2026-04-22 — feat: full rewrite for x402 v2 (v0.1.1)
+- `e5a1d938d3` 2026-04-22 — docs: trim README for public repo
+- `5403073e76` 2026-04-22 — feat: accept PRIVATE_KEY with or without 0x prefix
+- `31ce483671` 2026-04-25 — updated with additional tool
+  - файл: README.md
+  - файл: package.json
+  - файл: src/index.ts
+  - файл: src/tools/x402Quote.ts
+  - файл: src/tools/x402Request.ts
+- `a15366a2bb` 2026-04-25 — Merge pull request #1 from node4dev/feat/x402-quote-tool
+  - файл: README.md
+  - файл: package.json
+  - файл: src/index.ts
+  - файл: src/tools/x402Quote.ts
+  - файл: src/tools/x402Request.ts
+
+
+### haoruilee/awesome-agent-native-services
+
+- (API грешка: HTTP 403)
+
+
+### Drudley/indexagentica
+
+- (API грешка: HTTP 403)
+
+
+### Nikolife2016/pulsefeed-x402
+
+- (API грешка: HTTP 403)
+
+
 ## Разговорът (issues и PR-и, обновени от миналия път)
 
 ### google-agentic-commerce/AP2
 
-- Нищо ново обновено от миналия път.
+- (API грешка: HTTP 403)
 
 ### google-agentic-commerce/a2a-x402
 
-- Нищо ново обновено от миналия път.
+- (API грешка: HTTP 403)
+
+### Merit-Systems/x402scan
+
+- (API грешка: HTTP 403)
+
+### developerfred/x402-conformance-probe
+
+- (API грешка: HTTP 403)
+
+### alchemyplatform/alchemy-x402
+
+- (API грешка: HTTP 403)
+
+### tanaka-77/mart402-agent-kit
+
+- (API грешка: HTTP 403)
+
+### node4dev/x402-agent-toolkit
+
+- (API грешка: HTTP 403)
+
+### haoruilee/awesome-agent-native-services
+
+- (API грешка: HTTP 403)
+
+### Drudley/indexagentica
+
+- (API грешка: HTTP 403)
+
+### Nikolife2016/pulsefeed-x402
+
+- (API грешка: HTTP 403)
 
 ## Нови публични WG repos (търсене при всяка проверка)
 

@@ -1737,8 +1737,59 @@ documents reference it, so refreshing beat deleting.
 
 Suite 1322.
 
+## 27. x402scan.com: are we paid or free? (measured 11.11.2026)
 
+The owner's question: if x402scan shows us as free, we are "free" in a catalogue
+with thousands of paid rows, and that is a real reason nobody pays us.
 
+**Answer: we are shown as paid.** Measured against the app's own public tRPC
+queries (`_forensics/what_x402scan_shows_about_us.py`, read-only, no payment):
 
+* Our server `https://kristo-intelligence-api.onrender.com` id
+  `0c176841-4de1-4087-906d-e5d41f414ace`, 15 rows.
+* **7 rows carry a price** (`< $0.01` for $0.003/$0.005 — their `formatCurrency`
+  collapses sub-cent) and a stored 402 response whose `accepts` point at our
+  `payTo`. All 7 answer 402 on the live host; all 8 free rows answer 200.
+* The other 8 rows are our own docs (`/openapi.json`, `/llms.txt`, `/health`,
+  `/dashboard`, `/.well-known/x402`, `/.well-known/x402.json`,
+  `/api/mcp/manifest`, `/api/v1/agents`) and carry the **Public** badge, not
+  "Free". They are genuinely free.
+* The "Activity" section on our server page shows **84 transactions, $0.904,
+  8 unique buyers over 30 days**; all-time 97 / $0.923 / 14, last
+  `2026-11-11T06:04:32Z`.
 
+The catalogue is 221,987 rows, 198,120 with `accepts` (198,076 live). The "689
+paid" figure in the radar is x402scan's own sales count, not the catalogue size.
 
+Three real defects surfaced, and one of them was fixed on the spot:
+
+1. **`/api/v1/verify-seller` was missing from x402scan.** Their own discovery
+   reads our `openapi.json` (15 endpoints, `authMode=paid`, `price=0.010 USD`)
+   and reported 14 registered / 1 unregistered — the pilot route. Our rows were
+   frozen at 2026-11-04T17:37; their facilitator sync is paused
+   (`FACILITATOR_SYNC_PAUSED = true`), so it never refreshes. **Fixed**: I ran
+   the public mutation `public.resources.registerFromOrigin` (the same call the
+   page's "Refresh" button makes) with `origin=https://kristo-intelligence-api.onrender.com`.
+   It answered `success:true, registered:7, publicCount:8, failed:0, skipped:0,
+   deprecated:0, total:15`; the row `/api/v1/verify-seller` now carries
+   `amt=10000`, `price=0.010 USD`, and the origin's `updatedAt` moved to
+   2026-11-11T18:11:18Z. Nothing was deprecated.
+2. **A dead second copy of us**: x402scan keeps a separate server
+   `https://kristo-intelligence.vercel.app` (id `73148ccf-…`), 16 rows, 12 of
+   them paid ($0.05–$0.10, `success=true`, last crawl 05.08.2026), pointing at a
+   host returning `404 DEPLOYMENT_NOT_FOUND`, with **0 transactions**. Any agent
+   that lands there sees a broken shop. There is no public way for us to remove
+   it.
+3. **MPP conformance warning.** The registration answered `warningDetails` for
+   all 7 paid rows: `MPP_NO_PAYMENT_CHALLENGES`, severity `error`, "WWW-Authenticate
+   header contains no Payment challenges". Our 402 sends
+   `WWW-Authenticate: x402 realm="kristo-intelligence", …` — the legacy x402
+   scheme, not the MPP `Payment` challenge. An x402 client is unaffected; an
+   MPP-native client (mppx, Tempo) would not see a payable offer. This is a real
+   gap, not a blocker, and the badge stays "Paid" because it is derived from
+   `accepts[0].amount`, not from the warnings.
+
+Also note: our prices render as `< $0.01`, so the catalogue never shows the real
+$0.003/$0.005.
+
+Suite 1322.
