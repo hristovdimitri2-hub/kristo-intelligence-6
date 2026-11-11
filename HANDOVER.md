@@ -1793,3 +1793,73 @@ Also note: our prices render as `< $0.01`, so the catalogue never shows the real
 $0.003/$0.005.
 
 Suite 1322.
+
+## 28. Four defects found from OUTSIDE, all in the transport layer (11.11.2026)
+
+The owner approved fixing four things that external raters had already found.
+Every one of them was invisible to a server-side client and fatal to a class of
+buyer, which is why a catalogue of 85 paid calls contained none of the affected
+kind. Fixed together, with 15 new tests
+(`tests/test_paywall_transport_fixes.py`).
+
+**1. CORS preflight — no browser agent could ever pay us.**
+Lumière PayCheck graded `/api/v1/verify-seller` and reported, verbatim:
+*"Browser agents — Can't pay it yet: CORS headers missing (server-side agents are
+fine)"* and *"The CORS preflight (OPTIONS) is refused with HTTP 402."* Reproduced
+locally: `OPTIONS` returned the canonical `402` carrying
+`Access-Control-Allow-Origin: *` but **no** `Access-Control-Allow-Methods` and
+**no** `Access-Control-Allow-Headers`. A browser sends the preflight first and
+aborts on that answer, so the paid retry never happened. Both reference
+implementations in this niche answer it correctly — measured the same hour:
+`tradingagentstack.com` → `204` + `Allow-Headers: content-type, payment-signature,
+x-payment`; `x402pulse.dev` → `204` + `Allow: GET, HEAD, OPTIONS, POST`.
+**Fixed**: `before_request` answers `OPTIONS` with `204` before the paywall can
+challenge it, listing the payment headers we accept. A preflight also no longer
+consumes a free-tier call.
+
+**2. A method the route does not answer was settled before it was refused.**
+Flask runs `before_request` even after URL matching has already failed, so a
+`POST` to a GET-only paid route reached the paywall, was challenged, was
+**settled**, and only then died with a `405` from the dispatcher. Not theoretical:
+on 21.10.2026 `JarvisClaw-Federation/1.0` POSTed `/api/v1/signal`, paid $0.003 and
+got the 405 — the row is still in `payment_guards` with `delivered_at IS NULL`,
+which is exactly the `n_paid_undelivered` a payer agent counts against a seller.
+**Fixed**: `routing_exception instanceof MethodNotAllowed` is refused with a
+`405` + `Allow` before any credential is read, and the test asserts the
+settlement rail is never reached.
+
+**3. `MPP_NO_PAYMENT_CHALLENGES`** (x402scan, severity `error`, all 7 paid rows).
+MPP is the Machine Payments Protocol, contributed by **Tempo × Stripe** (SDK
+`mppx`, IETF spec at `paymentauth.org`), and it activated HTTP 402 with a
+`WWW-Authenticate: Payment …` challenge. **Fixed** by adding a second `Payment`
+challenge in the same response (MPP documents multiple challenges explicitly),
+carrying the real terms as base64url JCS `{amount, currency, recipient}` and an
+HMAC-bound `id`. It advertises `header="PAYMENT-SIGNATURE"` on purpose: that is
+the field our existing rail verifies, so the advertised path is honourable. A
+native MPP `{challenge,payload,source}` Credential is **refused with a 401 that
+settles nothing**. The legacy `x402` token is byte-identical, and a test pins it.
+
+**Measured caveat, do not lose this:** *neither* `tradingagentstack.com` *nor*
+`x402pulse.dev` emits an MPP challenge — checked live. So this made us **ahead of
+the field**, not level with it, and it was never the reason anyone failed to buy.
+
+**4. The local SQLite said `file is not a database` — 1,335 times.**
+`/api/dashboard/data` returned `500` on 10.11 (976 times) and 11.11 (320), and
+the board served `stale=true` with the log line
+`dashboard: background refresh failed (variant (False, False)): file is not a
+database`. `KRISTO_DASHBOARD_DB=data/dashboard_state_v2.db` sits on the
+container's **ephemeral** disk, so there is nothing to restore. The operator's
+documented remedy was to point the variable at a fresh name — a human plus a
+deploy at exactly the moment the board is telling visitors the service is broken.
+**Fixed**: `DashboardStore._ensure_db` now catches `sqlite3.DatabaseError`,
+**quarantines** the file (renamed to `*.corrupt-<UTC>`, never deleted, sidecars
+removed) and creates a fresh one, once. Safe because that file holds only
+`payapi_state` and the scan `meta` watermarks; the money table, the replay lock
+and every history live on PostgreSQL via `HistoryStore`. One subtlety worth
+keeping: `sqlite3.Connection.__exit__` commits but does **not close**, so the
+handle had to be closed explicitly — on Windows an open handle makes the
+quarantine rename fail with `WinError 32`, i.e. the healing would have worked
+everywhere except the operator's own machine.
+
+Suite 1342.
+

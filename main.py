@@ -2546,6 +2546,99 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
     return accepts, resource, extensions
 
 
+#: How long an advertised MPP Challenge stays valid. Short on purpose: the
+#: Challenge is a cached-nowhere, one-shot advertisement, and a long window only
+#: widens the gap between the terms quoted and the terms settled.
+_MPP_CHALLENGE_TTL_SECONDS = 300
+
+#: Standing in for `SESSION_SECRET` when none is configured, so a challenge id
+#: is always bound to SOMETHING rather than left unbound.
+_MPP_FALLBACK_KEY = secrets.token_bytes(32)
+
+
+def _mpp_jcs_b64(payload: Dict) -> str:
+    """base64url(JCS(json)) — the encoding MPP mandates for `request`/`opaque`.
+
+    JCS (RFC 8785) is canonical JSON: sorted keys, no insignificant whitespace.
+    For the flat string-valued objects used here `sort_keys=True` with the
+    compact separators IS the canonical form, so no extra dependency is needed.
+    Padding is stripped because the MPP examples are padding-free and a client
+    that re-encodes must produce the same string to match on `request`.
+    """
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                     ensure_ascii=False)
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def _mpp_challenge_id(realm: str, method: str, intent: str, request_b64: str,
+                      expires: str, description: str) -> str:
+    """An HMAC-bound Challenge id, so the terms cannot be edited in flight.
+
+    MPP requires the `id` to be cryptographically bound to the Challenge
+    parameters, with the exact slot order `realm | method | intent | request |
+    expires | digest | opaque` (absent optionals as empty strings). The key is
+    derived from `SESSION_SECRET` so the binding survives a deploy; if no secret
+    is configured the id is still minted, from a per-process random key, and the
+    caller is told nothing — an unbound id would be worse than a fresh one.
+    """
+    secret = (os.getenv("SESSION_SECRET") or os.getenv("ADMIN_API_TOKEN")
+              or "").encode()
+    if not secret:
+        secret = _MPP_FALLBACK_KEY
+    mac = hmac.new(secret, "\x1f".join(
+        [realm, method, intent, request_b64, expires, description, ""]
+    ).encode(), hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(mac).decode().rstrip("=")[:32]
+
+
+def _mpp_payment_challenge(endpoint: str, amount: float,
+                           description: str = "") -> str:
+    """A `WWW-Authenticate: Payment` Challenge for one paid route.
+
+    WHY THIS EXISTS. x402scan reads every paid row in the catalogue and raises
+    `MPP_NO_PAYMENT_CHALLENGES` (severity: error) where the 402 carries only the
+    legacy `WWW-Authenticate: x402 …` token that we used to send. MPP — the
+    Machine Payments Protocol, contributed by Tempo and Stripe and now carrying
+    x402 exact flows inline — puts the terms in a `Payment` scheme instead.
+
+    WHAT IT DOES **NOT** CLAIM. We verify x402 exact payments, and the Challenge
+    therefore advertises `header="PAYMENT-SIGNATURE"`: the field our existing
+    standard rail already verifies and settles. It is deliberately NOT a native
+    MPP-EVM Challenge, because we cannot verify an MPP `{challenge,payload,source}`
+    Credential yet, and advertising a payment path we cannot honour would be
+    worse than the warning it removes. An MPP client that prefers this Challenge
+    puts its proof where we check it; one that sends a native MPP Credential gets
+    a precise 401 from `_x402_paywall` with nothing settled.
+
+    Emitted as a SECOND challenge in the same header, which MPP explicitly
+    allows ("Servers can offer multiple payment options in a single response").
+    """
+    request_obj = {
+        "amount": str(int(round(float(amount) * 1_000_000))),
+        "currency": X402_USDC_CONTRACT,
+        "recipient": X402_RECEIVER_ADDRESS,
+    }
+    request_b64 = _mpp_jcs_b64(request_obj)
+    expires = (datetime.now(timezone.utc)
+               + timedelta(seconds=_MPP_CHALLENGE_TTL_SECONDS)).strftime(
+                   "%Y-%m-%dT%H:%M:%SZ")
+    realm = "kristo-intelligence"
+    challenge_id = _mpp_challenge_id(
+        realm, "evm", "charge", request_b64, expires, description or "")
+    parts = [
+        'Payment id="%s"' % challenge_id,
+        'realm="%s"' % realm,
+        'method="evm"',
+        'intent="charge"',
+        'request="%s"' % request_b64,
+        'expires="%s"' % expires,
+        'header="PAYMENT-SIGNATURE"',
+    ]
+    if description:
+        parts.append('description="%s"' % description.replace('"', "'")[:180])
+    return ", ".join(parts)
+
+
 def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] = None):
     """
     Build a standard HTTP 402 Payment Required response for the x402 protocol.
@@ -2654,6 +2747,14 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         f'token="USDC", token_contract="{X402_USDC_CONTRACT}", '
         f'receiver="{X402_RECEIVER_ADDRESS}", amount="{amount}", '
         f'accepts="tx_hash"'
+    )
+    # SECOND challenge, same response: `Payment` (MPP), which is the scheme
+    # x402scan looks for. A second header LINE rather than a comma-joined value,
+    # because that is the shape MPP documents for multiple options and it keeps
+    # the legacy token byte-identical to what every existing client parses.
+    resp.headers.add(
+        "WWW-Authenticate",
+        _mpp_payment_challenge(endpoint, amount, description),
     )
     # x402 v2 spec (specs/transports-v2/http.md): the canonical PaymentRequired
     # payload rides in the PAYMENT-REQUIRED response header as STANDARD base64
@@ -3980,6 +4081,53 @@ def _get_standard_payment_header() -> str:
     )
 
 
+def _mpp_transport_credential():
+    """Read an MPP Credential and return `(payload, state)`.
+
+    MPP sends its Credential as `Authorization: Payment <base64url(JCS)>`, a
+    DIFFERENT shape from the x402 v2 `PAYMENT-SIGNATURE` payload: the MPP body is
+    `{"challenge": …, "payload": …, "source": …}`. We advertise an MPP Challenge
+    (so the catalogue stops raising `MPP_NO_PAYMENT_CHALLENGES`) but with
+    `header="PAYMENT-SIGNATURE"`, so the supported path is the x402 one.
+
+    A client that ignores that and posts a native MPP Credential anyway must not
+    be left guessing, and must not be charged. This returns:
+
+      * `(payload, "x402")`   — the Credential carried an embedded x402 v2
+        payload (`x402Version` present anywhere in its `payload`/`challenge`),
+        which the ordinary standard rail can verify and settle.
+      * `("", "unusable")`    — a Credential is present but is native MPP, which
+        we cannot verify yet. The caller refuses WITHOUT settling.
+      * `("", None)`          — no MPP Credential on this request at all.
+
+    Nothing here settles or consumes anything; verification stays in the one
+    rail that already owns it.
+    """
+    raw = (request.headers.get("Authorization") or "").strip()
+    if not raw:
+        return "", None
+    parts = raw.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "payment":
+        return "", None
+    token = parts[1].strip()
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(padded).decode())
+    except (ValueError, binascii.Error, UnicodeDecodeError):
+        return "", "unusable"
+    if not isinstance(decoded, dict):
+        return "", "unusable"
+    for key in ("payload", "challenge"):
+        candidate = decoded.get(key)
+        if isinstance(candidate, dict) and "x402Version" in candidate:
+            return json.dumps(candidate, separators=(",", ":")), "x402"
+        if isinstance(candidate, dict):
+            inner = candidate.get("payload")
+            if isinstance(inner, dict) and "x402Version" in inner:
+                return json.dumps(inner, separators=(",", ":")), "x402"
+    return "", "unusable"
+
+
 #: A hard ceiling on any single step of the inbound payment rail.
 #:
 #: WHY THIS EXISTS, and it is the difference between a refused payment and an
@@ -4593,10 +4741,56 @@ def _is_parked_demo_surface(path: str) -> bool:
 # scoped strictly to 402 responses (paid routes, incl. OPTIONS when the
 # paywall challenges it). Existing 402 headers/body are untouched.
 _EXPOSE_402_HEADERS = (
-    "PAYMENT-REQUIRED, payment-required, "
+    "PAYMENT-REQUIRED, payment-required, PAYMENT-RESPONSE, "
     "x-payment-address, x-payment-amount-usdc, x-payment-chain, "
     "x-payment-required, x-payment-token-contract"
 )
+
+#: The request headers a browser-based x402 agent must be allowed to send.
+#:
+#: A cross-origin paid call is NOT a simple request: `PAYMENT-SIGNATURE` (and
+#: the v1-era `X-PAYMENT`, and the legacy `X-Payment-Proof`) are not CORS-safelisted
+#: names, so the browser sends an OPTIONS preflight first and aborts unless the
+#: preflight's `Access-Control-Allow-Headers` names every one of them. Lumière
+#: PayCheck measured the omission from the outside on 09.11 — "Can't pay it yet:
+#: CORS headers missing" — and the reference implementations in this niche
+#: (tradingagentstack.com, x402pulse.dev) both answer OPTIONS with `204` and list
+#: the payment headers. We answered it with a `402` challenge and listed none, so
+#: no in-page agent could ever reach the paid retry. Server-side clients are
+#: unaffected, which is exactly why a catalogue of 85 paid calls contained zero
+#: from a browser until this was measured.
+_X402_CORS_ALLOW_HEADERS = (
+    "Content-Type, Accept, Authorization, "
+    "PAYMENT-SIGNATURE, payment-signature, X-PAYMENT, x-payment, "
+    "PAYMENT-REQUIRED, payment-required, "
+    "X-Payment-Proof, x-payment-proof, "
+    "X-Admin-Token, x-admin-token"
+)
+
+#: Methods a paid route answers. Kept as a literal rather than derived from the
+#: URL map because the preflight is answered in `before_request`, where a route
+#: that matched no method has no `url_rule` to read.
+_X402_CORS_ALLOW_METHODS = "GET, HEAD, POST, OPTIONS"
+
+
+def _x402_cors_preflight_response():
+    """The 204 a browser agent needs before it can pay us.
+
+    Deliberately NOT a 402: the preflight is a capability question, not a paid
+    request, and answering it with a challenge is what made every in-page agent
+    stop one step short of the payment. The `Access-Control-Max-Age` is short
+    (10 min) so a revoked header list is not cached for a day in someone's
+    browser, and `no-store` keeps a shared proxy from replaying it.
+    """
+    from flask import Response
+    resp = Response(status=204)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = _X402_CORS_ALLOW_METHODS
+    resp.headers["Access-Control-Allow-Headers"] = _X402_CORS_ALLOW_HEADERS
+    resp.headers["Access-Control-Expose-Headers"] = _EXPOSE_402_HEADERS
+    resp.headers["Access-Control-Max-Age"] = "600"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.after_request
@@ -4605,6 +4799,8 @@ def _x402_402_cache_and_cors(response):
     if response.status_code == 402:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = _X402_CORS_ALLOW_HEADERS
+        response.headers["Access-Control-Allow-Methods"] = _X402_CORS_ALLOW_METHODS
         response.headers["Access-Control-Expose-Headers"] = _EXPOSE_402_HEADERS
     return response
 
@@ -4761,8 +4957,25 @@ def _x402_paywall():
     g.request_id = uuid.uuid4().hex[:16]   # F3: every reply can be grepped
     path = request.path
 
+    # ── CORS preflight: answer it BEFORE the paywall can challenge it ──────
+    #
+    # ORDERING is the whole fix. Flask runs `before_request` for OPTIONS just
+    # as it does for GET, so the paywall used to answer a preflight with the
+    # canonical 402 — carrying no `Access-Control-Allow-Methods` and no
+    # `Access-Control-Allow-Headers`. The browser then aborts the paid retry,
+    # which is why a browser agent could never buy anything from us. Measured
+    # from the outside by Lumière PayCheck (09.11) and reproduced locally:
+    # OPTIONS returned 402; both reference implementations return 204.
+    if request.method == "OPTIONS":
+        return _x402_cors_preflight_response()
+
     # Demo / unproven surfaces: parked with a 404 when KRISTO_DEMO_SURFACES is
     # off (audit B). Code stays intact — this is a switch, not a deletion.
+    #
+    # ABOVE the method guard on purpose: a retired surface must answer
+    # `404 surface_retired` for EVERY method, and with the guard first a
+    # `POST /agents` answered 405 — which reads as "the park stopped working"
+    # and broke `test_demo_surfaces_can_be_parked_without_deleting_code`.
     if _is_parked_demo_surface(path):
         return jsonify({
             "ok": False,
@@ -4771,6 +4984,86 @@ def _x402_paywall():
                         "are the 6 real x402 routes on /dashboard."),
             "real_routes": [r["endpoint"] for r in REAL_X402_ROUTES],
         }), 404
+
+    # ── A method we do not serve is never paid for ─────────────────────────
+    #
+    # `before_request` runs even when URL matching already failed, so a POST to
+    # a GET-only route reached the paywall, was challenged, was SETTLED, and only
+    # then died with 405 from the dispatcher. That is not hypothetical: on
+    # 21.10.2026 `JarvisClaw-Federation/1.0` POSTed /api/v1/signal, paid
+    # $0.003, and got a 405 — the row is in `payment_guards` with
+    # `delivered_at IS NULL`, which is exactly the `n_paid_undelivered` a payer
+    # agent counts against us.
+    #
+    # The refusal has to happen before any credential is looked at, so it runs
+    # here rather than beside `_x402_unservable_payload` (which needs a
+    # credential present to be sure a payment is even in play). A 405 with
+    # `Allow` is the truthful answer and costs the caller nothing.
+    from werkzeug.exceptions import MethodNotAllowed
+    if isinstance(getattr(request, "routing_exception", None), MethodNotAllowed):
+        allowed = sorted(
+            (getattr(request.routing_exception, "valid_methods", None) or [])
+        ) or ["GET"]
+        log.info("x402 payment NOT taken: method=%s endpoint=%s ip=%s "
+                 "— this route does not answer that method, so nothing is settled",
+                 request.method, path, _get_client_ip())
+        resp = jsonify({
+            "ok": False,
+            "error": "method_not_allowed",
+            "message": (
+                "No payment was taken and none will be: this route answers %s, "
+                "not %s. Nothing was settled, so any payment authorization you "
+                "sent has not been used and your balance is unchanged — repeat "
+                "the request with %s and the same credential."
+                % (", ".join(allowed), request.method, allowed[0])
+            ),
+            "method": request.method,
+            "allowed": allowed,
+            "payment_taken": False,
+            "request_id": getattr(g, "request_id", ""),
+        })
+        resp.headers["Allow"] = ", ".join(allowed + ["OPTIONS"])
+        return resp, 405
+
+    # ── A method we do not serve is never paid for ─────────────────────────
+    #
+    # `before_request` runs even when URL matching already failed, so a POST to
+    # a GET-only route reached the paywall, was challenged, was SETTLED, and only
+    # then died with 405 from the dispatcher. That is not hypothetical: on
+    # 21.10.2026 `JarvisClaw-Federation/1.0` POSTed /api/v1/signal, paid
+    # $0.003, and got a 405 — the row is in `payment_guards` with
+    # `delivered_at IS NULL`, which is exactly the `n_paid_undelivered` a payer
+    # agent counts against us.
+    #
+    # The refusal has to happen before any credential is looked at, so it runs
+    # here rather than beside `_x402_unservable_payload` (which needs a
+    # credential present to be sure a payment is even in play). A 405 with
+    # `Allow` is the truthful answer and costs the caller nothing.
+    from werkzeug.exceptions import MethodNotAllowed
+    if isinstance(getattr(request, "routing_exception", None), MethodNotAllowed):
+        allowed = sorted(
+            (getattr(request.routing_exception, "valid_methods", None) or [])
+        ) or ["GET"]
+        log.info("x402 payment NOT taken: method=%s endpoint=%s ip=%s "
+                 "— this route does not answer that method, so nothing is settled",
+                 request.method, path, _get_client_ip())
+        resp = jsonify({
+            "ok": False,
+            "error": "method_not_allowed",
+            "message": (
+                "No payment was taken and none will be: this route answers %s, "
+                "not %s. Nothing was settled, so any payment authorization you "
+                "sent has not been used and your balance is unchanged — repeat "
+                "the request with %s and the same credential."
+                % (", ".join(allowed), request.method, allowed[0])
+            ),
+            "method": request.method,
+            "allowed": allowed,
+            "payment_taken": False,
+            "request_id": getattr(g, "request_id", ""),
+        })
+        resp.headers["Allow"] = ", ".join(allowed + ["OPTIONS"])
+        return resp, 405
 
     # Always-free endpoints — no paywall
     if path in X402_FREE_ENDPOINTS:
@@ -4821,7 +5114,38 @@ def _x402_paywall():
             # Rail 1: STANDARD x402 clients (EIP-3009 via facilitator) —
             # v2 spec header PAYMENT-SIGNATURE (x402-fetch, x402scan wallet,
             # PayAPI verifier) and legacy X-PAYMENT (v1-era clients).
-            std_header = _get_standard_payment_header()
+            #
+            # `Authorization: Payment …` is read here too, because the MPP
+            # Challenge we now advertise tells a client where to put its proof
+            # and a client that ignores it must still get a truthful answer
+            # rather than a silent re-challenge. See `_mpp_transport_credential`:
+            # an embedded x402 payload rides the SAME rail; a native MPP
+            # Credential is refused with nothing settled.
+            mpp_payload, mpp_state = _mpp_transport_credential()
+            if mpp_state == "unusable":
+                log.info(
+                    "x402 payment NOT taken: endpoint=%s ip=%s — the credential "
+                    "arrived as a native MPP `Authorization: Payment`, which this "
+                    "route cannot verify; nothing was settled",
+                    path, ip)
+                return jsonify({
+                    "ok": False,
+                    "error": "mpp_credential_unsupported",
+                    "message": (
+                        "No payment was taken and none will be: this route "
+                        "advertises an MPP Challenge with "
+                        "`header=\"PAYMENT-SIGNATURE\"`, and only an x402 exact "
+                        "payload in that header (or in PAYMENT-SIGNATURE) can be "
+                        "verified here. Nothing was settled, so the authorization "
+                        "you signed has not been used and your balance is "
+                        "unchanged — resend the same payment in PAYMENT-SIGNATURE."
+                    ),
+                    "expected_header": "PAYMENT-SIGNATURE",
+                    "challenge_header": "WWW-Authenticate",
+                    "payment_taken": False,
+                    "request_id": getattr(g, "request_id", ""),
+                }), 401
+            std_header = mpp_payload or _get_standard_payment_header()
             if std_header:
                 price = _get_dynamic_price(ip, path)
                 if _try_consume_standard_payment(path, price, ip):

@@ -3423,13 +3423,59 @@ HYBRID since 14.09:
             pass
         return conn
 
+    def _quarantine_local_db(self, reason: str) -> Optional[Path]:
+        """Move an unreadable local SQLite file aside; start a fresh one.
+
+        THE FAULT, measured in production: every dashboard rebuild failed with
+        `sqlite3.DatabaseError: file is not a database`, the board served
+        `stale=true`, and `/api/dashboard/data` answered 500 — 1,335 times across
+        10–11.11.2026 (976 on the 10th, 320 on the 11th). The file sits on the
+        container's EPHEMERAL disk, so there is nothing to restore from and
+        nothing to repair. The operator's documented remedy (see the comment on
+        `DASHBOARD_DB_FILE` in main.py) is to point `KRISTO_DASHBOARD_DB` at a
+        fresh name — which needs a human and a deploy at exactly the moment the
+        board is telling every visitor that the service is broken.
+
+        NOTHING OF VALUE IS LOST, which is what makes automating this safe. This
+        file holds only `payapi_state` and the scan `meta` watermarks; the money
+        table (`onchain_sales`), the replay lock (`payment_guards`),
+        `guard_events`, `request_log` and `whaleflow_events` are all owned by
+        HistoryStore on the durable backend, which this method never touches.
+        The broken file is RENAMED, never deleted, so it stays as evidence.
+
+        Returns the quarantine path when a file was moved, else None.
+        """
+        path = Path(self.file_path)
+        if not path.exists():
+            return None
+        try:
+            path.replace(path.with_name(
+                path.name + ".corrupt-" +
+                datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
+        except OSError as exc:                       # pragma: no cover - fs
+            log.warning("dashboard: local SQLite %s is unreadable (%s) and "
+                        "could not be moved aside (%s) — continuing with it",
+                        path, reason, exc)
+            return None
+        # The WAL sidecars belong to the file that just left; leaving them
+        # behind would make the FRESH database inherit someone else's journal.
+        for suffix in ("-wal", "-shm"):
+            with contextlib.suppress(OSError):
+                Path(str(path) + suffix).unlink()
+        log.warning(
+            "dashboard: local SQLite was unreadable (%s) — quarantined and a "
+            "fresh file started at %s. Durable tables are on %s and are "
+            "unaffected.", reason, path,
+            "postgresql" if os.getenv("DATABASE_URL") else "sqlite")
+        return path
+
     def _ensure_db(self) -> None:
         # Only the LOCAL, survivable tables live here: the PayAPI listing state
         # and the scan watermarks. request_log, whaleflow_events, onchain_sales,
         # payment_guards and guard_events are ALL owned by HistoryStore (both
         # dialects), so there is exactly ONE definition of each and the backends
         # cannot drift — including a dead empty table shadowing the real one.
-        with self._connect() as conn:
+        def _create(conn) -> None:
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS payapi_state (
                     key        TEXT PRIMARY KEY,
@@ -3444,6 +3490,35 @@ HYBRID since 14.09:
                 )"""
             )
             conn.commit()
+
+        def _open_and_create() -> None:
+            # EXPLICIT close, not `with conn`: `sqlite3.Connection.__exit__`
+            # commits or rolls back but does NOT release the file handle, and on
+            # Windows an open handle makes the quarantine rename below fail with
+            # WinError 32 — i.e. the healing would work everywhere except the
+            # platform the operator runs on.
+            conn = self._connect()
+            try:
+                _create(conn)
+            finally:
+                conn.close()
+
+        failure = None
+        try:
+            _open_and_create()
+            return
+        except sqlite3.DatabaseError as exc:
+            # `NotADatabase: file is not a database` lands here, and so does
+            # `DatabaseError: database disk image is malformed` — the two shapes
+            # the operator has had to clear by hand. Both are terminal for THIS
+            # file and neither is caused by anything the store can undo.
+            failure = exc
+        if self._quarantine_local_db(
+                "%s: %s" % (type(failure).__name__, failure)) is None:
+            raise failure
+        # ONE retry, on a file we just created: a second failure is not the
+        # corruption this heals, so it propagates instead of looping.
+        _open_and_create()
 
     # ── meta (watermarks, flags) ──────────────────────────────────────────────
     def reclassify_known_payers(self) -> int:
