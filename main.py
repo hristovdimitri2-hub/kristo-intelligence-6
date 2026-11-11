@@ -549,7 +549,13 @@ from integrations.dashboard_store import (  # noqa: E402
     redact_rpc,
 )
 from services.signal_track_record import CHECKPOINTS as SIGNAL_CHECKPOINTS  # noqa: E402
-DASHBOARD_DB_FILE = os.path.join(os.path.dirname(__file__), "data", "dashboard_state.db")
+# The local SQLite file holds only the operational state (meta + payapi_state).
+# If it is corrupted on disk the dashboard build fails with "database disk image
+# is malformed" — a restart cannot fix it, because the file is on the persistent
+# disk. KRISTO_DASHBOARD_DB lets the operator move to a fresh file while the
+# broken one stays on disk as an archive (nothing is deleted).
+DASHBOARD_DB_FILE = os.getenv("KRISTO_DASHBOARD_DB") or os.path.join(
+    os.path.dirname(__file__), "data", "dashboard_state.db")
 dashboard_db = DashboardStore(DASHBOARD_DB_FILE)
 
 # ── Day-of-Truth recovery (13.09) ─────────────────────────────────────────
