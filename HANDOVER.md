@@ -2170,6 +2170,108 @@ browser wallet, in which case the two remaining claims are 30 seconds each.
 
 Suite 1361.
 
+## 33. The key hunt, the verifiers we mistook for customers, and Lumière (12.11.2026)
+
+### The payTo key: not on this machine, and here is the proof
+
+The owner asked for the key explicitly ("да, извади ключа за подписа") and then
+said he was certain it was written down somewhere — possibly emailed to himself,
+possibly sent to himself on Viber. Four independent sweeps, each deriving an
+address from every 64-hex candidate and comparing to the payTo:
+
+```
+working tree        7,715 files · 8,398 candidates      → 0
+git history         4,221 objects · 3,487 candidates     → 0
+Gmail (Todos/All)   400 self-sent messages scanned       → 0
+secrets/, Documents\Backups, DSH state, Desktop          → demo key only
+Render WALLET_PRIVATE_KEY                                → the GAS wallet
+```
+
+`_forensics/hunt_payto_key.py`, `scan_git_history_for_key.py` and
+`scan_self_sent_mail.py` are the tools; none prints key material.
+
+**Two leads worth keeping.**
+
+1. **MetaMask is installed in Chrome**
+   (`nkbihfbeogaeaoehlefnkodbefgpgknn`), and its vault lives in
+   `Chrome\User Data\Default\Local Extension Settings\…`. If the payTo wallet was
+   created there — and nothing on disk suggests it was created anywhere else —
+   the key is inside that vault and only the owner's password opens it. **The
+   owner should open MetaMask and look for an account ending in `08f`.** That is
+   a 60-second check and it is the most likely answer.
+2. **There are two nearly identical addresses in history**, and they explain why
+   the owner remembers having a key:
+
+```
+0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f  "OLD WRONG ADDRESS", burned key, published
+0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f  the active payTo
+                    A900 vs A980    0DBE vs 8DBE
+```
+
+   Commits: `f6c40da` (dashboard was advertising the burned operator wallet),
+   `8dc22e9` ("purge burned wallet refs"), `dcebafd` (labels the old one "OLD
+   WRONG ADDRESS"), `d848a72` ("key rotation done"). A key existed and a rotation
+   happened; the key for the *active* address is the one nobody can find.
+
+`TASK_FOR_KILO_find_the_payto_key.md` is the task written for the Kilo agent —
+the one that built the app — and it is the template to reuse: state the goal,
+give the derive-and-compare test, list what is already excluded so the work is
+not repeated, and demand one of three concrete answers instead of "I could not
+find it".
+
+### Two measurement services were reading as real customers
+
+The same mistake `own_key` was created to fix, one layer out. Both were falling
+through to `external`, whose Bulgarian label is **"истински клиент"**:
+
+```
+settled_scout            0xa1d1c0cf717402ff3651aa4873ccf96410b01978   3 payments
+lumiere_paycheck_tester  0xec2abd3eda89bed90124736e317e847d5fb6d034   5 payments
+```
+
+Both addresses are published by their owners — `settled.tools/llms.txt` names
+the scout's payer, and `lumierepaycheck.org/v1/seller-test` names its tester as
+the payTo of its own 402, which is where we read it. They pay us **on purpose**
+to find out whether we deliver; the payment is the instrument, not the demand.
+
+Now `canary`, and `reclassify_known_payers()` at boot corrected the stored rows
+by itself. The honest number changed:
+
+```
+before:  external  16 settlements  $0.052  9 payers   ← "9 customers"
+after:   external   9 settlements  $0.031  7 payers   ← 7 customers
+         canary    14 settlements  $0.051  3 payers
+```
+
+### Lumière: the maintainer replied, and the tester was already paying us
+
+Their maintainer (Book0fEli) answered issue #45 personally and verified our fixes
+live: `OPTIONS → 204` ✅, `/.well-known/paycheck.json` declaring `0xd4cd…d08f` ✅,
+100% uptime, 74/100.
+
+**The finding:** the `payTo` of their seller-test route is
+`0xec2aBD3EDA89BeD90124736e317e847D5fb6d034` — **the same wallet that paid us
+$0.01 at 2026-11-11T23:06:38Z**, which we settled and stamped as delivered. Their
+side recorded it `payment_failed` and they say so plainly: their fault, neutral,
+does not affect the endpoint.
+
+Free re-tests are **suspended for weeks**. The path they offer instead is a
+**seller-funded test**: pay $0.01 at their endpoint's price, their tester pays the
+same $0.01 on to our payout wallet within about three hours, and a delivered test
+lifts the grade above C. **Funded and queued:**
+
+```
+id st_891b4f9b23f4   status queued   $0.01
+fundedAt 2026-11-12T00:04:50Z   runAfter 2026-11-12T01:16:50Z   gradeBefore C
+```
+
+`scripts/lumiere_funded_test.py` is the POST-capable paid call that did it —
+`scripts/phase1_paid_call.py` is GET-only and this route is POST, so it is the
+same handshake with a body. A reminder is armed to read the result.
+
+Suite 1362.
+
+
 
 
 
