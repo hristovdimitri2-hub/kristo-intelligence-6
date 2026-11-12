@@ -2378,6 +2378,17 @@ a proof. The honest test is the next 24 hours: if no OOM arrives, the fix is rea
 **Do not upgrade the instance to 1 GB before then** — that would hide the result
 without settling the cause.
 
+**And one caveat on the 1.23 MB/min figure, because it is the number the whole
+comparison rests on.** It was measured at 05:24–05:39 against a process deployed
+at **05:22** — two minutes of warm-up before the first sample. Warm-up is
+exactly when a service loads caches and runs its retro scans, so 1.23 MB/min may
+be partly warm-up rather than steady-state leakage. The 05:44 deploy then
+restarted it, and everything from 06:00 onward is flat. So the two rates are not
+a clean before/after: they are two different processes, one watched for fifteen
+minutes from two minutes after boot and one watched for ten hours. **The 24-hour
+check is what separates "the fix worked" from "the earlier number was a warm-up
+artefact", and both readings are consistent with the data we have.**
+
 Suite 1368.
 
 
