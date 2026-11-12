@@ -2327,6 +2327,60 @@ Four things, in order of weight, and only one of them was paid for:
 
 Suite 1366.
 
+## 35. The memory leak: very likely fixed by the connection-leak commit (12.11.2026)
+
+Render had sent three "exceeded its memory limit" notices in twelve hours. The
+metric showed the shape plainly — ~1.2 MB/min from ~150 MB to the 512 MB ceiling
+in a few hours, i.e. about five kills a day.
+
+### What the memory watch found
+
+125 samples, one every five minutes, from 05:45 to 16:18 UTC:
+
+```
+rss_mb        144.8 (06:00)  ->  158.8 (16:15)     +0.023 MB/min
+threads       15-16                                FLAT
+gc_objects    136,230 - 137,070                    FLAT (+/-700, pure noise)
+containers    sales_history 0 . daily_stats 1 . free_tier_ips 0 .
+              paid_call_ips 0 . rate_limit_keys 0 . verify_block 0 .
+              dashboard_cache 1 . isolated_stores 4 . rpc_clients 3   ALL FLAT
+```
+
+**No Python object is leaking, no thread is leaking, and no container is
+growing.** RSS oscillates in a 144-150 MB band and occasionally drops.
+
+### What the events show
+
+```
+2026-11-12T03:13:02Z  server_failed  oomKilled {"memoryLimit":"512Mi"}
+2026-11-12T03:14:55Z  deploy_started dep-dbqiubu7bikc739m2u00   <- 7e9f7e1
+```
+
+**One OOM in the whole window, and the deploy that carried the three
+connection-leak fixes landed two minutes later.** Nothing since: 13 hours without
+a kill, against ~5/day before, and a rate 20-50x lower (0.023-0.073 MB/min vs
+1.23 MB/min).
+
+### The likely cause, and why the arithmetic fits
+
+`7e9f7e1` closed three SQLite connection leaks. The one that matters is
+`DashboardStore._connect()` used as `with self._connect() as conn:` — four sites,
+and `sqlite3.Connection.__exit__` commits without closing. Those sites run on
+every dashboard build, i.e. every ~30 s, and **each open SQLite connection holds
+its own page cache** (default ~2 MB). Two leaked handles per build is ~2 MB/min;
+measured was 1.2 MB/min. The order of magnitude is right, which is the most a
+correlation like this can claim.
+
+### Status: strong evidence, not proof
+
+13 hours and 125 samples with a flat object census is good evidence and it is not
+a proof. The honest test is the next 24 hours: if no OOM arrives, the fix is real.
+**Do not upgrade the instance to 1 GB before then** — that would hide the result
+without settling the cause.
+
+Suite 1368.
+
+
 
 
 
