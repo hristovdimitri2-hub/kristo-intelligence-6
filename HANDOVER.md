@@ -2419,6 +2419,74 @@ artefact", and both readings are consistent with the data we have.**
 
 Suite 1368.
 
+## 36. Self-audit against a published failure taxonomy — we pass (12.11.2026)
+
+A CDP-verified post published an x402 health census for the week ending
+2026-11-09: **40,608 resources on 4,313 hosts, 87.8% clean, 7.7% cautioned,
+4.5% not payable.** It names four defects by size, and three of them are things a
+seller can check on itself for free. So we checked ours, live, nothing paid.
+
+**Result: we are in none of them.**
+
+```
+7/7 advertised URLs → 402               (not the "1,031 never answer 402" class)
+7/7 resource.url == requested URL       (not the "788 answers with another URL" class)
+7/7 resource.url scheme == https        (the trust-proxy trap below)
+7/7 offer a plain "exact" scheme        (not the "1,502 Gateway-only" class)
+```
+
+Re-runnable: `_forensics/audit_402_taxonomy.py` reads our own
+`/.well-known/x402.json` (`agents[].input.example_url` is the advertised URL),
+probes each unpaid, decodes the `PAYMENT-REQUIRED` header and diffs
+`resource.url` against what was asked for.
+
+### Why the 788 class is the one that could have bitten us
+
+The report's own fix for it is *"build resource.url from your public origin;
+behind a TLS proxy set `trust proxy`, so it stays https."* We are behind
+Render's TLS proxy, so a missing `ProxyFix`/`trust proxy` would have made every
+one of our 402s advertise `http://…` — a silent, total mismatch that no local
+test would ever catch (locally there is no proxy, so the scheme is right by
+accident). It is right in production. **Do not remove the proxy handling.**
+
+### The other two classes, checked while we were there
+
+* `OPTIONS /api/v1/signal` → `204` with `Access-Control-Allow-Methods: GET, HEAD,
+  POST, OPTIONS` and the full header allowlist. This is the behaviour Lumière's
+  maintainer praised by name.
+* `DELETE /api/v1/signal` → **`405`, `Allow: GET, HEAD, OPTIONS`, and no
+  `accepts` in the body** — a wrong method is refused *before* money, which is
+  also one of the things their closing note thanked us for.
+* Two `WWW-Authenticate` lines, both ASCII: the x402 challenge (228 B) and the
+  MPP `Payment` challenge (547 B, HMAC `id`, `method="evm"`,
+  `intent="charge"`). The MPP rail matters more than the x402 one here: the same
+  census puts MPP at **64.6% clean vs 88%** for x402, so a broken MPP header is
+  a likely-fatal defect and ours is intact (`_header_safe` + final
+  `encode("ascii")`, see §28).
+
+### Known, deliberate, and not a defect
+
+The 402 body carries the same `accepts` array under three keys — `accepts`,
+`accepts[]` and `x402_accepts`. That is a reader-compatibility shim, and §31/§32
+already record the open question of whether to collapse it. **It is not one of
+the censused defects; do not "fix" it in a hurry** — dropping a key breaks
+whichever provider read it.
+
+### Free options this opened, none of them taken
+
+Both are external actions and wait for the owner's explicit "да":
+
+1. The post offers a **free full endpoint check** by DM — no cost, but it means
+   posting our URL in that channel.
+2. **Fizzl** (`wallet.fizzl.eu`) monitors one endpoint **free, hourly**, and
+   alerts to Telegram/Discord/Slack/phone when it stops being payable. We
+   currently learn about that only when a payment fails.
+
+Also noted, not acted on: **Wever Pay** (Base mainnet, release 2.1.0) offers a
+0.025 USDC buyer-signed Commerce Assurance purchase with a verifiable signed
+receipt; their walkthrough at `weverpay.com/connect` deliberately stops before
+any spending. The maintainer is explicitly asking what breaks.
+
 
 
 
