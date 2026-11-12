@@ -556,6 +556,7 @@ research_store = create_research_store(RESEARCH_DATA_FILE)
 # On-chain sales / request log / PayAPI listing state live in SQLite so a
 # gunicorn restart NEVER zeroes the dashboard numbers. See DASHBOARD_AUDIT.md.
 from integrations.dashboard_store import (  # noqa: E402
+    LOCAL_STORE_ERRORS,
     REQUEST_LOG_RETENTION_DAYS_DEFAULT,
     REQUEST_SNAPSHOT_INTERVAL_SECONDS,
     WHALE_RETENTION_DAYS_DEFAULT,
@@ -8495,7 +8496,47 @@ class DashboardWarming(RuntimeError):
 
 
 def _dashboard_build(key, include_crm: bool, include_sales_detail: bool) -> dict:
-    """Build a payload and publish it into the cache under its exact grant key."""
+    """Build a payload and publish it into the cache under its exact grant key.
+
+    WITH A RUNTIME HEAL FOR THE LOCAL FILE, and that is the whole reason this is
+    not a one-liner. Measured 12.11: the board answered 500 with an EMPTY cache
+    and
+
+        dashboard: background refresh failed ... database disk image is malformed
+
+    The local SQLite file had gone bad *after* the process started, so the
+    boot-time heal had already run and had nothing to complain about. Every build
+    from then on failed, no payload was ever published, and `/api/dashboard/data`
+    stayed 500 for the life of that process. The file holds only survivable
+    operational state (`payapi_state` and the scan watermarks) — the money table,
+    the replay lock and every history live on PostgreSQL — so the correct
+    response is to quarantine it and rebuild, not to wait for a human to restart
+    the service.
+    """
+    try:
+        return _dashboard_build_once(key, include_crm, include_sales_detail)
+    except LOCAL_STORE_ERRORS as exc:
+        reason = "%s: %s" % (type(exc).__name__, exc)
+        store = globals().get("dashboard_db")
+        healed = False
+        if store is not None:
+            try:
+                healed = store.heal_local_store(reason)
+            except Exception as heal_exc:          # pragma: no cover - defensive
+                log.warning("dashboard: the local store could not be healed: %s",
+                            redact_rpc(heal_exc))
+        if not healed:
+            raise
+        log.warning(
+            "dashboard: the local SQLite file was unreadable (%s) — quarantined "
+            "and rebuilt; retrying the board once. Durable tables are unaffected.",
+            reason)
+        return _dashboard_build_once(key, include_crm, include_sales_detail)
+
+
+def _dashboard_build_once(key, include_crm: bool,
+                          include_sales_detail: bool) -> dict:
+    """One attempt. Separated so the heal above can retry it exactly once."""
     try:
         payload = _canonical_dashboard_payload(
             include_crm=include_crm,

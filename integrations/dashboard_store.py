@@ -48,6 +48,16 @@ from services.rpc_pool import get_web3
 
 log = logging.getLogger(__name__)
 
+#: The exception classes a sick LOCAL SQLite file raises.
+#:
+#: Exported so the caller does not have to know the dialect. `main.py` needs to
+#: catch exactly these around a dashboard build, and importing `sqlite3` there to
+#: spell them itself would put the storage engine's vocabulary in the web layer.
+#: `sqlite3.DatabaseError` covers both shapes this file has produced in
+#: production: `file is not a database` (NotADatabase) and `database disk image
+#: is malformed`.
+LOCAL_STORE_ERRORS = (sqlite3.DatabaseError,)
+
 #: RPC providers embed the API key in the URL, e.g.
 #: `https://base-mainnet.g.alchemy.com/v2/<KEY>`. Logging a raw httpx exception
 #: (or our own "RPC not reachable: {url}") therefore writes the credential into
@@ -892,12 +902,21 @@ class HistoryStore:
         """Execute one statement in either dialect. Returns (rows, rowcount)."""
         sql = self._q(sql)
         if self.backend == "sqlite":
-            with self._lock, self._sqlite_connect() as conn:
-                cur = conn.execute(sql, params)
-                rows = (cur.fetchall() if fetch == "all"
-                        else cur.fetchone() if fetch == "one" else None)
-                rowcount = cur.rowcount
-                conn.commit()
+            # CLOSED EXPLICITLY. `with conn` commits but does not release the
+            # handle, and on Windows an open handle makes `os.replace` fail with
+            # WinError 32 — which is what stopped the corruption heal from
+            # quarantining the file. This is the second of the two sites that
+            # leaked; `DashboardStore._local` is the other.
+            conn = self._sqlite_connect()
+            try:
+                with self._lock:
+                    cur = conn.execute(sql, params)
+                    rows = (cur.fetchall() if fetch == "all"
+                            else cur.fetchone() if fetch == "one" else None)
+                    rowcount = cur.rowcount
+                    conn.commit()
+            finally:
+                conn.close()
             return rows, rowcount
         # ONE shared link, so this lock is the throughput ceiling for every
         # Postgres read AND every request-log write. Waiting on it forever is
@@ -1231,8 +1250,18 @@ class HistoryStore:
         """
         try:
             if self.backend == "sqlite":
-                rows = self._sqlite_connect().execute(
-                    "PRAGMA table_info(%s)" % table).fetchall()
+                # CLOSED, and this one mattered most: it is called once per
+                # migrated column on EVERY boot, and each call left a handle on
+                # the local file open for the life of the process. On Windows
+                # that is what made `os.replace` fail with WinError 32 when the
+                # corruption heal tried to quarantine the file — the heal could
+                # not run, so the board could not recover without a restart.
+                probe = self._sqlite_connect()
+                try:
+                    rows = probe.execute(
+                        "PRAGMA table_info(%s)" % table).fetchall()
+                finally:
+                    probe.close()
                 existing = {row[1] for row in rows}
             else:
                 rows = self._run(
@@ -3491,6 +3520,27 @@ HYBRID since 14.09:
         """
         return self.history.backend
 
+    @contextlib.contextmanager
+    def _local(self):
+        """A local connection that is CLOSED on exit.
+
+        `with self._connect() as conn:` does NOT close it. `sqlite3.Connection`
+        `.__exit__` commits or rolls back and leaves the handle open until the
+        garbage collector gets round to it, so every local read and write in this
+        file leaked a handle for an unbounded time.
+
+        On Linux that is only a leak. On Windows it also makes the corruption
+        heal IMPOSSIBLE, because `os.replace` cannot move a file that another
+        handle holds open — `WinError 32`, which is exactly how the first
+        exercise of that heal failed. The heal is the thing that keeps the board
+        answering, so the leak is not cosmetic.
+        """
+        conn = self._connect()
+        try:
+            yield conn
+        finally:
+            conn.close()
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.file_path), timeout=30)
         conn.row_factory = sqlite3.Row
@@ -3616,6 +3666,30 @@ HYBRID since 14.09:
         # corruption this heals, so it propagates instead of looping.
         _open_and_create()
 
+    def heal_local_store(self, reason: str) -> bool:
+        """Quarantine an unreadable local file and recreate it — AT RUNTIME.
+
+        `_ensure_db` heals at boot, and on 12.11 that was proved not to be
+        enough. The board answered 500 with an EMPTY cache and the log line
+
+            dashboard: background refresh failed ... database disk image is malformed
+
+        The file went bad AFTER the process had started, so the boot-time heal
+        had already run and found nothing to complain about. Every later build
+        failed, no payload was ever published, and `/api/dashboard/data` stayed
+        500 for as long as that process lived. A restart would have cleared it;
+        nothing else would, which is exactly the kind of fault that should not
+        need a human.
+
+        Same remedy as boot, callable from the failure path: rename the bad file
+        aside, create a fresh one, let the caller retry once. Returns True when a
+        fresh file is in place.
+        """
+        if self._quarantine_local_db(reason) is None:
+            return False
+        self._ensure_db()
+        return True
+
     # ── meta (watermarks, flags) ──────────────────────────────────────────────
     def reclassify_known_payers(self) -> int:
         """Re-apply the payer taxonomy — see HistoryStore.reclassify_known_payers.
@@ -3665,7 +3739,7 @@ HYBRID since 14.09:
                     return value
             except Exception as exc:            # never break a read over this
                 log.debug("durable meta read failed for %s: %s", key, exc)
-        with self._connect() as conn:
+        with self._local() as conn:
             row = conn.execute(
                 "SELECT value FROM meta WHERE key = ?", (key,)
             ).fetchone()
@@ -3677,7 +3751,7 @@ HYBRID since 14.09:
                 self.history.set_durable_meta(key, value)
             except Exception as exc:            # the local write below still runs
                 log.debug("durable meta write failed for %s: %s", key, exc)
-        with self._write_lock, self._connect() as conn:
+        with self._write_lock, self._local() as conn:
             conn.execute(
                 """INSERT INTO meta (key, value) VALUES (?, ?)
                    ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
@@ -4012,7 +4086,7 @@ HYBRID since 14.09:
         return self.history.requests_summary(recent_limit)
     # ── PayAPI listing state ──────────────────────────────────────────────────
     def save_payapi_state(self, state: Dict[str, Any]) -> None:
-        with self._write_lock, self._connect() as conn:
+        with self._write_lock, self._local() as conn:
             conn.execute(
                 """INSERT INTO payapi_state (key, value, updated_at)
                    VALUES ('listing', ?, ?)
@@ -4027,7 +4101,7 @@ HYBRID since 14.09:
             conn.commit()
 
     def get_payapi_state(self) -> Dict[str, Any]:
-        with self._connect() as conn:
+        with self._local() as conn:
             row = conn.execute(
                 "SELECT value, updated_at FROM payapi_state WHERE key = 'listing'"
             ).fetchone()
