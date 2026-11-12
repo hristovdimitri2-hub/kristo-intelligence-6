@@ -1,0 +1,44 @@
+{
+  "_note": "Fresh paid scan of our own MCP endpoint, bought 2026-11-12 for $0.03 in USDC on Base. Kept as evidence: the free registry entry was two weeks stale and showed only 3 tools, while the live server serves 7.",
+  "scan_id": "5cac13b5-d038-46d6-80ca-3cfcca0a2eb7",
+  "target": {
+    "type": "mcp_server",
+    "ref": "https://kristo-intelligence-api.onrender.com/mcp"
+  },
+  "target_hash": "sha256:2636622dbd7235284e2eebc1805066066460a8d7a80e3e81143b786a09a3267f",
+  "scanned_at": "2026-11-12T16:33:54.582Z",
+  "rules_version": "2026.11.09a",
+  "verdict": "clear",
+  "confidence": "high",
+  "risk": "none",
+  "risk_summary": "No rule fired on the scanned content.",
+  "known_bad": {"matched": false},
+  "findings": [],
+  "reputation_notes": ["read 7 advertised tool(s)"],
+  "tool_fingerprint": {
+    "sha256": "55aea55883c50ec7b3d0b78939ce4c14227e039d3664a19fc67011afbe465802",
+    "tools": {
+      "get_arbitrage_opportunities": "5b8fd6f99065f84233c34d796d7af273a45bc06a157a3f1b1558b62459118f73",
+      "get_bot_status": "9e78a20e1ee8e16dfcc30d1555c54a20c2d2bbe38bac7988e40c2ec9a4de2f70",
+      "get_market_stats": "46f60fece6173a443674f43418fbb97c7d5647995bee741c062623e64cbe8c24",
+      "get_onchain_sales": "66e6a3dab318bc932ac5d7f1f842fdfef636581bc985bb668e0285c5daad2882",
+      "get_trading_signal": "adfbe90ad3394064a0747703e52acda6b435d2744152ed20af48e19e5b57078a",
+      "get_whale_flow": "faab82669107057738b97282cfe85771fd39ff36fc9ef302168287e6204c04d0",
+      "verify_seller_receiver": "96c7669b1080bf2f65d8da0805937a84fe05419dc949690206323e35e0b1dee9"
+    },
+    "instructions": "b8a82b061650566b50352f1aefcc7f4f68f283adedd30769077e8d79236532c4"
+  },
+  "attestation": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImhnRy11eDZXSm82amlxZkZLaExnejFnREVxbUM5WThUN2NReS11MXNJd0EifQ.eyJpc3MiOiJodHRwczovL2xhemFyZXR0by5kZXYiLCJzdWIiOiJzaGEyNTY6MjYzNjYyMmRiZDcyMzUyODRlMmVlYmMxODA1MDY2MDY2NDYwYThkN2E4MGUzZTgxMTQzYjc4NmEwOWEzMjY3ZiIsInN1YmplY3Rfa2luZCI6ImNvbnRlbnQiLCJ0YXJnZXQiOnsidHlwZSI6Im1jcF9zZXJ2ZXIiLCJyZWYiOiJodHRwczovL2tyaXN0by1pbnRlbGxpZ2VuY2UtYXBpLm9ucmVuZGVyLmNvbS9tY3AifSwidmVyZGljdCI6ImNsZWFyIiwicmlzayI6Im5vbmUiLCJjb25maWRlbmNlIjoiaGlnaCIsImtub3duX2JhZCI6ZmFsc2UsInJ1bGVzX3ZlcnNpb24iOiIyMDI2LjExLjA5YSIsInRvb2xfZmluZ2VycHJpbnQiOiI1NWFlYTU1ODgzYzUwZWM3YjNkMGI3ODkzOWNlNGMxNDIyN2UwMzlkMzY2NGExOWZjNjcwMTFhZmJlNDY1ODAyIiwiaWF0IjoxNzk0NTAxMjM0fQ.IgInn2i64PjdmWjJVLsqM3d_w6U7EmY35EdMJZWOfpfTY0pfGGkrZV1aUThQTJFJTQPosv2h60OdsuhZz_-4AA",
+  "public_report": "https://lazaretto.dev/report/2636622dbd7235284e2eebc1805066066460a8d7a80e3e81143b786a09a3267f",
+  "registry_page": "https://lazaretto.dev/mcp-registry/io-github-hristovdimitri2-hub-kristo-intelligence",
+  "registry_badge": "https://lazaretto.dev/mcp-registry/io-github-hristovdimitri2-hub-kristo-intelligence/badge.svg",
+  "_registry_caveat": "The registry entry still shows its own weekly check from 2026-10-29 (3 tools, verdict clear). It refreshes on Lazaretto's schedule; this paid scan is the current, signed attestation.",
+  "_what_was_paid": {
+    "amount_usdc": 0.03,
+    "payer": "0xE50c5212e8211639C49276dA190E248B83935763",
+    "payTo": "0x428df107e32E08288fcAC6567f4F40bc4eAB4Da0",
+    "network": "eip155:8453",
+    "scheme": "exact",
+    "note": "The FIRST attempt used {\"url\": ...} and answered 400 invalid_request. Verified on chain that it charged nothing: zero outgoing USDC from the demo wallet in the window, and the balance reconciled exactly to the two known spends ($0.01 Lumiere + $0.003 proof call). Their 'an errored scan is free' holds."
+  }
+}
