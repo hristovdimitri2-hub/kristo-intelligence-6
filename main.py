@@ -23,6 +23,7 @@ MCP/x402 compatible: /api/mcp/manifest exposes machine-readable payment spec.
 from __future__ import annotations
 
 import os
+import gc
 import logging
 import threading
 import time
@@ -8754,6 +8755,78 @@ def _dashboard_warmer_loop():
         time.sleep(interval)
 
 
+def _memory_report() -> dict:
+    """One line naming what this process is holding, for the leak hunt.
+
+    WHY THIS EXISTS. Render reports `kristo-intelligence-api exceeded its memory
+    limit` about five times a day, and the metric endpoint shows the shape
+    plainly: **~1.2 MB/min, steadily**, from ~150 MB to the 512 MB ceiling in a
+    few hours. What it does NOT say is WHAT is growing — and from outside the
+    process there is no way to tell a leaking dict from ordinary fragmentation.
+
+    So the service names it itself. Every counter here is cheap, and the ones
+    that matter are the ones that should be CONSTANT for a service whose state
+    lives in Postgres. A number that climbs across samples is the leak; a flat
+    line means the growth is elsewhere and the next place to look is the object
+    census (`gc_objects`).
+
+    Deliberately NOT on the request path: `/health` is probed every five seconds
+    and this must never be able to slow it down.
+    """
+    rss_mb = None
+    try:
+        with open("/proc/self/statm", "r") as fh:
+            pages = int(fh.read().split()[1])      # resident pages
+        rss_mb = round(pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024), 1)
+    except Exception:
+        try:                                        # pragma: no cover - non-Linux
+            import resource
+            rss_mb = round(
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+        except Exception:
+            rss_mb = None
+
+    try:
+        from services import rpc_pool
+        rpc_clients = rpc_pool.client_count()
+    except Exception:
+        rpc_clients = None
+
+    return {
+        "rss_mb": rss_mb,
+        "threads": threading.active_count(),
+        "gc_objects": len(gc.get_objects()),
+        "sales_history": len(_sales_history),
+        "daily_stats": len(_daily_stats),
+        "vip_subscribers": len(_vip_subscribers),
+        "free_tier_ips": len(_free_tier_usage),
+        "paid_call_ips": len(_paid_calls_usage),
+        "rate_limit_keys": len(_rate_limit_hits),
+        "verify_block": len(_verify_block),
+        "dashboard_cache": len(_DASHBOARD_LAST_GOOD),
+        "isolated_stores": len(_isolated_stores),
+        "rpc_clients": rpc_clients,
+    }
+
+
+#: How often the memory line is written. Five minutes gives ~50 samples between
+#: OOM kills, which is plenty to see a trend without flooding the log.
+_MEMORY_WATCH_SECONDS = int(os.getenv("KRISTO_MEMORY_WATCH_SECONDS", "300"))
+
+
+def _memory_watch_loop():
+    """Write `_memory_report()` on a timer so the next OOM has evidence."""
+    time.sleep(60.0)                    # let boot settle before the first sample
+    while True:
+        try:
+            report = _memory_report()
+            log.info("memory watch: %s",
+                     " ".join("%s=%s" % (k, v) for k, v in report.items()))
+        except Exception as exc:        # pragma: no cover - diagnostic only
+            log.warning("memory watch failed: %s", exc)
+        time.sleep(_MEMORY_WATCH_SECONDS)
+
+
 def _requests_snapshot_warmer_loop():
     """Park the all-time traffic numbers off the request path.
 
@@ -9212,6 +9285,14 @@ def _start_background_threads():
     t_snap = threading.Thread(target=_requests_snapshot_warmer_loop, daemon=True,
                               name="requests-snapshot-warmer")
     t_snap.start()
+
+    # Memory watch — a diagnostic, not a fix. Render kills this service for
+    # exceeding its 512 MB limit about five times a day at a measured ~1.2 MB/min,
+    # and nothing outside the process can say WHAT is growing. This writes one
+    # line every five minutes naming every counter that ought to be flat.
+    if os.getenv("KRISTO_MEMORY_WATCH", "1") != "0":
+        threading.Thread(target=_memory_watch_loop, daemon=True,
+                         name="memory-watch").start()
 
     # Start agent thread
     t_agent = threading.Thread(target=_background_agent_loop, daemon=True, name="agent-loop")
