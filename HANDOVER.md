@@ -2304,12 +2304,40 @@ after:   A 100/100  "Proceed: paid-tested and reliable"
          payout-wallet incidents: 0
 ```
 
-One stale line remains on that page — "Browser agents: Can't pay it yet: CORS
-headers missing" — and it is **their cache, not our defect**. Verified live the
-same hour: `OPTIONS /api/v1/verify-seller` → `204` with
-`Access-Control-Allow-Methods` and `Access-Control-Allow-Headers`, and their own
-`GET /v1/failures?url=…` returns `failures: []` for the last 7 days. Do not
-"fix" this again.
+The stale CORS line that used to sit on that page — "Browser agents: Can't pay it
+yet: CORS headers missing" — is **gone**. By 12.11 16:36 UTC the page reads
+"Browser agents: Can pay it (CORS set up for x402)". It was their cache, not our
+defect, and it cleared on its own. Verified live: `OPTIONS
+/api/v1/verify-seller` → `204` with `Access-Control-Allow-Methods` and
+`Access-Control-Allow-Headers`, and their own `GET /v1/failures?url=…` returns
+`failures: []` for the last 7 days. Do not "fix" this again.
+
+### The case is closed and nothing is queued
+
+The maintainer closed issue #45 as completed. Nothing on our side is waiting,
+and their public register says so outright:
+
+```
+GET /v1/seller-tests?url=…/api/v1/verify-seller
+last7Days  {funded: 1, delivered: 1, notDelivered: 0, waiting: 0}
+funded $0.01 eip155:8453   fundedAt 2026-11-12T00:04:50Z
+fundTx 0xfb9bc3e5a58f6b3d4ab2fa390602512c8b8b81d5bd3a2aa11bf098be5b1489b5
+attempts 1   outcome delivered   refundTx null   spent $0.01
+```
+
+`waiting: 0` is the part that matters. The "re-test queued" state in the bot's
+earlier comment resolved into the funded test, and no second request is pending.
+**Do not re-open or re-fund anything here.**
+
+Their closing note credits the *listing* fix, not the payment:
+
+> Tu corrección en el listado marcó la diferencia: con campos de respuesta reales
+> publicados, la prueba pudo comparar la respuesta en lugar de devolver
+> `nothing_to_compare`.
+
+That is the transferable lesson: paying for a test buys nothing if the monitor
+has no declared response fields to compare against. Any other delivery-grading
+directory needs the same fix.
 
 ### What produced the A
 
