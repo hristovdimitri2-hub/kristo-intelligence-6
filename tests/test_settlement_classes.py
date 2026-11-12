@@ -140,8 +140,47 @@ def test_the_store_summary_survives_an_unknown_class(client):
     assert entry["meaning"] == "Unclassified payer."
 
 
-# ── the backend-shape trap ──────────────────────────────────────────────────
+# ── the measurement services must not read as customers ─────────────────────
 
+def test_the_third_party_verifiers_are_canaries_not_customers(client):
+    """Both pay us ON PURPOSE to find out whether we deliver.
+
+    Their payments are real settlements on chain — the money moved — but the
+    payment is the instrument, not demand. Counting them under `external`
+    ("истински клиент") inflates the customer count on the board and in this
+    public number, which is the dishonesty the classifier exists to prevent.
+
+    Both addresses are published by their own owners, so this pins the taxonomy
+    against evidence rather than against a guess:
+
+      settled.tools/llms.txt — the scout "paying from 0xA1d1C0cf…01978"
+      lumierepaycheck.org/v1/seller-test — names 0xec2aBD3E…6d034 as its payTo
+    """
+    c, _main, dash = client
+    from integrations.dashboard_store import classify_payer
+
+    for addr, label in (
+        ("0xA1d1C0cf717402ff3651aA4873CcF96410B01978", "settled_scout"),
+        ("0xec2aBD3EDA89BeD90124736e317e847D5fb6d034",
+         "lumiere_paycheck_tester"),
+    ):
+        cls, got = classify_payer(addr)
+        assert got == label, "%s -> %s" % (addr, got)
+        assert cls == "canary", (
+            "%s must be canary, not %s — a verifier is not a customer"
+            % (addr, cls))
+
+    # And it shows up that way in the published number.
+    _sell(dash, "0xv1", "0xec2abd3eda89bed90124736e317e847d5fb6d034",
+          0.010, "canary")
+    body = c.get("/api/v1/settlement-classes").get_json()
+    entry = [e for e in body["classes"] if e["class"] == "canary"][0]
+    assert "verifying us" in entry["meaning"]
+    assert body["clean_number"]["third_party_usdc"] == pytest.approx(0.010,
+                                                                    abs=1e-9)
+
+
+# ── the backend-shape trap ──────────────────────────────────────────────────
 def test_the_summary_reads_rows_by_column_name(client, monkeypatch):
     """Postgres hands back `dict_row`; SQLite hands back `sqlite3.Row`.
 

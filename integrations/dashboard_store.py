@@ -245,6 +245,13 @@ PAYER_CLASSES = {
     # is somebody ELSE verifying us, and the owner asked precisely because he
     # could not tell whose money it was.
     "own_key": "own_key",
+    # 12.11: the two measurement services that pay us to find out whether we
+    # deliver. Class `canary` — a third party verifying us with a real payment.
+    # They were falling through to `external`, i.e. reading "истински клиент" on
+    # the board, which inflated the customer count. See the long note beside
+    # them in scripts/competitor_recon.KNOWN_PAYERS for the published evidence.
+    "settled_scout": "canary",
+    "lumiere_paycheck_tester": "canary",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"

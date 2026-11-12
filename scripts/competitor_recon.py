@@ -125,6 +125,34 @@ KNOWN_PAYERS = {
     # is us paying ourselves. Both are "not a customer", and the owner should be
     # able to tell them apart without reading this file.
     "0xe50c5212e8211639c49276da190e248b83935763": "own_key",
+    # ── THIRD-PARTY VERIFIERS (12.11.2026) ─────────────────────────────────
+    #
+    # HERE FOR THE SAME REASON `own_key` IS, and the mistake was the same shape:
+    # both wallets were landing in `external`, the class whose Bulgarian label
+    # is **"истински клиент"**. They are not customers. They are measurement
+    # services paying us ON PURPOSE to find out whether we deliver — the payment
+    # is the instrument, not the demand. Counting them as customers overstates
+    # the customer base on the board and in the public classifier, which is
+    # exactly the dishonesty the classifier exists to prevent.
+    #
+    # Both addresses are published BY THEIR OWNERS, so this is not a guess:
+    #
+    #   settled.tools/llms.txt: "The scout identifies itself (user agent
+    #   `SettledScout`, paying from 0xA1d1C0cf717402ff3651aA4873CcF96410B01978)"
+    #   — 3 payments to us, all delivered, first 2026-10-14.
+    #
+    #   lumierepaycheck.org/v1/seller-test names this address as the payTo of
+    #   the funded test, and its 402 is where we read it — 5 payments to us,
+    #   first 2026-10-17, including the $0.01 at 2026-11-11T23:06:38Z that
+    #   Lumiere's own maintainer confirmed was their test.
+    #
+    # Class `canary` (see PAYER_CLASSES) reads "наш тест" on the board, which is
+    # the closest of the existing classes and is accurate: a third party
+    # verifying us with a real payment. They stay in the totals as real
+    # settlements — the money moved on chain — they just stop being counted as
+    # demand.
+    "0xa1d1c0cf717402ff3651aa4873ccf96410b01978": "settled_scout",
+    "0xec2abd3eda89bed90124736e317e847d5fb6d034": "lumiere_paycheck_tester",
 }
 
 # ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──
