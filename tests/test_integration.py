@@ -204,6 +204,7 @@ def test_x402_payment_proof_completes_the_handshake(client, monkeypatch):
     import base64 as b64
     import json as jsonlib
     import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
 
     # Isolate module-level state so this test cannot pollute other tests.
     monkeypatch.setattr(main, "_sales_history", [])
@@ -246,6 +247,7 @@ def test_x402_payment_proof_rejects_forged_tx(client, monkeypatch):
     import base64 as b64
     import json as jsonlib
     import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
 
     monkeypatch.setattr(main, "_sales_history", [])
     monkeypatch.setattr(main, "_verified_payments", set())
@@ -344,6 +346,7 @@ def test_client_ip_resolution_via_render_proxy(client, monkeypatch):
     proxy IP. Two calls through different private proxies from the same
     client must share one free call."""
     import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
     monkeypatch.setattr(main, "_free_tier_usage", {})
 
     # Call 1 through Render proxy A — free tier for the real client
@@ -363,6 +366,7 @@ def test_client_ip_resolution_rejects_spoofed_xff_prefix(client, monkeypatch):
     """A client may PREPEND fake entries to X-Forwarded-For; the server must
     resolve to the last PUBLIC entry (appended by the trusted proxy)."""
     import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
     monkeypatch.setattr(main, "_free_tier_usage", {})
 
     # Client spoofs "1.2.3.4" first, proxy appends real IP "198.51.100.9"
@@ -386,6 +390,7 @@ def test_client_ip_resolution_walks_back_past_private_hops(client, monkeypatch):
     """With multiple proxy hops the XFF chain may end with private IPs;
     resolution must walk back to the last public (client) address."""
     import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
     monkeypatch.setattr(main, "_free_tier_usage", {})
 
     r1 = client.get("/api/stats",

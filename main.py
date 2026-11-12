@@ -379,12 +379,14 @@ CHALLENGE_DESCRIPTIONS = {
 # Falls back to relative "/" so links work even if NEXUS is served from same domain.
 NEXUS_URL = "/nexus"
 
-# Free-tier limit per client. The env default here is 1 for casual evaluation,
-# but PRODUCTION RUNS WITH 0 (KRISTO_FREE_TIER_LIMIT=0): every unpaid request
-# then returns the canonical 402 payment challenge, which is what x402
-# marketplaces/verifiers (PayAPI.market, x402scan) expect. Any public text that
-# promises a free call is therefore a phantom claim — see the sweep test.
-FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))
+# Free-tier limit per client. The default is 0, so the product is safe without
+# an environment variable: every unpaid request returns the canonical 402
+# payment challenge, which is what x402 marketplaces/verifiers (PayAPI.market,
+# x402scan) expect. It used to default to 1, which meant a fresh deploy, a
+# wiped environment or a local run silently handed out a free call — the exact
+# opposite of the public "no free tier" claim. Set KRISTO_FREE_TIER_LIMIT=1
+# explicitly to allow a free trial.
+FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "0")))
 
 # Endpoints that require x402 payment (after free tier exhausted)
 X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
@@ -4668,10 +4670,21 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
             log.warning("c2_receipt_status_override_delivered: tx=%s receipt "
                         "status=%s след ~8s poll — fail-open, доставя се",
                         tx_hash, receipt_status)
+            # Name what actually happened. The guard event used to be
+            # "c2_receipt_status_refused" even though this branch DELIVERS — a
+            # dashboard that counted "refused" was reading the opposite of the
+            # truth. The event name now matches the behaviour, and the old name
+            # is kept as a second row so a board that already counts it does not
+            # silently lose its history.
             dashboard_db.record_guard_event(
-                "c2_receipt_status_refused", endpoint=path, tx_hash=tx_hash,
+                "c2_receipt_status_override_delivered", endpoint=path,
+                tx_hash=tx_hash,
                 detail=f"receipt.status={receipt_status} — fail-open override "
                        f"доставка (А+, 10.10) вместо отказ")
+            dashboard_db.record_guard_event(
+                "c2_receipt_status_refused", endpoint=path, tx_hash=tx_hash,
+                detail="legacy alias: see c2_receipt_status_override_delivered "
+                       "— this row DELIVERED, it did not refuse")
 
     if receipt is not None:
         block_number = int(receipt.get("blockNumber", 0) or 0)
@@ -5000,6 +5013,28 @@ def _x402_402_cache_and_cors(response):
         response.headers["Access-Control-Allow-Headers"] = _X402_CORS_ALLOW_HEADERS
         response.headers["Access-Control-Allow-Methods"] = _X402_CORS_ALLOW_METHODS
         response.headers["Access-Control-Expose-Headers"] = _EXPOSE_402_HEADERS
+    return response
+
+
+@app.after_request
+def _security_headers(response):
+    """Harden every response against framing, MIME sniffing and downgrade.
+
+    Deliberately setdefault(): a route that already chose its own value keeps
+    it, so this cannot silently override a deliberate decision.
+    """
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault(
+        "Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
+        "font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+        "base-uri 'self'; form-action 'self'")
     return response
 
 
@@ -8809,6 +8844,30 @@ def _memory_report() -> dict:
     }
 
 
+#: How many IPs each usage map may keep. Both maps are per-client counters
+#: that are only ever written, never read after the request that wrote them,
+#: so a long-lived process grows them with every distinct IP. A cap keeps the
+#: memory bounded without losing the recent counter a client needs.
+_USAGE_MAP_MAX = int(os.getenv("KRISTO_USAGE_MAP_MAX", "2000"))
+
+
+def _prune_usage_maps() -> None:
+    """Drop the oldest entries from the per-IP usage maps when they grow.
+
+    A plain dict keeps insertion order, so the oldest entries are the first
+    ones — dropping them is enough to bound memory, and a returning client
+    simply starts a fresh count. Called from the memory-watch loop, so it
+    never runs on the request path.
+    """
+    for name, usage in (("free_tier_usage", _free_tier_usage),
+                        ("paid_calls_usage", _paid_calls_usage)):
+        excess = len(usage) - _USAGE_MAP_MAX
+        if excess > 0:
+            for _ in range(excess):
+                usage.pop(next(iter(usage)), None)
+            log.info("memory watch: pruned %d old %s entries", excess, name)
+
+
 #: How often the memory line is written. Five minutes gives ~50 samples between
 #: OOM kills, which is plenty to see a trend without flooding the log.
 _MEMORY_WATCH_SECONDS = int(os.getenv("KRISTO_MEMORY_WATCH_SECONDS", "300"))
@@ -8819,6 +8878,7 @@ def _memory_watch_loop():
     time.sleep(60.0)                    # let boot settle before the first sample
     while True:
         try:
+            _prune_usage_maps()
             report = _memory_report()
             log.info("memory watch: %s",
                      " ".join("%s=%s" % (k, v) for k, v in report.items()))

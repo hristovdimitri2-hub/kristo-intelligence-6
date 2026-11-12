@@ -57,10 +57,15 @@ def test_duplicate_module_load_skips_all_threads(monkeypatch):
     main._start_background_threads()
     first_run = list(started)
     # monitor + agent + catalog + stripe-snapshot + dashboard + dashboard-warmer
-    # + requests-snapshot-warmer + whaleflow + keep-alive + telegram-sales
-    # + organism-boot
+    # + requests-snapshot-warmer + memory-watch + whaleflow + keep-alive
+    # + telegram-sales + organism-boot
     # + request-log-retention + reorg-watch
-    # = 13 threads.
+    # = 14 threads.
+    #
+    # `memory-watch` was added when the Render 512 MB OOM was being chased; it
+    # is a diagnostic thread, so it is a real thread and must be counted. The
+    # count below was stale at 13 and the test failed on the first full run
+    # after the thread landed — the assertion is what keeps the guard honest.
     #
     # The last two moved here from MODULE level on 08.11.2026. Both call
     # `_isolated_store`, defined ~1,400 lines below where they were started, so
@@ -79,7 +84,7 @@ def test_duplicate_module_load_skips_all_threads(monkeypatch):
     # import time BEFORE gunicorn binds the port. A durable write on that path
     # already cost this project one deploy (module-level purge_old_requests in
     # a4c1cb0), so boot must not wait on telemetry.
-    assert len(first_run) == 13, first_run
+    assert len(first_run) == 14, first_run
     assert "organism-boot" in first_run, (
         "the organism's boot heartbeat must be on its own thread, not on the "
         "path to binding the port")

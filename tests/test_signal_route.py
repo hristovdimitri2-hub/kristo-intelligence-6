@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """GET /api/v1/signal — cheap paid route returning an actual agent signal."""
 import pytest
 
@@ -8,6 +8,13 @@ def client(monkeypatch):
     monkeypatch.setenv("ADMIN_API_TOKEN", "t")
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
     import main
+    # The default is now 0 (strict x402); this test is about the signal
+    # payload, not the paywall, so grant one free call explicitly.
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
+    # Other modules leave 127.0.0.1 in the shared counter (some set it to 999
+    # to exhaust the tier), so the budget has to be reset here as well —
+    # otherwise one free call is already "used" before this test starts.
+    monkeypatch.setattr(main, "_free_tier_usage", {})
     sample = {"generated_at": "2026-09-01T00:00:00+00:00", "signals": [
         {"token": "ETH", "action": "recommend_buy", "confidence": 0.82,
          "price_usd": 2501.2, "reasoning": "Core L1 / gas asset on Base",

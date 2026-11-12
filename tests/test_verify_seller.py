@@ -52,6 +52,10 @@ def no_network(monkeypatch):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
+    # These tests exercise the receiver validation, not the paywall, so they
+    # need one free call to reach the handler. The default is now 0 (strict
+    # x402), so the free tier has to be granted explicitly here.
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1)
     main._free_tier_usage.clear()
     main.app.config["TESTING"] = True
     return main.app.test_client()
