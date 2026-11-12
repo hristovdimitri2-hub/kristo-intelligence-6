@@ -2487,6 +2487,61 @@ Also noted, not acted on: **Wever Pay** (Base mainnet, release 2.1.0) offers a
 receipt; their walkthrough at `weverpay.com/connect` deliberately stops before
 any spending. The maintainer is explicitly asking what breaks.
 
+## 37. Fizzl / x402 Doctor — independent check, badge, and two attacks we pass (12.11.2026)
+
+**The "free full check" from the x402-health post is free AND self-service**
+— no DM, no signup, no key. `GET https://x402-doctor.fizzl.eu/api/trust?url=<endpoint>`
+returns a per-endpoint 30-day record. Our own endpoint:
+
+```
+verdict "go"  codes []  payable_ratio 1  days_checked 3  days_payable 3
+streak 3  ms 141  protocol x402  price_usd 0.01  networks ["eip155:8453"]
+payto 74ef609bc6  (hashed — they do not publish the address)
+```
+
+**Honest caveat:** `history` is `---------------------------ggg` — 27 dashes
+then 3 `g`. The scan only has 3 days of our record; 27 days were never scanned
+(they are not "not payable"). So "3/3" is true but thin, and the badge must not
+be read as a long streak.
+
+**Badge** — `https://x402-doctor.fizzl.eu/badge.svg?url=<endpoint>` — 200,
+`image/svg+xml`, 894 bytes, `title` "x402: payable 3/3 days". It states the count
+instead of a headline, and rises by itself as the scan accumulates days. Added to
+README and the landing footer next to the Lumière badge, so the two independent
+checks are both visible.
+
+**Two of the five "x402 attacks" from their paper are directly checkable from
+outside, and we pass both** (verified live, 7/7 advertised routes):
+
+- **Free HEAD** — `@x402/core` ≤ 2.28.0 let a HEAD on a paid GET route through
+  without payment. Every advertised route answers **402** to HEAD, so no handler
+  runs for free. Fix upstream: `x402#3796`.
+- **Cache hands the paid answer out for free** — their fix is
+  `Cache-Control: no-store, private`. Every paid answer already carries
+  **`Cache-Control: no-store`** — stronger. Re-runnable:
+  `_forensics/check_head_real_routes.py`.
+
+The other three are not verifiable from outside: settling before answering
+(their middleware does it), someone else settling first (between server and
+facilitator), and one payment/many answers (needs a paid call). The weekly
+delivery check ($0.25) is the one that would test them.
+
+**Wever Pay — read the offer, not paid.** The Commerce Assurance service is
+`wever.deterministic-commerce-assurance.v1`, 0.025 USDC (25000 atomic) on
+`eip155:8453`, asset `0x833589...` (same USDC), payTo
+`0x138887D2947f996ADA0CF96d4034467371621216`, input `{artifact, forceOutcomeFailure?}`,
+output `{assuranceStatus: PASS|FAIL, inputDigest, artifactDigest}`. Its own
+`get_network_metrics` reports **x402 connections: 0**, purchases completed 2,
+and availability **201 successful / 663 failed checks** — 23% healthy. That is
+the reason to defer the 0.025 USDC spend: a service that is up 23% of the time
+is not a reliable test of a buyer-signed receipt, and the maintainer's own
+numbers already answer "what breaks". The release is also 2.2.0 on the server
+against 2.1.0 in the post, so the published version is stale.
+
+The monitor (1 endpoint free) is at `wallet.fizzl.eu/#/account` and requires
+signing in with a wallet — no e-mail. That is a wallet-app action, so it waits
+for the owner; it is not a web form.
+
 
 
 
