@@ -2271,6 +2271,63 @@ same handshake with a body. A reminder is armed to read the result.
 
 Suite 1362.
 
+## 34. Lumière: C → A, 100/100, paid-tested (12.11.2026)
+
+The funded test ran and passed:
+
+```
+id st_891b4f9b23f4   status done   outcome "delivered"
+detail "ok via x402:0xec2aBD+sol:2WgRFR; values checked: \"checked_at\" is recent"
+resultAt 2026-11-12T01:19:18Z   gradeBefore C   spent $0.01   refundTx null
+```
+
+The money moved and the delivery stamp is in our own ledger:
+
+```
+2026-11-12T01:19:24  /api/v1/verify-seller  $0.01  delivered_at stamped
+payer 0xec2abd3eda89bed90124736e317e847d5fb6d034
+```
+
+Net cost to us: **$0** — we funded $0.01 and their tester paid the same $0.01
+back to our payout wallet. That wallet has now paid us **four** times
+(2026-10-17 ×2, 2026-11-11, 2026-11-12), which is why it is classed `canary` and
+not `external`.
+
+**The grade on their endpoint page:**
+
+```
+before:  C  74/100  "Caution: delivery not yet confirmed"
+after:   A 100/100  "Proceed: paid-tested and reliable"
+         7-day uptime 100% · median response 297 ms
+         test payments: paid and delivered, values checked against known answers
+         seller-funded tests: 1 funded · 1 delivered · 0 didn't
+         payout-wallet incidents: 0
+```
+
+One stale line remains on that page — "Browser agents: Can't pay it yet: CORS
+headers missing" — and it is **their cache, not our defect**. Verified live the
+same hour: `OPTIONS /api/v1/verify-seller` → `204` with
+`Access-Control-Allow-Methods` and `Access-Control-Allow-Headers`, and their own
+`GET /v1/failures?url=…` returns `failures: []` for the last 7 days. Do not
+"fix" this again.
+
+### What produced the A
+
+Four things, in order of weight, and only one of them was paid for:
+
+1. **The seller-funded test** — the only route that lifts the grade, because the
+   grade is built on a real purchase. Free re-tests are suspended for weeks.
+2. **The CORS fix** (commit `00ce229`) — they reported it, we fixed it, and their
+   maintainer confirmed it on the live host.
+3. **The response-field declaration** (commit `1fd1333`) — the scout's earlier
+   receipt read `nothing_to_compare` because our Bazaar output example carried no
+   field list, so a delivery check had nothing to check against.
+4. **`/.well-known/paycheck.json`** — they verified the payout declaration, so a
+   future rotation is a recognised event rather than an unconfirmed change.
+
+Suite 1366.
+
+
 
 
 
