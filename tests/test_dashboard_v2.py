@@ -299,6 +299,44 @@ def test_rpc_api_keys_are_redacted_before_logging():
     assert redact_rpc("plain text, no key") == "plain text, no key"
 
 
+def test_dsn_passwords_are_redacted_too():
+    """The same argument as the RPC key, for connection URLs: a psycopg error
+    echoes the DSN it failed to reach, so an unredacted exception on a public
+    surface publishes the database password."""
+    from integrations.dashboard_store import redact_rpc
+
+    out = redact_rpc("could not connect to "
+                     "postgresql://kristo_db_user:cwVbr2YtD5UghXAAoCY8J3GB@"
+                     "dpg-daj8ue0jo6nc73ctsh70-a.oregon-postgres.render.com:5432/kr")
+    assert "cwVbr2YtD5UghXAAoCY8J3GB" not in out
+    assert "kristo_db_user" in out              # user stays diagnosable
+    assert "dpg-daj8ue0jo6nc73ctsh70-a.oregon-postgres.render.com" in out
+    assert "hunter2" not in redact_rpc("redis://default:hunter2@cache.internal:6379")
+    # A bare host with no credential is untouched — no false positives.
+    assert redact_rpc("https://mainnet.base.org") == "https://mainnet.base.org"
+
+
+def test_organism_failure_reason_is_redacted(monkeypatch):
+    """`_safe_organism_summary`/`_safe_organism_journal` put their exception text
+    into a `reason` the PUBLIC dashboard payload serves. It must go through
+    `redact_rpc`, exactly like the log line beside it."""
+    import main
+    from services import organism, organism_journal
+
+    def boom(*a, **k):
+        raise RuntimeError(
+            "rpc down: https://base-mainnet.g.alchemy.com/v2/"
+            "alch_lMA7z24yRSecretKey123")
+
+    monkeypatch.setattr(organism, "summary", boom)
+    monkeypatch.setattr(organism_journal, "entries", boom)
+
+    for fn in (main._safe_organism_summary, main._safe_organism_journal):
+        reason = fn()["reason"]
+        assert "alch_lMA7z24yRSecretKey123" not in reason
+        assert "/v2/***" in reason
+
+
 # ── 11. HISTORY SURVIVES A RESTART (the acceptance criterion) ───────────────
 
 class _FakePostgres:

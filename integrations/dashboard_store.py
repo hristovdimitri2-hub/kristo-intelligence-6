@@ -66,10 +66,19 @@ _RPC_KEY_RE = re.compile(
     r"(/v[0-9]+/|apikey=|api-key=|key=|token=)([A-Za-z0-9_\-]{6,})", re.I
 )
 
+#: The same argument applies to connection URLs, where the credential is the
+#: password half of `scheme://user:password@host`. A psycopg/redis exception
+#: echoes the DSN it failed to reach, so an unredacted `str(exc)` on a public
+#: surface publishes the database password. Keep user and host, drop the
+#: password. `[^/\s@:]+` stops at the first delimiter, so a DSN inside a longer
+#: message is matched without swallowing the surrounding text.
+_URL_CRED_RE = re.compile(r"(://[^/\s@:]+:)([^/\s@:]+)(@)")
+
 
 def redact_rpc(text: Any) -> str:
-    """Return `text` with any embedded RPC API key replaced by ***."""
-    return _RPC_KEY_RE.sub(lambda m: m.group(1) + "***", str(text))
+    """Return `text` with any embedded RPC API key or DSN password replaced by ***."""
+    out = _RPC_KEY_RE.sub(lambda m: m.group(1) + "***", str(text))
+    return _URL_CRED_RE.sub(lambda m: m.group(1) + "***" + m.group(3), out)
 
 
 # ── Bounded waits on the shared Postgres link (outage 05.11) ───────────────

@@ -1737,8 +1737,12 @@ def _dashboard_scan_loop():
                            "incremental scan ok, %d new" % added)
         except Exception as exc:
             log.warning("Dashboard scan cycle failed (non-fatal): %s", redact_rpc(exc))
+            # The detail is persisted into the organism heartbeat, which the
+            # public dashboard payload serves. Redact here for the same reason
+            # the log line above is redacted: an RPC/DSN exception carries the
+            # credential in its text.
             _organism_beat("data_store", "failed",
-                           "incremental scan failed: %s" % str(exc)[:120])
+                           "incremental scan failed: %s" % redact_rpc(exc)[:120])
 
         if time.time() >= next_payapi:
             next_payapi = time.time() + payapi_interval
@@ -5839,9 +5843,9 @@ def _safe_organism_chaos() -> dict:
         }
     except Exception as exc:  # noqa: BLE001
         log.warning("organism chaos unavailable: %s: %s",
-                    type(exc).__name__, exc)
+                    type(exc).__name__, redact_rpc(exc))
         return {"available": False, "failed": None, "passed": None,
-                "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+                "reason": "%s: %s" % (type(exc).__name__, redact_rpc(exc)[:120]),
                 "note": "a drill suite that could not run is not a passing one"}
 
 
@@ -5880,9 +5884,9 @@ def _safe_organism_rules() -> dict:
         }
     except Exception as exc:  # noqa: BLE001
         log.warning("organism rules unavailable: %s: %s",
-                    type(exc).__name__, exc)
+                    type(exc).__name__, redact_rpc(exc))
         return {"available": False, "table": [], "digest": {},
-                "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120])}
+                "reason": "%s: %s" % (type(exc).__name__, redact_rpc(exc)[:120])}
 
 
 def _organism_journal_note(block: str, kind: str, severity: str = "info",
@@ -5961,11 +5965,12 @@ def _safe_organism_summary() -> dict:
         return organism.summary(dashboard_db)
     except Exception as exc:  # noqa: BLE001
         log.warning("organism summary unavailable: %s: %s",
-                    type(exc).__name__, exc)
+                    type(exc).__name__, redact_rpc(exc))
         return {
             "blocks": [], "counts": {}, "unhealthy": None,
             "available": False,
-            "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+            # Redacted before truncating: cutting first could leave half a key.
+            "reason": "%s: %s" % (type(exc).__name__, redact_rpc(exc)[:120]),
             "note": ("The organism's own state could not be read. This is NOT "
                      "the same as every block being well."),
         }
@@ -5986,10 +5991,10 @@ def _safe_organism_journal(limit: int = 25) -> dict:
         }
     except Exception as exc:  # noqa: BLE001
         log.warning("organism journal unavailable: %s: %s",
-                    type(exc).__name__, exc)
+                    type(exc).__name__, redact_rpc(exc))
         return {
             "entries": [], "counts_24h": {}, "unreadable": True,
-            "reason": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+            "reason": "%s: %s" % (type(exc).__name__, redact_rpc(exc)[:120]),
         }
 
 
@@ -6290,8 +6295,8 @@ def api_admin_seed_sales():
     try:
         result = dashboard_db.seed_verified_sales()
     except Exception as exc:
-        log.warning("Admin seed-sales failed: %s", exc)
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        log.warning("Admin seed-sales failed: %s", redact_rpc(exc))
+        return jsonify({"ok": False, "error": redact_rpc(exc)}), 500
     summary = dashboard_db.sales_summary()
     log.info("Admin seed-sales: inserted=%d total=%d $%.6f",
              result["inserted"], result["present"], result["total_usdc"])
@@ -6384,9 +6389,9 @@ def public_signals_history():
         not_scored = dashboard_db.signal_history_not_scored()
         issued_total = dashboard_db.signal_history_total()
     except Exception as exc:
-        log.warning("Public signals history failed: %s", exc)
+        log.warning("Public signals history failed: %s", redact_rpc(exc))
         return _safe_jsonify({"ok": False, "error": "store_unavailable",
-                              "detail": str(exc)[:200]}), 503
+                              "detail": redact_rpc(exc)[:200]}), 503
     payload = track.build_feed(rows, checkpoints=_track_record_checkpoints(rows),
                                not_scored=not_scored, issued_total=issued_total)
     return _safe_jsonify(payload)
@@ -8786,7 +8791,7 @@ def _dashboard_warmer_loop():
         except Exception as exc:
             log.warning("dashboard warmer: %s", redact_rpc(exc))
             _organism_beat("delivery", "degraded",
-                           "dashboard rebuild failed: %s" % str(exc)[:120])
+                           "dashboard rebuild failed: %s" % redact_rpc(exc)[:120])
         time.sleep(interval)
 
 
@@ -8914,7 +8919,7 @@ def _requests_snapshot_warmer_loop():
         except Exception as exc:
             log.warning("requests snapshot warmer: %s", redact_rpc(exc))
             _organism_beat("data_store", "degraded",
-                           "snapshot pass failed: %s" % str(exc)[:120])
+                           "snapshot pass failed: %s" % redact_rpc(exc)[:120])
         time.sleep(REQUEST_SNAPSHOT_INTERVAL_SECONDS)
 
 

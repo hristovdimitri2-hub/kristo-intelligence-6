@@ -16,6 +16,13 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+try:  # reuse the app's one credential scrubber rather than inventing a second
+    from integrations.dashboard_store import redact_rpc
+except Exception:  # noqa: BLE001 - `src.nexus` is also usable standalone
+    def redact_rpc(text: Any) -> str:
+        """No-op fallback: without the app package there is nothing to reuse."""
+        return str(text)
+
 log = logging.getLogger("kristo.v6.nexus.core")
 
 
@@ -172,9 +179,15 @@ class NexusAggregator:
                     {"name": source.name, "status": "ok", "items": len(collected)}
                 )
             except Exception as exc:  # resilient: one dead source never kills the loop
-                log.warning("Nexus pulse source %s failed: %s", source.name, exc)
+                # This report is rendered on the PUBLIC activity page, and a
+                # source is an arbitrary pluggable collector (`x402-pulse`, a
+                # scraper, a keyed feed), so its exception can carry a URL with
+                # the credential in it. Redact the same way the log stream does.
+                log.warning("Nexus pulse source %s failed: %s",
+                            source.name, redact_rpc(exc))
                 source_reports.append(
-                    {"name": source.name, "status": "error", "error": str(exc)[:200]}
+                    {"name": source.name, "status": "error",
+                     "error": redact_rpc(exc)[:200]}
                 )
         return {
             "generated_at": _utcnow_iso(),
