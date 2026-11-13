@@ -996,6 +996,31 @@ def test_the_precheck_pins_the_token_domain_the_route_declares(client):
     assert wrong_ver, "a foreign token version must be refused"
 
 
+def test_an_adopted_already_settled_tx_must_be_a_hash():
+    """The facilitator's 400 body is a CLAIM, not evidence.
+
+    `_adopt_already_settled` takes the transaction the body names when it says
+    the authorization is already on-chain. Without a shape check, any string in
+    that field — a URL, a label, a number — was adopted and passed on as a
+    settlement. The caller still verifies a USDC Transfer to our receiver
+    before delivering, but a non-hash must not get that far.
+    """
+    from services.connectors import _adopt_already_settled
+
+    good = "0x" + "ab" * 32
+    assert _adopt_already_settled(
+        {"success": False, "transaction": good,
+         "errorMessage": "authorization already submitted"}) == good
+    for bad in ("not-a-hash", "https://example.com/tx/1", "42", "",
+                "0x" + "ab" * 31, "0x" + "zz" * 32):
+        assert _adopt_already_settled(
+            {"success": False, "transaction": bad,
+             "errorMessage": "authorization already submitted"}) is None, bad
+    # ...and the "already" gate still holds.
+    assert _adopt_already_settled(
+        {"success": False, "transaction": good, "errorMessage": "boom"}) is None
+
+
 def test_the_public_health_line_is_cached_and_hides_failure_detail(monkeypatch):
     """`/api/connectors` is free and unauthenticated.
 

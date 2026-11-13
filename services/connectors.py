@@ -1004,19 +1004,32 @@ def _adopt_already_settled(resp) -> str | None:
     Safety subset of the agreed rule: the body must also confirm with the
     word "already" (errorMessage/errorReason/invalidReason/error). A failure
     body without it keeps the old behaviour (never adopt an unrelated tx).
+
+    THE BODY IS STILL JUST A CLAIM. The facilitator names a hash; nothing here
+    proves that hash moved the buyer's USDC to us. Two things bound the damage:
+    the value must at least LOOK like a transaction hash, and the caller
+    (`main.py`) reads that receipt and verifies a USDC Transfer to our receiver
+    for at least the price before delivering. An unrelated or invented hash
+    therefore fails there rather than unlocking a free call.
     """
     if not isinstance(resp, dict):
         return None
     if resp.get("success") is True:
         return None  # the regular success path handles it
-    tx = resp.get("transaction")
-    if not tx:
+    tx = str(resp.get("transaction") or "").strip()
+    # Must be a 32-byte hex hash. Without this, any string in the body — a URL,
+    # a label, a number — was adopted and passed on as a "transaction".
+    if not tx.startswith("0x") or len(tx) != 66:
+        return None
+    try:
+        int(tx[2:], 16)
+    except ValueError:
         return None
     msg = " ".join(str(resp.get(k, "")) for k in
                    ("errorMessage", "errorReason", "invalidReason", "error")).lower()
     if "already" not in msg:
         return None
-    return str(tx)
+    return tx
 
 
 def settle_standard_payment(payment_header, requirements: dict):

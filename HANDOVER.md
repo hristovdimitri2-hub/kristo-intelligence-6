@@ -2817,11 +2817,24 @@ plain exchange withdrawals, which would otherwise be lost sales."
 `test_a_settlement_that_moved_no_usdc_to_us_is_refused`,
 `test_a_settlement_under_the_quoted_price_is_refused`,
 `test_the_precheck_pins_the_token_domain_the_route_declares`,
-`test_the_public_health_line_is_cached_and_hides_failure_detail`.
+`test_the_public_health_line_is_cached_and_hides_failure_detail`,
+`test_an_adopted_already_settled_tx_must_be_a_hash`.
 
-**Остава открито:** `_adopt_already_settled` приема `transaction` от 400 отговор,
-ако текстът съдържа „already" — това е доверие към текста на фасилитатор.
-`/api/connectors` вече е по-евтин, но `requests_summary` (3.1 s) още не е пипан.
+### 7. `_adopt_already_settled` приемаше и стойност, която не е хеш
+
+Когато фасилитатор върне 400 с текст „already" и поле `transaction`, ние
+приемахме това като успешен сетълмент. Тялото обаче е **твърдение**, не
+доказателство. Две неща ограничават щетата: стойността вече трябва да
+**изглежда** като хеш (0x + 64 hex), и викащият чете receipt-а и проверява
+USDC Transfer към нашия получател за поне цената (точка 2 по-горе). Произволен
+или измислен хеш пада там, вместо да отвори безплатно обаждане.
+
+**Остава открито:** `/validation` още държи `SUITE_TESTS_PASSED` и
+`UPTIME_DAYS_GREEN` като ръчни константи (датирани са с `SUITE_LAST_RUN` и
+`UPTIME_MEASURED_TO`, така че не лъжат за времето); `requests_summary` (3.1 s)
+още не е пипан; `main.py` остава монолит от ~9.6k реда; `requirements.txt`
+смесва dev и prod зависимости; няма CI pipeline със сканиране за тайни.
+
 
 
 
