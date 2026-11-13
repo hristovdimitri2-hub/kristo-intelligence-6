@@ -992,6 +992,59 @@ def _extension_receipt_from_headers(headers) -> str | None:
     return None
 
 
+def _tx_hash_or_none(value) -> str | None:
+    """`value` as a 32-byte hex transaction hash, or None.
+
+    ONE shape check for every place that adopts a hash a facilitator named. A
+    private key and a transaction hash look identical, so this deliberately
+    checks the SHAPE only — what the hash is WORTH is decided on chain, by the
+    caller, which verifies a USDC Transfer to our receiver for at least the
+    price before delivering.
+    """
+    tx = str(value or "").strip()
+    if not tx.startswith("0x") or len(tx) != 66:
+        return None
+    try:
+        int(tx[2:], 16)
+    except ValueError:
+        return None
+    return tx
+
+
+#: x402 v2 spec §9: "the settlement transaction was broadcast but its
+#: confirmation could not be established". NON-TERMINAL — the transaction may
+#: still confirm — and a response carrying it MUST include the broadcast hash.
+SETTLEMENT_PENDING_CODE = "settlement_pending"
+
+
+def _adopt_settlement_pending(resp) -> str | None:
+    """The tx hash from a NON-TERMINAL `settlement_pending` settle response.
+
+    Spec §9: a facilitator that broadcast the transaction but could not confirm
+    it (an RPC error or a timeout while waiting for the receipt) MAY answer with
+    `errorReason: "settlement_pending"`, which is explicitly NOT a terminal
+    failure — the transaction may still land, and the response MUST carry the
+    broadcast hash and the network so the caller can reconcile on chain.
+
+    Before this, `success: false` was read as "the payment failed", so a
+    settlement that HAD been broadcast was refused and the paying customer lost
+    their call. The rate is not theoretical: on a production facilitator Lena
+    Hierzi measured 19 settle 500s in ~11.7k settles, and 9 of them had actually
+    settled. This is the same defect class as `_adopt_already_settled`, now with
+    a name the spec gives us.
+
+    Matching is on the CODE, never the message text — spec §9 requires that, and
+    a facilitator may reword `errorMessage` in any release.
+    """
+    if not isinstance(resp, dict):
+        return None
+    if resp.get("success") is True:
+        return None  # the regular success path handles it
+    if str(resp.get("errorReason") or "").strip() != SETTLEMENT_PENDING_CODE:
+        return None
+    return _tx_hash_or_none(resp.get("transaction"))
+
+
 def _adopt_already_settled(resp) -> str | None:
     """
     Bonus fix (2026-10-07): a CDP 400 body can carry the transaction field
@@ -1016,14 +1069,10 @@ def _adopt_already_settled(resp) -> str | None:
         return None
     if resp.get("success") is True:
         return None  # the regular success path handles it
-    tx = str(resp.get("transaction") or "").strip()
     # Must be a 32-byte hex hash. Without this, any string in the body — a URL,
     # a label, a number — was adopted and passed on as a "transaction".
-    if not tx.startswith("0x") or len(tx) != 66:
-        return None
-    try:
-        int(tx[2:], 16)
-    except ValueError:
+    tx = _tx_hash_or_none(resp.get("transaction"))
+    if tx is None:
         return None
     msg = " ".join(str(resp.get(k, "")) for k in
                    ("errorMessage", "errorReason", "invalidReason", "error")).lower()
@@ -1114,6 +1163,12 @@ def settle_standard_payment(payment_header, requirements: dict):
                             "instead of failing (tx-shape path)", adopted)
                 return adopted, "settled_already_onchain", \
                     _extension_receipt_from_headers(resp_headers)
+            pending = _adopt_settlement_pending(resp)   # §9: broadcast, unconfirmed
+            if pending:
+                log.warning("cdp reported settlement_pending tx %s — adopting "
+                            "and reconciling on chain (tx-shape path)", pending)
+                return pending, "settled_pending_reconcile", \
+                    _extension_receipt_from_headers(resp_headers)
             reason = (resp or {}).get("errorReason", f"cdp_settle(status={status})")
             last_detail = f"cdp:{reason}"
         log.warning("x402 settle TOTAL %.2fs (tx-shape path, failed)",
@@ -1166,6 +1221,16 @@ def settle_standard_payment(payment_header, requirements: dict):
                 _extension_receipt_from_headers(resp_headers)
         _phase("%s-settle" % name, _t, False,
                resp.get("errorReason") or resp.get("invalidReason"))
+        # Spec §9: NON-TERMINAL, and any facilitator may answer it — not only
+        # CDP. The hash it carries is what lets us reconcile on chain instead of
+        # refusing a payment that has already been broadcast.
+        pending = _adopt_settlement_pending(resp)
+        if pending:
+            log.warning("standard x402 settle: %s reported settlement_pending "
+                        "tx %s — adopting and reconciling on chain",
+                        name, pending)
+            return pending, "settled_pending_reconcile", \
+                _extension_receipt_from_headers(resp_headers)
         if name == "cdp":
             adopted = _adopt_already_settled(resp)   # (г) already on-chain
             if adopted:

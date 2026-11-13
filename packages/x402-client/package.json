@@ -1,7 +1,7 @@
 {
   "name": "kristo-x402-client",
-  "version": "1.1.1",
-  "description": "Zero-dependency x402 client for the Kristo Intelligence API — speaks the standard PAYMENT-SIGNATURE rail (EIP-3009, settles in ~2s) and falls back to the legacy X-Payment-Proof rail. Includes a LangChain tool factory.",
+  "version": "1.1.2",
+  "description": "Zero-dependency x402 client for the Kristo Intelligence API — speaks the standard PAYMENT-SIGNATURE rail (EIP-3009, settles in ~2s) and falls back to the smart-wallet rail (X-Payment-Proof) for wallets that cannot sign a typed authorization. Signs at most once per request. Includes a LangChain tool factory.",
   "type": "module",
   "main": "src/index.js",
   "exports": {

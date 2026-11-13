@@ -207,8 +207,11 @@ export class KristoX402Client {
    *     the server waits for 3 confirmations, ~6s).
    *   The challenge carries `amountAtomic`, `recipient`, `tokenContract`,
    *   `chainId`, `extra` and `accepted` when the standard rail is available.
-   * @param {number} [options.maxPaymentRetries=3] How many payment rounds
-   *   to attempt before giving up.
+   * @param {number} [options.maxPaymentRetries=3] Upper bound on payment
+   *   rounds. In practice a request signs AT MOST ONCE: a second 402 for the
+   *   same terms returns `payment_outcome_unknown` instead of signing again,
+   *   because a second signature is a second payment. Kept as a hard stop so a
+   *   misbehaving server can never drive an unbounded loop.
    * @param {boolean} [options.autoPay=true] When false, a 402 response is
    *   returned to the caller as `{ paymentRequired: challenge }` without
    *   paying (useful for inspection / dry runs).
@@ -256,6 +259,23 @@ export class KristoX402Client {
   }
 
   async _requestWithPayments(path, init = {}) {
+    // AT MOST ONE SIGNATURE PER REQUEST.
+    //
+    // This used to call `pay()` on every 402 round. Each call signs a FRESH
+    // authorization with a FRESH nonce, so a server that answered 402 after the
+    // first credential had already been broadcast would be handed a SECOND,
+    // independent payment — the buyer pays twice. Niraj Vora's issue #3438
+    // describes the same defect from the buyer side.
+    //
+    // A 402 does not say whether anything was broadcast, so this client cannot
+    // decide safely on its own. It signs once, re-presents that same credential
+    // (the 425 path below already does exactly that), and if a 402 comes back
+    // for terms it has ALREADY paid, it stops and says the outcome is unknown
+    // rather than spending the buyer's money again. Recovering from there needs
+    // an on-chain look at the authorization nonce, which this package
+    // deliberately does not do — it has zero dependencies and no RPC.
+    let signed = null;
+
     for (let round = 0; round <= this.maxPaymentRetries; round++) {
       const response = await this._fetchSettling(path, init);
 
@@ -277,8 +297,23 @@ export class KristoX402Client {
       if (!this.autoPay) {
         return { ok: false, status: 402, paymentRequired: { ...challenge, path } };
       }
+      if (signed) {
+        // We already handed this server a credential and it asked for payment
+        // again. Signing would be a second payment.
+        return {
+          ok: false,
+          status: 402,
+          error: "payment_outcome_unknown",
+          message:
+            "The server answered 402 again for terms this client had already " +
+            "signed. A new signature would be a SECOND payment, so none was " +
+            "made. Check the chain for the authorization nonce before " +
+            "retrying, and retry only if it is unused.",
+        };
+      }
 
       const payment = await this.pay({ ...challenge, path });
+      signed = payment;
       const headers = new Headers(init.headers ?? {});
 
       if (payment?.signature && payment?.authorization && challenge.accepted) {

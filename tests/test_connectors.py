@@ -1021,6 +1021,74 @@ def test_an_adopted_already_settled_tx_must_be_a_hash():
         {"success": False, "transaction": good, "errorMessage": "boom"}) is None
 
 
+def test_settlement_pending_is_adopted_not_treated_as_a_failure():
+    """Spec §9: `settlement_pending` is NON-TERMINAL, and it carries the hash.
+
+    A facilitator that broadcast the transaction but could not confirm it (RPC
+    error, or a timeout waiting for the receipt) answers `success: false` with
+    `errorReason: "settlement_pending"` and the broadcast hash. Reading
+    `success: false` as "the payment failed" refuses a payment that has already
+    gone out and loses the customer — on a production facilitator Lena Hierzi
+    measured 19 settle 500s in ~11.7k settles, and 9 of them HAD settled.
+
+    Adopting the hash does not by itself deliver anything: main.py reads that
+    receipt and verifies a USDC Transfer to our receiver for at least the price.
+    """
+    from services.connectors import (
+        SETTLEMENT_PENDING_CODE, _adopt_settlement_pending,
+    )
+
+    good = "0x" + "cd" * 32
+    assert _adopt_settlement_pending(
+        {"success": False, "errorReason": SETTLEMENT_PENDING_CODE,
+         "transaction": good, "network": "eip155:8453"}) == good
+
+    # A TERMINAL failure must never be adopted, even when it names a hash.
+    for terminal in ("insufficient_funds", "invalid_exact_evm_payload_signature",
+                     "unexpected_settle_error", "invalid_transaction_state"):
+        assert _adopt_settlement_pending(
+            {"success": False, "errorReason": terminal,
+             "transaction": good}) is None, terminal
+
+    # The spec REQUIRES a non-empty transaction; without one there is nothing to
+    # reconcile, so the response stays a failure.
+    for missing in (None, "", "not-a-hash", "0x" + "cd" * 31, "0x" + "zz" * 32):
+        assert _adopt_settlement_pending(
+            {"success": False, "errorReason": SETTLEMENT_PENDING_CODE,
+             "transaction": missing}) is None, missing
+
+    # The success path is handled elsewhere and must not be double-adopted.
+    assert _adopt_settlement_pending(
+        {"success": True, "transaction": good}) is None
+
+
+def test_settlement_pending_matching_is_on_the_code_not_the_message():
+    """Spec §9: clients MUST match the code and MUST NOT rely on message text.
+
+    A facilitator may reword `errorMessage` in any release, so a rule that
+    matched the word "pending" would adopt an unrelated terminal failure the
+    moment somebody changed a sentence — and refuse a real one when they
+    stopped using the word.
+    """
+    from services.connectors import _adopt_settlement_pending
+
+    good = "0x" + "cd" * 32
+
+    # The word in the MESSAGE must not be enough.
+    assert _adopt_settlement_pending(
+        {"success": False, "errorReason": "unexpected_settle_error",
+         "errorMessage": "settlement is pending confirmation",
+         "transaction": good}) is None, (
+        "matched the message text instead of the errorReason code")
+
+    # ...and the code must be enough on its own, whatever the message says.
+    assert _adopt_settlement_pending(
+        {"success": False, "errorReason": "settlement_pending",
+         "errorMessage": "node returned 503 while waiting for the receipt",
+         "transaction": good}) == good
+
+
+
 def test_the_public_health_line_is_cached_and_hides_failure_detail(monkeypatch):
     """`/api/connectors` is free and unauthenticated.
 

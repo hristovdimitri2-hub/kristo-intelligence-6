@@ -467,6 +467,49 @@ test("client re-sends the SAME credential through a 425 settlement window", asyn
   }
 });
 
+test("a repeated 402 never buys the same purchase twice", async () => {
+  // The client used to call `pay()` on EVERY 402 round, so a server that
+  // answered 402 after the first credential had already been broadcast was
+  // handed a SECOND, independent authorization — the buyer paid twice. A 402
+  // cannot say whether anything was broadcast, so the client must not sign
+  // again; it reports the outcome as unknown instead.
+  const originalFetch = globalThis.fetch;
+  const credentials = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const signature =
+      init.headers?.get?.("PAYMENT-SIGNATURE") ?? init.headers?.["PAYMENT-SIGNATURE"];
+    credentials.push(signature);
+    // ALWAYS 402, even after a credential was presented.
+    return new Response(JSON.stringify({ error: "payment_required" }), {
+      status: 402,
+      headers: {
+        "Content-Type": "application/json",
+        "PAYMENT-REQUIRED": v2ChallengeHeader(),
+      },
+    });
+  };
+  try {
+    let paid = 0;
+    const client = new KristoX402Client({
+      pay: async () => {
+        paid += 1;
+        return {
+          signature: "0x" + "ee".repeat(65),
+          authorization: { from: "0x" + "33".repeat(20), value: "5000" },
+        };
+      },
+    });
+
+    const result = await client.get("/api/stats");
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "payment_outcome_unknown");
+    assert.equal(paid, 1, "the buyer must be charged at most once per request");
+    assert.equal(credentials.filter(Boolean).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("client rejects a signer that returns neither rail's credential", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(

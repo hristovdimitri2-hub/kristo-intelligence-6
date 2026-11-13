@@ -16,10 +16,20 @@ keep working unchanged.
 
 > **Version note.** `npm install kristo-x402-client` gives you **1.1.0 or later**,
 > which speaks the standard rail described above. If you have pinned the older
-> **1.0.0**, that release speaks only the legacy rail: it still works and still
-> pays the same price, but every call waits the full ~24 seconds, and the
-> `PAYMENT-SIGNATURE` example below will not match it. Check what you have with
-> `node -p "require('kristo-x402-client/package.json').version"`.
+> **1.0.0**, that release speaks only the plain-transfer rail: it still works and
+> still pays the same price, but it cannot use the fast EIP-3009 rail, so every
+> call waits for the transfer to confirm (about 6 seconds) instead of settling in
+> ~2, and the `PAYMENT-SIGNATURE` example below will not match it. Check what you
+> have with `node -p "require('kristo-x402-client/package.json').version"`.
+>
+> **1.1.2** signs **at most once per request**. Earlier releases called your
+> `pay` callback again on every 402 round, so a server that answered 402 after
+> the first credential had already been broadcast would be handed a second,
+> independent authorization — you would pay twice. A 402 does not say whether
+> anything was broadcast, so the client now returns
+> `{ error: "payment_outcome_unknown" }` instead of signing again. Recovering
+> from that needs an on-chain look at the authorization nonce, which this
+> package deliberately does not do.
 
 AI agents pay for DeFi market intelligence with **two lines of code**. No API keys. No signup.
 
