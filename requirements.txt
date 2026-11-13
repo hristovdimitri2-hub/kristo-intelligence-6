@@ -42,7 +42,7 @@ python-dotenv==1.2.4
 # `cryptography>=42.0.0` under a "Testing" heading, which was wrong twice: the
 # deploy installed whatever pip resolved that day, and the heading told a
 # reader it was a dev dependency.
-cryptography==48.0.0
+cryptography==48.0.1
 
 # ── Testing ────────────────────────────────────────────────────────────────
 # Test-only dependencies live in requirements-dev.txt. They used to sit here,
