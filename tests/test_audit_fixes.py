@@ -62,6 +62,33 @@ def _install_web3(monkeypatch, receipt=None, raise_missing=False, head=10 ** 9):
     monkeypatch.setitem(sys.modules, "web3", fake)
 
 
+_TRANSFER_TOPIC = ("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
+
+
+def _transfer_receipt(status=1, block=100, amount_atomic=5000,
+                      payer=PAYER, to=PAYTO):
+    """A receipt shaped like a real USDC transferWithAuthorization.
+
+    The standard rail now reads the Transfer event to confirm the settlement
+    moved OUR USDC to OUR receiver — status=1 alone only proves the transaction
+    ran. A fake receipt with no logs is therefore not a valid fixture any more.
+    """
+    return {
+        "status": status,
+        "blockNumber": block,
+        "blockHash": "0x" + "cd" * 32,
+        "logs": [{
+            "address": USDC,
+            "topics": [
+                _TRANSFER_TOPIC,
+                "0x" + "0" * 24 + payer[2:].lower(),
+                "0x" + "0" * 24 + to[2:].lower(),
+            ],
+            "data": hex(amount_atomic),
+        }],
+    }
+
+
 @pytest.fixture()
 def client(monkeypatch):
     monkeypatch.setenv("ADMIN_API_TOKEN", "t")
@@ -125,19 +152,39 @@ def test_a5_reverted_receipt_polls_then_overrides_to_delivery(
 
 
 def test_a5_successful_receipt_still_delivers(client, monkeypatch):
-    _install_web3(monkeypatch, receipt={"status": 1, "blockNumber": 100,
-                                        "blockHash": "0x" + "cd" * 32})
+    _install_web3(monkeypatch, receipt=_transfer_receipt(1, 100))
     r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
     assert r.status_code == 200
     assert "PAYMENT-RESPONSE" in r.headers
 
 
+def test_a_settlement_that_moved_no_usdc_to_us_is_refused(client, monkeypatch):
+    """status=1 is not proof of payment.
+
+    The facilitator's `success` is a CLAIM. A receipt with status=1 but no USDC
+    Transfer to OUR receiver for at least the quoted price must not unlock the
+    data — otherwise a facilitator settling a token the client chose, or a
+    transaction that moved nothing to us, is delivered for free.
+    """
+    _install_web3(monkeypatch, receipt=_transfer_receipt(
+        1, 100, payer="0x" + "bb" * 20))          # paid by somebody else
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
+    assert r.status_code == 401, r.status_code
+
+
+def test_a_settlement_under_the_quoted_price_is_refused(client, monkeypatch):
+    """`amount >= price` is the rule the proof rail already enforces."""
+    _install_web3(monkeypatch, receipt=_transfer_receipt(1, 100, amount_atomic=1))
+    r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
+    assert r.status_code == 401, r.status_code
+
+
 def test_a5_receipt_becomes_1_during_poll_delivers(client, monkeypatch):
     """А+: status=0 при първото четене, status=1 след втория poll → 200."""
     import main
-    seq = [{"status": 0, "blockNumber": 100, "blockHash": "0x" + "cd" * 32},
-           {"status": 0, "blockNumber": 100, "blockHash": "0x" + "cd" * 32},
-           {"status": 1, "blockNumber": 100, "blockHash": "0x" + "cd" * 32}]
+    seq = [_transfer_receipt(0, 100),
+           _transfer_receipt(0, 100),
+           _transfer_receipt(1, 100)]
     state = {"i": 0}
     fake = types.ModuleType("web3")
 

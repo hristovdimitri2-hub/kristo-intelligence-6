@@ -107,8 +107,8 @@ def test_llms_txt_teaches_the_standard_x402_rail(client):
     for token in ("PAYMENT-SIGNATURE", "X-PAYMENT", "PAYMENT-REQUIRED",
                   "EIP-3009", "X-Payment-Proof"):
         assert token in body, "llms.txt never mentions %s" % token
-    assert "12 confirmations" in body, (
-        "llms.txt must state how long the legacy proof rail really takes")
+    assert "3 confirmations" in body, (
+        "llms.txt must state how long the proof rail really takes")
     assert "~2 seconds" not in body, (
         "llms.txt still promises the old, wrong confirmation time")
 
@@ -600,8 +600,8 @@ def test_landing_page_demos_the_fast_rail_before_the_slow_one(client):
         "the legacy rail should stay named as the alternative")
     assert html.index("PAYMENT-SIGNATURE") < html.index("X-Payment-Proof"), (
         "the homepage still presents the 24-second legacy rail first")
-    assert "12 confirmations" in html, (
-        "the legacy rail's real cost must be stated, not left to the reader")
+    assert "3 confirmations" in html, (
+        "the proof rail's real cost must be stated, not left to the reader")
 
 
 def test_the_homepage_links_a_human_to_the_pages_a_human_needs(client):
@@ -700,8 +700,8 @@ def test_the_pricing_and_terms_pages_answer_and_are_honest(client):
 
     assert "PAYMENT-SIGNATURE" in pricing, "the preferred rail is not named"
     assert "X-Payment-Proof" in pricing, "the alternative rail is not named"
-    assert "12 confirmations" in pricing, (
-        "the legacy rail's real cost is missing from the page that states prices")
+    assert "3 confirmations" in pricing, (
+        "the proof rail's real cost is missing from the page that states prices")
     assert "does not unlock the API" in " ".join(pricing.split()), (
         "the VIP product must not look like it buys API access")
 

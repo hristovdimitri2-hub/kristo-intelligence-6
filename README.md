@@ -53,7 +53,7 @@ facilitators) speaks.
   this is their normal path. Send the **atomic** amount yourself: take
   `accepts[0].amount` from the 402 body verbatim — `"5000"` means 0.005 USDC —
   transfer that many base units of USDC on Base (chain 8453), wait for 12
-  confirmations (~24s), then retry with `X-Payment-Proof:
+  confirmations (~6s), then retry with `X-Payment-Proof:
   base64url(JSON({payer, transaction_hash, amount_usdc}))`, whose `amount_usdc`
   is the same atomic value. If your wallet API wants a decimal amount, divide by
   `1e6` first. Do **not** send the decimal display price as if it were base
@@ -176,7 +176,7 @@ blockchain/wallet.py     # Base wallet, USDC transfers, on-chain verification
 scripts/                 # On-chain recon tools, demo agent, E2E helpers
 examples/demo_agent/     # Public reference x402 client
 docs/                    # Audit reports, recon findings, outreach docs
-tests/                   # Test suite (1375 tests)
+tests/                   # Test suite (1379 tests)
 ```
 
 ## Verification
@@ -187,7 +187,7 @@ tests/                   # Test suite (1375 tests)
   canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
 - **23/23 adversarial audit** (mystery-agent simulation, 2026-08-29 — a dated
   snapshot; see the banner in `docs/MYSTERY_AGENT_REPORT.md`)
-- **1375 automated tests** in this repository
+- **1379 automated tests** in this repository
 
 ## Docs
 

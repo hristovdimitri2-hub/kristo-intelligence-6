@@ -239,8 +239,8 @@ test("LangChain tool factory binds an endpoint and forwards results", async () =
 // ── The standard x402 v2 rail ───────────────────────────────────────────────
 //
 // The v2 rail settles through a facilitator and unlocks in about two seconds.
-// The legacy rail this package used to be limited to waits for 12 confirmations
-// — roughly 24 seconds on Base. Both are supported; v2 is preferred.
+// The smart-wallet rail this package used to be limited to waits for 3
+// confirmations — roughly 6 seconds on Base. Both are supported; v2 is preferred.
 
 /** Build a PAYMENT-REQUIRED header value shaped like the live one. */
 function v2ChallengeHeader(overrides = {}) {

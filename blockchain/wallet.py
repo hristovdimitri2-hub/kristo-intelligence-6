@@ -172,7 +172,17 @@ class Wallet:
             decimals = self.usdc.functions.decimals().call()
             amount_raw = int(self.fee_amount_usdc * (10 ** decimals))
 
-            nonce = self.w3.eth.get_transaction_count(self.account.address)
+            # "pending", not "latest": a fee transaction already sent but not yet
+            # mined must be counted, or the next one reuses its nonce.
+            #
+            # NOTE: this whole method currently has NO caller — the per-request
+            # fee rail it belonged to is not wired anywhere (verified by grep).
+            # The live settlement path is `services.connectors.
+            # _self_broadcast_settlement`, which holds its own lock across the
+            # nonce read and the broadcast. If this is ever re-enabled it must
+            # share THAT lock: one gas wallet means one nonce sequence.
+            nonce = self.w3.eth.get_transaction_count(
+                self.account.address, "pending")
             tx = self.usdc.functions.transfer(
                 self.fee_receiver, amount_raw
             ).build_transaction({

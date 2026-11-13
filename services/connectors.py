@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -208,10 +209,20 @@ def precheck_payment_payload(payload: dict, requirements: dict):
     to what was challenged (no polymorphic clients).
     """
     problems = []
-    accepted = payload.get("accepted") or {}
+    # `_accepted_option`, not `payload.get("accepted")`: our 402 ships `accepts`,
+    # an ARRAY, and a client echoing it back sends `accepts` — so reading only
+    # the singular spelling left `accepted` empty and skipped the scheme, network
+    # and asset checks entirely. `_accepted_option` reads both spellings, so the
+    # checks now run on the same object the client actually accepted.
+    accepted = _accepted_option(payload)
     inner = payload.get("payload") or {}
     auth = inner.get("authorization") or {}
-    extra = payload.get("extra") or {}
+    # The EIP-712 domain `_local_recover_signer` builds comes from the ACCEPTED
+    # option's `extra` (spec spelling). This used to read only the TOP-LEVEL
+    # `extra`, so the pinning check validated an object that was not the one the
+    # signature was made over. Read the accepted one first and keep the
+    # top-level as a fallback for clients that echo it there.
+    extra = accepted.get("extra") or payload.get("extra") or {}
     now = int(time.time())
 
     if accepted.get("scheme") not in (None, "exact"):
@@ -341,7 +352,11 @@ def _local_recover_signer(payload: dict):
         accepted = _accepted_option(payload)
         inner = payload.get("payload") or {}
         auth = inner.get("authorization") or {}
-        extra = accepted.get("extra") or {}
+        # Same source as `precheck_payment_payload`: the accepted option's
+        # `extra`, with the top-level one as a fallback. If these two ever read
+        # different objects, the pinning check validates a domain the signature
+        # was not made over.
+        extra = accepted.get("extra") or payload.get("extra") or {}
         network = str(accepted.get("network") or "eip155:8453")
         chain_id = int(network.split(":")[1]) if ":" in network else 8453
         domain = {
@@ -413,16 +428,24 @@ def _with_accepted(payload: dict, requirements: dict) -> dict:
 
 
 def _merged_requirements(payload: dict, requirements: dict) -> dict:
-    """Requirements as the CLIENT accepted them (echoed accepted fields win)."""
+    """Requirements as the SERVER issued them.
+
+    The client's echo must not override the server's terms. The client controls
+    the payload, so a client that echoes `asset`/`payTo`/`network`/`amount` from
+    a different domain could redirect the settlement to a token it chose. The
+    server's 402 is the authority; `precheck_payment_payload` already rejects an
+    echo that disagrees with it. Only the scheme is taken from the client — it is
+    the client's choice among the options the server offered.
+
+    This used to be "the client's echoed values win". The docstring claimed the
+    signature is over the buyer's values, which is true — but the buyer's values
+    are the client's own, and the server cannot verify a signature against a
+    domain the client picked. The server's terms are the domain, so they win.
+    """
     merged = dict(requirements)
-    # `_accepted_option`, not `payload["accepted"]`: see its docstring. Reading
-    # only the singular spelling merged NOTHING when a client echoed our `accepts`
-    # array, so settlement carried the SERVER's requirements rather than the ones
-    # the buyer signed — and the signature is over the buyer's values.
     accepted = _accepted_option(payload or {})
-    for key in ("amount", "asset", "payTo", "scheme", "network", "extra"):
-        if accepted.get(key) is not None:
-            merged[key] = accepted[key]
+    if accepted.get("scheme") is not None:
+        merged["scheme"] = accepted["scheme"]
     return merged
 
 
@@ -446,6 +469,14 @@ def _split_signature(signature_hex: str):
 # ERC-20 transferWithAuthorization (EIP-3009) selector on USDC:
 # transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,uint8,bytes32,bytes32)
 _TWA_SELECTOR = "e3ee160b"
+
+#: ONE gas wallet means ONE nonce sequence. Two concurrent settlements that both
+#: call `get_transaction_count` read the SAME number, so the second transaction
+#: is rejected as "nonce too low" — or, worse, replaces the first in the
+#: mempool and burns gas for a settlement nobody records. The read-and-send is
+#: held under one lock, and the count is read with "pending" so a transaction
+#: already sent but not yet mined is counted too.
+_SELF_BROADCAST_LOCK = threading.Lock()
 
 
 def _self_broadcast_settlement(payload: dict):
@@ -529,19 +560,24 @@ def _self_broadcast_settlement(payload: dict):
                 "self_broadcast: authorization would revert (%s) — not "
                 "spending gas on it" % reason)
 
-        tx = {
-            "from": acct.address,
-            "to": to_address,
-            "data": data,
-            "value": 0,
-            "nonce": w3.eth.get_transaction_count(acct.address),
-            "chainId": 8453,
-            "maxFeePerGas": max_fee_per_gas,
-            "maxPriorityFeePerGas": w3.to_wei(0.001, "gwei"),
-            "gas": gas_cap,
-        }
-        signed = acct.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        # The nonce read and the broadcast are ONE critical section: with two
+        # threads, both could read the same count before either sends, and the
+        # second transaction would be rejected as "nonce too low" (or replace
+        # the first, burning gas for a settlement nobody records).
+        with _SELF_BROADCAST_LOCK:
+            tx = {
+                "from": acct.address,
+                "to": to_address,
+                "data": data,
+                "value": 0,
+                "nonce": w3.eth.get_transaction_count(acct.address, "pending"),
+                "chainId": 8453,
+                "maxFeePerGas": max_fee_per_gas,
+                "maxPriorityFeePerGas": w3.to_wei(0.001, "gwei"),
+                "gas": gas_cap,
+            }
+            signed = acct.sign_transaction(tx)
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
         hex_tx = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
         log.info("self-broadcast settlement sent: tx=%s broadcaster=%s",
                  hex_tx, acct.address)
@@ -631,46 +667,58 @@ def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
             secret = secret.replace("\\n", "\n")
         secret = secret.strip()
 
+        # A secret that is not PEM text may still be a PEM wrapped in base64
+        # (the new CDP export). Decode the base64 layer once; if the result is
+        # PEM text, re-enter the PEM path. This is a loop, not a recursive call
+        # — no environment mutation, no infinite recursion.
+        if "-----BEGIN" not in secret:
+            try:
+                _raw = _b64.b64decode(secret)
+            except Exception:
+                _raw = b""
+            if _raw[:10] == b"-----BEGIN":
+                secret = _raw.decode(errors="replace")
+
         if "-----BEGIN" in secret:
             # Rebuild a CANONICAL PEM from whatever mangling the env var
             # suffered (newlines stripped to spaces, single-line paste, etc.):
             # extract the base64 payload between the markers, remove ALL
             # whitespace, re-encode as proper 64-char-line DER PEM.
             import re as _re
-            m = _re.search(r"-----BEGIN ([A-Z ]+)-----(.*?)-----END", secret, _re.S)
-            if not m:
-                return None, (
-                    "CDP_API_KEY_SECRET looks like a PEM but has no "
-                    "BEGIN/END markers we can parse"
-                )
-            label = m.group(1)
-            b64_payload = _re.sub(r"\s+", "", m.group(2))
-            try:
-                # PEM base64 has '=' padding ONLY at the very end — truncate
-                # anything after the first '=' (handles paste junk appended
-                # to the secret), then re-pad to a multiple of 4.
-                first_pad = b64_payload.find("=")
-                if first_pad != -1:
-                    b64_payload = b64_payload[:first_pad]
-                core = b64_payload.rstrip("=")
-                der = _b64.b64decode(
-                    core + "=" * ((-len(core)) % 4)
-                )
-            except Exception as e:
-                return None, (
-                    f"CDP_API_KEY_SECRET base64 payload is not decodable: "
-                    f"{type(e).__name__}: {e}"
-                )
-
-            # Double-encoded case (new CDP export): base64(PEM). If the
-            # decoded bytes ARE PEM text, retry with them.
-            if der[:10] == b"-----BEGIN":
-                env_backup = os.environ.get("CDP_API_KEY_SECRET")
-                os.environ["CDP_API_KEY_SECRET"] = der.decode(errors="replace")
+            # The secret may be double-encoded: base64(PEM), as the new CDP
+            # export does. Decode the base64 layer, and if the result is PEM
+            # text, decode again. This is a LOOP, not a recursive call: the old
+            # code set os.environ["CDP_API_KEY_SECRET"] and called _cdp_jwt
+            # itself — a global mutation in a multi-threaded server, and an
+            # infinite recursion when the secret came from CDP_RAIL_KEY_SECRET_ENV.
+            for _ in range(2):
+                m = _re.search(r"-----BEGIN ([A-Z ]+)-----(.*?)-----END", secret, _re.S)
+                if not m:
+                    return None, (
+                        "CDP_API_KEY_SECRET looks like a PEM but has no "
+                        "BEGIN/END markers we can parse"
+                    )
+                b64_payload = _re.sub(r"\s+", "", m.group(2))
                 try:
-                    return _cdp_jwt(host, path, method)
-                finally:
-                    os.environ["CDP_API_KEY_SECRET"] = env_backup
+                    # PEM base64 has '=' padding ONLY at the very end — truncate
+                    # anything after the first '=' (handles paste junk appended
+                    # to the secret), then re-pad to a multiple of 4.
+                    first_pad = b64_payload.find("=")
+                    if first_pad != -1:
+                        b64_payload = b64_payload[:first_pad]
+                    core = b64_payload.rstrip("=")
+                    der = _b64.b64decode(
+                        core + "=" * ((-len(core)) % 4)
+                    )
+                except Exception as e:
+                    return None, (
+                        f"CDP_API_KEY_SECRET base64 payload is not decodable: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                if der[:10] == b"-----BEGIN":
+                    secret = der.decode(errors="replace")
+                    continue
+                break
             try:
                 priv = serialization.load_der_private_key(der, password=None)
             except Exception as e:
@@ -1150,7 +1198,16 @@ def l402_ready() -> bool:
 
 
 # ── Registry status (consumed by /api/connectors + dashboard) ───────────────
-def _eip3009_detail() -> str:
+#: The public registry is free and unauthenticated, so this must not sign a
+#: fresh ES256 JWT on every request: that is CPU spent on behalf of an anonymous
+#: caller, and the failure text (env var names, DER byte lengths) is diagnostic
+#: detail a stranger has no use for. Cache the built string briefly, and show
+#: the failure REASON only to an authenticated operator.
+_EIP3009_DETAIL_CACHE: dict = {}
+_EIP3009_DETAIL_TTL_SECONDS = 60
+
+
+def _eip3009_detail(reveal_detail: bool = False) -> str:
     """
     Live health of the standard rail: checks the CDP JWT build for real
     (not just env presence) so a bad PEM shows up HERE instead of failing
@@ -1163,9 +1220,23 @@ def _eip3009_detail() -> str:
     PayAI leg on the live rail — the public registry would still have claimed
     CDP goes first. A public claim about our own failover has to come from the
     code that does the failing over.
+
+    `reveal_detail` is the operator signal, the same one that governs the
+    wallet address: the reason a JWT failed is troubleshooting, not status.
     """
+    _now = time.time()
     gas = bool(os.getenv("WALLET_PRIVATE_KEY"))
     chain = _facilitator_chain()
+    key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
+              os.getenv("CDP_API_KEY_ID") or "").strip()
+    # The cache key is the CONFIGURATION, not just the flag: a changed
+    # facilitator chain or a newly added key must produce a fresh line, not a
+    # stale one. A cache that survives a config change would publish a claim
+    # about a setup we are no longer running.
+    _ck = (reveal_detail, tuple(chain), key_id, gas)
+    _hit = _EIP3009_DETAIL_CACHE.get(_ck)
+    if _hit and _now - _hit[0] < _EIP3009_DETAIL_TTL_SECONDS:
+        return _hit[1]
     # "env" is whatever X402_FACILITATOR_URL names; call it by its host so the
     # line stays readable, and never print a token or a credential.
     parts = []
@@ -1177,16 +1248,21 @@ def _eip3009_detail() -> str:
         parts.append(label)
     detail = " → ".join(parts) or "none configured"
     if any(name == "cdp" for name, _ in chain):
-        key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
-                  os.getenv("CDP_API_KEY_ID") or "").strip()
         if not key_id:
             cdp = "keys missing"
         else:
             token, cdp_detail = _cdp_jwt("api.cdp.coinbase.com",
                                          "/platform/v2/x402/verify")
-            cdp = "JWT OK" if token else f"JWT FAIL ({cdp_detail})"
+            if token:
+                cdp = "JWT OK"
+            elif reveal_detail:
+                cdp = f"JWT FAIL ({cdp_detail})"
+            else:
+                cdp = "JWT FAIL"
         detail += " (cdp: %s)" % cdp
-    return f"verify=local canonical; settle=self-broadcast (gas={gas}) → {detail}"
+    result = f"verify=local canonical; settle=self-broadcast (gas={gas}) → {detail}"
+    _EIP3009_DETAIL_CACHE[_ck] = (_now, result)
+    return result
 
 
 def registry_status(wallet_state: dict, reveal_wallet: bool = False) -> list:
@@ -1231,7 +1307,7 @@ def registry_status(wallet_state: dict, reveal_wallet: bool = False) -> list:
             "protocol": "local EIP-712 verify + self-broadcast settle (CDP/PayAI fallback)",
             "direction": "inbound",
             "status": "active" if FACILITATOR_URL else "inactive",
-            "detail": _eip3009_detail(),
+            "detail": _eip3009_detail(reveal_detail=reveal_wallet),
         },
         {
             "id": "x402-outbound-buyer",

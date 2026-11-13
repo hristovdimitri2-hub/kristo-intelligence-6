@@ -102,7 +102,7 @@ def _build_agent_manifest() -> Dict[str, Any]:
             "the PAYMENT-SIGNATURE header (x402 v2; X-PAYMENT for v1 clients) — "
             "the facilitator settles it, so nothing waits on a block (~2s)",
             "3. Smart-wallet alternative: send the same amount as a plain USDC transfer "
-            "on Base (chain 8453), wait for 12 confirmations (~24s), then retry "
+            "on Base (chain 8453), wait for 3 confirmations (~6s), then retry "
             "with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
             "4. Receive the data — one verified on-chain unlock per call",
         ],

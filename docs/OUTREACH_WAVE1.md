@@ -16,7 +16,7 @@
 
 **Проверени живи числа (25.09):** 6 платени маршрута от $0.003/call · challenge-и
 общо ~27.6k (signal 12,351) · on-chain $0.043 / 13 tx / 2 external · Glama rated A ·
-410/410 теста · C1 lock в PostgreSQL (durable, survive deploy) · C2 = 12 confirmations.
+410/410 теста · C1 lock в PostgreSQL (durable, survive deploy) · C2 = 3 confirmations.
 
 **Единственият curl, който трябва на всеки:**
 `curl -i https://kristo-intelligence-api.onrender.com/api/v1/signal` → 402 с цялото

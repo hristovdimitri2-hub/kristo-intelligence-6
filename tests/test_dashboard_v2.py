@@ -1222,7 +1222,7 @@ def test_guards_section_probes_a_live_lock_and_shows_the_config(client):
     assert g["lock_alive"] is True
     assert g["lock_probe_error"] is None
     assert g["config"]["c1_table"] == "payment_guards"
-    assert g["config"]["c2_proof_confirmations"] == 12
+    assert g["config"]["c2_proof_confirmations"] == 3
     assert g["config"]["h2_endpoint_binding"] is True
     assert g["blocked_total"] == 0
     assert g["recent_blocks"] == []

@@ -24,12 +24,17 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: kristo
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kristo_dev}
+      # No default: a dev fallback password is a production password. The
+      # stack refuses to start until the operator sets one.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: kristo
     volumes:
       - kristo_pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bound to loopback only: the database is for the web/worker services on
+      # this host, never for the network. Publishing 5432:5432 exposed it to
+      # every interface on the host.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kristo"]
       interval: 10s
@@ -42,7 +47,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:-kristo_dev}@postgres:5432/kristo
+      - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/kristo
       - KRISTO_DISABLE_BACKGROUND_THREADS=true  # worker handles them
       - PORT=10000
     ports:
@@ -63,7 +68,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:-kristo_dev}@postgres:5432/kristo
+      - DATABASE_URL=postgresql://kristo:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/kristo
       - KRISTO_WORKER_MODE=true  # run only background threads (no HTTP server)
       - KRISTO_DISABLE_BACKGROUND_THREADS=false
     depends_on:

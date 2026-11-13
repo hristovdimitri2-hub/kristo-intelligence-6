@@ -144,6 +144,7 @@ def build_audit(transfers: List[dict], coverage: Optional[dict], *,
         "checked_at": stamped,
         "coverage": {
             "complete": bool(cov.get("complete")),
+            "reason": cov.get("reason"),
             "from_block": cov.get("from_block"),
             "to_block": cov.get("to_block"),
             "requested_blocks": cov.get("requested_blocks"),

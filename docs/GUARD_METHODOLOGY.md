@@ -85,7 +85,7 @@ Two details matter more than the mechanism:
 ### C2 — Fail-closed confirmation depth
 
 A settlement is trusted only when it is buried at least **N confirmations** deep
-(12 on Base is roughly 24 seconds). The important half of this rule is the
+(3 on Base is roughly 6 seconds). The important half of this rule is the
 failure path: **if the depth cannot be determined — RPC error, unknown block,
 receipt not found — the payment is refused.** A verification that passes when it
 cannot run is not a verification.

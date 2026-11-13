@@ -89,6 +89,11 @@ from services import connectors
 # `_get_verify_web3()`, which imports `web3` lazily, and `web3` was NOT loaded at
 # boot either — so the first payment paid for that one too, on top of the chain
 # search it then performs. Both belong off the request path.
+#
+# `log` is defined BEFORE this import: the `except` branch below logs a warning,
+# and `log` used to be defined ~370 lines later. A missing `web3` therefore
+# raised `NameError` inside the handler and hid the real error.
+log = logging.getLogger("kristo.v6.main")
 try:
     import web3 as _web3_warm  # noqa: F401
 except Exception as _web3_exc:  # noqa: BLE001 - the rail reports its own failures
@@ -460,7 +465,8 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
 )
-log = logging.getLogger("kristo.v6.main")
+# `log` is defined earlier (before the web3 import) so the boot-time handler can
+# use it. The name is kept here as a comment, not a second assignment.
 
 app = Flask(__name__)
 # ── Reverse-proxy awareness (Render / nginx / docker-compose) ────────────────
@@ -2063,9 +2069,18 @@ def _get_dynamic_price(ip: str, endpoint: str = "") -> float:
     config.py KRISTO_*_PRICE constants — single source of truth).
     After X402_VOLUME_THRESHOLD (10) paid calls, the price drops to
     X402_FEE_USDC_DISCOUNT to incentivize batch/frequent on-chain usage.
+
+    The discount is a FIXED $0.01, not a percentage. On the six routes priced
+    at $0.005 or less it is a no-op (min(0.01, 0.005) = 0.005), so it is dead
+    code there. On verify-seller ($0.10) it is a 10x cut — and that route is
+    priced high precisely because it is the heaviest RPC path we sell (the
+    audit walks thousands of eth_getLogs). The volume incentive must not
+    undercut the one route that needs it, so the discount is disabled for it.
     """
-    base = X402_PRICE_MAP.get(X402_PATH_ALIASES.get(endpoint, endpoint),
-                              BASE_FEE_AMOUNT_USDC)
+    canonical = X402_PATH_ALIASES.get(endpoint, endpoint)
+    base = X402_PRICE_MAP.get(canonical, BASE_FEE_AMOUNT_USDC)
+    if canonical == "/api/v1/verify-seller":
+        return base
     with _lock:
         paid_count = _paid_calls_usage.get(ip, 0)
     if paid_count >= X402_VOLUME_THRESHOLD:
@@ -3787,12 +3802,20 @@ def _admit_undelivered_payment(tx_hash: str, endpoint: str) -> bool:
 # C2 — confirmation depth: a settlement must be buried N blocks deep before
 #      the self-described proof rail will trust it.
 # H2 — endpoint binding: a proof may be scoped to one endpoint.
-PAYMENT_CONFIRMATIONS_DEFAULT = 12
+#
+# 12 was the old default and it was never justified: 12 blocks on Base is
+# ~24s, and a 2s block is not a 2s reorg window. 3 blocks is ~6s, and the
+# reorg guard (`_confirmations_ok_with_lag_refresh`) re-reads the head before
+# refusing, so a depth that is still true at the tip is the only thing that
+# actually needs 12. The 3-block default is the honest trade: the proof rail
+# still waits for finality, but it does not make a paying smart-wallet agent
+# wait 24 seconds for a $0.005 call.
+PAYMENT_CONFIRMATIONS_DEFAULT = 3
 
 #: The standard x402 rail settles SYNCHRONOUSLY through the facilitator (the
 #: tx is mined before "settled" is returned), which is how every spec-compliant
-#: client works. Re-asking for 12 confirmations there would stall paying
-#: agents for ~24s. The policy is therefore split and both halves are
+#: client works. Re-asking for 3 confirmations there would stall paying
+#: agents for ~6s. The policy is therefore split and both halves are
 #: env-tunable — raise MIN_STANDARD_PAYMENT_CONFIRMATIONS to harden it.
 STANDARD_PAYMENT_CONFIRMATIONS_DEFAULT = 1
 
@@ -4066,6 +4089,50 @@ def _decode_payment_proof(header_value: str) -> Optional[dict]:
         return None
 
 
+def _receipt_usdc_transfer(receipt, min_amount_usdc: float,
+                           payer: Optional[str] = None):
+    """The USDC amount this receipt moved to OUR receiver, or None.
+
+    ONE reader for the ERC-20 Transfer event, shared by both rails, so they
+    cannot disagree about what "paid" means. `payer`, when given, must also
+    match the `from` address — USDC that somebody else moved to us is not this
+    buyer's payment.
+    """
+    usdc_addr = os.getenv(
+        "BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    ).lower()
+    receiver = X402_RECEIVER_ADDRESS.lower()
+    want_from = (payer or "").lower()
+    for log_entry in (receipt or {}).get("logs", []):
+        try:
+            address = str(log_entry.get("address") or "").lower()
+            topics = log_entry.get("topics") or []
+            if address != usdc_addr or len(topics) < 3:
+                continue
+            topic0 = (topics[0].hex() if hasattr(topics[0], "hex")
+                      else str(topics[0]))
+            if _to_hex0x(topic0) != _TRANSFER_EVENT_TOPIC:
+                continue
+            from_topic = (topics[1].hex() if hasattr(topics[1], "hex")
+                          else str(topics[1]))
+            to_topic = (topics[2].hex() if hasattr(topics[2], "hex")
+                        else str(topics[2]))
+            from_addr = ("0x" + from_topic[-40:]).lower()
+            to_addr = ("0x" + to_topic[-40:]).lower()
+            if to_addr != receiver:
+                continue
+            if want_from and from_addr != want_from:
+                continue
+            data = log_entry.get("data")
+            raw = data.hex() if isinstance(data, (bytes, bytearray)) else str(data)
+            amount = int(raw, 16) / 1e6
+            if amount + 1e-9 >= min_amount_usdc:
+                return amount
+        except Exception:
+            continue
+    return None
+
+
 def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
     """
     Verify via RPC that tx_hash is a confirmed USDC Transfer from payer to
@@ -4073,7 +4140,7 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
     amount, or None if the proof does not hold.
 
     C2: the transfer must ALSO be buried at least
-    `MIN_PAYMENT_CONFIRMATIONS` blocks deep (default 12). A receipt at the
+    `MIN_PAYMENT_CONFIRMATIONS` blocks deep (default 3). A receipt at the
     chain tip is not settlement — it can still be reorganised away.
     """
     try:
@@ -4112,32 +4179,7 @@ def _verify_payment_onchain(tx_hash: str, payer: str, min_amount_usdc: float):
                      _required_confirmations())
             return None
         _verify_block[tx_hash.lower()] = block_no
-        usdc_addr = os.getenv(
-            "BASE_USDC_CONTRACT", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-        ).lower()
-        receiver = X402_RECEIVER_ADDRESS.lower()
-        for log_entry in receipt.get("logs", []):
-            try:
-                address = str(log_entry.get("address") or "").lower()
-                topics = log_entry.get("topics") or []
-                if address != usdc_addr or len(topics) < 3:
-                    continue
-                topic0 = topics[0].hex() if hasattr(topics[0], "hex") else topics[0]
-                if _to_hex0x(topic0) != _TRANSFER_EVENT_TOPIC:
-                    continue
-                from_topic = topics[1].hex() if hasattr(topics[1], "hex") else str(topics[1])
-                to_topic = topics[2].hex() if hasattr(topics[2], "hex") else str(topics[2])
-                from_addr = ("0x" + from_topic[-40:]).lower()
-                to_addr = ("0x" + to_topic[-40:]).lower()
-                data = log_entry.get("data")
-                raw = data.hex() if isinstance(data, (bytes, bytearray)) else str(data)
-                amount = int(raw, 16) / 1e6
-                if (to_addr == receiver and from_addr == payer
-                        and amount + 1e-9 >= min_amount_usdc):
-                    return amount
-            except Exception:
-                continue
-        return None
+        return _receipt_usdc_transfer(receipt, min_amount_usdc, payer=payer)
     except Exception:
         return None
 
@@ -4151,7 +4193,7 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
 
     Guards applied on this rail:
       H2 — endpoint binding  : a bound proof only works on its own path.
-      C2 — 12 confirmations  : enforced inside _verify_payment_onchain.
+      C2 — 3 confirmations  : enforced inside _verify_payment_onchain.
       C1 — durable replay lock: the SQLite `payment_guards` claim is the real
            gate; the RAM set is only a fast pre-check that dies on restart.
     """
@@ -4469,6 +4511,16 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     requirements["resource"] = resource.get("url")
     requirements["description"] = resource.get("description")
     requirements["mimeType"] = resource.get("mimeType")
+    # The EIP-712 domain is part of what the buyer signs, so the precheck must be
+    # able to pin it. `precheck_payment_payload` reads `extra_name`/
+    # `extra_version`, but they were never set here — the token's name and
+    # version travelled in `extra` (an object) while the check looked for two
+    # flat keys, so it silently did nothing and a client could present a
+    # signature over any domain it liked. Wire them from the same `extra` the
+    # 402 advertises.
+    _extra = requirements.get("extra") or {}
+    requirements["extra_name"] = _extra.get("name")
+    requirements["extra_version"] = _extra.get("version")
     _pstep("challenge_core")
 
     _t = time.monotonic()
@@ -4654,6 +4706,9 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # записва както досега. C1 replay-lock (по-долу) остава недокоснат; неплатените
     # си остават 402; невалиден proof — 401; in-flight — 425.
     receipt_status = 0
+    #: What actually moved, read from the Transfer event. Falls back to the
+    #: quoted price only on the fail-open path, where no receipt is readable.
+    settled_amount = price
     if receipt is not None:
         try:
             receipt_status = int(receipt.get("status", 0) or 0)
@@ -4699,6 +4754,44 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
                 "c2_receipt_status_refused", endpoint=path, tx_hash=tx_hash,
                 detail="legacy alias: see c2_receipt_status_override_delivered "
                        "— this row DELIVERED, it did not refuse")
+
+    # The facilitator's `success` is a CLAIM; the receipt is the evidence.
+    # status=1 proves the transaction ran — NOT that it moved OUR USDC to OUR
+    # receiver. A facilitator that settled a token the client chose, or a
+    # transaction with no transfer to us at all, also produces status=1. Read
+    # the Transfer event exactly as the proof rail does.
+    #
+    # This runs whenever a receipt WAS readable with status=1 — whether it was
+    # already 1 or became 1 during the poll. The fail-open branch above is
+    # deliberately untouched: when the receipt cannot be read at all we still
+    # deliver, so an RPC blip never costs a paying client their call.
+    if receipt_status == 1:
+        _moved = _receipt_usdc_transfer(receipt, price, payer=payer)
+        if _moved is None:
+            g.x402_reject_reason = (
+                "settlement_failed: receipt status=1 but no USDC Transfer "
+                "to our receiver for at least the quoted price")
+            log.warning("x402 settle NO MATCHING TRANSFER: tx=%s path=%s "
+                        "price=%.6f payer=%s — refusing",
+                        tx_hash, path, price, payer)
+            dashboard_db.record_guard_event(
+                "c2_no_matching_transfer", endpoint=path, tx_hash=tx_hash,
+                detail=("receipt status=1 but no USDC Transfer to %s for "
+                        ">= %.6f" % (X402_RECEIVER_ADDRESS, price)))
+            dashboard_db.record_payment_attempt(
+                path, "settle_failed", payer=payer, amount_usdc=price,
+                detail="receipt status=1 but no matching USDC Transfer")
+            _organism_beat("payment_rail", "degraded",
+                           "settle without a matching Transfer on %s" % path)
+            return False
+        # The SIGNED amount is what moved, and it can exceed the quoted price
+        # (the on-chain check accepts amount >= price). Record what actually
+        # arrived, not the list price — a ledger that reports the price
+        # understates revenue on every overpayment.
+        settled_amount = _moved
+        if _moved + 1e-9 > price:
+            log.info("x402 settle OVERPAID: tx=%s moved %.6f, quoted %.6f "
+                     "— recording the moved amount", tx_hash, _moved, price)
 
     if receipt is not None:
         block_number = int(receipt.get("blockNumber", 0) or 0)
@@ -4771,7 +4864,7 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     # tx can never buy a second call, even across restarts.
     recovered = False
     if not dashboard_db.claim_payment_tx(
-        tx_hash, endpoint=path, payer=payer or "", amount_usdc=price,
+        tx_hash, endpoint=path, payer=payer or "", amount_usdc=settled_amount,
         block_number=block_number, block_hash=block_hash,
     ):
         # C1 refused — a replay, OR a paid call whose response never went out
@@ -4799,7 +4892,7 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
     if not recovered:
         # One payment → one recorded sale; a RECOVERY must not double-count.
         _record_real_sale(
-            token="USDC", amount_usd=round(price, 6), tx_hash=tx_hash,
+            token="USDC", amount_usd=round(settled_amount, 6), tx_hash=tx_hash,
             sender=payer or "unknown", block_number=block_number,
         )
     # Finality watch, OFF the request path: the payer must not wait on 25 block
@@ -5425,8 +5518,8 @@ def _x402_paywall():
                         "required_amount_usdc": _get_dynamic_price(ip, path),
                         "receiver_address": X402_RECEIVER_ADDRESS,
                         "hint": (
-                            "Wait for confirmation (~24s — 12 blocks — on "
-                            "Base; this rail requires 12 confirmations) and "
+                            "Wait for confirmation (~6s — 3 blocks — on "
+                            "Base; this rail requires 3 confirmations) and "
                             "retry with the SAME proof. The payment is not "
                             "lost and a fresh payment is not needed."
                         ),
@@ -6537,7 +6630,7 @@ def api_quickstart():
             ),
         },
         # These steps used to teach the slow rail as *the* way in, in all three
-        # snippets below. A plain transfer needs 12 confirmations (~24s) before
+        # snippets below. A plain transfer needs 3 confirmations (~6s) before
         # the data comes back. It was the llms.txt bug again, in the single
         # most-read onboarding document we publish — the first thing an
         # integrating agent fetches. Preferred rail first now, with the
@@ -6551,7 +6644,7 @@ def api_quickstart():
             "facilitator settles it, so nothing waits on block confirmations",
             "alternative (smart wallets and exchange withdrawals): send the "
             "same amount as a plain USDC transfer to "
-            "accepts[0].payTo, wait 12 confirmations (~24s), then retry with "
+            "accepts[0].payTo, wait 3 confirmations (~6s), then retry with "
             "X-Payment-Proof: base64url(JSON({payer, transaction_hash, "
             "amount_usdc})) — that amount_usdc is ATOMIC too: send 5000 for a "
             "$0.005 call, never 0.005",
@@ -6567,7 +6660,7 @@ def api_quickstart():
             "#   then retry with the PAYMENT-SIGNATURE header (x402 v2). "
             "x402-fetch and the x402scan wallet do this for you.\n"
             "# alternative (smart wallets, slower): send the same amount as a plain "
-            "USDC transfer, wait 12 confirmations, then retry with\n"
+            "USDC transfer, wait 3 confirmations, then retry with\n"
             "#   X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
             "  # amount_usdc is ATOMIC: 5000, not 0.005"
         ),
@@ -6579,7 +6672,7 @@ def api_quickstart():
             "accepts[0].amount (raw USDC, 6 decimals) to accepts[0].payTo,\n"
             "  //   then retry with headers { 'PAYMENT-SIGNATURE': signed } "
             "(x402 v2; 'X-PAYMENT' for v1 clients)\n"
-            "  // alternative (smart wallets, slower): plain USDC transfer, wait 12 "
+            "  // alternative (smart wallets, slower): plain USDC transfer, wait 3 "
             "confirmations, then retry with\n"
             "  //   { 'X-Payment-Proof': base64url(JSON.stringify({payer, "
             "transaction_hash, amount_usdc})) }  // amount_usdc is ATOMIC: "

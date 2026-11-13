@@ -7,7 +7,7 @@ It speaks **both** x402 rails and prefers the fast one:
 | Rail | Credential | How it settles | Time to unlock |
 |------|-----------|----------------|----------------|
 | **Standard (x402 v2)** — preferred | `PAYMENT-SIGNATURE` | EIP-3009 `transferWithAuthorization`, settled through a facilitator. The payer signs; no gas, no broadcast. | **~2 seconds** |
-| Smart wallets and exchange withdrawals | `X-Payment-Proof` | A plain ERC-20 USDC transfer, verified on-chain | **~24 seconds** (12 confirmations) |
+| Smart wallets and exchange withdrawals | `X-Payment-Proof` | A plain ERC-20 USDC transfer, verified on-chain | **~6 seconds** (3 confirmations) |
 
 Both are accepted by the API. This package uses the standard rail whenever your
 signer can produce an EIP-3009 signature, and the plain-transfer rail otherwise —
@@ -86,7 +86,7 @@ console.log(result.data); // signals, unlocked in about two seconds
 If your signer can only broadcast a transfer (Coinbase Smart Wallet, Binance
 Web3, passkey signers, exchange withdrawals), return `{ payer, txHash }` instead
 and the client uses `X-Payment-Proof`. This costs no extra money but the server
-waits for 12 confirmations, so expect roughly 24 seconds before the data unlocks.
+waits for 3 confirmations, so expect roughly 6 seconds before the data unlocks.
 
 ```js
 const client = new KristoX402Client({

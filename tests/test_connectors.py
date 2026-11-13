@@ -79,7 +79,7 @@ def test_quickstart_leads_with_the_fast_rail_not_only_the_slow_one(client):
     """The onboarding doc is the first thing an integrating agent reads.
 
     Every snippet in it used to teach the legacy X-Payment-Proof rail as *the*
-    way in. That rail waits 12 confirmations (~24s) before the data comes back,
+    way in. That rail waits 3 confirmations (~6s) before the data comes back,
     so an agent that followed our own onboarding had the worst possible first
     experience — while the fast EIP-3009 rail went unmentioned. It was the
     llms.txt bug again, in the most-read document we publish.
@@ -110,22 +110,44 @@ def test_quickstart_is_excluded_from_paywall(client, monkeypatch):
     assert client.get("/api/connectors").status_code == 200
 
 
-def _install_receipt(monkeypatch, status=1):
+_RECEIPT_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+_TRANSFER_TOPIC = ("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
+_TEST_PAYER = "0xABCDEF1234567890abcdef1234567890abcdef12"
+
+
+def _install_receipt(monkeypatch, status=1, amount_atomic=5000):
     """Fake web3 за receipt-а: а5 изисква receipt.status == 1 преди доставка.
 
     Без това фейкнатите settle-ове по-долу стигат до реален RPC lookup и
     fail-closed gate-ът (правилно) отказва доставка.
+
+    The receipt ALSO carries a USDC Transfer to our receiver: the standard rail
+    reads that event to confirm the settlement moved OUR USDC to US, because
+    status=1 alone only proves the transaction ran.
     """
     import sys
     import types
+    import main
     fake = types.ModuleType("web3")
+    to_addr = main.X402_RECEIVER_ADDRESS
 
     class _Eth:
         block_number = 10 ** 9
 
         def get_transaction_receipt(self, tx):
-            return {"status": status, "blockNumber": 1,
-                    "blockHash": "0x" + "cd" * 32}
+            return {
+                "status": status, "blockNumber": 1,
+                "blockHash": "0x" + "cd" * 32,
+                "logs": [{
+                    "address": _RECEIPT_USDC,
+                    "topics": [
+                        _TRANSFER_TOPIC,
+                        "0x" + "0" * 24 + _TEST_PAYER[2:].lower(),
+                        "0x" + "0" * 24 + to_addr[2:].lower(),
+                    ],
+                    "data": hex(amount_atomic),
+                }],
+            }
 
         def get_logs(self, spec):
             return []
@@ -475,7 +497,10 @@ def _fake_broadcast_world(monkeypatch, revert=None):
                 raise revert
             return b""
 
-        def get_transaction_count(self, addr):
+        def get_transaction_count(self, addr, block_identifier="latest"):
+            # The rail now asks for "pending" so an already-sent but unmined
+            # transaction is counted; a fake that only accepted `addr` was
+            # testing an interface the code no longer uses.
             return 7
 
         def send_raw_transaction(self, raw):
@@ -922,3 +947,86 @@ def test_quickstart_units_table_covers_the_legacy_proof_field(client):
         assert "amount_usdc" in snippet, "%s lost the field" % snippet_name
         assert "ATOMIC" in snippet, (
             "the %s snippet names amount_usdc without its unit" % snippet_name)
+
+
+# ── the EIP-712 domain is pinned, and the public health line is cheap ────────
+
+def test_the_precheck_pins_the_token_domain_the_route_declares(client):
+    """The pinning only works if the route sets `extra_name`/`extra_version`.
+
+    The 402 advertises the token domain as `accepts[0].extra` — an OBJECT —
+    while `precheck_payment_payload` reads two FLAT keys. The route never set
+    them, so the comparison silently did nothing and a client could present a
+    signature over any token name and version it liked. This pins the WIRING,
+    not just the comparison.
+    """
+    import time as _time
+
+    from services.connectors import precheck_payment_payload
+
+    acc = client.get("/api/stats").get_json()["accepts"][0]
+    reqs = dict(acc)
+    reqs["extra_name"] = acc["extra"]["name"]
+    reqs["extra_version"] = acc["extra"]["version"]
+    now = int(_time.time())
+
+    def payload(extra):
+        return {
+            "accepted": {**acc, "extra": extra},
+            "payload": {
+                "signature": "0x" + "11" * 65,
+                "authorization": {
+                    "value": acc["amount"], "to": acc["payTo"],
+                    "validAfter": "0", "validBefore": str(now + 55),
+                },
+            },
+        }
+
+    assert not [p for p in precheck_payment_payload(
+        payload(acc["extra"]), reqs) if "extra" in p], (
+        "the domain the route actually advertises must pass")
+
+    foreign = [p for p in precheck_payment_payload(
+        payload({"name": "Fake Token", "version": "2"}), reqs) if "extra" in p]
+    assert foreign, "a signature over a foreign token domain must be refused"
+
+    wrong_ver = [p for p in precheck_payment_payload(
+        payload({"name": acc["extra"]["name"], "version": "9"}), reqs)
+        if "extra" in p]
+    assert wrong_ver, "a foreign token version must be refused"
+
+
+def test_the_public_health_line_is_cached_and_hides_failure_detail(monkeypatch):
+    """`/api/connectors` is free and unauthenticated.
+
+    Signing a fresh ES256 JWT per request spends CPU on behalf of an anonymous
+    caller, and the failure text is troubleshooting, not status — the same
+    signal that withholds the wallet address must withhold it.
+    """
+    from services import connectors
+
+    connectors._EIP3009_DETAIL_CACHE.clear()
+    monkeypatch.setenv("CDP_API_KEY_ID", "id")
+    monkeypatch.setenv("CDP_API_KEY_SECRET", "secret")
+    monkeypatch.delenv("X402_FACILITATOR_URL", raising=False)
+    calls = []
+
+    def fake_jwt(*a, **kw):
+        calls.append(1)
+        return None, "DER parse failed (len=42B, not a valid DER EC key)"
+
+    monkeypatch.setattr(connectors, "_cdp_jwt", fake_jwt)
+    try:
+        first = connectors._eip3009_detail()
+        second = connectors._eip3009_detail()
+        assert first == second
+        assert len(calls) == 1, (
+            "the public endpoint signed a JWT per request instead of caching")
+        assert "DER parse failed" not in first, (
+            "failure detail is operator-only, not public status")
+        detailed = connectors._eip3009_detail(reveal_detail=True)
+        assert "DER parse failed" in detailed, (
+            "an authenticated operator must still see why the JWT failed")
+    finally:
+        connectors._EIP3009_DETAIL_CACHE.clear()
+

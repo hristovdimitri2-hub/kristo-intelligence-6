@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1375
+SUITE_TESTS_PASSED = 1379
 SUITE_LAST_RUN = "2026-11-12"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -516,6 +516,14 @@ def validation():
         f"<td class=\"ok\">grade {e['probe_status']} ({e['probe_score']})</td>"
         f"<td>{e['probe_last']} · <a href=\"{e['probe_page']}\">trust page</a></td></tr>"
         for e in _endpoints)
+    # The x402 Trust list was hardcoded in the HTML and disagreed with the JSON
+    # facts: the HTML said 81.2 / grade B for /api/v1/signal, the JSON said 82.2
+    # / grade A. Two versions of one page must not contradict each other, so the
+    # HTML renders the same list the JSON publishes.
+    _trust_rows = "\n".join(
+        f"            <li><code>{e['path']}</code> — grade {e['grade']} "
+        f"({e['score']}) · <a href=\"{e['page']}\">page</a></li>"
+        for e in facts["x402_trust"]["paid_endpoints"])
 
     wants_json = request.accept_mimetypes.best_match(
         ["text/html", "application/json"]) == "application/json"
@@ -635,26 +643,15 @@ def validation():
           Free snapshots refresh at least every 24 hours.</dd>
       <dt>Paid endpoints on x402 Trust</dt>
       <dd><ul style="margin:6px 0 0; padding-left:18px;">
-            <li><code>/api/v1/signal</code> — grade A (81.2) ·
-              <a href="https://x402-trust.com/endpoint/122932">page</a></li>
-            <li><code>/api/v1/whaleflow</code> — grade B (79.9) ·
-              <a href="https://x402-trust.com/endpoint/139367">page</a></li>
-            <li><code>/api/stats</code> — grade B (79.9) ·
-              <a href="https://x402-trust.com/endpoint/139372">page</a></li>
-            <li><code>/api/arb/opportunities</code> — grade B (79.9) ·
-              <a href="https://x402-trust.com/endpoint/139339">page</a></li>
-            <li><code>/api/sales</code> — grade B (79.9) ·
-              <a href="https://x402-trust.com/endpoint/139342">page</a></li>
-            <li><code>/api/bot-status</code> — grade B (79.9) ·
-              <a href="https://x402-trust.com/endpoint/139366">page</a></li>
+{_trust_rows}
           </ul></dd>
       <dt>Last checked</dt>
-      <dd>2026-10-19 (grades/scores read live from x402 Trust that day)</dd>
+      <dd>{facts['x402_trust']['last_checked']} (grades/scores read live from x402 Trust that day)</dd>
     </dl>
   </div>
   <div class="panel">
     <dl>
-      <dt>Paid endpoints &amp; prices — 6 live x402 routes</dt>
+      <dt>Paid endpoints &amp; prices — 7 live x402 routes</dt>
       <dd><table>
         <tr><th>Endpoint</th><th>Price</th><th>Probe status</th><th>Last probe</th></tr>
         {_ep_rows}
@@ -831,8 +828,8 @@ def pricing():
         verifies and settles it. No gas, and nothing waits on a block.
         <code>X-PAYMENT</code> is accepted as the v1 name.</li>
     <li><b>Alternative: <code>X-Payment-Proof</code></b>. Send USDC yourself and
-        supply the proof. Self-describing, but it waits <b>12 confirmations,
-        about 24 seconds</b> before the data is released.</li>
+        supply the proof. Self-describing, but it waits <b>3 confirmations,
+        about 6 seconds</b> before the data is released.</li>
   </ul>
   <p>Status codes: <code>402</code> no credential · <code>401</code> credential
      unusable · <code>425</code> settlement in flight, retry · <code>200</code>
@@ -1158,7 +1155,16 @@ def seller_audit():
             continue
 
     coverage = {"complete": bool(scanned_recently and not store_error)}
-    failed = store_error or ("" if scanned_recently else "")
+    # The old expression was `store_error or ("" if scanned_recently else "")`:
+    # both branches returned "", so the reason for incomplete coverage was never
+    # passed. Keep the honest split: a store that cannot be read is `failed`
+    # (the table is not evidence at all), while a store that is fine but has no
+    # fresh monitor heartbeat is `partial` (the window was not read end to end).
+    # The heartbeat reason rides in `coverage.reason`, so it is stated without
+    # turning a readable-but-unread window into a failed read.
+    failed = store_error
+    if not scanned_recently and not store_error:
+        coverage["reason"] = "no_recent_scan"
     report = build_audit(transfers, coverage, receiver=receiver, days=days,
                          failed_reason=failed)
     report["source"] = ("this service's own monitor records, written to the shared "
@@ -3732,7 +3738,7 @@ def ai_plugin_json():
             "standard x402 header PAYMENT-SIGNATURE (EIP-3009, settled through "
             "the facilitator); clients on x402 v1 may send X-PAYMENT instead, "
             "and a manual on-chain transfer is also accepted via the "
-            "X-Payment-Proof header after 12 confirmations. This deployment "
+            "X-Payment-Proof header after 3 confirmations. This deployment "
             f"grants {FREE_TIER_LIMIT} free calls per client, so treat every "
             "call as paid. A free sample of every paid route is served at "
             "<endpoint>/sample and needs no payment."
@@ -3909,7 +3915,7 @@ last resort.
 
 1. Send `accepts[0].amount` — remembering it is in ATOMIC units, so `"5000"` is
    0.005 USDC — on Base to `accepts[0].payTo`.
-2. Wait for 12 confirmations (~24 seconds on Base) — this rail requires them.
+2. Wait for 3 confirmations (~6 seconds on Base) — this rail requires them.
 3. Repeat the request with the `X-Payment-Proof` header:
    `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the ATOMIC amount you sent, e.g. 5000>}}))`.
    ATOMIC, exactly like `accepts[0].amount` — and it is the same field the 402

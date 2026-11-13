@@ -18,7 +18,7 @@
  *
  * THE TWO RAILS ARE NOT EQUALLY FAST. The v2 rail settles through a
  * facilitator and unlocks in about two seconds. The smart-wallet rail verifies
- * a plain ERC-20 transfer on-chain and waits for 12 confirmations — roughly 24
+ * a plain ERC-20 transfer on-chain and waits for 3 confirmations — roughly 6
  * seconds on Base. Prefer the v2 rail; the smart-wallet one is kept so existing
  * callbacks keep working.
  */
@@ -203,8 +203,8 @@ export class KristoX402Client {
    *   challenge. Resolve with EITHER
    *     `{ signature, authorization }` — an EIP-3009 authorization signed by
    *     the payer (preferred: settles in ~2s through the facilitator), OR
-   *     `{ payer, txHash }` — a broadcast plain USDC transfer (legacy: the
-   *     server waits for 12 confirmations, ~24s).
+   *     `{ payer, txHash }` — a broadcast plain USDC transfer (smart-wallet:
+   *     the server waits for 3 confirmations, ~6s).
    *   The challenge carries `amountAtomic`, `recipient`, `tokenContract`,
    *   `chainId`, `extra` and `accepted` when the standard rail is available.
    * @param {number} [options.maxPaymentRetries=3] How many payment rounds

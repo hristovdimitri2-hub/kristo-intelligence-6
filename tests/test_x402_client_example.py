@@ -49,14 +49,14 @@ def test_the_example_documents_both_rails():
 
 
 def test_the_example_prefers_the_fast_rail_and_says_why():
-    """The standard rail is the default; the ~24s legacy wait is stated."""
+    """The standard rail is the default; the ~6s proof-rail wait is stated."""
     example = _example()
     assert 'process.env.X402_RAIL?.trim() || "standard"' in example, (
         "the standard rail must be the default")
-    assert "~2 seconds" in example and "~24 seconds" in example, (
+    assert "~2 seconds" in example and "~6 seconds" in example, (
         "both rails' real timings must be stated")
-    assert "12 confirmations" in example, (
-        "the legacy rail's confirmation wait must be stated")
+    assert "3 confirmations" in example, (
+        "the proof rail's confirmation wait must be stated")
 
 
 def test_the_example_handles_425_without_paying_twice():

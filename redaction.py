@@ -47,8 +47,16 @@ from typing import Any
 #: `https://base-mainnet.g.alchemy.com/v2/<KEY>`. Logging a raw httpx exception
 #: (or our own "RPC not reachable: {url}") therefore writes the credential into
 #: the log stream. Keep the host, drop the secret.
+#:
+#: The last two alternatives are the same defect in other shapes:
+#:   * `https://quiknode.pro/<KEY>/` — the key is a PATH SEGMENT with no
+#:     `/v2/` or `apikey=` marker in front of it.
+#:   * `https://api.telegram.org/bot<id>:<token>/...` — the bot token is a
+#:     path segment, not a query parameter.
 _RPC_KEY_RE = re.compile(
-    r"(/v[0-9]+/|apikey=|api-key=|key=|token=)([A-Za-z0-9_\-]{6,})", re.I
+    r"(/v[0-9]+/|apikey=|api-key=|key=|token=|quiknode\.pro/|bot[0-9]+:)"
+    r"([A-Za-z0-9_\-]{6,})",
+    re.I,
 )
 
 #: The same argument applies to connection URLs, where the credential is the

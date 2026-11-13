@@ -49,15 +49,22 @@ def test_the_first_option_wins():
     assert connectors._accepted_option({"accepts": [OPTION, other]}) == OPTION
 
 
-def test_merged_requirements_honours_the_clients_values():
-    """The signature is over the BUYER's values, so settlement must carry them."""
+def test_merged_requirements_keeps_the_servers_terms():
+    """The server's 402 is the domain; the client's echo cannot redirect it.
+
+    A client that echoes its own `payTo`/`asset`/`network` must not be able to
+    move the settlement to a token it chose. The precheck rejects the echo, and
+    the merge keeps the server's terms — the signature is verified against them.
+    """
     server = {"amount": "3000", "payTo": "0xserver", "scheme": "exact",
               "asset": "0xasset", "network": "eip155:8453"}
-    client = dict(OPTION, amount="3000")
+    client = dict(OPTION, payTo="0xattacker", asset="0xbad", network="eip155:1")
     merged = connectors._merged_requirements({"accepts": [client]}, server)
-    assert merged["payTo"] == client["payTo"], (
-        "settlement carried the server's payTo instead of the buyer's")
-    assert merged["asset"] == client["asset"]
+    assert merged["payTo"] == server["payTo"], (
+        "settlement carried the client's payTo instead of the server's")
+    assert merged["asset"] == server["asset"]
+    assert merged["network"] == server["network"]
+    assert merged["amount"] == server["amount"]
 
 
 def test_merged_requirements_still_falls_back_to_the_server():
