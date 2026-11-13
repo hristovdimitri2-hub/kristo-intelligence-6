@@ -2757,10 +2757,13 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
             "exact scheme) and repeat this request with the base64url payload "
             "in the 'PAYMENT-SIGNATURE' header — settlement runs through the "
             "x402 facilitator automatically and the call returns 200 with "
-            "data. MANUAL fallback: send the amount in USDC on Base to "
-            "x402_recipient, then repeat this request with header "
+            "data. SMART WALLETS AND EXCHANGE WITHDRAWALS (Coinbase Smart "
+            "Wallet, Binance Web3, passkey signers, exchange withdrawals): "
+            "those cannot sign EIP-3009, so send the amount in USDC on Base "
+            "to x402_recipient yourself, then repeat this request with header "
             "'X-Payment-Proof: base64url(JSON({payer, transaction_hash, "
-            "amount_usdc}))'."
+            "amount_usdc}))'. This is the normal path for a wallet that "
+            "cannot sign a typed authorization, not a last resort."
         ),
         "message": (
             f"Payment required. Send {amount} USDC on Base to "
@@ -2782,6 +2785,13 @@ def _x402_payment_required_response(endpoint: str, price_usdc: Optional[float] =
         "payment_proof": {
             "header": "X-Payment-Proof",
             "format": "base64url(JSON({payer, transaction_hash, amount_usdc}))",
+            "for": (
+                "Smart wallets and exchange withdrawals — Coinbase Smart "
+                "Wallet, Binance Web3, passkey signers, and payouts that "
+                "arrive as a plain USDC transfer. These cannot sign an "
+                "EIP-3009 authorization, so they pay with a plain transfer "
+                "and prove it with this header."
+            ),
             "retry": (
                 "After your USDC transfer is confirmed on Base, retry this "
                 "endpoint with the X-Payment-Proof header to gain access."
@@ -3999,7 +4009,7 @@ def _proof_endpoint_matches(proof_endpoint: str, request_path: str) -> bool:
 
     A proof carrying `endpoint` is bound to that exact path and is rejected
     anywhere else: the $0.003 that buys /api/stats must never unlock
-    /api/v1/signal. Proofs WITHOUT the field stay accepted (legacy clients),
+    /api/v1/signal. Proofs WITHOUT the field stay accepted (clients that omit it),
     and single-call consumption (C1) still applies to them.
     """
     ep = (proof_endpoint or "").strip()
@@ -4049,7 +4059,7 @@ def _decode_payment_proof(header_value: str) -> Optional[dict]:
             "tx_hash": tx_hash,
             "payer": payer,
             "amount_usdc": float(payload.get("amount_usdc") or 0.0),
-            # H2 — optional endpoint binding (legacy proofs omit it).
+            # H2 — optional endpoint binding (proofs that omit it).
             "endpoint": str(payload.get("endpoint") or "").strip(),
         }
     except (ValueError, TypeError, _binascii.Error, Exception):
@@ -4964,7 +4974,7 @@ _EXPOSE_402_HEADERS = (
 #: The request headers a browser-based x402 agent must be allowed to send.
 #:
 #: A cross-origin paid call is NOT a simple request: `PAYMENT-SIGNATURE` (and
-#: the v1-era `X-PAYMENT`, and the legacy `X-Payment-Proof`) are not CORS-safelisted
+#: the v1-era `X-PAYMENT`, and the smart-wallet `X-Payment-Proof`) are not CORS-safelisted
 #: names, so the browser sends an OPTIONS preflight first and aborts unless the
 #: preflight's `Access-Control-Allow-Headers` names every one of them. Lumière
 #: PayCheck measured the omission from the outside on 09.11 — "Can't pay it yet:
@@ -5316,7 +5326,7 @@ def _x402_paywall():
 
             # Rail 1: STANDARD x402 clients (EIP-3009 via facilitator) —
             # v2 spec header PAYMENT-SIGNATURE (x402-fetch, x402scan wallet,
-            # PayAPI verifier) and legacy X-PAYMENT (v1-era clients).
+            # PayAPI verifier) and v1-era X-PAYMENT (clients still on v1).
             #
             # `Authorization: Payment …` is read here too, because the MPP
             # Challenge we now advertise tells a client where to put its proof
@@ -5388,7 +5398,11 @@ def _x402_paywall():
                     ),
                 }), 401
 
-            # Rail 2: legacy self-describing proof (X-Payment-Proof header)
+            # Rail 2: smart wallets and exchange withdrawals (X-Payment-Proof)
+            # — Coinbase Smart Wallet, Binance Web3, passkey signers, and
+            # payouts that arrive as a plain USDC transfer. They cannot sign
+            # EIP-3009, so they prove the transfer instead. This is the normal
+            # path for such a wallet, not a fallback.
             proof_header = (request.headers.get("X-Payment-Proof") or "").strip()
             if proof_header:
                 proof = _decode_payment_proof(proof_header)
@@ -6522,12 +6536,12 @@ def api_quickstart():
                 "1e6 only if your wallet API wants a decimal amount."
             ),
         },
-        # These steps used to teach the legacy rail as *the* way in, in all three
-        # snippets below. That is the slow one: a plain transfer needs 12
-        # confirmations (~24s) before the data comes back. It was the llms.txt bug
-        # again, in the single most-read onboarding document we publish — the
-        # first thing an integrating agent fetches. Preferred rail first now, with
-        # the legacy one kept as the documented alternative.
+        # These steps used to teach the slow rail as *the* way in, in all three
+        # snippets below. A plain transfer needs 12 confirmations (~24s) before
+        # the data comes back. It was the llms.txt bug again, in the single
+        # most-read onboarding document we publish — the first thing an
+        # integrating agent fetches. Preferred rail first now, with the
+        # smart-wallet rail kept as the documented alternative.
         "steps": [
             "GET a paid endpoint -> 402 challenge, fully self-describing "
             "(accepts[0] carries scheme, network, amount and payTo)",
@@ -6535,7 +6549,8 @@ def api_quickstart():
             "accepts[0].amount to accepts[0].payTo and retry with the "
             "PAYMENT-SIGNATURE header (x402 v2; X-PAYMENT for v1 clients) — the "
             "facilitator settles it, so nothing waits on block confirmations",
-            "alternative: send the same amount as a plain USDC transfer to "
+            "alternative (smart wallets and exchange withdrawals): send the "
+            "same amount as a plain USDC transfer to "
             "accepts[0].payTo, wait 12 confirmations (~24s), then retry with "
             "X-Payment-Proof: base64url(JSON({payer, transaction_hash, "
             "amount_usdc})) — that amount_usdc is ATOMIC too: send 5000 for a "
@@ -6551,7 +6566,7 @@ def api_quickstart():
             "req['amount'] to req['payTo'] on Base,\n"
             "#   then retry with the PAYMENT-SIGNATURE header (x402 v2). "
             "x402-fetch and the x402scan wallet do this for you.\n"
-            "# alternative (legacy, slower): send the same amount as a plain "
+            "# alternative (smart wallets, slower): send the same amount as a plain "
             "USDC transfer, wait 12 confirmations, then retry with\n"
             "#   X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
             "  # amount_usdc is ATOMIC: 5000, not 0.005"
@@ -6564,7 +6579,7 @@ def api_quickstart():
             "accepts[0].amount (raw USDC, 6 decimals) to accepts[0].payTo,\n"
             "  //   then retry with headers { 'PAYMENT-SIGNATURE': signed } "
             "(x402 v2; 'X-PAYMENT' for v1 clients)\n"
-            "  // alternative (legacy, slower): plain USDC transfer, wait 12 "
+            "  // alternative (smart wallets, slower): plain USDC transfer, wait 12 "
             "confirmations, then retry with\n"
             "  //   { 'X-Payment-Proof': base64url(JSON.stringify({payer, "
             "transaction_hash, amount_usdc})) }  // amount_usdc is ATOMIC: "

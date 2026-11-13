@@ -2689,6 +2689,54 @@ SMTP. Текстът е `_forensics/x402list_followup_email.md` (извън ре
 направих с тази нишка, не беше да отговоря на въпросите им, а да проверя дали
 твърденията ни към тях са верни.
 
+## 40. Rail 2 не е „legacy" — това е пътят за smart портфейли (13.11.2026)
+
+**Поводът.** В канала на x402 Foundation продавач в продукция (Roberto Martins,
+Base/CDP + Solana/PayAI + Algorand) описа точно нашия случай: „our manual rail
+(plain USDC transfer + tx-hash claim) exists precisely because smart wallets and
+passkey signers reject EIP-3009 signatures. For us it is not an edge case — it is
+the conversion path for Coinbase Smart Wallet, Binance Web3, passkey wallets and
+plain exchange withdrawals, which would otherwise be lost sales."
+
+**Проверката.** Рейлът **вече съществува** — `main.py:5401`, „Rail 2", с
+`X-Payment-Proof`, `_decode_payment_proof` (main.py:4034), `_verify_payment_onchain`
+(main.py:4059), 12 потвърждения, C1 повторно използване на hash и H2 обвързване
+към endpoint. Тествах го с реален, неконсумиран tx: `GET /api/v1/whaleflow` с
+`X-Payment-Proof` → **200, 16 263 байта**. Не липсва функция.
+
+**Дефектът е етикетът.** Публичната повърхност наричаше рейла „legacy" и
+„MANUAL fallback" — тоест „остаряло, използвай само ако няма друг начин". За
+портфейл, който не може да подпише EIP-3009, това е **единственият** път, а не
+резерва. Агент, който чете 402, вижда „MANUAL fallback" и се отказва.
+
+**Промяната** (само етикет и позициониране, без логика и без промяна на
+12-те потвърждения):
+
+| място | преди | сега |
+|---|---|---|
+| `/llms.txt` | „Rail 2 — legacy self-describing proof (fallback)" | „Rail 2 — smart wallets and exchange withdrawals" + кой точно е клиентът |
+| 402 body `x402_retry_instructions` | „MANUAL fallback: …" | „SMART WALLETS AND EXCHANGE WITHDRAWALS (…): …" + „normal path, not a last resort" |
+| 402 body `payment_proof` | без `for` | `for` — изброява Coinbase Smart Wallet, Binance Web3, passkey, exchange |
+| `/api/v1/quickstart` | „alternative (legacy, slower)" | „alternative (smart wallets and exchange withdrawals)" |
+| `/api/agent-manifest` | `legacy_proof.amount_usdc`, „Legacy alternative" | `proof.amount_usdc`, „Smart-wallet alternative" |
+| `/ai-plugin.json` | `legacy_headers` | `alternative_headers` |
+| `README.md` | „Rail 2 — manual fallback" | „Rail 2 — smart wallets and exchange withdrawals" |
+| `templates/dashboard.html` | „legacy (X-Payment-Proof)" | „smart wallets (X-Payment-Proof)" |
+| `packages/x402-client/README.md` | „Legacy", „Legacy rail" | „Smart wallets and exchange withdrawals", „Smart-wallet rail" |
+| `examples/demo_agent/README.md` | „legacy релсата" | „smart-wallet релсата" |
+| `docs/DISTRIBUTION_STATUS.md` | „legacy" | „smart wallets и exchange withdrawals" |
+
+**Проверено:** 1374 теста минават, 1 skipped (пълният набор, 452 s); 141
+таргетирани теста за рейла, SEO, конекторите и виралното разпространение —
+всички минават. `git diff` показва 3 кодови файла + 5 документа.
+
+**Не е променено:** 12-те потвърждения (~24 s) остават. Това е реален разход, а
+не етикет; намаляването им до 3 е отделно решение със собствен риск (reorg).
+Позиционирането е честно, защото казва „~24s" навсякъде.
+
+**Отворено:** 12-те потвърждения — стойността е 12, но не е обоснована. 2–3
+блока на Base е 1–2 s, а една reorg проверка стига. Отделно решение.
+
 
 
 

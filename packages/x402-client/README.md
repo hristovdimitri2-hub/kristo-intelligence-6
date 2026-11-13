@@ -7,11 +7,12 @@ It speaks **both** x402 rails and prefers the fast one:
 | Rail | Credential | How it settles | Time to unlock |
 |------|-----------|----------------|----------------|
 | **Standard (x402 v2)** — preferred | `PAYMENT-SIGNATURE` | EIP-3009 `transferWithAuthorization`, settled through a facilitator. The payer signs; no gas, no broadcast. | **~2 seconds** |
-| Legacy | `X-Payment-Proof` | A plain ERC-20 USDC transfer, verified on-chain | **~24 seconds** (12 confirmations) |
+| Smart wallets and exchange withdrawals | `X-Payment-Proof` | A plain ERC-20 USDC transfer, verified on-chain | **~24 seconds** (12 confirmations) |
 
 Both are accepted by the API. This package uses the standard rail whenever your
-signer can produce an EIP-3009 signature, and the legacy rail otherwise — so
-existing integrations keep working unchanged.
+signer can produce an EIP-3009 signature, and the plain-transfer rail otherwise —
+so smart wallets and exchange withdrawals keep working, and existing integrations
+keep working unchanged.
 
 > **Version note.** `npm install kristo-x402-client` gives you **1.1.0 or later**,
 > which speaks the standard rail described above. If you have pinned the older
@@ -80,9 +81,10 @@ const result = await client.get("/api/v1/signal");
 console.log(result.data); // signals, unlocked in about two seconds
 ```
 
-## Legacy rail — a plain transfer (still supported)
+## Smart-wallet rail — a plain transfer (still supported)
 
-If your signer can only broadcast a transfer, return `{ payer, txHash }` instead
+If your signer can only broadcast a transfer (Coinbase Smart Wallet, Binance
+Web3, passkey signers, exchange withdrawals), return `{ payer, txHash }` instead
 and the client uses `X-Payment-Proof`. This costs no extra money but the server
 waits for 12 confirmations, so expect roughly 24 seconds before the data unlocks.
 
@@ -95,7 +97,7 @@ const client = new KristoX402Client({
       functionName: "transfer",
       args: [recipient, parseUnits(String(amount), 6)],
     });
-    return { payer: account.address, txHash };   // <- the legacy rail
+    return { payer: account.address, txHash };   // <- the smart-wallet rail
   },
 });
 ```
@@ -158,7 +160,7 @@ credential cannot be replayed.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `baseUrl` | string | `https://kristo-intelligence-api.onrender.com` | API base URL |
-| `pay` | function | — | Signer callback. Resolve with `{signature, authorization}` (fast rail) **or** `{payer, txHash}` (legacy). Required unless `autoPay: false` |
+| `pay` | function | — | Signer callback. Resolve with `{signature, authorization}` (fast rail) **or** `{payer, txHash}` (smart-wallet rail). Required unless `autoPay: false` |
 | `autoPay` | boolean | `true` | When `false`, 402 responses return as `{paymentRequired}` without paying |
 | `maxPaymentRetries` | number | `3` | Payment rounds before giving up |
 | `maxInFlightRetries` | number | `5` | Re-sends of the same credential while the server answers 425 |
@@ -170,7 +172,7 @@ Returns `{ok, status, data}` — or `{ok: false, status: 402, paymentRequired}` 
 ### Helpers
 - `parsePaymentRequiredHeader(headerValue)` — parse the standard x402 v2 `PAYMENT-REQUIRED` header into `{rail, amount, amountAtomic, recipient, tokenContract, chainId, network, extra, accepted, ...}`. Returns `null` when absent, so you can fall back.
 - `buildPaymentSignatureHeader({signature, authorization, accepted})` — build the `PAYMENT-SIGNATURE` header value yourself.
-- `parsePaymentChallenge(body)` — the legacy 402 body shape into `{amount, amountAtomic, recipient, tokenContract, chainId}`.
+- `parsePaymentChallenge(body)` — the plain 402 body shape into `{amount, amountAtomic, recipient, tokenContract, chainId}`.
 - `buildPaymentProof({payer, transactionHash, amountUsdc})` — build the `X-Payment-Proof` header value yourself. `amountUsdc` is **atomic** (pass `5000`, not `0.005`), the same unit the server puts in `payment.amount_usdc`. The server ignores this field when verifying — it decodes the Transfer event itself — so the wrong unit there costs you nothing on-chain; it just makes your own logs claim you paid a 5000th of what you did.
 
 ## Units — read this before you move money

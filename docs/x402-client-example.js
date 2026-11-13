@@ -15,7 +15,7 @@
  *     4. Retry with the `PAYMENT-SIGNATURE` header.
  *     5. HTTP 200 + data.       (~2 seconds)
  *
- *   LEGACY RAIL (X402_RAIL=legacy)
+ *   SMART-WALLET RAIL (X402_RAIL=legacy)
  *     1. Request a paid endpoint.
  *     2. Read the `payment` block from the 402 body.
  *     3. Sign and broadcast a plain ERC-20 USDC transfer on Base.
@@ -25,7 +25,7 @@
  *
  * BOTH rails are real and both are verified server-side. The paywall checks
  * the signed authorization (standard) or decodes the ERC-20 Transfer event of
- * the named transaction (legacy), and both unlock exactly one call.
+ * the named transaction (smart-wallet), and both unlock exactly one call.
  *
  * Install for external bots:
  *   npm install viem
@@ -35,7 +35,7 @@
  *   X402_PRIVATE_KEY=0xYOUR_BOT_WALLET_PRIVATE_KEY \
  *   node docs/x402-client-example.js
  *
- * Run (legacy rail):
+ * Run (smart-wallet rail):
  *   X402_RAIL=legacy X402_PRIVATE_KEY=0x... node docs/x402-client-example.js
  *
  * SECURITY:
@@ -44,7 +44,7 @@
  *   - Never commit X402_PRIVATE_KEY or print it in logs.
  *
  * On the standard rail the payer needs NO Base ETH: signing is free. Only the
- * legacy rail broadcasts a transaction and therefore needs gas.
+ * smart-wallet rail broadcasts a transaction and therefore needs gas.
  */
 
 import { randomBytes } from "node:crypto";
@@ -230,7 +230,7 @@ function assertLegacyRequirement(body) {
   // The live challenge uses the canonical CAIP-2 string "eip155:8453". Older
   // releases sent "base" / "base-mainnet", so accept those too — but do not
   // reject CAIP-2, which is what an earlier version of THIS FILE did, making
-  // the legacy rail throw before it could ever pay.
+  // the smart-wallet rail throw before it could ever pay.
   if (payment.network !== undefined && payment.network !== null &&
       !isBaseNetwork(payment.network)) {
     throw new Error(`Refusing to pay on a non-Base network: ${payment.network}`);
@@ -319,7 +319,7 @@ async function main() {
   if (rail === "legacy") {
     const { payment, amountAtomic } = assertLegacyRequirement(body);
     console.log(
-      `402 received: legacy rail — paying ${amountAtomic} atomic USDC ` +
+      `402 received: smart-wallet rail — paying ${amountAtomic} atomic USDC ` +
       `(${Number(amountAtomic) / 10 ** USDC_DECIMALS} USDC) on Base ` +
       `to ${payment.receiver_address} (this waits for 12 confirmations, ~24s)`
     );

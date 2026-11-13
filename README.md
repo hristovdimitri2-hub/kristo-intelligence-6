@@ -48,7 +48,9 @@ facilitators) speaks.
   header. Settlement runs through the facilitator automatically. Clients still
   on x402 v1 send the same payload in `X-PAYMENT`; both are accepted, and
   `PAYMENT-SIGNATURE` wins when both are present.
-- **Rail 2 — manual fallback.** Send the **atomic** amount yourself: take
+- **Rail 2 — smart wallets and exchange withdrawals.** Coinbase Smart Wallet,
+  Binance Web3, passkey signers and exchange payouts cannot sign EIP-3009, so
+  this is their normal path. Send the **atomic** amount yourself: take
   `accepts[0].amount` from the 402 body verbatim — `"5000"` means 0.005 USDC —
   transfer that many base units of USDC on Base (chain 8453), wait for 12
   confirmations (~24s), then retry with `X-Payment-Proof:

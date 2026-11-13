@@ -3720,7 +3720,7 @@ def ai_plugin_json():
         ),
         # This string used to end with "One free call per client." Production
         # runs with FREE_TIER_LIMIT=0, so that was a promise the paywall could
-        # not keep, and it named only the legacy X-Payment-Proof rail. Both are
+        # not keep, and it named only the X-Payment-Proof rail. Both are
         # derived/generated now: the count comes from the live limit and the
         # price range from the vitrine.
         "description_for_model": (
@@ -3762,15 +3762,18 @@ def ai_plugin_json():
             # An agent reading the machine field overpaid for four of six routes.
             "price_per_call_usdc": _floor,
             "free_tier_limit": FREE_TIER_LIMIT,
-            # Standard rail first. This block advertised only the legacy proof
-            # header, so a spec client reading it was pointed at the slow path.
+            # Standard rail first. This block used to advertise only the
+            # proof header, so a spec client reading it was pointed at the
+            # slower path. The proof header is still named — it is the only
+            # path for smart wallets and exchange withdrawals — but the
+            # standard rail stays first.
             "challenge_header": "PAYMENT-REQUIRED",
             "preferred_header": "PAYMENT-SIGNATURE",
-            "legacy_headers": ["X-PAYMENT", "X-Payment-Proof"],
+            "alternative_headers": ["X-PAYMENT", "X-Payment-Proof"],
             "proof_header": "X-Payment-Proof",
             # Published on npm, so the field names the package and stops there.
             # It used to pin "@1.1.0 (from the repository; the npm release is still
-            # 1.0.0, legacy rail only, ~24s per call)" - true while the registry
+            # 1.0.0, proof rail only, ~24s per call)" - true while the registry
             # served 1.0.0, and a lie the moment 1.1.0 was published, which it now
             # is. A version string in a manifest is a claim with an expiry date. The
             # machines that read this field install whatever `latest` is, and that
@@ -3858,7 +3861,11 @@ def llms_txt():
 
 Two rails are accepted. Rail 1 is the standard x402 flow — prefer it, because
 it is what the x402 ecosystem (x402-fetch, x402scan, facilitators) speaks.
-Rail 2 is a legacy self-describing proof that we still honour.
+Rail 2 is for smart wallets and exchange withdrawals: Coinbase Smart Wallet,
+Binance Web3, passkey signers, and payouts that arrive as a plain USDC
+transfer. Those cannot sign EIP-3009, so they pay with a plain transfer and
+prove it with a header. That is the normal path for such a wallet, not a
+last resort.
 
 ### Units — get this right before you move money
 
@@ -3893,7 +3900,12 @@ on-chain check (`amount >= price`) and the excess is NOT refunded.
    on-chain but our node has not reached the confirming block yet. Wait a few
    seconds and retry the exact same request. Do NOT pay again.
 
-### Rail 2 — legacy self-describing proof (fallback)
+### Rail 2 — smart wallets and exchange withdrawals
+
+**Who this is for:** Coinbase Smart Wallet, Binance Web3, passkey signers, and
+payouts that arrive as a plain USDC transfer. These cannot sign an EIP-3009
+authorization, so Rail 1 is closed to them. This is their normal path, not a
+last resort.
 
 1. Send `accepts[0].amount` — remembering it is in ATOMIC units, so `"5000"` is
    0.005 USDC — on Base to `accepts[0].payTo`.

@@ -85,11 +85,11 @@ def _build_agent_manifest() -> Dict[str, Any]:
             "accepts[0].amount": 'atomic (6 decimals) — "5000" means 0.005 USDC',
             "price_raw": "atomic",
             "price_usdc": "decimal USDC",
-            # The legacy proof's own amount field, stated because it is the one a
-            # reader is most likely to fill with the display price: the server
-            # never reads it for the price check, so a wrong unit there is not
-            # rejected — it simply records a wrong number.
-            "legacy_proof.amount_usdc": "atomic (same value as accepts[0].amount)",
+            # The smart-wallet proof's own amount field, stated because it is the
+            # one a reader is most likely to fill with the display price: the
+            # server never reads it for the price check, so a wrong unit there is
+            # not rejected — it simply records a wrong number.
+            "proof.amount_usdc": "atomic (same value as accepts[0].amount)",
             "rule": (
                 "Pass atomic values to the ERC-20 transfer unchanged; divide by "
                 "1e6 only if your wallet API wants a decimal amount."
@@ -101,7 +101,7 @@ def _build_agent_manifest() -> Dict[str, Any]:
             "accepts[0].amount (atomic units) to accepts[0].payTo and retry with "
             "the PAYMENT-SIGNATURE header (x402 v2; X-PAYMENT for v1 clients) — "
             "the facilitator settles it, so nothing waits on a block (~2s)",
-            "3. Legacy alternative: send the same amount as a plain USDC transfer "
+            "3. Smart-wallet alternative: send the same amount as a plain USDC transfer "
             "on Base (chain 8453), wait for 12 confirmations (~24s), then retry "
             "with X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))",
             "4. Receive the data — one verified on-chain unlock per call",

@@ -17,15 +17,15 @@
  * own signer through the `pay` callback.
  *
  * THE TWO RAILS ARE NOT EQUALLY FAST. The v2 rail settles through a
- * facilitator and unlocks in about two seconds. The legacy rail verifies a
- * plain ERC-20 transfer on-chain and waits for 12 confirmations — roughly 24
- * seconds on Base. Prefer the v2 rail; the legacy one is kept so existing
+ * facilitator and unlocks in about two seconds. The smart-wallet rail verifies
+ * a plain ERC-20 transfer on-chain and waits for 12 confirmations — roughly 24
+ * seconds on Base. Prefer the v2 rail; the smart-wallet one is kept so existing
  * callbacks keep working.
  */
 
 const DEFAULT_BASE_URL = "https://kristo-intelligence-api.onrender.com";
 
-/** Legacy rail: a self-describing proof of a plain ERC-20 transfer. */
+/** Smart-wallet rail: a self-describing proof of a plain ERC-20 transfer. */
 export const PROOF_HEADER = "X-Payment-Proof";
 /** Standard rail (x402 v2): the signed EIP-3009 payload. */
 export const PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE";
