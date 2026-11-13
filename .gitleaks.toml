@@ -1,0 +1,67 @@
+# gitleaks configuration.
+#
+# WHY THIS FILE EXISTS — AND WHAT IT IS NOT
+# -----------------------------------------
+# The first run of the secret scan flagged 19 strings in the tracked tree. All
+# 19 were values that are PUBLIC BY DESIGN, and each decision to keep one is
+# recorded below rather than by switching the scan off. A scanner that is
+# silenced entirely stops being a scanner; a scanner with a written, per-value
+# allowlist still catches the twentieth string.
+#
+# Everything here names a specific value or a specific file. No rule is
+# disabled, and nothing is allowlisted by file extension or by directory.
+
+[extend]
+useDefault = true
+
+# ── On-chain identifiers ───────────────────────────────────────────────────
+# The Base USDC contract, our receiver address, and the two keccak event topics
+# (ERC-20 Transfer, EIP-3009 AuthorizationUsed). These are printed in every 402
+# response and in the public discovery documents. An address is not a
+# credential and an event topic is a protocol constant — and allowlisting the
+# ADDRESSES specifically (rather than "any 0x…40 hex") matters, because a
+# 64-hex private key and a 64-hex transaction hash look identical and a blanket
+# hex rule would hide a real leak.
+[[allowlists]]
+description = "Base USDC contract, our receiver, and the keccak event topics — public on-chain identifiers"
+regexTarget = "match"
+regexes = [
+    # (?i): the SAME address is written checksummed in the 402 and lowercased in
+    # comparisons, so the pattern has to match both spellings. Matching the
+    # address itself (not "any 0x…40 hex") is the point — see the note above.
+    '''(?i)0x833589fcd6edb6e08f4c7c32d4f71b54bda02913''',
+    '''(?i)0xd4cda900839c0fed4374ee37ea0dbe8e4c6fd08f''',
+    '''(?i)0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef''',
+    '''(?i)0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5''',
+]
+
+# ── Domain-control proofs, which MUST be public to work ────────────────────
+# Both are fetched by the verifying service out of /.well-known/. A value the
+# server has to hand out is not a secret: hiding it would break the claim it
+# exists to make.
+[[allowlists]]
+description = "Domain-control tokens served from /.well-known/ — public by construction"
+regexTarget = "match"
+regexes = [
+    '''2c90228c28c14958f379d6fd487411d3''',      # IndexNow key, served at /<key>.txt
+    '''aer-576966fcf59cc23f92f0b67a83ff3822''',  # agenteconomy.report, /.well-known/agenteconomy-verify.txt
+]
+
+# ── Placeholders and deliberate test fixtures ──────────────────────────────
+[[allowlists]]
+description = "A placeholder hostname, and the fake credentials the redaction tests assert on"
+regexTarget = "match"
+regexes = [
+    '''YOUR-APP-NAME\.onrender\.com''',
+    '''alch_lMA7z24yRSecretKey123''',   # the fake key redact_rpc() is tested against
+    '''abc123def456''',                 # the fake token in the same test
+]
+
+# ── A signed public attestation ────────────────────────────────────────────
+# Lazaretto's EdDSA JWT: a PROOF, published at lazaretto.dev/report/… and meant
+# to be shared. It grants nothing and cannot be replayed against us.
+[[allowlists]]
+description = "Lazaretto's signed public scan attestation — a proof, not a credential"
+paths = [
+    '''docs/LAZARETTO_SCAN_2026-11-12\.json''',
+]

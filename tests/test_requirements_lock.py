@@ -22,6 +22,7 @@ DEV_REQUIREMENTS = "requirements-dev.txt"
 LOCK = "requirements.lock"
 DOCKERFILE = "Dockerfile"
 CI_WORKFLOW = ".github/workflows/ci.yml"
+GITLEAKS_CONFIG = ".gitleaks.toml"
 
 #: name, optional extras, optional operator, version
 _ENTRY = re.compile(
@@ -226,5 +227,40 @@ def test_the_pipeline_installs_the_dev_file_and_says_what_it_scans():
     assert "--no-git" in text, (
         "the secret scan must name its scope; scanning the history would fail on "
         "material that only an owner-approved rewrite can remove")
+
+
+def test_the_secret_scan_config_explains_every_exemption():
+    """The config allowlists VALUES, never whole rules or whole directories.
+
+    The first scan flagged 19 strings and all 19 were public by design — the
+    USDC contract address, two keccak event topics, two domain-control tokens
+    that the verifier fetches from /.well-known/, and one signed public
+    attestation. Each is allowlisted with a written reason.
+
+    What this file must never become is a blanket exemption. `useDefault = true`
+    keeps every built-in rule armed, no rule is redefined (a `[[rules]]` block
+    can silently drop one), and every allowlist carries a description so a
+    reader can judge the decision instead of trusting it.
+    """
+    import tomllib
+
+    with open(GITLEAKS_CONFIG, "rb") as fh:
+        cfg = tomllib.load(fh)
+
+    assert cfg.get("extend", {}).get("useDefault") is True, (
+        "the config must EXTEND gitleaks' default rules, not replace them")
+    assert "rules" not in cfg, (
+        "the config defines its own rules, which can silently drop the built-in "
+        "ones; allowlists are the narrow tool")
+
+    blocks = cfg.get("allowlists") or []
+    assert blocks, (
+        "no allowlists at all — the scan would fail on the known-public values")
+    for block in blocks:
+        assert block.get("description"), (
+            "every allowlist must state WHY those values are not secrets")
+        assert block.get("regexes") or block.get("paths"), (
+            "an allowlist with neither regexes nor paths exempts everything")
+
 
 
