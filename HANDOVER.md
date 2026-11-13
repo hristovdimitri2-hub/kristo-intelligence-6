@@ -2894,6 +2894,32 @@ secp256r1). Стоеше като `>=` под заглавие „Testing", то
 `test_the_dev_dependencies_are_in_the_lock_too`,
 `test_the_crypto_dependency_is_pinned_and_is_not_called_test_only`.
 
+## 44. CI pipeline: нямаше никакъв (13.11.2026)
+
+До сега единствената проверка преди промяна да стигне продукция беше ръчно
+пускане на набора на една машина. Добавени `.github/workflows/ci.yml` и
+`.github/dependabot.yml`.
+
+**Job `tests`:** Python 3.12, инсталира `requirements-dev.txt` (тоест runtime
+набора + pytest — файлът за деплой вече не носи test runner, така че pipeline,
+който инсталира само него, би умрял с `pytest: command not found`), пуска
+`pytest -q`.
+
+**Job `secrets`:** gitleaks върху **работното дърво** (`--no-git`), не върху
+историята. Това е съзнателно: портата е „не КОМИТВАЙ тайна", а не „одитирай
+всеки комит". Историята знае, че съдържа стар материал, а пренаписването ѝ е
+разрушително решение, което собственикът още не е взел — job, който пада от
+първия ден и не може да се поправи без force-push, е шум, не сигнал. Когато
+историята се изчисти, `--no-git` се маха и проверката става пълна.
+
+**Dependabot:** седмично за pip (групирано в един PR), месечно за GitHub
+Actions и за npm пакета `packages/x402-client`. `cryptography` подписва CDP JWT,
+а `web3` движи парите — CVE в тях не е домакинска работа.
+
+**Тест:** `test_the_pipeline_installs_the_dev_file_and_says_what_it_scans` пази
+и двете: че pipeline-ът инсталира dev файла и че сканирането казва обхвата си.
+
+
 
 
 

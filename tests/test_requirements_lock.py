@@ -21,6 +21,7 @@ REQUIREMENTS = "requirements.txt"
 DEV_REQUIREMENTS = "requirements-dev.txt"
 LOCK = "requirements.lock"
 DOCKERFILE = "Dockerfile"
+CI_WORKFLOW = ".github/workflows/ci.yml"
 
 #: name, optional extras, optional operator, version
 _ENTRY = re.compile(
@@ -206,4 +207,24 @@ def test_the_crypto_dependency_is_pinned_and_is_not_called_test_only():
     assert crypto_at < testing_at, (
         "cryptography is listed under the Testing heading again, which reads as "
         "a dev-only dependency")
+
+
+def test_the_pipeline_installs_the_dev_file_and_says_what_it_scans():
+    """The deploy file no longer carries pytest, so the pipeline must not use it.
+
+    A CI that installed requirements.txt alone would die at
+    `pytest: command not found` — exactly the drift this guard is for. And the
+    secret scan must state its SCOPE: the history is known to contain older
+    material, and rewriting it is a destructive decision the owner has not
+    taken, so the job scans the working tree and says so.
+    """
+    text = io.open(CI_WORKFLOW, encoding="utf-8", errors="replace").read()
+
+    assert "requirements-dev.txt" in text, (
+        "%s must install the dev file, or it has no pytest" % CI_WORKFLOW)
+    assert "pytest" in text, "%s never runs the suite" % CI_WORKFLOW
+    assert "--no-git" in text, (
+        "the secret scan must name its scope; scanning the history would fail on "
+        "material that only an owner-approved rewrite can remove")
+
 

@@ -1,0 +1,59 @@
+name: CI
+
+# WHY THIS EXISTS
+# The repository had no pipeline at all, so nothing checked a change before it
+# reached the live service — the only gate was running the suite by hand on one
+# machine. Two jobs: the suite, and a scan for credentials being committed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # `requirements-dev.txt` builds on requirements.txt, so this installs the
+      # same runtime set the deploy does, plus pytest. The deploy file itself no
+      # longer carries a test runner.
+      - name: Run the suite
+        run: python -m pytest -q
+
+  secrets:
+    name: Secret scan (working tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `--no-git` on purpose: this gate is "do not COMMIT a credential", not
+      # "audit every commit ever made". The history is known to contain older
+      # material and rewriting it is a separate, destructive decision the owner
+      # has not taken — a job that failed on day one and could not be fixed
+      # without a force-push would be noise, not a signal. Once the history is
+      # clean, drop `--no-git` and this becomes the full audit.
+      - name: Scan the working tree for committed credentials
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect --no-git --redact --verbose --exit-code 1
