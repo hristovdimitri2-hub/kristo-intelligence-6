@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 try:  # reuse the app's one credential scrubber rather than inventing a second
-    from integrations.dashboard_store import redact_rpc
+    from redaction import redact_rpc
 except Exception:  # noqa: BLE001 - `src.nexus` is also usable standalone
     def redact_rpc(text: Any) -> str:
         """No-op fallback: without the app package there is nothing to reuse."""

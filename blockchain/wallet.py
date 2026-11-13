@@ -15,6 +15,7 @@ from typing import Optional
 
 # ── Central configuration (bound wallet address) ───────────────────────────
 from config import BASE_FEE_AMOUNT_USDC, get_base_fee_receiver
+from redaction import redact_rpc
 
 
 def _fee_amount_usdc() -> float:
@@ -94,7 +95,13 @@ class Wallet:
             else self.w3.isConnected()
         )
         if not connected:
-            raise ConnectionError(f"Cannot connect to Base RPC at {rpc_url}")
+            # Redacted HERE, at the point the text is created. An RPC provider
+            # puts its API key in this URL, so the raw message is a credential
+            # in an exception — and whether that leaks then depends on whether
+            # every future caller remembers to wrap it. Today's caller does
+            # (main.py:1076); the next one should not have to.
+            raise ConnectionError(
+                f"Cannot connect to Base RPC at {redact_rpc(rpc_url)}")
         self.account = self.w3.eth.account.from_key(private_key)
         self.usdc = self.w3.eth.contract(
             address=Web3.to_checksum_address(usdc_address), abi=_ERC20_TRANSFER_ABI

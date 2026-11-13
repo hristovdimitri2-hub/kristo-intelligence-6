@@ -299,6 +299,37 @@ def test_rpc_api_keys_are_redacted_before_logging():
     assert redact_rpc("plain text, no key") == "plain text, no key"
 
 
+def test_rpc_key_is_redacted_where_the_exception_is_created():
+    """Redaction at the RAISE site, not only at the print site.
+
+    An RPC provider puts its API key in the URL, so
+    `ConnectionError(f"Cannot connect ... at {rpc_url}")` carries a credential
+    in its text — and whether that leaks then depends on every future caller
+    remembering to wrap it. Today's caller does (main.py:1076); the message
+    should not contain the key in the first place. Same defect class as "the log
+    line is redacted but the persisted detail is not".
+    """
+    import inspect
+
+    import blockchain.wallet as wallet_mod
+    import services.base_listener as listener_mod
+    from redaction import redact_rpc
+
+    key = "alch_lMA7z24yRSecretKey123"
+    url = "https://base-mainnet.g.alchemy.com/v2/" + key
+
+    rendered = redact_rpc("Cannot connect to Base RPC at " + url)
+    assert key not in rendered
+    assert "/v2/***" in rendered
+    assert "base-mainnet.g.alchemy.com" in rendered   # host stays diagnosable
+
+    for mod in (wallet_mod, listener_mod):
+        src = inspect.getsource(mod)
+        assert "redact_rpc(rpc_url)" in src, (
+            "%s raises with the raw rpc_url, so the provider's API key travels "
+            "in the exception text" % mod.__name__)
+
+
 def test_dsn_passwords_are_redacted_too():
     """The same argument as the RPC key, for connection URLs: a psycopg error
     echoes the DSN it failed to reach, so an unredacted exception on a public

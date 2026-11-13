@@ -15,6 +15,7 @@ import logging
 from typing import Optional
 
 from config import get_base_fee_receiver, BASE_RPC_URL, BASE_USDC_CONTRACT
+from redaction import redact_rpc
 
 log = logging.getLogger("kristo.v6.base_listener")
 
@@ -50,7 +51,10 @@ class BaseListener:
             else self.w3.isConnected()
         )
         if not connected:
-            raise ConnectionError(f"Cannot connect to Base RPC at {rpc_url}")
+            # Same reason as blockchain/wallet.py: the RPC key is in the URL, so
+            # the exception text must not carry it unredacted.
+            raise ConnectionError(
+                f"Cannot connect to Base RPC at {redact_rpc(rpc_url)}")
 
         # ── Bind the fee receiver (HARD FALLBACK) ──
         self.fee_receiver = Web3.to_checksum_address(get_base_fee_receiver())
