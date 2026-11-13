@@ -20,6 +20,25 @@ updates:
       python-runtime:
         patterns: ["*"]
         exclude-patterns: ["pytest"]
+    # A MAJOR bump of the money-moving libraries must not arrive inside a
+    # routine-looking group PR. The first grouped PR this repo ever produced
+    # carried web3 7.16.0 -> 8.0.0, gunicorn 26 -> 27 and stripe 15 -> 16 in one
+    # "6 updates" bundle — and the test suite FAILED on it. Nobody would have
+    # read a six-package bump closely. These get their own PRs, with their own
+    # review, or they do not land.
+    ignore:
+      - dependency-name: "web3"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "cryptography"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "stripe"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "gunicorn"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Flask"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "psycopg"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"

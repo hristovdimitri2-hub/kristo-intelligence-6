@@ -263,4 +263,31 @@ def test_the_secret_scan_config_explains_every_exemption():
             "an allowlist with neither regexes nor paths exempts everything")
 
 
+def test_the_pipeline_does_not_run_on_a_moving_runner_or_a_dead_node():
+    """`ubuntu-latest` and Node-20 actions are changes nobody commits.
+
+    GitHub announced that `ubuntu-latest` migrates to Ubuntu 26 in October 2026,
+    and that actions targeting Node.js 20 are deprecated. Both mean the build
+    would change under a green pipeline without a commit — so the runner is
+    pinned and the actions target Node 24.
+    """
+    text = io.open(CI_WORKFLOW, encoding="utf-8", errors="replace").read()
+    # Comments are not configuration. The note explaining WHY the runner is
+    # pinned names `ubuntu-latest`, and a guard that forbade the word would
+    # forbid the explanation.
+    code = "\n".join(
+        line.split(" #")[0] for line in text.splitlines()
+        if not line.lstrip().startswith("#"))
+
+    assert "ubuntu-latest" not in code, (
+        "ubuntu-latest migrates to Ubuntu 26; pin the runner so the change is a "
+        "commit somebody makes")
+    for dead in ("actions/checkout@v4", "actions/checkout@v5",
+                 "actions/setup-python@v5", "actions/setup-python@v6"):
+        assert dead not in code, "%s targets the deprecated Node.js 20" % dead
+    assert "actions/checkout@v7" in code, "checkout must target Node 24"
+    assert "actions/setup-python@v7" in code, "setup-python must target Node 24"
+
+
+
 

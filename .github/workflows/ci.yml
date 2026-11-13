@@ -17,11 +17,16 @@ permissions:
 jobs:
   tests:
     name: Test suite
-    runs-on: ubuntu-latest
+    # PINNED, not `ubuntu-latest`: GitHub announced that `latest` migrates to
+    # Ubuntu 26 in October 2026, and a runner image change should be a commit we
+    # make on purpose, not something that happens under a green build.
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      # v7 targets Node.js 24. v4/v5 targeted Node 20, which is deprecated, so
+      # every run carried a warning nobody could act on.
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -42,9 +47,9 @@ jobs:
 
   secrets:
     name: Secret scan (working tree)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `--no-git` on purpose: this gate is "do not COMMIT a credential", not
       # "audit every commit ever made". The history is known to contain older
