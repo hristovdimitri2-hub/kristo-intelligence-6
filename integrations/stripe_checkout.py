@@ -79,6 +79,21 @@ def stripe_field(obj: Any, name: str, default: Any = None) -> Any:
     return default if value is None else value
 
 
+def is_production() -> bool:
+    """True when this process is running as the live service.
+
+    Detected from the platform markers rather than from our own config, so a
+    missing or mistyped APP_ENV cannot silently turn a safety check off:
+    Render sets RENDER and RENDER_SERVICE_ID on every service it runs.
+    """
+    if (os.getenv("RENDER") or "").strip():
+        return True
+    if (os.getenv("RENDER_SERVICE_ID") or "").strip():
+        return True
+    env = (os.getenv("APP_ENV") or os.getenv("FLASK_ENV") or "").strip().lower()
+    return env in {"production", "prod"}
+
+
 class StripeCheckoutService:
     """Create Stripe Checkout sessions and verify signed webhook events."""
 
@@ -143,9 +158,19 @@ class StripeCheckoutService:
         amount_usd: Optional[float] = None,
         agent_sku: str = "",
     ) -> Dict[str, Any]:
-        resolved_amount = float(
-            self._plan_amount(plan_key) if amount_usd is None else amount_usd
-        )
+        try:
+            resolved_amount = float(
+                self._plan_amount(plan_key) if amount_usd is None else amount_usd
+            )
+        except ValueError as exc:
+            # An unknown plan is a REFUSAL, not a 500 and not a silent Pro
+            # charge: the buyer gets a stated error instead of a wrong invoice.
+            log.warning("checkout refused: %s", exc)
+            return {
+                "status": "checkout_error",
+                "provider": "stripe",
+                "error": "unknown_plan",
+            }
         resolved_product_name = product_name or f"Kristo Intelligence {plan_key}"
         if not self.enabled or self._stripe is None:
             if not self._mock_payments_allowed():
@@ -196,7 +221,7 @@ class StripeCheckoutService:
             # as a FALLBACK parameter — see _create_session below.
             "payment_method_types": ["card"],
             "customer_email": customer_email,
-            "line_items": [{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name, "tax_code": self.product_tax_code}, "unit_amount": int(resolved_amount * 100)}, "quantity": 1}],
+            "line_items": [{"price_data": {"currency": "usd", "product_data": {"name": resolved_product_name, "tax_code": self.product_tax_code}, "unit_amount": int(round(resolved_amount * 100))}, "quantity": 1}],
             "metadata": metadata,
             "success_url": f"{public_url}/sales/checkout?status=success&plan={plan_key}&session_id={{CHECKOUT_SESSION_ID}}",
             "cancel_url": f"{public_url}/sales/checkout?status=cancelled&plan={plan_key}",
@@ -403,6 +428,15 @@ class StripeCheckoutService:
 
     @staticmethod
     def _mock_payments_allowed() -> bool:
+        """Mock checkouts exist for tests and smoke runs — NEVER for production.
+
+        A mock session unlocks a paid product without money moving. The flag
+        alone is therefore a footgun: one env var typed into a production
+        dashboard grants free access to every human product. On the live
+        service the flag is ignored, whatever it says.
+        """
+        if is_production():
+            return False
         return os.getenv("KRISTO_ALLOW_MOCK_PAYMENTS", "").strip().lower() in {"1", "true", "yes"}
 
     def _plan_amount(self, plan_key: str) -> float:
@@ -411,6 +445,16 @@ class StripeCheckoutService:
         These literals used to be duplicated here AND in
         `payment_integration.SalesCheckout` — the same drift class that let the
         dashboard advertise /api/sales at $0.05 while the 402 demanded $0.005.
+
+        An UNKNOWN plan raises instead of silently charging the Pro price. A
+        typo in a plan key used to bill the buyer $79 for whatever they asked
+        for, and nothing anywhere said so. Callers that carry their own amount
+        (the agent catalog) pass `amount_usd` and never reach this.
         """
         from integrations.payment_integration import PLAN_PRICES
-        return float(PLAN_PRICES.get(plan_key, PLAN_PRICES["pro"]))
+        if plan_key not in PLAN_PRICES:
+            raise ValueError(
+                "unknown plan_key %r — refusing to charge a price the buyer did "
+                "not ask for (known: %s)"
+                % (plan_key, ", ".join(sorted(PLAN_PRICES))))
+        return float(PLAN_PRICES[plan_key])

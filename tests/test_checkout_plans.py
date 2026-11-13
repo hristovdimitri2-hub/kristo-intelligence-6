@@ -748,3 +748,60 @@ def test_the_refund_path_sits_behind_a_real_signature(client, monkeypatch,
                  + "beef", "Content-Type": "application/json"})
     assert tampered.status_code == 400
     assert tampered.get_json()["error"] == "invalid_signature"
+
+
+def test_an_unknown_plan_is_refused_not_charged_as_pro(monkeypatch):
+    """A typo in a plan key used to bill the buyer $79.
+
+    `_plan_amount` fell back to PLAN_PRICES["pro"] for any unknown key, so a
+    mistyped or removed plan silently produced a Pro-priced invoice and nothing
+    anywhere said so. A refusal is the only honest answer.
+    """
+    from integrations.payment_integration import PLAN_PRICES
+    from integrations.stripe_checkout import StripeCheckoutService
+
+    service = StripeCheckoutService.__new__(StripeCheckoutService)
+    assert service._plan_amount("pro") == float(PLAN_PRICES["pro"])
+    with pytest.raises(ValueError):
+        service._plan_amount("pro-typo")
+
+    # ...and the checkout surface reports it as a refusal, not a crash.
+    service.enabled = False
+    service._stripe = None
+    monkeypatch.setenv("KRISTO_ALLOW_MOCK_PAYMENTS", "true")
+    for var in ("RENDER", "RENDER_SERVICE_ID", "APP_ENV", "FLASK_ENV"):
+        monkeypatch.delenv(var, raising=False)
+    out = service.create_checkout_session("pro-typo", "buyer@example.com")
+    assert out["status"] == "checkout_error"
+    assert out["error"] == "unknown_plan"
+
+
+def test_mock_payments_cannot_unlock_a_product_in_production(monkeypatch):
+    """The mock flag must not work on the live service.
+
+    A mock checkout is a session that unlocks a paid product without money
+    moving, so the flag alone is a footgun: one env var typed into a production
+    dashboard grants free access to every human product. Production is detected
+    from the platform markers, not from our own config.
+    """
+    from integrations.stripe_checkout import StripeCheckoutService, is_production
+
+    for var in ("RENDER", "RENDER_SERVICE_ID", "APP_ENV", "FLASK_ENV"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("KRISTO_ALLOW_MOCK_PAYMENTS", "true")
+
+    # Locally (and in tests) the flag still works — the flow depends on it.
+    assert is_production() is False
+    assert StripeCheckoutService._mock_payments_allowed() is True
+
+    # On Render it is ignored, whatever it says.
+    monkeypatch.setenv("RENDER", "true")
+    assert is_production() is True
+    assert StripeCheckoutService._mock_payments_allowed() is False, (
+        "a mock checkout must never unlock a paid product on the live service")
+
+    # ...and so is an explicit production marker without Render.
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setenv("APP_ENV", "production")
+    assert StripeCheckoutService._mock_payments_allowed() is False
+
