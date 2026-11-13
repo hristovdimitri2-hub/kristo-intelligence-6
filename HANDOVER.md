@@ -2974,6 +2974,9 @@ allowlist-ът именува конкретни адреси и теми.
 **Проверено локално:** със конфигурацията gitleaks дава `no leaks found`, exit 0
 (преди: 19 находки, exit 1).
 
+**Проверено в CI:** на `da882de` **и двата job-а минават** — `Test suite` ✓ и
+`Secret scan (working tree)` ✓. Предишните четири пуска падаха само на второто.
+
 **Тест:** `test_the_secret_scan_config_explains_every_exemption` пази
 конфигурацията да не се превърне в сляпо изключение — изисква `useDefault`,
 забранява `[[rules]]` и иска всеки allowlist да има описание.
