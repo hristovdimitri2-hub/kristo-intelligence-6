@@ -224,6 +224,40 @@ def test_unpaid_client_still_gets_402(client):
     assert r.status_code == 402
 
 
+def test_the_settlement_path_is_bounded_but_a_plain_challenge_is_free(
+        client, monkeypatch):
+    """Only the EXPENSIVE path is rate-limited.
+
+    A credential-present request costs local EIP-712 recovery and can reach a
+    facilitator and a gas-paying broadcast; nothing bounded that, so a caller
+    could present signed-but-unusable payloads as fast as it could open sockets.
+    A plain 402 costs one JSON body — and the whole point of the 402 is that it
+    is free to ask, so discovery crawls must not be limited.
+    """
+    import main
+    from services import connectors
+    main._rate_limit_hits.clear()
+    monkeypatch.setattr(main, "_RATE_LIMIT_DEFAULTS",
+                        {**main._RATE_LIMIT_DEFAULTS, "x402_settlement": (1, 300)})
+    # The shared fixture makes every signature verify; this test is about the
+    # BUDGET, so make the credential unusable and watch the refusal.
+    monkeypatch.setattr(connectors, "verify_standard_payment",
+                        lambda h, req: (False, None, "invalid_signature"))
+    try:
+        # A plain challenge never touches the scope.
+        for _ in range(3):
+            assert client.get("/api/stats").status_code == 402
+        assert not [k for k in main._rate_limit_hits if k[0] == "x402_settlement"], (
+            "a plain 402 challenge consumed the settlement budget")
+
+        # A presented credential does, and the second one is refused.
+        header = {"PAYMENT-SIGNATURE": base64.urlsafe_b64encode(b"x").decode()}
+        assert client.get("/api/stats", headers=header).status_code == 401
+        assert client.get("/api/stats", headers=header).status_code == 429
+    finally:
+        main._rate_limit_hits.clear()
+
+
 
 # ── г1: EXTENSION-RESPONSES санитизация ─────────────────────────────────────
 

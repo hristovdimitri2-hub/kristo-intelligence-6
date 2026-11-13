@@ -2013,6 +2013,11 @@ _RATE_LIMIT_DEFAULTS = {
     "telegram_webhook": (240, 300),  # secret-verified, but bounded
     "public_activity": (120, 300),  # public proof-of-traction feed, bounded
     "public_signals_history": (60, 300),  # free track-record feed, bounded
+    # The paid rail's EXPENSIVE path only — counted when a credential is
+    # actually presented (see _x402_paywall), never for a plain 402 challenge.
+    # Generous on purpose: a real buyer retries a few times, and the point is to
+    # bound a flood of signed-but-unusable payloads, not to police customers.
+    "x402_settlement": (120, 300),
 }
 
 _rate_limit_lock = threading.Lock()
@@ -5409,6 +5414,16 @@ def _x402_paywall():
             # a credential is present, and what it does not consume.
             if (_get_standard_payment_header()
                     or (request.headers.get("X-Payment-Proof") or "").strip()):
+                # A credential is present, so this request is on the EXPENSIVE
+                # path: local EIP-712 recovery, then possibly a facilitator call
+                # and a gas-paying broadcast. Nothing bounded that before — a
+                # caller could present signed-but-unusable payloads as fast as
+                # it could open sockets. The limit is generous (see
+                # _RATE_LIMIT_DEFAULTS) because a real buyer retries a handful
+                # of times, not hundreds.
+                limited = _rate_limited_response("x402_settlement")
+                if limited:
+                    return limited
                 unservable = _x402_unservable_payload(path)
                 if unservable is not None:
                     log.info(
