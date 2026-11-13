@@ -18,6 +18,7 @@ import io
 import re
 
 REQUIREMENTS = "requirements.txt"
+DEV_REQUIREMENTS = "requirements-dev.txt"
 LOCK = "requirements.lock"
 DOCKERFILE = "Dockerfile"
 
@@ -146,3 +147,63 @@ def test_the_deploy_installs_the_file_that_is_complete():
     assert "requirements.lock" not in dockerfile, (
         "the Dockerfile now installs the lock; make sure it is genuinely complete "
         "and hash-pinned before relying on it for deploys")
+
+
+def test_the_deploy_does_not_install_a_test_runner():
+    """pytest used to be a PRODUCTION dependency.
+
+    requirements.txt is what the deploy installs, and it carried pytest, so
+    every production image shipped a test runner it never ran. Test-only
+    dependencies belong in requirements-dev.txt.
+    """
+    direct = _parse(REQUIREMENTS)
+
+    assert "pytest" not in direct, (
+        "requirements.txt (installed by the deploy) declares pytest again; "
+        "test-only dependencies belong in %s" % DEV_REQUIREMENTS)
+
+    dev = io.open(DEV_REQUIREMENTS, encoding="utf-8", errors="replace").read()
+    assert "-r requirements.txt" in dev, (
+        "%s must build ON requirements.txt, or a dev install misses the runtime "
+        "dependencies" % DEV_REQUIREMENTS)
+    assert "pytest" in _parse(DEV_REQUIREMENTS), (
+        "pytest moved out of the deploy file but not into %s" % DEV_REQUIREMENTS)
+
+
+def test_the_dev_dependencies_are_in_the_lock_too():
+    """The lock must describe the environment the suite passes in."""
+    dev = _parse(DEV_REQUIREMENTS)
+    locked = _parse(LOCK)
+
+    missing = sorted(set(dev) - set(locked))
+    assert not missing, (
+        "%s declares %s, which %s does not list; the lock is supposed to be the "
+        "same environment"
+        % (DEV_REQUIREMENTS, ", ".join(missing), LOCK))
+
+
+def test_the_crypto_dependency_is_pinned_and_is_not_called_test_only():
+    """`cryptography` signs the CDP JWT at RUNTIME.
+
+    It was declared as an unpinned `cryptography>=42.0.0` under a "Testing"
+    heading — wrong twice: the deploy installed whatever pip resolved that day,
+    and the heading told a reader it was a dev dependency.
+    """
+    direct = _parse(REQUIREMENTS)
+
+    assert "cryptography" in direct, (
+        "cryptography is imported by services/connectors.py at runtime")
+    assert direct["cryptography"].startswith("=="), (
+        "cryptography is unpinned (%s), so the deploy resolves it fresh each "
+        "build" % direct["cryptography"])
+    assert direct["cryptography"] == _parse(LOCK)["cryptography"], (
+        "requirements.txt and the lock disagree about cryptography")
+
+    text = io.open(REQUIREMENTS, encoding="utf-8", errors="replace").read()
+    testing_at = text.find("# ── Testing")
+    crypto_at = text.find("cryptography==")
+    assert crypto_at != -1 and testing_at != -1
+    assert crypto_at < testing_at, (
+        "cryptography is listed under the Testing heading again, which reads as "
+        "a dev-only dependency")
+

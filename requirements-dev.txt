@@ -1,0 +1,16 @@
+# Kristo Intelligence 6 — DEVELOPMENT dependencies
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+#
+# This file exists because `requirements.txt` is what the deploy installs
+# (Dockerfile, DEPLOYMENT.md, DEPLOYMENT_CHECKLIST.md) and it used to carry
+# pytest, so every production image shipped a test runner it never ran.
+#
+# Everything here must also be present in requirements.lock — the lock is the
+# same environment, and tests/test_requirements_lock.py fails if it drifts.
+
+-r requirements.txt
+
+# ── Testing ────────────────────────────────────────────────────────────────
+pytest==9.1.1

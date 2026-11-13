@@ -2873,6 +2873,28 @@ dashboard, дава безплатен достъп до всички човеш
 **Тестове:** `test_mock_payments_cannot_unlock_a_product_in_production`,
 `test_an_unknown_plan_is_refused_not_charged_as_pro`.
 
+## 43. Зависимостите: pytest беше production пакет, cryptography не беше вързан (13.11.2026)
+
+`requirements.txt` е файлът, който деплоят инсталира (Dockerfile,
+`DEPLOYMENT.md`, `DEPLOYMENT_CHECKLIST.md`). В него имаше две грешки:
+
+**1. `pytest` беше production зависимост.** Всеки продукционен образ носеше
+test runner, който никога не се пуска. Преместен в нов `requirements-dev.txt`,
+който започва с `-r requirements.txt`, за да не изгуби dev инсталацията
+runtime зависимостите.
+
+**2. `cryptography>=42.0.0` — невързан и подгрешно заглавие.** Той е **runtime**
+зависимост: `services/connectors.py` подписва CDP JWT с него (ES256 /
+secp256r1). Стоеше като `>=` под заглавие „Testing", тоест две грешки наведнъж:
+деплоят инсталираше каквото pip реши в онзи ден, а заглавието казваше на
+читателя, че е dev пакет. Сега е `cryptography==48.0.0` (колкото е в lock-а),
+в собствена секция „Crypto / signing".
+
+**Тестове:** `test_the_deploy_does_not_install_a_test_runner`,
+`test_the_dev_dependencies_are_in_the_lock_too`,
+`test_the_crypto_dependency_is_pinned_and_is_not_called_test_only`.
+
+
 
 
 

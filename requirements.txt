@@ -36,6 +36,16 @@ psycopg[binary]==3.3.4
 # ── Configuration ──────────────────────────────────────────────────────────
 python-dotenv==1.2.3
 
+# ── Crypto / signing ───────────────────────────────────────────────────────
+# RUNTIME, not test-only: services/connectors.py signs the CDP Platform JWT
+# with it (ES256 / secp256r1). It used to be declared as an unpinned
+# `cryptography>=42.0.0` under a "Testing" heading, which was wrong twice: the
+# deploy installed whatever pip resolved that day, and the heading told a
+# reader it was a dev dependency.
+cryptography==48.0.0
+
 # ── Testing ────────────────────────────────────────────────────────────────
-pytest==9.1.1
-cryptography>=42.0.0
+# Test-only dependencies live in requirements-dev.txt. They used to sit here,
+# so every production image installed pytest.
+#   pip install -r requirements-dev.txt
+
