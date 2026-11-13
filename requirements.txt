@@ -15,10 +15,10 @@
 
 # ── Web framework ──────────────────────────────────────────────────────────
 Flask==3.1.3
-gunicorn==26.1.0
+gunicorn==27.0.0
 
 # ── Blockchain ─────────────────────────────────────────────────────────────
-web3==7.16.0
+web3==8.0.0
 # Pinned (01.10): hexbytes is transitive via web3, and hexbytes>=2 returns
 # .hex() WITHOUT the 0x prefix — that drift silently broke the manual
 # X-Payment-Proof rail until the _to_hex0x normalizations in main.py.
@@ -27,14 +27,14 @@ hexbytes==2.0.0
 # ── HTTP / APIs ────────────────────────────────────────────────────────────
 requests==2.34.2
 certifi==2026.10.23
-stripe==15.5.1
+stripe==16.1.0
 python-telegram-bot==22.8
 
 # ── Database ───────────────────────────────────────────────────────────────
-psycopg[binary]==3.3.4
+psycopg[binary]==3.3.8
 
 # ── Configuration ──────────────────────────────────────────────────────────
-python-dotenv==1.2.3
+python-dotenv==1.2.4
 
 # ── Crypto / signing ───────────────────────────────────────────────────────
 # RUNTIME, not test-only: services/connectors.py signs the CDP Platform JWT
@@ -42,7 +42,7 @@ python-dotenv==1.2.3
 # `cryptography>=42.0.0` under a "Testing" heading, which was wrong twice: the
 # deploy installed whatever pip resolved that day, and the heading told a
 # reader it was a dev dependency.
-cryptography==48.0.0
+cryptography==50.0.2
 
 # ── Testing ────────────────────────────────────────────────────────────────
 # Test-only dependencies live in requirements-dev.txt. They used to sit here,
