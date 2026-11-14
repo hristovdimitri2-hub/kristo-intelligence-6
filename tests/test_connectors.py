@@ -344,6 +344,59 @@ def _build_signed_payload(authorization_overrides=None, tamper_from=False):
     return acct, payload, accepted
 
 
+def test_recovery_uses_our_domain_when_the_client_echoes_a_partial_accepted():
+    """A partial `accepted` used to break recovery and lose the sale.
+
+    `_local_recover_signer` built the EIP-712 domain from the CLIENT's
+    `accepted`, so a client that echoed only `scheme` and `network` left
+    `verifyingContract` as None and eth_account raised
+
+        ValueError: Missing value for field `verifyingContract` of type `address`
+
+    which surfaced as `local_eip712_recovery_failed` and read like our bug. It
+    cost the sale twice in production on 09.11 (measured in `payment_attempts`).
+
+    We know the asset, the network and the token domain — we issued them in the
+    402 — so they win, and the signature still recovers to the real payer.
+    """
+    from services.connectors import _local_recover_signer
+
+    acct, payload, accepted = _build_signed_payload()
+    reqs = dict(accepted)
+
+    # Control: the full `accepted` recovers to the payer.
+    recovered, err = _local_recover_signer(payload, reqs)
+    assert err is None, err
+    assert str(recovered).lower() == acct.address.lower()
+
+    # A PARTIAL accepted — no asset, no extra, no amount. The signature is
+    # unchanged, so recovery must still succeed against OUR domain.
+    payload_partial = dict(payload)
+    payload_partial["accepted"] = {"scheme": "exact", "network": "eip155:8453"}
+    recovered2, err2 = _local_recover_signer(payload_partial, reqs)
+    assert err2 is None, err2
+    assert str(recovered2).lower() == acct.address.lower(), (
+        "a partial accepted must not change who signed")
+
+    # With nothing anywhere naming an asset, the refusal is a clean sentence —
+    # not eth_account's raw ValueError.
+    recovered3, err3 = _local_recover_signer(payload_partial, {})
+    assert recovered3 is None
+    assert "verifyingContract" in err3, err3
+    assert "Missing value" not in err3, (
+        "the refusal is still leaking eth_account's internal message")
+
+    # And the rule is "SERVER wins", not "either works": recovering against a
+    # DIFFERENT verifyingContract must not return the payer, because the domain
+    # is part of what was signed.
+    other = dict(reqs)
+    other["asset"] = "0x0000000000000000000000000000000000000001"
+    recovered4, _err4 = _local_recover_signer(payload, other)
+    assert recovered4 is not None
+    assert str(recovered4).lower() != acct.address.lower(), (
+        "a different verifyingContract must not recover to the payer")
+
+
 def test_precheck_catches_structural_problems():
     from services.connectors import precheck_payment_payload
     _, payload, requirements = _build_signed_payload()

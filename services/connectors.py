@@ -338,32 +338,55 @@ def _accepted_option(payload: dict) -> dict:
     return {}
 
 
-def _local_recover_signer(payload: dict):
+def _local_recover_signer(payload: dict, requirements: dict = None):
     """
     Local EIP-712 recovery for the exact/EIP-3009 TransferWithAuthorization
     message (Base mainnet USDC domain: name 'USD Coin', version '2').
     Returns (recovered_address | None, error | None). Fails fast with a
     precise reason before any facilitator is involved.
+
+    THE DOMAIN IS OURS, NOT THE CLIENT'S. It used to be built entirely from the
+    client's `accepted` block, so a client that echoed a PARTIAL `accepted` —
+    `scheme` and `network`, say, but no `asset` — left `verifyingContract` as
+    None and eth_account raised
+
+        ValueError: Missing value for field `verifyingContract` of type `address`
+
+    which surfaced as `local_eip712_recovery_failed` and read like our bug, and
+    cost the sale. Observed twice on 09.11. We KNOW the asset, the network and
+    the token domain — we issued them in the 402 — so they win, and the client's
+    values are only a fallback for a payload that carries more than we asked for.
+    This is the same rule as `_merged_requirements`, for the same reason.
+
+    Recovering against OUR domain is also the correct CHECK: a signature made
+    over a different domain recovers to a different address, which then fails
+    the `from` comparison at the call site — exactly the rejection we want.
     """
     try:
         from eth_account import Account
         from eth_account.messages import encode_typed_data
 
         accepted = _accepted_option(payload)
+        req = dict(requirements or {})
         inner = payload.get("payload") or {}
         auth = inner.get("authorization") or {}
-        # Same source as `precheck_payment_payload`: the accepted option's
-        # `extra`, with the top-level one as a fallback. If these two ever read
-        # different objects, the pinning check validates a domain the signature
-        # was not made over.
-        extra = accepted.get("extra") or payload.get("extra") or {}
-        network = str(accepted.get("network") or "eip155:8453")
+        # Server first, client as fallback.
+        req_extra = req.get("extra")
+        extra = (req_extra if isinstance(req_extra, dict) else None) \
+            or accepted.get("extra") or payload.get("extra") or {}
+        network = str(req.get("network") or accepted.get("network") or "eip155:8453")
         chain_id = int(network.split(":")[1]) if ":" in network else 8453
+        verifying_contract = req.get("asset") or accepted.get("asset")
+        if not verifying_contract:
+            # A clean refusal instead of eth_account's raw ValueError: nothing
+            # named an asset, so there is no domain to recover against.
+            return None, ("no asset in the payload or in the requirements, so "
+                          "the EIP-712 domain has no verifyingContract")
         domain = {
             "name": extra.get("name") or "USD Coin",
             "version": extra.get("version") or "2",
             "chainId": chain_id,
-            "verifyingContract": accepted.get("asset"),
+            "verifyingContract": verifying_contract,
         }
         types = {"TransferWithAuthorization": [
             {"name": "from", "type": "address"},
@@ -926,7 +949,7 @@ def verify_standard_payment(payment_header, requirements: dict):
         log.warning("standard x402 precheck failed: %s", detail)
         return False, None, detail
 
-    recovered, err = _local_recover_signer(payload)
+    recovered, err = _local_recover_signer(payload, requirements)
     _vstep("_local_recover_signer")
     declared_from = (
         (payload.get("payload") or {}).get("authorization") or {}

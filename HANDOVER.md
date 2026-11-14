@@ -3194,6 +3194,60 @@ Spec §6.1 дефинира `authorization` (по подразбиране), `up
 клиентите, за които спецификацията съществува. Това е решение за собственика,
 не мълчалива промяна.
 
+## 51. CDP статусът не ни е струвал нищо — но четенето на нашите таблици намери бъг (13.11.2026)
+
+Собственикът препрати CDP status feed-а. Инцидентите в него (9–13.11) са точно
+условията, при които фасилитаторът връща `settlement_pending` — кодът от §50.
+Затова проверих продукционните таблици, вместо да предполагам.
+
+`_forensics/did_cdp_incidents_cost_us.py` (read-only). Последни 14 дни:
+
+```
+payment_attempts:  settled 56 | rejected 16 | settle_failed 4
+```
+
+**Отговорът: CDP не ни е струвал нищо.** „Degraded Performance — Coinbase
+Payments" изрично казваше „Payments using funds on Base are not affected", а
+нашите провали са струпани на **09.11** — преди инцидентите от 10–11.11.
+Причината им е наша, не тяхна:
+
+| колко | какво |
+|---|---|
+| 9 | `payload_undecodable` — клиентът праща payload, който не декодираме |
+| 3 | `payai_unreachable(status=400)` — PayAI отказва (поправено с `_with_accepted`, §10.11) |
+| 2 | `local_eip712_recovery_failed: Missing value for field 'verifyingContract'` |
+| 2 | 20s deadline (verify / settle) |
+
+### Поправено: домейнът се строеше от КЛИЕНТА, не от нас
+
+`_local_recover_signer` взимаше `verifyingContract` от клиентския `accepted`.
+Клиент, който върне **частичен** `accepted` (само `scheme` и `network` — нещо
+съвсем нормално), оставяше `verifyingContract` = `None` и eth_account хвърляше
+
+```
+ValueError: Missing value for field `verifyingContract` of type `address`
+```
+
+Това излизаше като `local_eip712_recovery_failed` и изглеждаше като **наш** бъг.
+Два загубени опита на 09.11.
+
+Сега домейнът е **наш** (asset, network, token домейн — ние сме ги издали в 402),
+а клиентските стойности са само резерва. Същият принцип като
+`_merged_requirements`. Това е и **по-правилната проверка**: подпис върху друг
+домейн се възстановява до друг адрес и пада на сравнението с `from` — точно
+отказът, който искаме. А когато никъде няма asset, отказът вече е чисто
+изречение, не суровото съобщение на eth_account.
+
+**Тест:** `test_recovery_uses_our_domain_when_the_client_echoes_a_partial_accepted`
+— покрива пълния `accepted`, частичния, липсата на asset навсякъде и (важното)
+че възстановяване срещу **друг** `verifyingContract` не връща платеца.
+
+### Отбелязано
+
+`payload_undecodable` (9) е от страна на клиента и не е наша задача, но
+съобщението е твърде общо, за да е диагностицируемо — кандидат за подобрение.
+
+
 
 
 
