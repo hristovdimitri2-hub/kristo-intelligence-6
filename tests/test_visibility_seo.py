@@ -98,7 +98,7 @@ def test_llms_txt_teaches_the_standard_x402_rail(client):
     The file used to document only the legacy X-Payment-Proof header: it never
     named PAYMENT-SIGNATURE, never named the canonical PAYMENT-REQUIRED response
     header, and promised "~2 seconds" confirmation for a rail that actually
-    needs 12 confirmations (~24s). Every agent that trusted it built a slow
+    needs 12 confirmations (~2.5s). Every agent that trusted it built a slow
     legacy proof and waited the wrong amount of time - while the standard rail
     the whole x402 ecosystem speaks went unmentioned.
     """
@@ -107,7 +107,7 @@ def test_llms_txt_teaches_the_standard_x402_rail(client):
     for token in ("PAYMENT-SIGNATURE", "X-PAYMENT", "PAYMENT-REQUIRED",
                   "EIP-3009", "X-Payment-Proof"):
         assert token in body, "llms.txt never mentions %s" % token
-    assert "3 confirmations" in body, (
+    assert "12 confirmations" in body, (
         "llms.txt must state how long the proof rail really takes")
     assert "~2 seconds" not in body, (
         "llms.txt still promises the old, wrong confirmation time")
@@ -587,7 +587,7 @@ def test_landing_page_demos_the_fast_rail_before_the_slow_one(client):
     """The homepage shows "the exact x402 handshake an autonomous agent performs".
 
     It demonstrated only the legacy rail and captioned it "~2s" — while that rail
-    waits 12 confirmations, about 24 seconds — and the stat card above the fold
+    waits 12 confirmations, about 2.5 seconds — and the stat card above the fold
     promised that same ~2s. A visitor read a latency the demonstrated path could
     not deliver, on the page with the most traffic we have.
     """
@@ -600,7 +600,7 @@ def test_landing_page_demos_the_fast_rail_before_the_slow_one(client):
         "the legacy rail should stay named as the alternative")
     assert html.index("PAYMENT-SIGNATURE") < html.index("X-Payment-Proof"), (
         "the homepage still presents the 24-second legacy rail first")
-    assert "3 confirmations" in html, (
+    assert "12 confirmations" in html, (
         "the proof rail's real cost must be stated, not left to the reader")
 
 
@@ -700,7 +700,7 @@ def test_the_pricing_and_terms_pages_answer_and_are_honest(client):
 
     assert "PAYMENT-SIGNATURE" in pricing, "the preferred rail is not named"
     assert "X-Payment-Proof" in pricing, "the alternative rail is not named"
-    assert "3 confirmations" in pricing, (
+    assert "12 confirmations" in pricing, (
         "the proof rail's real cost is missing from the page that states prices")
     assert "does not unlock the API" in " ".join(pricing.split()), (
         "the VIP product must not look like it buys API access")

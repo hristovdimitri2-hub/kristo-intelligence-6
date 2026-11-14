@@ -12,7 +12,7 @@ client could ever get the product back after a failure. This file does:
   F3     handler exception after consumption → JSON 500 (never HTML), the C1
          row survives, retry with the SAME proof recovers, and a third attempt
          AFTER delivery is still refused (no new double-spend hole),
-  F5     the proof-rail hint quotes the real 12-block wait (~24s, not ~2s).
+  F5     the proof-rail hint quotes the real 12-block wait (~2.5s, not ~2s).
 
 Crypto and network boundaries are stubbed (verify / settle / RPC); everything
 the audits are actually about — the recovery logic — runs for real.
@@ -470,7 +470,7 @@ def test_whaleflow_store_failure_is_json_503_and_recovers(env, monkeypatch):
 # ── F5: the hint must quote the REAL wait on this rail ────────────────────
 
 def test_proof_hint_quotes_the_real_block_wait(env, monkeypatch):
-    """~2s lied: this rail requires 3 confirmations (~6s) before retrying."""
+    """~2s lied: this rail requires 12 confirmations (~2.5s) before retrying."""
     main = env.main
     monkeypatch.setattr(main, "_verify_payment_onchain",
                         lambda *a, **k: None)   # receipt not deep enough yet
@@ -478,7 +478,7 @@ def test_proof_hint_quotes_the_real_block_wait(env, monkeypatch):
     r = env.client.get("/api/stats", headers={"X-Payment-Proof": header})
     assert r.status_code == 401
     hint = r.get_json()["hint"]
-    assert "~6s" in hint and "3" in hint
+    assert "~2.5s" in hint and "12" in hint
     assert "~2s" not in hint
     assert "SAME proof" in hint
 

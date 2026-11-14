@@ -79,7 +79,7 @@ def test_quickstart_leads_with_the_fast_rail_not_only_the_slow_one(client):
     """The onboarding doc is the first thing an integrating agent reads.
 
     Every snippet in it used to teach the legacy X-Payment-Proof rail as *the*
-    way in. That rail waits 3 confirmations (~6s) before the data comes back,
+    way in. That rail waits 12 confirmations (~2.5s) before the data comes back,
     so an agent that followed our own onboarding had the worst possible first
     experience — while the fast EIP-3009 rail went unmentioned. It was the
     llms.txt bug again, in the most-read document we publish.

@@ -19,9 +19,9 @@
  *     1. Request a paid endpoint.
  *     2. Read the `payment` block from the 402 body.
  *     3. Sign and broadcast a plain ERC-20 USDC transfer on Base.
- *     4. Wait for 3 confirmations — the server enforces this.
+ *     4. Wait for 12 confirmations — the server enforces this.
  *     5. Retry with the `X-Payment-Proof` header.
- *     6. HTTP 200 + data.       (~6 seconds)
+ *     6. HTTP 200 + data.       (~2.5 seconds)
  *
  * BOTH rails are real and both are verified server-side. The paywall checks
  * the signed authorization (standard) or decodes the ERC-20 Transfer event of
@@ -321,7 +321,7 @@ async function main() {
     console.log(
       `402 received: smart-wallet rail — paying ${amountAtomic} atomic USDC ` +
       `(${Number(amountAtomic) / 10 ** USDC_DECIMALS} USDC) on Base ` +
-      `to ${payment.receiver_address} (this waits for 3 confirmations, ~6s)`
+      `to ${payment.receiver_address} (this waits for 12 confirmations, ~2.5s)`
     );
     credential = await payLegacy(account, payment, amountAtomic, rpcUrl);
     console.log(`Payment confirmed in ${credential.transactionHash}`);

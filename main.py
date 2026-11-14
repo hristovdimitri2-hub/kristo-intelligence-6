@@ -3808,21 +3808,40 @@ def _admit_undelivered_payment(tx_hash: str, endpoint: str) -> bool:
 #      the self-described proof rail will trust it.
 # H2 — endpoint binding: a proof may be scoped to one endpoint.
 #
-# 12 was the old default and it was never justified: 12 blocks on Base is
-# ~24s, and a 2s block is not a 2s reorg window. 3 blocks is ~6s, and the
-# reorg guard (`_confirmations_ok_with_lag_refresh`) re-reads the head before
-# refusing, so a depth that is still true at the tip is the only thing that
-# actually needs 12. The 3-block default is the honest trade: the proof rail
-# still waits for finality, but it does not make a paying smart-wallet agent
-# wait 24 seconds for a $0.005 call.
-PAYMENT_CONFIRMATIONS_DEFAULT = 3
+#: Base's block cadence, MEASURED rather than assumed.
+#:
+#: 14.11.2026, base-rpc.publicnode.com, 25 consecutive blocks around
+#: 57,215,802: mean gap 0.21 s (median 0 because the timestamps are whole
+#: seconds). Base used to produce a block every ~2 s, and every number below
+#: was chosen under THAT assumption — which is the defect this constant exists
+#: to make visible. A block COUNT silently means ten times less time when the
+#: chain speeds up, and nothing in the code said so.
+#:
+#: Reported independently by x402 Payability Report 13 ("Base now produces
+#: blocks roughly every 0.2 seconds instead of 2"), which is how the drift was
+#: noticed at all.
+BASE_BLOCK_SECONDS = 0.2
 
-#: The standard x402 rail settles SYNCHRONOUSLY through the facilitator (the
-#: tx is mined before "settled" is returned), which is how every spec-compliant
-#: client works. Re-asking for 3 confirmations there would stall paying
-#: agents for ~6s. The policy is therefore split and both halves are
-#: env-tunable — raise MIN_STANDARD_PAYMENT_CONFIRMATIONS to harden it.
-STANDARD_PAYMENT_CONFIRMATIONS_DEFAULT = 1
+# 12 was the old default and it was never justified — but the arithmetic used to
+# justify CUTTING it was wrong too, in the opposite direction. "12 blocks is
+# ~24s" was true at 2 s blocks; at the measured 0.2 s it is ~2.4 s. So 12 was
+# never the latency problem it looked like, and the 3-block default that
+# replaced it bought only ~0.6 s of reorg window — a tenth of what it claimed
+# in every published sentence.
+#
+# The proof rail takes a CALLER-SUPPLIED tx hash, so depth is its main guard:
+# restored to 12, which is ~2.4 s at the measured cadence. The reorg guard
+# (`_confirmations_ok_with_lag_refresh`) still re-reads the head before refusing,
+# so a settlement that is genuinely at the tip is not punished for our lag.
+PAYMENT_CONFIRMATIONS_DEFAULT = 12
+
+#: The standard x402 rail settles SYNCHRONOUSLY through the facilitator (the tx
+#: is mined before "settled" is returned), so its depth is a second opinion
+#: rather than the only guard. 1 block was chosen when a block was 2 s; at the
+#: measured 0.2 s that is a 200 ms window. Raised to 5 (~1.0 s): five times the
+#: guarantee, and a client that arrives early gets a 425 and re-sends the SAME
+#: credential, so the cost is a short wait rather than a lost sale.
+STANDARD_PAYMENT_CONFIRMATIONS_DEFAULT = 5
 
 
 def _required_confirmations() -> int:
@@ -4198,7 +4217,7 @@ def _try_consume_payment_proof(proof: dict, price: float, ip: str,
 
     Guards applied on this rail:
       H2 — endpoint binding  : a bound proof only works on its own path.
-      C2 — 3 confirmations  : enforced inside _verify_payment_onchain.
+      C2 — 12 confirmations : enforced inside _verify_payment_onchain.
       C1 — durable replay lock: the SQLite `payment_guards` claim is the real
            gate; the RAM set is only a fast pre-check that dies on restart.
     """
@@ -5533,8 +5552,8 @@ def _x402_paywall():
                         "required_amount_usdc": _get_dynamic_price(ip, path),
                         "receiver_address": X402_RECEIVER_ADDRESS,
                         "hint": (
-                            "Wait for confirmation (~6s — 3 blocks — on "
-                            "Base; this rail requires 3 confirmations) and "
+                            "Wait for confirmation (~2.5s — 12 blocks — "
+                            "on Base; this rail requires 12 confirmations) and "
                             "retry with the SAME proof. The payment is not "
                             "lost and a fresh payment is not needed."
                         ),
@@ -6645,7 +6664,7 @@ def api_quickstart():
             ),
         },
         # These steps used to teach the slow rail as *the* way in, in all three
-        # snippets below. A plain transfer needs 3 confirmations (~6s) before
+        # snippets below. A plain transfer needs 12 confirmations (~2.5s) before
         # the data comes back. It was the llms.txt bug again, in the single
         # most-read onboarding document we publish — the first thing an
         # integrating agent fetches. Preferred rail first now, with the
@@ -6659,7 +6678,7 @@ def api_quickstart():
             "facilitator settles it, so nothing waits on block confirmations",
             "alternative (smart wallets and exchange withdrawals): send the "
             "same amount as a plain USDC transfer to "
-            "accepts[0].payTo, wait 3 confirmations (~6s), then retry with "
+            "accepts[0].payTo, wait 12 confirmations (~2.5s), then retry with "
             "X-Payment-Proof: base64url(JSON({payer, transaction_hash, "
             "amount_usdc})) — that amount_usdc is ATOMIC too: send 5000 for a "
             "$0.005 call, never 0.005",
@@ -6675,7 +6694,7 @@ def api_quickstart():
             "#   then retry with the PAYMENT-SIGNATURE header (x402 v2). "
             "x402-fetch and the x402scan wallet do this for you.\n"
             "# alternative (smart wallets, slower): send the same amount as a plain "
-            "USDC transfer, wait 3 confirmations, then retry with\n"
+            "USDC transfer, wait 12 confirmations, then retry with\n"
             "#   X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))"
             "  # amount_usdc is ATOMIC: 5000, not 0.005"
         ),

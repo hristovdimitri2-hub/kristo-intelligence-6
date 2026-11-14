@@ -7,7 +7,7 @@ verifying and settling for months — and this test USED TO REQUIRE that string,
 so it locked the false claim in. A test written to match the code instead of the
 truth is worse than no test.
 
-It also described only the legacy rail, which waits 12 confirmations (~24s),
+It also described only the smart-wallet rail, which waits 12 confirmations (~2.5s),
 while the standard rail settles in ~2s.
 """
 from pathlib import Path
@@ -49,13 +49,13 @@ def test_the_example_documents_both_rails():
 
 
 def test_the_example_prefers_the_fast_rail_and_says_why():
-    """The standard rail is the default; the ~6s proof-rail wait is stated."""
+    """The standard rail is the default; the ~2.5s proof-rail wait is stated."""
     example = _example()
     assert 'process.env.X402_RAIL?.trim() || "standard"' in example, (
         "the standard rail must be the default")
-    assert "~2 seconds" in example and "~6 seconds" in example, (
+    assert "~2 seconds" in example and "~2.5 seconds" in example, (
         "both rails' real timings must be stated")
-    assert "3 confirmations" in example, (
+    assert "12 confirmations" in example, (
         "the proof rail's confirmation wait must be stated")
 
 

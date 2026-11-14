@@ -104,7 +104,7 @@ g = S["guards"]
 check("C1 replay-lock ЖИВ (реален write-probe)", g["lock_alive"] is True,
       g["lock_probe_error"] or "")
 check("C2/H2 настройки",
-      g["config"]["c2_proof_confirmations"] == 3
+      g["config"]["c2_proof_confirmations"] == 12
       and g["config"]["c2_standard_confirmations"] >= 1
       and g["config"]["h2_endpoint_binding"] is True, g["config"])
 check("наблюдение на блокираните опити (durable guard_events)",

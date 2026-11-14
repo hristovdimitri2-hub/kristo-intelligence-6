@@ -133,7 +133,11 @@ def test_a_settled_payment_is_recorded_as_settled(env, monkeypatch):
     monkeypatch.setattr(env.connectors, "settle_standard_payment",
                         lambda h, r: (TX_SELF, "settled_self_broadcast"))
     receipt = _receipt(TX_SELF, 100, PAYER, 5000, env.main.X402_RECEIVER_ADDRESS)
-    eth = _FakeEth(block_number=101, receipts={TX_SELF: receipt}, auth_logs=[])
+    # 105, not 101: the standard rail's depth gate is 5 blocks, and 101 is only
+    # one block past the settlement. The head is the SETUP, not the assertion —
+    # the test is about the recording, so the chain must be at the depth the
+    # code actually requires.
+    eth = _FakeEth(block_number=105, receipts={TX_SELF: receipt}, auth_logs=[])
     _install_fake_web3(monkeypatch, eth)
 
     r = env.client.get("/api/stats",

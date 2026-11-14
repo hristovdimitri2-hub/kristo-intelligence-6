@@ -134,7 +134,7 @@ def test_agent_manifest_leads_with_the_fast_rail_and_states_units(viral_env):
     assert preferred, "the manifest no longer offers the standard x402 rail"
     assert legacy, "the legacy rail should stay documented as the alternative"
     assert min(preferred) < min(legacy), (
-        "the manifest still presents the ~24s rail before the ~2s one")
+        "the manifest still presents the smart-wallet rail before the standard one")
 
     units = manifest.get("units")
     assert units, "the manifest gives amounts without saying which unit"

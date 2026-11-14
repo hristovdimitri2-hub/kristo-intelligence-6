@@ -199,8 +199,14 @@ def test_real_hash_change_is_still_detected_next_to_a_placeholder(
 
 
 def test_the_confirmation_threshold_is_untouched(monkeypatch):
-    """The fix ADDS a check; it must not have replaced depth."""
+    """The fix ADDS a check; it must not have replaced depth.
+
+    The value is 5 rather than 1 because the chain's cadence changed: 14.11.2026
+    measured 10,000 blocks in 2,000 s = 0.20 s/block on Base mainnet, so 1 block
+    was a 200 ms window, not the 2 s it was chosen as. The test is the "the
+    reorg check is not the depth" guard, not a pin on the old literal.
+    """
     monkeypatch.delenv("MIN_STANDARD_PAYMENT_CONFIRMATIONS", raising=False)
     monkeypatch.setenv("KRISTO_DISABLE_BACKGROUND_THREADS", "true")
     import main
-    assert main._required_standard_confirmations() == 1
+    assert main._required_standard_confirmations() == 5

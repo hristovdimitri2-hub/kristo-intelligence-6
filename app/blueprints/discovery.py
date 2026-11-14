@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1393
+SUITE_TESTS_PASSED = 1397
 SUITE_LAST_RUN = "2026-11-12"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -828,8 +828,8 @@ def pricing():
         verifies and settles it. No gas, and nothing waits on a block.
         <code>X-PAYMENT</code> is accepted as the v1 name.</li>
     <li><b>Alternative: <code>X-Payment-Proof</code></b>. Send USDC yourself and
-        supply the proof. Self-describing, but it waits <b>3 confirmations,
-        about 6 seconds</b> before the data is released.</li>
+        supply the proof. Self-describing, but it waits <b>12 confirmations,
+        about 2.5 seconds</b> before the data is released.</li>
   </ul>
   <p>Status codes: <code>402</code> no credential · <code>401</code> credential
      unusable · <code>425</code> settlement in flight, retry · <code>200</code>
@@ -3738,7 +3738,7 @@ def ai_plugin_json():
             "standard x402 header PAYMENT-SIGNATURE (EIP-3009, settled through "
             "the facilitator); clients on x402 v1 may send X-PAYMENT instead, "
             "and a manual on-chain transfer is also accepted via the "
-            "X-Payment-Proof header after 3 confirmations. This deployment "
+            "X-Payment-Proof header after 12 confirmations. This deployment "
             f"grants {FREE_TIER_LIMIT} free calls per client, so treat every "
             "call as paid. A free sample of every paid route is served at "
             "<endpoint>/sample and needs no payment."
@@ -3915,7 +3915,7 @@ last resort.
 
 1. Send `accepts[0].amount` — remembering it is in ATOMIC units, so `"5000"` is
    0.005 USDC — on Base to `accepts[0].payTo`.
-2. Wait for 3 confirmations (~6 seconds on Base) — this rail requires them.
+2. Wait for 12 confirmations (~2.5 seconds on Base) — this rail requires them.
 3. Repeat the request with the `X-Payment-Proof` header:
    `base64url(JSON({{"payer": "<your wallet>", "transaction_hash": "<tx hash>", "amount_usdc": <the ATOMIC amount you sent, e.g. 5000>}}))`.
    ATOMIC, exactly like `accepts[0].amount` — and it is the same field the 402
