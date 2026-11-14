@@ -3340,6 +3340,33 @@ nonce              → 0
 фасилитаторска авария не съществува. Вариант 1 е приемлив за един осемчасов
 прозорец, не като постоянно състояние. Има отделно напомняне за това.
 
+### Изпълнено в 20:22 София (14.11) — и едно откритие
+
+```
+PUT X402_FACILITATOR_TIMEOUT=5 -> HTTP 200
+after: 41 variables, X402_FACILITATOR_TIMEOUT set: True
+keys lost by this call: none
+```
+
+**ОТКРИТИЕ: Render НЕ рестартира сам при per-key PUT на env var.**
+`X402_FACILITATOR_TIMEOUT` се чете при import
+(`services/connectors.py:74`, `FACILITATOR_TIMEOUT = float(os.getenv(..., "15"))`),
+така че без рестарт старият процес продължава да ползва **15 s** и промяната е
+само на хартия. Проверено: ключът беше сложен, а `server_restarted` се появи
+едва когато задействах изрично `POST /v1/services/<id>/restart`. Това е важно за
+`--unset` на 15.11 в 04:05 — напомнянето вече включва рестарта като стъпка 2.
+
+След рестарта (`server_restarted` в 18:24:23 UTC, след PUT-а в 18:22):
+
+```
+/health -> 200 status=ok service=up db=ready
+x402-eip3009 -> verify=local canonical;
+  settle=self-broadcast (gas=key-set, funds unprobed) → CDP → payai (cdp: JWT OK)
+```
+
+Второто е и потвърждението на тази секция на живо: публичният ред вече казва
+`key-set, funds unprobed` вместо подвеждащото `gas=True`.
+
 `settlement_pending` от §50 вече покрива случая „CDP излъчи, но не потвърди",
 който е най-вероятният изход от този прозорец.
 
