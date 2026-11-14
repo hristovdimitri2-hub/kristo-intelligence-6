@@ -9379,6 +9379,38 @@ def nexus_dashboard():
 KEEPALIVE_INTERVAL_SECONDS = max(300, int(os.getenv("KEEPALIVE_INTERVAL_SECONDS", "600")))
 
 
+def _payment_rail_readiness():
+    """(verdict, detail) for the `payment_rail` block, WITHOUT taking a payment.
+
+    WHY THIS EXISTS. The block used to beat only from a settlement (and from a
+    settlement failure), so whenever no payment happened for two of its
+    five-minute intervals the dashboard read it as STALE and showed the rail red
+    — permanently, on a rail that was working. `services/organism.py` even
+    claimed in a comment that "this block also beats from the keep-alive path",
+    which was never implemented. A false alarm of exactly the class that comment
+    warns about: a panel nobody can act on teaches the reader to ignore it.
+
+    The keep-alive path now beats it with a READINESS verdict — is there a
+    settle path configured at all — which is answerable every cycle and is the
+    question the block's name actually asks. A settlement still beats it with
+    the stronger `ok`/`degraded` from the request path; this only stops the
+    silence from being read as death.
+    """
+    try:
+        chain = connectors._facilitator_chain()
+    except Exception as exc:  # noqa: BLE001 - telemetry only
+        return "degraded", "facilitator chain unreadable (%s)" % type(exc).__name__
+    if not chain:
+        return "degraded", ("no facilitator configured — self-broadcast is the "
+                            "only settle path")
+    labels = " → ".join(name for name, _ in chain)
+    try:
+        gas = connectors._gas_wallet_status()
+    except Exception:  # noqa: BLE001
+        gas = "unknown"
+    return "ok", "ready: self-broadcast(gas=%s) → %s" % (gas, labels)
+
+
 def _keepalive_loop():
     """Periodically ping our own public /health endpoint to prevent spin-down.
 
@@ -9408,6 +9440,14 @@ def _keepalive_loop():
             log.info("Keep-alive ping: %s -> HTTP %d", target, response.status_code)
         except Exception as exc:
             log.warning("Keep-alive ping failed (non-fatal): %s", exc)
+        # The rail's readiness is checked on EVERY cycle, independent of the
+        # ping: the ping keeps the instance awake, this keeps the block from
+        # reading "no payment lately" as "the rail is down".
+        try:
+            verdict, detail = _payment_rail_readiness()
+            _organism_beat("payment_rail", verdict, detail)
+        except Exception as exc:  # noqa: BLE001 - telemetry only
+            log.warning("payment_rail readiness beat failed: %s", exc)
         time.sleep(KEEPALIVE_INTERVAL_SECONDS)
 
 

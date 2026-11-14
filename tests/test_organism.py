@@ -462,3 +462,71 @@ def test_the_board_marks_an_unreadable_journal_as_unreadable(monkeypatch):
     out = main._safe_organism_journal()
     assert out["unreadable"] is True, (
         "a journal we cannot read was presented as an empty one")
+
+
+# ── the payment_rail block must not read "no payment lately" as "down" ───────
+
+def test_the_payment_rail_block_is_red_when_nothing_ever_beats(store):
+    """The false alarm this fix removes, stated as the state it started in.
+
+    `payment_rail` used to beat ONLY from a settlement, so on a quiet rail it
+    went stale after two five-minute intervals and the dashboard showed a red
+    rail that was working. organism.py even claimed a keep-alive beat existed;
+    it did not.
+    """
+    v = org.check_heartbeat("payment_rail", store)
+    assert v.verdict == org.NOT_REACHED
+    assert v.healthy is False, (
+        "a block that never reported was summed as healthy")
+
+
+def test_a_readiness_beat_makes_the_payment_rail_healthy(store):
+    """What the keep-alive now writes, and why it is enough to clear the red.
+
+    A READINESS beat answers "is there a settle path configured", which is the
+    question the block's name asks and which is answerable every cycle — unlike
+    "did somebody pay", which is not.
+    """
+    assert org.beat(store, "payment_rail", org.OK,
+                    "ready: self-broadcast(gas=key-set) → CDP → payai") is True
+    v = org.check_heartbeat("payment_rail", store)
+    assert v.verdict == org.OK
+    assert v.healthy is True
+
+
+def test_the_readiness_probe_reports_ok_with_a_chain_and_degraded_without(
+        monkeypatch):
+    """The probe itself: a settle path configured is `ok`, none is `degraded`.
+
+    It never pays, so it can run every keep-alive cycle.
+    """
+    import main
+    from services import connectors
+
+    monkeypatch.setattr(connectors, "_facilitator_chain",
+                        lambda: [("cdp", "https://api.cdp.coinbase.com")])
+    monkeypatch.setattr(connectors, "_gas_wallet_status", lambda probe=False: "key-set")
+    verdict, detail = main._payment_rail_readiness()
+    assert verdict == "ok", detail
+    assert "CDP" in detail or "cdp" in detail
+    assert "key-set" in detail
+
+    monkeypatch.setattr(connectors, "_facilitator_chain", lambda: [])
+    verdict, detail = main._payment_rail_readiness()
+    assert verdict == "degraded", detail
+    assert "no facilitator" in detail
+
+
+def test_the_readiness_probe_never_raises(monkeypatch):
+    """Telemetry must not be able to fail the loop that produces it."""
+    import main
+    from services import connectors
+
+    def boom():
+        raise RuntimeError("config exploded")
+
+    monkeypatch.setattr(connectors, "_facilitator_chain", boom)
+    verdict, detail = main._payment_rail_readiness()
+    assert verdict == "degraded"
+    assert "unreadable" in detail
+

@@ -91,8 +91,12 @@ EXPECTED_INTERVAL_SECONDS: Dict[str, int] = {
     "data_store": 60,
     # the dashboard warmer rebuilds every ~30s
     "delivery": 60,
-    # a settled or failed payment can be minutes apart, so this block also beats
-    # from the keep-alive path; its interval is the loosest of the fast ones
+    # a settled or failed payment can be minutes apart, so this block ALSO beats
+    # from the keep-alive path with a readiness verdict (main.py
+    # `_payment_rail_readiness`). The comment here used to claim that beat
+    # existed when it did not, so the block went stale — and read as a red rail —
+    # whenever no payment happened for two intervals. Its interval is the loosest
+    # of the fast ones.
     "payment_rail": 300,
     # the sentinel's health check, every 10 minutes
     "alerting": 600,
