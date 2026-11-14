@@ -29,7 +29,7 @@ STRIPE_WEBHOOK_SECRET=whsec_test_...  # ← From dashboard
 APP_PUBLIC_URL=http://localhost:5000  # ← Change when deploy
 
 # BLOCKCHAIN (Already configured)
-BASE_FEE_RECEIVER=0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
+BASE_FEE_RECEIVER=0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f
 BASE_RPC_URL=https://mainnet.base.org
 
 # TELEGRAM (Optional - for automation)

@@ -18,7 +18,7 @@ These endpoints were tested on 2026-08-28 and are LIVE:
 | `https://kristo-intelligence-api.onrender.com/.well-known/x402` | ✅ 200 OK | x402scan-compatible format, dynamic pricing $0.005 |
 | `https://kristo-intelligence-api.onrender.com/openapi.json` | ✅ 200 OK | Has x-payment-info, x-discovery.ownershipProofs |
 | `https://kristo-intelligence-api.onrender.com/api/stats` | ✅ 402 (after free tier) | Returns payment headers |
-| Fee receiver address | ✅ Correct | `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` |
+| Fee receiver address | ✅ Correct | `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` |
 | Price per call | ✅ Dynamic | $0.005 USDC (config-driven, not hardcoded) |
 
 **No deployment action needed.** The app auto-deploys from GitHub `main` branch on every push.
@@ -78,7 +78,7 @@ PayAPI.market has 89 live APIs and existing AI agent traffic.
 | **Category** | `Finance` / `Crypto` / `DeFi` |
 | **Base URL** | `https://kristo-intelligence-api.onrender.com` |
 | **Pricing** | `$0.005 per request` |
-| **Receiver wallet** | `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` |
+| **Receiver wallet** | `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` |
 | **Chain** | `Base (chain_id 8453)` |
 | **USDC contract** | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
 | **MCP endpoint** | `https://kristo-intelligence-api.onrender.com/mcp/sse` (if asked) |

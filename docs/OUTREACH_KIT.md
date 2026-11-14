@@ -57,7 +57,7 @@ hristovdimitri2@gmail.com. Редът е по приоритет.
 
 1. Отиди на payapi.market → "List your API" (или resubmit от акаунта)
 2. URL: `https://kristo-intelligence-api.onrender.com`
-3. Receiver: `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
+3. Receiver: `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f`
 4. Бележка към тях: *"Resubmission: strict-402 is live (every unpaid call
    returns the challenge) and challenges now follow the x402 v2 canonical
    format (CAIP-2, atomic units). Prior submission failed on the legacy

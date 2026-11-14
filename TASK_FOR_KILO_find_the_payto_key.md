@@ -121,7 +121,7 @@ d848a72  docs(status): key rotation done
 
 ```
 0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f   ← стар, "грешен", изгорен ключ, публикуван
-0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f   ← активният payTo
+0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f   ← активният payTo
                     ^^                  ^^
                     A900 vs A980        0DBE vs 8DBE
 ```
@@ -156,7 +156,7 @@ d848a72  docs(status): key rotation done
    `scripts/_seed_verify.py`, `scripts/_verify_seed_chain.py`.
    Кой от тях е създал портфейла и откъде е взел ключа?
 4. **Откъде идва литералът в `config.py`?**
-   `BOUND_BASE_FEE_RECEIVER = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"` —
+   `BOUND_BASE_FEE_RECEIVER = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"` —
    кой комит го е добавил и какво пише в съобщението му?
 5. **Chrome/MetaMask.** В Chrome е инсталиран MetaMask
    (`nkbihfbeogaeaoehlefnkodbefgpgknn`). Ако собственикът държи ключа там, кажи

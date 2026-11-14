@@ -14,7 +14,7 @@ Before you start, gather these:
 - [ ] Render.com account (free to create at https://render.com)
 - [ ] Base wallet with:
   - Wallet private key (will be set as `WALLET_PRIVATE_KEY`)
-  - The wallet must own address `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` (the bound fee receiver)
+  - The wallet must own address `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` (the bound fee receiver)
   - At least 0.001 ETH for gas (~$3 at current prices)
 - [ ] (Optional) Stripe account for VIP subscriptions
 - [ ] (Optional) Telegram bot token from @BotFather
@@ -132,7 +132,7 @@ This returns:
     "https://your-app.onrender.com/api/sales",
     "https://your-app.onrender.com/api/bot-status"
   ],
-  "ownershipProofs": ["0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"]
+  "ownershipProofs": ["0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"]
 }
 ```
 
@@ -167,7 +167,7 @@ PayAPI.market (https://payapi.market) is another x402 marketplace with 89 live A
    - **Category:** Finance / Crypto / DeFi
    - **Base URL:** `https://kristo-intelligence-v6.onrender.com`
    - **Pricing:** from $0.003 per request, per route (live: the 402 challenge is the authority)
-   - **Receiver wallet:** `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
+   - **Receiver wallet:** `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f`
    - **Chain:** Base (chain_id 8453)
    - **USDC contract:** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
 4. Submit the form
@@ -311,7 +311,7 @@ After deployment, you need real customers to generate revenue. Suggested channel
 
 ### x402 payment not detected
 
-- Verify receiver address is `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f` (commit dcebafd fix)
+- Verify receiver address is `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` (commit dcebafd fix)
 - Check that the blockchain monitor thread is running (look for `blockchain-monitor` in logs)
 - Verify wallet has USDC balance for gas of verification calls
 

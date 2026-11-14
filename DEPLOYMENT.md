@@ -288,12 +288,12 @@ The app supports two payment channels:
 1. A client (AI agent or human) calls `/api/stats`, `/api/sales`, or `/api/bot-status`
 2. No free tier in production (KRISTO_FREE_TIER_LIMIT=0): the first call already returns HTTP 402
 3. Subsequent calls return HTTP 402 with payment instructions
-4. Client sends the exact amount from the 402 body (0.003-0.005 USDC) on Base to `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`
+4. Client sends the exact amount from the 402 body (0.003-0.005 USDC) on Base to `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f`
 5. After on-chain confirmation (~2 seconds on Base), client retries the endpoint
 6. Access is granted automatically (verified via ERC-20 Transfer event logs)
 
 **Your action:** Make sure your wallet (`WALLET_PRIVATE_KEY`) has the
-matching public address that owns `0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f`,
+matching public address that owns `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f`,
 OR monitor that address externally. The app currently monitors incoming
 transfers and grants access automatically.
 

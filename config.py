@@ -32,7 +32,7 @@ except ImportError:  # config се чете и извън пълния venv — 
 # wallet does not change). Normalising here means every consumer (402 header,
 # body mirrors, manifests, tests) inherits ONE spelling.
 BOUND_BASE_FEE_RECEIVER = _checksum(
-    "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f")
+    "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f")
 
 
 def get_base_fee_receiver() -> str:

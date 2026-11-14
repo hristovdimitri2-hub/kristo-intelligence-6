@@ -80,3 +80,11 @@ kristo_paid_demo_*.mp4
 ops/*.zip
 
 kristo_paid_demo_preview.jpg
+
+# Speckit / Cline scaffolding: tool config, not this product's source. It was
+# sitting untracked in the working tree and would have been swept into a commit
+# by any `git add -A`.
+kristo-intelligence/
+.specify/
+.clinerules/
+

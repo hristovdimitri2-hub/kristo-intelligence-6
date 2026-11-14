@@ -15,7 +15,7 @@ Ported from the kristo-v6 prototype and adapted for THIS repo:
      settlement relayer pays the gas, so the payer needs NO ETH.
   4. DRY RUN (default): STOP before sending anything and verify:
         - amount      = 3000 atomic
-        - payTo       = 0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f
+        - payTo       = 0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f
         - signer      = 0xE50c5212e8211639C49276dA190E248B83935763
         - the signature recovers back to that signer
         - every signed field matches the fetched challenge
@@ -52,7 +52,7 @@ DEFAULT_BASE = "https://kristo-intelligence-api.onrender.com"
 CHALLENGE_PATH = os.getenv("KRISTO_CHALLENGE_PATH", "/api/v1/signal")
 PAYMENT_HEADER = "PAYMENT-SIGNATURE"          # Rail 1 (standard x402 v2 header)
 EXPECTED_AMOUNT_ATOMIC = "3000"               # 0.003 USDC (6 decimals)
-EXPECTED_PAYTO = "0xd4cdA900839C0FED4374EE37EA0DBE8e4c6fd08f"
+EXPECTED_PAYTO = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
 EXPECTED_SIGNER = "0xE50c5212e8211639C49276dA190E248B83935763"
 EXPECTED_NETWORK = "eip155:8453"              # Base mainnet (CAIP-2)
 CHAIN_ID = 8453
