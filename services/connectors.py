@@ -1307,6 +1307,76 @@ def l402_ready() -> bool:
 _EIP3009_DETAIL_CACHE: dict = {}
 _EIP3009_DETAIL_TTL_SECONDS = 60
 
+#: Cache for the gas-wallet balance probe. Only an authenticated operator view
+#: pays for it, and never more than once per TTL.
+_GAS_WALLET_CACHE: dict = {}
+_GAS_WALLET_EMPTY_TTL = 60
+_GAS_WALLET_FUNDED_TTL = 600
+
+
+def _gas_balance_wei(address: str) -> int:
+    """Base ETH balance of `address` in wei. Raises on failure.
+
+    Its own function so the tests can replace the RPC without a network, which
+    is the only way the `empty` branch can be covered at all.
+    """
+    rpc = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+    body = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "eth_getBalance",
+        "params": [address, "latest"],
+    }).encode()
+    req = urllib.request.Request(
+        rpc, data=body,
+        headers={"User-Agent": "kristo-gas-probe",
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        result = json.load(resp).get("result")
+    return int(result, 16) if result else 0
+
+
+def _gas_wallet_status(probe: bool = False) -> str:
+    """What is actually KNOWN about the self-broadcast gas wallet.
+
+    `absent`  — no key configured, so self-broadcast cannot sign at all.
+    `key-set` — a key exists; we are NOT claiming it holds gas. This is all the
+                free public line says, because the alternative costs an RPC call
+                per anonymous request.
+    `funded`  — probed: the wallet holds Base ETH.
+    `empty`   — probed: it holds NONE, so self-broadcast cannot pay gas.
+    `unknown` — the probe failed; say so rather than guess.
+
+    WHY THIS EXISTS. The line used to print `gas=True` from
+    `bool(os.getenv("WALLET_PRIVATE_KEY"))`, which says only that a KEY EXISTS.
+    On 13.11 the production key derived to 0x9c1eb97e…750dd holding
+    0.00000000 ETH, so /api/connectors advertised a self-broadcast fallback that
+    could not run — while CDP was about to be degraded for eight hours. The only
+    reader who cares about that line is an operator during exactly such a window,
+    and `gas=True` told them the opposite of the truth.
+    """
+    key = (os.getenv("WALLET_PRIVATE_KEY") or "").strip()
+    if not key:
+        return "absent"
+    if not probe:
+        return "key-set"
+    now = time.time()
+    hit = _GAS_WALLET_CACHE.get("v")
+    if hit:
+        age, status = hit
+        ttl = (_GAS_WALLET_FUNDED_TTL if status == "funded"
+               else _GAS_WALLET_EMPTY_TTL)
+        if now - age < ttl:
+            return status
+    status = "unknown"
+    try:
+        from eth_account import Account
+        acct = Account.from_key(key if key.startswith("0x") else "0x" + key)
+        status = "funded" if _gas_balance_wei(acct.address) > 0 else "empty"
+    except Exception as exc:  # noqa: BLE001 - the label IS the fallback
+        log.info("gas wallet probe failed: %s", type(exc).__name__)
+        status = "unknown"
+    _GAS_WALLET_CACHE["v"] = (now, status)
+    return status
+
 
 def _eip3009_detail(reveal_detail: bool = False) -> str:
     """
@@ -1326,7 +1396,7 @@ def _eip3009_detail(reveal_detail: bool = False) -> str:
     wallet address: the reason a JWT failed is troubleshooting, not status.
     """
     _now = time.time()
-    gas = bool(os.getenv("WALLET_PRIVATE_KEY"))
+    gas = _gas_wallet_status(probe=reveal_detail)
     chain = _facilitator_chain()
     key_id = (os.getenv(CDP_RAIL_KEY_ID_ENV) or
               os.getenv("CDP_API_KEY_ID") or "").strip()
@@ -1361,7 +1431,15 @@ def _eip3009_detail(reveal_detail: bool = False) -> str:
             else:
                 cdp = "JWT FAIL"
         detail += " (cdp: %s)" % cdp
-    result = f"verify=local canonical; settle=self-broadcast (gas={gas}) → {detail}"
+    # `gas=empty` is the one an operator must not miss: the chain below it looks
+    # healthy while its first leg cannot run at all.
+    gas_label = {
+        "empty": "EMPTY — self-broadcast cannot pay",
+        "key-set": "key-set, funds unprobed",
+        "unknown": "unknown (probe failed)",
+    }.get(gas, gas)
+    result = (f"verify=local canonical; settle=self-broadcast "
+              f"(gas={gas_label}) → {detail}")
     _EIP3009_DETAIL_CACHE[_ck] = (_now, result)
     return result
 

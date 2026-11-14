@@ -1142,6 +1142,75 @@ def test_settlement_pending_matching_is_on_the_code_not_the_message():
 
 
 
+def test_the_gas_line_reports_funds_not_just_a_key(monkeypatch):
+    """`gas=True` advertised a fallback that could not run.
+
+    The line came from `bool(os.getenv("WALLET_PRIVATE_KEY"))`, which says only
+    that a KEY EXISTS. On 13.11 the production key derived to 0x9c1eb97e…750dd
+    holding 0.00000000 ETH on Base, so /api/connectors claimed a working
+    self-broadcast leg while CDP was about to be degraded for eight hours. The
+    one reader who cares about that line is an operator during exactly such a
+    window.
+
+    The PUBLIC line deliberately does not probe (an RPC per anonymous request
+    would be the cost of a nicer word), so it says `key-set` and claims nothing;
+    the operator view probes and says `funded` / `empty`.
+    """
+    from services import connectors
+
+    connectors._GAS_WALLET_CACHE.clear()
+    connectors._EIP3009_DETAIL_CACHE.clear()
+
+    # No key at all -> absent, and nothing is probed even when asked.
+    monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
+    assert connectors._gas_wallet_status() == "absent"
+    assert connectors._gas_wallet_status(probe=True) == "absent"
+
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "11" * 32)
+    called = []
+
+    def fake_balance(address):
+        called.append(address)
+        return 0
+
+    monkeypatch.setattr(connectors, "_gas_balance_wei", fake_balance)
+
+    # The public line claims nothing about funds and does not touch the RPC.
+    assert connectors._gas_wallet_status() == "key-set"
+    assert called == [], "the free public line probed the chain"
+
+    # The operator view does probe, and reports the truth: no gas.
+    assert connectors._gas_wallet_status(probe=True) == "empty"
+    assert len(called) == 1
+
+    # ...and the probe is cached, so the operator view is not an RPC per request.
+    assert connectors._gas_wallet_status(probe=True) == "empty"
+    assert len(called) == 1, "the balance probe is not cached"
+
+    # Funded is the other honest answer.
+    connectors._GAS_WALLET_CACHE.clear()
+    monkeypatch.setattr(connectors, "_gas_balance_wei", lambda a: 10 ** 15)
+    assert connectors._gas_wallet_status(probe=True) == "funded"
+
+    # A FAILED probe says so rather than guessing.
+    connectors._GAS_WALLET_CACHE.clear()
+
+    def boom(address):
+        raise OSError("rpc down")
+
+    monkeypatch.setattr(connectors, "_gas_balance_wei", boom)
+    assert connectors._gas_wallet_status(probe=True) == "unknown"
+
+    # And the published line spells out the alarming case.
+    connectors._EIP3009_DETAIL_CACHE.clear()
+    connectors._GAS_WALLET_CACHE.clear()
+    monkeypatch.setattr(connectors, "_gas_balance_wei", lambda a: 0)
+    line = connectors._eip3009_detail(reveal_detail=True)
+    assert "EMPTY" in line and "cannot pay" in line, line
+    connectors._EIP3009_DETAIL_CACHE.clear()
+    connectors._GAS_WALLET_CACHE.clear()
+
+
 def test_the_public_health_line_is_cached_and_hides_failure_detail(monkeypatch):
     """`/api/connectors` is free and unauthenticated.
 
