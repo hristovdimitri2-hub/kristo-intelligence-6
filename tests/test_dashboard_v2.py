@@ -336,12 +336,16 @@ def test_dsn_passwords_are_redacted_too():
     surface publishes the database password."""
     from integrations.dashboard_store import redact_rpc
 
+    # The password below is a deliberate non-secret. A real Render DSN used to
+    # sit here, in a public repository, which published a live database
+    # credential; the fixture only has to look like a DSN, so it is now
+    # obviously fake.
     out = redact_rpc("could not connect to "
-                     "postgresql://kristo_db_user:cwVbr2YtD5UghXAAoCY8J3GB@"
-                     "dpg-daj8ue0jo6nc73ctsh70-a.oregon-postgres.render.com:5432/kr")
-    assert "cwVbr2YtD5UghXAAoCY8J3GB" not in out
+                     "postgresql://kristo_db_user:NOT_A_REAL_PASSWORD@"
+                     "dpg-example-not-a-real-host-a.oregon-postgres.render.com:5432/kr")
+    assert "NOT_A_REAL_PASSWORD" not in out
     assert "kristo_db_user" in out              # user stays diagnosable
-    assert "dpg-daj8ue0jo6nc73ctsh70-a.oregon-postgres.render.com" in out
+    assert "dpg-example-not-a-real-host-a.oregon-postgres.render.com" in out
     assert "hunter2" not in redact_rpc("redis://default:hunter2@cache.internal:6379")
     # A bare host with no credential is untouched — no false positives.
     assert redact_rpc("https://mainnet.base.org") == "https://mainnet.base.org"
