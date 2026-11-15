@@ -88,3 +88,20 @@ kristo-intelligence/
 .specify/
 .clinerules/
 
+
+# Scratch that `git add -A` tracked once (15.11) — commit-message drafts, raw
+# diffs, local key checkers, build logs and state dumps. Never part of the repo.
+_commitmsg*.txt
+_lumiere_issue.md
+check_key.*
+amount_usdc_sweep.txt
+commit_*_diff_only.txt
+commit_*_full.txt
+main_py_diff.txt
+main_py_full_diff.txt
+main_py_*.txt
+measure_meta.py
+docs/monitor_state.json
+scripts/docker_build_log.txt
+scripts/phase*_result.json
+scripts/phase*_check.json
