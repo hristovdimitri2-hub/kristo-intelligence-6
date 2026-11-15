@@ -1,7 +1,7 @@
 # PERFORMANCE & ARCHITECTURE AUDIT — kristo-intelligence-6
 
 **Дата:** 2026-11-03 · **Клон:** `main` · **HEAD по време на одита:** `66a0ce4` (2026-11-02, "step2: echo extensions + resource in x402 payment payload")
-**Локален корен:** `C:\Users\AlienWare\Desktop\projects\kristo-intelligence-6`
+**Локален корен:** `<repo>` (пътят е махнат — репото е публично)
 **Отдалечено:** `https://github.com/hristovdimitri2-hub/kristo-intelligence-6` (origin, main)
 **Обхват:** 345 `.py` файла (без `venv/`), 5859 реда `main.py`, 44 `@app.route` + 26 blueprint рута, 89 файла в `docs/`, 55 файла в `tests/`.
 

@@ -1,7 +1,7 @@
-﻿param([switch]$Execute)
+param([switch]$Execute)
 
 $ErrorActionPreference = 'Stop'
-$Repo      = 'C:\Users\AlienWare\Desktop\projects\kristo-intelligence-6'
+$Repo      = Split-Path -Parent $PSScriptRoot
 $Log       = Join-Path $Repo 'data\phase1_micro_payments.log'
 $PlanJson  = Join-Path $Repo 'data\phase1_micro_payments_plan.json'
 $Helper    = Join-Path $Repo 'scripts\phase1_paid_call.py'
