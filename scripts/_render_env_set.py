@@ -8,7 +8,7 @@ key = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "secrets", "render_api_key.txt")).read().strip()
 h = {"Authorization": f"Bearer {key}", "Accept": "application/json",
      "Content-Type": "application/json"}
-sid = "srv-d9maroe7bikc73adkaug"
+sid = os.environ.get("RENDER_SERVICE_ID", "")
 
 for attempt in range(4):
     try:

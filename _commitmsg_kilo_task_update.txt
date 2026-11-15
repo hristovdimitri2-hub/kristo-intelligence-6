@@ -1,0 +1,34 @@
+Kilo task: record the secrets scan, the archives, and one wrong inference
+
+The owner handed over secrets/ directly and asked for the key again, so I
+ran the sweeps that had not been run, and one of them exposed a mistake in
+my own method.
+
+New evidence recorded in the task:
+
+  * secrets/ — all 7 files read directly, 0 candidates.
+  * chatbox-backup-2026-11-3.zip (316 MB, 1299 members) — decompressed, 0.
+  * dsh-session-*.zip (308 MB) — decompressed, 0.
+  * BIP-39 seed phrases (12/24 words), archives + repo, 1043 units — 0.
+
+The methodological note matters more than the counts: the first archive
+pass read .zip files as raw bytes, where a compressed archive shows no
+plaintext at all. Numbers now come from real decompression, and the task
+says so, so the next person does not repeat the blind pass.
+
+CORRECTION, and this one is the point. I first wrote that nonce = 0 proves
+nobody ever signed with the address. That is wrong: all four project
+wallets have nonce = 0, including the demo wallet whose private key sits in
+secrets/demo_private_key.txt and which has paid real tests. x402 settles
+through EIP-3009 transferWithAuthorization — the payer signs OFF-CHAIN and
+the facilitator submits the transaction, so a payer's nonce stays 0 no
+matter how much it signs. On-chain data is silent on key possession.
+
+What does hold: both addresses have a valid EIP-55 checksum, so the active
+payTo is not a hand-typed typo of the old one — it came from a real wallet
+or generator.
+
+Net: seven independent negative sweeps, and the honest answer is "not on
+this disk", not "does not exist". The remaining possibilities are the
+owner's MetaMask, a seed written down, or a key that was generated and
+discarded.

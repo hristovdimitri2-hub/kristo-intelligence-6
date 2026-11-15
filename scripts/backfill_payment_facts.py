@@ -9,9 +9,9 @@ still dated by the LEAD, and the dashboard falls back to that. Never guess the
 values: take them from the verified Stripe event (`GET /v1/events/<evt_id>`:
 `created` and `data.object.id`), the same pair the Stripe feed cross-checks.
 
-Default values are the project's FIRST sale, verified twice (event
-`evt_1UGEdQPz7WIGP94b829zoDXH`, session `cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK`,
-$34.80 = $29.00 + $5.80 VAT):
+Default values are the project's FIRST sale ($34.80 = $29.00 + $5.80 VAT). The
+event and session ids are not stored here — pass them, or set
+KRISTO_STRIPE_EVENT_ID / KRISTO_CHECKOUT_ID:
 
     python -X utf8 scripts/backfill_payment_facts.py
 
@@ -28,14 +28,14 @@ import time
 import requests
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE = "srv-d9maroe7bikc73adkaug"
-DEFAULT_EMAIL = "hristovdimitri2@gmail.com"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
+DEFAULT_EMAIL = os.environ.get("KRISTO_LEAD_EMAIL", "")
 DEFAULT_PAID_AT = "2026-09-16T08:56:08+00:00"
-DEFAULT_CHECKOUT = ("cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZr"
-                    "BsojexK")
-#: The refund of that same sale, verified at Stripe on 17.09 (refund
-#: `re_3UGEdKPz7WIGP94b0eWVeE61`, charge `ch_3UGEdKPz7WIGP94b0H7e62si`,
-#: `amount_refunded` 3480, status succeeded, created 06:23:30 UTC).
+DEFAULT_CHECKOUT = os.environ.get("KRISTO_CHECKOUT_ID", "")
+#: The refund of that same sale, verified at Stripe on 17.09
+#: (`amount_refunded` 3480, status succeeded, created 06:23:30 UTC). The refund
+#: and charge ids are not stored here; pass them or set KRISTO_REFUND_ID /
+#: KRISTO_CHARGE_ID.
 DEFAULT_REFUND_USD = 34.80
 DEFAULT_REFUNDED_AT = "2026-09-17T06:23:30+00:00"
 

@@ -1,0 +1,26 @@
+Remove internal documents from the public repo
+
+An external review of the repo as a reviewer would see it named the
+internal documents that should not be in the public tree: the status
+diary, the audit report, the V5 status files, the probes and the video
+scripts. They are not secret — they are internal — and they are not
+what a reviewer should read first.
+
+Removed from the public tree (archived outside the repo at
+C:\Users\AlienWare\kristo_archive_internal):
+
+  PROJECT_STATUS.md          (271 KB, the status diary)
+  CODE_AUDIT_REPORT.md       (the audit, its own findings are Critical)
+  FINAL_STATUS.txt           ("100% production-ready" — contradicted by
+                              the audit's own Critical findings)
+  PROJECT_COMPLETION_REPORT.md
+  TASK_SUMMARY.md
+  docs/evidence/video_scripts/  (3 files)
+  docs/evidence/probes/         (25 files)
+
+This is a commit, not a history rewrite: deleting a tracked file does not
+remove it from git history. The bytes are still in the old commits, so
+anyone who wants them can still read them. A true removal would need a
+history rewrite, which is a separate decision.
+
+Verified: 1371 passed, 1 skipped, 0 failed.

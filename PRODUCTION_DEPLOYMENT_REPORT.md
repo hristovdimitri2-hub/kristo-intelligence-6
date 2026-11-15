@@ -78,9 +78,9 @@ published, payment-ready, or approved for real customer sales.
 | **OpenAPI Docs** | https://kristo-intelligence-api.onrender.com/openapi.json |
 
 ## Render Dashboard
-- **Service ID**: srv-d9maroe7bikc73adkaug
+- **Service ID**: <render-service-id>
 - **Service Name**: kristo-intelligence-api
-- **Monitoring**: https://dashboard.render.com/services/srv-d9maroe7bikc73adkaug
+- **Monitoring**: https://dashboard.render.com/services/<render-service-id>
 
 ## Next Steps
 

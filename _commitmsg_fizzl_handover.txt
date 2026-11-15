@@ -1,0 +1,16 @@
+HANDOVER §37: Fizzl check, badge, and the two attacks we pass
+
+The "free full check" from the x402-health post is self-service, not a
+DM: GET /api/trust?url= returns our own record. Ours reads "go", no
+codes, 3/3 days payable, 141 ms. The 3/3 is honest but thin — the scan
+only has 3 days of our record, so the badge must not be read as a long
+streak.
+
+Two of the five "x402 attacks" from the paper are checkable from outside
+and we pass both: no HEAD leak (7/7 routes answer 402 to HEAD) and
+Cache-Control: no-store on every paid answer.
+
+Wever Pay: read the offer, did not pay. Its own metrics report 0 x402
+connections and 201 successful / 663 failed checks, so the 0.025 USDC
+spend is deferred — the service is not a reliable test of a buyer-signed
+receipt. The monitor needs a wallet sign-in, which is an owner action.

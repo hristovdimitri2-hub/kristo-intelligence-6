@@ -1,7 +1,8 @@
 ﻿"""Test: pokt 10-block recipient-filtered query at canary block 50783187."""
+import os
 import sys
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import web3  # noqa: E402
 
 w3 = web3.Web3(web3.HTTPProvider("https://base-pokt.nodies.app"))

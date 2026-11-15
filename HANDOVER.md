@@ -9,6 +9,12 @@
 > Секциите 1–39 са записът от 09.11–13.11 и част от „отвореното" в тях е
 > затворено след това. **§62 „Отворени задачи" е живият списък.** Където ранна
 > секция казва нещо, което по-късна работа опровергава, по-късната печели.
+>
+> **За препратките.** Номерирани секции има само от **§27** нататък. Препратки
+> към §1–§26 (срещат се в §12, §19, §20, §22, §29) идват от **по-ранна
+> номерация**, която вече не съществува в този файл — третирай ги като „виж
+> ранната част", не като линк. Изключение: „x402 v2 spec §9" е секция от
+> **спецификацията**, не от този документ.
 
 ## Текущо състояние (15.11.2026)
 
@@ -283,7 +289,7 @@ client. Worth an email to `nikos@nsgoods.org`; not worth a third blind variant. 
 payload is not the suspect: PayAI's facilitator returned `isValid: true` for the same
 signing code minutes later.
 The reproducible scripts live in
-`C:\Users\AlienWare\.dsh\state\superagent\_forensics\` (`check_nonce_reach.py`,
+`<forensics-dir>\` (`check_nonce_reach.py`,
 `check_whale_chunk.py`, `check_recon_window.py`, `pay_nsgoods_payability.py`,
 `diag_nsgoods_402.py`, `set_whale_chunk.py`) — deliberately outside the repo, like every
 other probe in this project.
@@ -666,6 +672,11 @@ the log saying:
 ```
 
 Tests: 12 new (44 in `test_dashboard_resilience.py`, suite **1,272**). The ones that carry the
+
+> **Поправено 15.11.** Трите записа за този файл казват 44 (§тук), после 35 и
+> после 38 — при „12 new", „2 new", „3 new". Броят не може да пада, значи поне
+> едно от числата е сгрешено. Днес файлът съдържа **38** теста (преброени с
+> `pytest --collect-only`).
 weight: a restart serves the stored board through the real route with 200; a 10-minute-old stored
 board is LABELLED stale rather than painted fresh; the admin and operator grants are never written
 and never read back; a corrupt board still cold-starts; and structurally — the page's 503 branch
@@ -802,7 +813,7 @@ about two minutes later. That is the same mechanism as the 503 the owner first r
 triggered by the docs-only handover commit `d49787a`.
 
 **The fix (owner-approved, infra, 10.11 05:42).** `healthCheckPath` is now **`/health`** on
-`srv-d9maroe7bikc73adkaug`, applied through `PATCH /v1/services/{id}` → `serviceDetails.healthCheckPath`
+`<render-service-id>`, applied through `PATCH /v1/services/{id}` → `serviceDetails.healthCheckPath`
 and read back as `"/health"`. Render now sends traffic to an instance only once that path answers,
 so a deploy is zero-downtime by construction rather than by luck. Nothing about the application
 changed for this — `/health` is the endpoint the app's own keep-alive already pings, and it answers
@@ -1370,7 +1381,8 @@ instead of 5 — enough to see not just who wins but the flag each row carries. 
 | on-chain USDC sales and revenue history | 3/5 | $0.005 | **false** |
 | verify a seller before paying it on Base | 5/5 | $0.10 | false |
 
-Three first places, three price points, six times `settlement_required`.
+**Четири** first places (редове 1–4 по-горе, всичките `1/5`), три различни цени,
+шест пъти `settlement_required`.
 
 Three independent measurements say price decides nothing:
 
@@ -1925,7 +1937,10 @@ The owner's answer to "where should Kristo go?" was **"не зная още — 
   from 731,000 (Dec 2025) to ~57,000 (Feb 2026) — **−92%** — and then matured.
   Our 11 external payers being bots is therefore the NORM, not our failure.
 * **Chain: we are on the right one.** x402scan, same window: Base **3,928,600**
-  (83.0%) vs Solana **798,702** (16.9%) — the two sum exactly to the headline.
+  (83.0%) vs Solana **798,702** (16.9%). The two account for **4,727,302** of the
+  **4,731,875** headline; the remaining **4,573 (0.1%)** sit on other chains or are
+  unattributed. Ранната версия казваше „the two sum exactly to the headline" — не
+  е вярно, разликата е 4 573, и процентите дават 99.9%, не 100%.
   Headlines claiming "Solana 65–90%" use other scopes; Sato Hub documents why the
   numbers are not comparable.
 * **The largest real 402 traffic is not agent→agent.** Cloudflare: **over 1
@@ -2070,8 +2085,15 @@ listed 395,796 · active 236,960 · delisted 158,836 · reachable 36%
 402-spec-compliant 95% of reachable · payTo wallets ever paid 27% · earning 6,196
 all time $57.61M / 258,512,256 settlements / 226,927 payers
 Base $46.89M (81.4%) · Solana $10.73M (18.6%) · +148% MoM (Oct vs Sep 2026)
-#1 earner is ONE unlisted address at $2.00M = 49.4% of all volume
+#1 earner is ONE unlisted address at $2.00M
 ```
+
+> **Поправено 15.11.** Тук пишеше „$2.00M = 49.4% of all volume", а изводът
+> отдолу — „Half the ecosystem's dollars are one address". Срещу записания
+> знаменател (all time **$57.61M**) един адрес е **3.5%**, не 49.4%, и „половината
+> долари" не се подкрепя от тези числа. 49.4% е било смятано срещу друг, по-тесен
+> обхват, който не е записан — затова изводът се оттегля, докато обхватът не се
+> запише.
 
 Half the ecosystem's dollars are one address; the directory is "mostly phantom".
 Discovery sources, and where we are: x402scan 206,225 ✅ · bazaar 54,695 ✅ ·
@@ -2098,8 +2120,12 @@ verification is free. Our own settlements, counted from `payment_guards` and
 ```
 2026-09:   4 settlements
 2026-10:  26
-2026-11:  60 (month to date)   — of which 53 settled, 16 rejected, 4 settle_failed
+2026-11:  73 attempts (month to date) — 53 settled, 16 rejected, 4 settle_failed
 ```
+
+> **Поправено 15.11.** Редът казваше „60 (month to date)" и после даваше
+> 53+16+4 = **73**. Частите не може да са повече от цялото, значи „60" беше
+> грешното число (или броеше друг прозорец). Тук стои сборът на частите.
 
 That is **0.4–6% of the free tier**, and the rejected attempts cost nothing
 because verification is free. **Our facilitator cost is $0** and there is no
@@ -2605,7 +2631,7 @@ for the owner; it is not a web form.
 
 **Но пътят съществуваше.** `redact_rpc()` (в `integrations/dashboard_store.py`)
 съществува точно защото RPC доставчиците слагат ключа в самата URL — примерно
-`https://base-mainnet.g.alchemy.com/v2/<КЛЮЧ>`. Имаше обаче осем места, където
+`https://base-mainnet.g.alchemy.com/v2/<КЛЮЧ>`. Имаше обаче **десет** места, където
 логът беше редактиран, а **същото изключение беше записано нередактирано** в
 състояние, което после излиза публично:
 
@@ -2730,7 +2756,7 @@ addresses". Проверих регистъра днес (`/api/v1/settlement-cl
 
 **Писмото е изпратено.** Собственикът каза „прати" на 13.11.2026, 09:35 София.
 Изпратено 09:40 до `info@x402-list.com` — единственият адрес, който x402 List
-публикува (страницата им /contact), от `hristovdimitri2@gmail.com` през Gmail
+публикува (страницата им /contact), от `<contact-email>` през Gmail
 SMTP. Текстът е `_forensics/x402list_followup_email.md` (извън репото), 5 544
 байта. Съдържа и двата отговора, които намерих сам, и корекцията на нашата
 невярна цифра. Чакаме отговор в рамките на 5 работни дни.
@@ -3575,20 +3601,29 @@ standard rail-ът да има поне 0.5 s, и двата да останат
 `HANDOVER.md` и той съдържа §40–§61. `git pull` не връща втори файл. Ако някой
 види `HANDOVER.md.`, това е ръчно копие през уеб интерфейса, не е версия.
 
-### Оставено за решение (не е поправено тук)
+### Осемте числови находки — поправени на 15.11
 
-Тези са верни находки, но поправката им променя анализ, не правопис — затова са
-в **§62 „Отворени задачи"**, а не са пренаписани мълчаливо:
+Първо бяха оставени настрана, защото поправката им променя анализ, не правопис.
+Собственикът каза „да", затова са поправени **на мястото им**, всяка с бележка
+какво е било и защо е сгрешено:
 
-* §31 не се сумира (60 срещу 53+16+4=73) и заглавието казва „three", а точките са 4.
-* §38 казва „осем места", таблицата има 10 реда; примерът `postgresql[REDACTED]host`
-  е повреден от редакцията.
-* §29: 3 928 600 + 798 702 = 4 727 302, не 4 731 875.
-* x402-trust: „$2.00M = 49.4% of all volume" смесва обхвати (спрямо $57.61M е ~3.5%).
-* §57: лентата $0.01–0.02 има ~687 портфейла, от които 659 са един endpoint —
-  „~8× повече" е артефакт на един случай.
-* agent402: „Three first places" срещу четири реда с 1/5.
-* Броят тестове в `test_dashboard_resilience.py` скача 44 → 35 → 38.
+* **§31** не се сумираше („60" срещу 53+16+4=**73**) → сборът на частите, с бележка.
+* **§38** казваше „осем места", таблицата има **10** реда → поправено на „десет".
+  (Повреденият пример `postgresql[REDACTED]host` беше артефакт на одиторската
+  редакция — в файла стои `postgresql://user:ПАРОЛА@host:5432/db` и е коректен.)
+* **§29**: 3 928 600 + 798 702 = **4 727 302**, не 4 731 875. Твърдението „the two
+  sum exactly to the headline" е оттеглено; остатъкът 4 573 (0.1%) е изписан.
+* **x402-trust**: „$2.00M = 49.4% of all volume" смесваше обхвати — спрямо
+  записания знаменател $57.61M един адрес е **3.5%**, и изводът „half the dollars
+  are one address" е оттеглен, докато обхватът не се запише.
+* **§57**: лентата $0.01–0.02 има ~687 портфейла, от които **659 са един endpoint**
+  (~96%) → „~8× повече" е артефакт на един случай, изписан като такъв.
+* **agent402**: „Three first places" → **четири** реда с `1/5`.
+* **Броят тестове** в `test_dashboard_resilience.py` скачаше 44 → 35 → 38 при
+  „12/2/3 new". Броят не може да пада; днес файлът има **38** теста (преброени).
+* **Препратките** към §1–§26 не сочат нищо, защото номерирани секции има само от
+  §27. Добавена е бележка в началото; конкретната грешна препратка в §58
+  (`§9/§35`) е поправена на `§31 и §39`.
 * Кръстосани препратки към §9, §12, §19, §20, §22, които не съществуват като
   номерирани секции.
 
@@ -3768,7 +3803,7 @@ service: 19 endpoints, calls_30d 53, paying_wallets_max 2,
 ```
 
 **Трета страна, независимо, стигна до същия извод като нашия собствен
-класификатор** (§9/§35: 75 `own_key` срещу 9 `external`). Това не е ново знание,
+класификатор** (§31 и §39: 75 `own_key` срещу 9 `external`). Това не е ново знание,
 но е първото потвърждение отвън — и `concentrated: true` е точно това, което
 купувач с `nohumans-guard` вижда, преди да плати.
 
@@ -3799,8 +3834,11 @@ your_price: 0.003 → cheaper_than 67%, percentile 33,
 | $0.05–0.10 | 3 | 3 (100%) | 4 |
 | над $0.10 | 1 | 0 (0%) | 2 |
 
-Лентата **$0.01–0.02 има ~8× повече платещи портфейли** от съседните. И
-топ-печелившият в категорията е `console.ax1.vc` на **$0.02** с **659 платещи
+Лентата **$0.01–0.02 изглежда с ~8× повече платещи портфейли** от съседните — но
+това е артефакт на един случай. Средното от 68.7 върху 10 endpoint-а е ~687 общо,
+а `console.ax1.vc` сам има **659**, тоест ~96% от лентата е един endpoint; другите
+девет са ~3 портфейла средно, колкото съседните ленти. Топ-печелившият в
+категорията е `console.ax1.vc` на **$0.02** с **659 платещи
 портфейла и 328 388 обаждания** → **~$6 568 оценен приход за 30 дни**.
 
 ### Какво значи това (решение за собственика)
@@ -4075,7 +4113,7 @@ plan:    free, 1/1
 | 12 | **24-часова проверка на паметта** | Leak-ът изглежда затворен (§35); липсва потвърждението след 24 ч |
 | 13 | **Останалите 4 маршрута в x402dash** | Частично покритие |
 | 14 | **„$1 Delivery Report"** | Не е започнат |
-| 15 | **Осемте непоправени находки от одита** | Изброени в §54 — числата в §29, §31, §38, §57, agent402, броят тестове в `test_dashboard_resilience.py` и препратките към несъществуващи секции |
+| 15 | **Осемте находки от одита** | ✅ поправени на 15.11 — виж §54 |
 
 ### Знай това, преди да пипаш
 
@@ -4087,7 +4125,7 @@ plan:    free, 1/1
 * `payTo`, цените и 402 envelope-ът се пипат **само с изрично „да"** (§ „Never touch
   without the owner's explicit approval").
 * Около 40 скрипта в `_forensics/` са **извън хранилището**
-  (`C:\Users\AlienWare\.dsh\state\superagent\_forensics\`), тоест нова сесия не
+  (`<forensics-dir>\`), тоест нова сесия не
   може да ги пусне, докато не ги намери там.
 * Хранилището може да е **публично**: съдържа личен Gmail, локални пътища и Render
   ID-та. Провери, преди да добавяш още.

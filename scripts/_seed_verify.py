@@ -1,9 +1,10 @@
 """Part B: verify the 8 known txs via receipts + Part C: new external fingerprint."""
 import json
+import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import web3  # noqa: E402
 
 from integrations.dashboard_store import DashboardStore  # noqa: E402

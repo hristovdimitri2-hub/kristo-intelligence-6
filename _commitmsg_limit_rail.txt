@@ -1,0 +1,43 @@
+?limit= on whaleflow had no test, and payment_rail was red for a false reason
+
+TWO OPEN ITEMS FROM THE OWNER'S LIST, both closed.
+
+1. ?limit= ON /api/v1/whaleflow — IMPLEMENTED, NEVER TESTED
+
+The parameter exists and is clamped in the handler (1..200, non-numeric falls
+back to the env default), but nothing covered it. It matters because of money:
+the 50-row default is ~16.9 KB / ~4.2k tokens, which costs the BUYER 4x the
+$0.003 we charge on a mid model and 20x on a frontier one. A caller that cannot
+ask for fewer rows is billed for tokens it did not want.
+
+tests/test_whaleflow_limit.py pins the whole contract:
+  * the caller's value is used, not the env default;
+  * it is clamped to 1..200 — a request may LOWER the response, never raise it;
+  * ?limit=0 and ?limit=-5 still answer (clamped to 1), they do not 400;
+  * ?limit=abc falls back instead of failing a PAID call;
+  * ?hours= is clamped the same way, to 1..168.
+
+2. THE payment_rail BLOCK WAS PERMANENTLY RED FOR A FALSE REASON
+
+The block beat ONLY from a settlement (or a settlement failure), so whenever no
+payment happened for two of its five-minute intervals the dashboard read it as
+stale and showed the rail red — on a rail that was working. services/organism.py
+even claimed in a comment that "this block also beats from the keep-alive path",
+which was never implemented.
+
+A false alarm of exactly the class that comment warns about: a panel nobody can
+act on teaches the reader to ignore it, and then the one real failure is
+invisible too.
+
+main.py `_payment_rail_readiness()` answers the question the block's NAME asks —
+is there a settle path configured at all — which is answerable every cycle,
+unlike "did somebody pay". The keep-alive loop now beats it on every cycle,
+independent of the self-ping. A settlement still beats it with the stronger
+ok/degraded from the request path; this only stops silence being read as death.
+The organism.py comment now describes what actually happens.
+
+tests/test_organism.py gains four cases: the block is red when nothing ever
+beats (the state this removes), a readiness beat clears it, the probe reports ok
+with a chain and degraded without, and the probe never raises.
+
+Suite advertised count 1405 -> 1414 (README x2, discovery.py; 9 new tests).

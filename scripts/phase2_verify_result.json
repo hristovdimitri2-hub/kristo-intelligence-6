@@ -1,0 +1,10 @@
+{
+  "verify_url": "https://facilitator.payai.network/verify",
+  "challenge_path": "/api/v1/signal",
+  "extensions_echoed": true,
+  "extensions_keys": [
+    "bazaar"
+  ],
+  "http_status": 200,
+  "response_text": "{\"isValid\":true,\"payer\":\"0xE50c5212e8211639C49276dA190E248B83935763\"}"
+}

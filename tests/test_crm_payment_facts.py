@@ -14,7 +14,7 @@ import sqlite3
 from integrations.crm_store import CRMStore, LeadRecord
 
 PAID_AT = "2026-09-16T08:56:08+00:00"
-CHECKOUT = "cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK"
+CHECKOUT = "cs_live_example_session_id"
 
 
 def _lead(email="buyer@example.com", **kwargs):

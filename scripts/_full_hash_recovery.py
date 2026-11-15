@@ -1,8 +1,9 @@
 """Full-hash recovery: local scan of payTo transfers via mainnet.base.org."""
+import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import web3  # noqa: E402
 from web3 import Web3  # noqa: E402
 from integrations.dashboard_store import DashboardStore  # noqa: E402

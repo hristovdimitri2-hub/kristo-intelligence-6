@@ -1,0 +1,23 @@
+fix(classifier): read rows by column name — Postgres hands back dict_row
+
+The route shipped and answered 503 `classifier_unavailable` in production,
+logged as the unhelpful
+
+    settlement classes unavailable: 0
+
+`0` is `str(KeyError(0))`. The reader indexed rows positionally — `row[0]` —
+which is valid on SQLite (`sqlite3.Row` supports integer AND name indexing) and
+raises on Postgres, where the connection is built with `psycopg.rows.dict_row`.
+So the entire suite passed on the local backend and the one backend that matters
+refused to answer.
+
+Fixed by aliasing the columns (`cls`, `n`, `usdc`, `payers`) and indexing by
+name, which both backends support.
+
+The test that would have caught it is now in place and pins the CONTRACT rather
+than the symptom: `test_the_summary_reads_rows_by_column_name` monkeypatches
+`_run` to return dict rows and asserts the route computes the summary. A test
+written against SQLite rows cannot fail this way, which is the whole problem —
+the row shape is a property of the backend, not of the query.
+
+Suite 1359.

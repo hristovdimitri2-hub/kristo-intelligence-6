@@ -9,7 +9,7 @@ import requests
 key = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "secrets", "render_api_key.txt")).read().strip()
 h = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
-SID = "srv-d9maroe7bikc73adkaug"
+SID = os.environ.get("RENDER_SERVICE_ID", "")
 
 print("=== 1. LIVE dashboard (14h later) ===")
 d = requests.get("https://kristo-intelligence-api.onrender.com/api/dashboard/data",

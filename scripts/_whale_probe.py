@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 hours = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 threshold = sys.argv[2] if len(sys.argv) > 2 else "1000"

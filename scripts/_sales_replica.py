@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["SALES_CHUNK_BLOCKS"] = "250"
 os.environ["BASE_RPC_URL"] = "https://base.drpc.org"
 os.environ["WHALE_THRESHOLD"] = "50000"

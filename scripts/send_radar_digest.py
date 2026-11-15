@@ -37,7 +37,7 @@ from pathlib import Path
 
 # Workspace дайджест — извън репото; през --digest може да се подмени.
 DEFAULT_DIGEST_PATH = Path(
-    r"C:\Users\AlienWare\.cline\data\workspaces\chat\RADAR-DIGEST.md"
+    r"<local-path>"
 )
 
 # Всички env ключове на модула (паролата се чете САМО оттук).

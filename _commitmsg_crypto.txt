@@ -1,0 +1,16 @@
+cryptography 48.0.0 -> 48.0.1, lock included
+
+The ignore rules sent this to its OWN PR (#9) instead of hiding it inside a
+group — which is the behaviour they were added for, since this package signs the
+CDP Platform JWT at runtime (ES256 / secp256r1) and a bump of it deserves to be
+seen. It is a patch release, so it is applied.
+
+requirements.txt and requirements.lock are updated together; Dependabot edits
+only the first, and the guard in tests/test_requirements_lock.py fails when they
+disagree — which is why PR #9 would have been red on its own.
+
+Verified, not assumed: 48.0.1 installed into the venv, the JWT path
+(test_connectors.py, the two facilitator suites) passes 67/67, and the full
+suite passes 1388 passed / 1 skipped.
+
+Test count unchanged: 1388 passed, 1 skipped.

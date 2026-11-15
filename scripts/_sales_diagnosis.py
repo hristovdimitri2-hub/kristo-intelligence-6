@@ -5,12 +5,13 @@
    (recipient-filtered — counting drops, not the ocean; small results).
    Expected: 7 transfers (4 canary + 2 external + 1 crawler).
 """
+import os
 import sys
 import time
 
 import requests
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from integrations.dashboard_store import DashboardStore  # noqa: E402
 import web3  # noqa: E402
 

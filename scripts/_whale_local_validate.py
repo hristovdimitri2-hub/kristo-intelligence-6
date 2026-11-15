@@ -8,7 +8,7 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from integrations.dashboard_store import DashboardStore  # noqa: E402
 
 hours = int(sys.argv[1]) if len(sys.argv) > 1 else 2

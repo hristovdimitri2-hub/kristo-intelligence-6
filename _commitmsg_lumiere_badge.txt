@@ -1,0 +1,17 @@
+Show the Lumière PayCheck grade we actually earned
+
+Lumière PayCheck made a real paid test against
+/api/v1/verify-seller and graded it A ("proceed", 100/100, 100%
+uptime, 301 ms median, 0 payout-wallet incidents). We carried no
+badge for it anywhere.
+
+The badge is deliberately scoped to that one endpoint, not the bare
+domain: the bare-domain badge answers "unrated", so a root-level
+mark would advertise less than nothing. Both the README and the
+landing footer point at the endpoint that was actually paid-tested.
+
+Hosted by them and self-updating, so we never cache a stale grade.
+No CSP on these pages, so the external image loads unmodified.
+
+Verified: badge URL returns 200 image/svg+xml "A proceed" (135x20);
+/e?url= report page returns 200; 46 landing/price-sweep tests pass.

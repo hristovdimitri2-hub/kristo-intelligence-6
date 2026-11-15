@@ -17,7 +17,7 @@ import json
 import requests
 
 RENDER_API_BASE = "https://api.render.com/v1"
-SERVICE_ID = "srv-d9maroe7bikc73adkaug"  # kristo-intelligence-api on Render
+SERVICE_ID = os.environ.get("RENDER_SERVICE_ID", "")  # kristo-intelligence-api on Render
 
 
 def trigger_deploy(api_key: str, service_id: str) -> dict:

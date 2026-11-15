@@ -34,7 +34,7 @@ import requests
 
 from stripe_health import mask, render_env  # noqa: F401  (same directory)
 
-SERVICE = "srv-d9maroe7bikc73adkaug"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
 OWNER = "tea-d9m96f9qjqt8s73erj60"
 BASE = "https://kristo-intelligence-api.onrender.com"
 CHECKOUT_URL = BASE + "/sales/checkout"

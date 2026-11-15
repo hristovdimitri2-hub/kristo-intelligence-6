@@ -1,7 +1,8 @@
 ﻿"""Final RPC test: pokt wildcard 50-block + drpc recipient 10-block viability."""
+import os
 import sys
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import web3  # noqa: E402
 import requests  # noqa: E402
 

@@ -28,7 +28,7 @@ from pathlib import Path
 # Render API Configuration
 RENDER_API_BASE = "https://api.render.com/v1"
 RENDER_API_KEY = os.getenv("RENDER_API_KEY", "").strip()
-SERVICE_ID = "srv-d9maroe7bikc73adkaug"  # kristo-intelligence-api
+SERVICE_ID = os.environ.get("RENDER_SERVICE_ID", "")  # kristo-intelligence-api
 
 # Environment variables to sync to Render
 SYNC_ENV_VARS = [

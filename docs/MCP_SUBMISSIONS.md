@@ -2,7 +2,7 @@
 
 Цел: да не чакаме PayAPI одобрението — Smithery, Glama и PulseMCP приемат
 **директни** submissions. Сървърът вече отговаря на всичко нужно: SSE
-транспорт, манифест, платени tools. Подателят: hristovdimitri2@gmail.com.
+транспорт, манифест, платени tools. Подателят: <contact-email>.
 
 **Общи полета (за всички форми):**
 - Name: `kristo-intelligence`

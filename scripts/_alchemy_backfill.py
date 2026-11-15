@@ -13,14 +13,14 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Pull the RPC from Render env (API read), never print it
 import requests
 key = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "secrets", "render_api_key.txt")).read().strip()
 h = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
-envs = requests.get("https://api.render.com/v1/services/srv-d9maroe7bikc73adkaug/env-vars",
+envs = requests.get("https://api.render.com/v1/services/" + os.environ.get("RENDER_SERVICE_ID", "") + "/env-vars",
                     headers=h, timeout=30).json()
 rpc = next((e["envVar"]["value"] for e in envs
             if e["envVar"]["key"] == "BASE_RPC_URL"), "")

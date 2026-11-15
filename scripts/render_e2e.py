@@ -10,7 +10,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Never hardcode: read from the environment (set RENDER_API_KEY before use).
 API_KEY = os.getenv("RENDER_API_KEY", "")
-SERVICE_ID = os.getenv("RENDER_SERVICE_ID", "srv-d9maroe7bikc73adkaug")
+SERVICE_ID = os.getenv("RENDER_SERVICE_ID", os.environ.get("RENDER_SERVICE_ID", ""))
 BASE = "https://api.render.com/v1"
 
 if not API_KEY:

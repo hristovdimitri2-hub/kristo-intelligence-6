@@ -20,7 +20,7 @@ import requests
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE = "srv-d9maroe7bikc73adkaug"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
 
 INNER = r"""
 import json, os, psycopg

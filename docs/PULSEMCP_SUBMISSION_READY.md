@@ -91,7 +91,7 @@ defi, base, x402, usdc, market-data, payments, agents
 
 **Contact**
 ```
-hristovdimitri2@gmail.com
+<contact-email>
 ```
 
 ---

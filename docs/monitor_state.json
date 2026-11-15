@@ -1,0 +1,84 @@
+{
+  "reliability": {
+    "score": 69.7,
+    "band": "established",
+    "computed_at": "2026-09-06T19:31:11.958Z",
+    "name": "Kristo Intelligence — DeFi Signals API",
+    "payment_verified": true,
+    "price_min": 0.003,
+    "description": "Live Base DeFi signals for ETH, ONDO, KAITO, DEGEN — action, confidence, one-line reasoning. Whale USDC tracking (≥ $5M transfers) on GET /api/v1/whaleflow. Cross-DEX arb spreads and rug checks. Pay-p"
+  },
+  "ranks": {
+    "eth": {
+      "position": null,
+      "total": 20
+    },
+    "defi": {
+      "position": 2,
+      "total": 20
+    },
+    "signals": {
+      "position": 2,
+      "total": 20
+    },
+    "whale": {
+      "position": 2,
+      "total": 4
+    },
+    "rug": {
+      "position": 11,
+      "total": 20
+    },
+    "ondo": {
+      "position": 2,
+      "total": 4
+    },
+    "kaito": {
+      "position": 1,
+      "total": 1
+    },
+    "degen": {
+      "position": 2,
+      "total": 2
+    }
+  },
+  "glama": {
+    "servers": {
+      "status": 404,
+      "missing": true,
+      "quality_score": null,
+      "spdx_license": null,
+      "tools": 0,
+      "attributes": [],
+      "boosted": null
+    },
+    "connector": {
+      "status": 200,
+      "missing": false,
+      "quality_score": 4.7,
+      "healthy": true,
+      "tool_count": 6,
+      "last_tested_at": "2026-11-06T07:28:04.260696Z",
+      "transport": "streamable_http",
+      "attributes": [
+        "auth:none",
+        "capability:tools",
+        "category:developer-tools",
+        "category:finance",
+        "status:healthy"
+      ]
+    },
+    "positions": {
+      "defi": {
+        "position": null,
+        "shown": 25,
+        "status": 200
+      },
+      "signals": {
+        "position": null,
+        "shown": 25,
+        "status": 200
+      }
+    }
+  }
+}

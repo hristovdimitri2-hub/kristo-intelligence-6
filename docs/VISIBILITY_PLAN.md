@@ -105,7 +105,7 @@
 **РљРѕРјР°РЅРґР° Р·Р° СЃРµРґРјРёС‡РµРЅ С‡РµРє:**
 ```
 curl -s https://kristo-intelligence-api.onrender.com/api/stats
-cd C:\Users\AlienWare\Desktop\РїСЂРѕРµРєС‚Рё\kristo-intelligence-6
+cd <local-path>
 venv\Scripts\python.exe scripts\check_revenue.py
 ```
 

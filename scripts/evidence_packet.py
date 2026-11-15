@@ -22,7 +22,7 @@ import requests
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE = "srv-d9maroe7bikc73adkaug"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
 RPC = "https://mainnet.base.org"
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 AUTH_USED_TOPIC = "0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5"

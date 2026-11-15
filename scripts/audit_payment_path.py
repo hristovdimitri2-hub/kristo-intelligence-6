@@ -37,8 +37,8 @@ import requests
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = "https://kristo-intelligence-api.onrender.com"
-SERVICE = "srv-d9maroe7bikc73adkaug"
-LEAD_EMAIL = "hristovdimitri2@gmail.com"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
+LEAD_EMAIL = os.environ.get("KRISTO_LEAD_EMAIL", "")
 
 
 def mask_email(value: str) -> str:

@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 import requests
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE = "srv-d9maroe7bikc73adkaug"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
 
 
 def _ts(sec) -> str:

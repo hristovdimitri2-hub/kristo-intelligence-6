@@ -1,0 +1,20 @@
+Rate-limit the paid rail's expensive path
+
+_RATE_LIMIT_DEFAULTS had nine scopes — admin login, checkout, leads, the
+webhooks, the two public feeds — and none for the paid rail. A request that
+presents a credential costs local EIP-712 recovery and can reach a facilitator
+and a gas-paying broadcast, and nothing bounded it: a caller could present
+signed-but-unusable payloads as fast as it could open sockets.
+
+Adds the `x402_settlement` scope (120 requests / 5 min per IP), counted ONLY
+when a credential is actually present, never for a plain 402. That is
+deliberate: the 402 is free by definition and the whole point of a challenge is
+that it is free to ask, so limiting it would punish every discovery crawl. The
+limit is generous because a real buyer retries a few times, not hundreds.
+
+Test: test_the_settlement_path_is_bounded_but_a_plain_challenge_is_free covers
+both directions — a plain 402 does not spend the budget, and the second
+credential-bearing request is refused with 429.
+
+Suite advertised count 1386 -> 1387 (README x2, discovery.py).
+Full suite: 1386 passed, 1 skipped, 0 failed.

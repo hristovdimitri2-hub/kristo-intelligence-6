@@ -1,0 +1,31 @@
+Serve agenteconomy.report's domain-control proof
+
+Agent Economy Report's normal claim path signs a message with the payTo wallet.
+We hold that key only on Render, deliberately, and moving it into a request path
+to save a file is not a trade worth making — so we use the route they document
+for exactly this case: prove control of the host instead.
+
+GET /.well-known/agenteconomy-verify.txt returns their token as one plain-text
+line. It gives the same owner block, badges and rating e-mails a wallet-signed
+claim does, and a wallet-signed claim would still take precedence over it.
+
+The token is a LITERAL here rather than a secret, because it is public by
+design: it exists to be served at a public URL, and reading it proves nothing.
+What confirms the claim is the separate `request` value, which is not in this
+file and will not be.
+
+Free, and added to X402_FREE_ENDPOINTS. Their file is re-checked daily and the
+claim lapses after three failed checks, so a proof that stops being served when
+a crawler is over its free tier is a claim that quietly expires.
+
+Two tests in tests/test_x402_trust_wellknown.py: that the body is ONE line
+(their checker reads the token as the whole body), and that it stays free with
+the tier exhausted.
+
+Also recorded, from the same pass: `delivered_at` is written correctly on a
+paid call made AFTER today's deploys. One $0.003 call from the demo wallet,
+consumed 22:56:47.172070Z, stamped 22:56:47.181854Z — a lag of 9.8 ms. Totals
+now 91 rows / 83 stamped; the 8 without a stamp are all dated 2026-09-16 to
+2026-11-11T06:03Z, i.e. every one of them predates today's first deploy.
+
+Suite 1361.

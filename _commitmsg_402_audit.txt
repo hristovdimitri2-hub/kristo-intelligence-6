@@ -1,0 +1,34 @@
+Self-audit against a published x402 failure taxonomy — we pass
+
+A CDP-verified post published a census of 40,608 x402 resources on
+4,313 hosts (87.8% clean) and named four defects by size. Three of
+them are checkable on ourselves for free, so we checked, live.
+
+We are in none of them: 7/7 advertised URLs answer 402, 7/7
+resource.url equals the requested URL, all https, all offer a plain
+"exact" scheme.
+
+The class that mattered is the 788 that "name another URL in their
+402 than the one requested", whose published fix is building
+resource.url from the public origin and setting trust proxy behind a
+TLS proxy. We sit behind Render's TLS proxy, so a missing proxy
+handling would have made every 402 advertise http:// — and no local
+test would catch it, because locally there is no proxy and the scheme
+is right by accident. It is right in production; recorded so nobody
+removes it.
+
+Also verified in passing: OPTIONS 204 with the full CORS allowlist,
+DELETE -> 405 with an Allow header and no accepts in the body (wrong
+method refused before money), and two ASCII WWW-Authenticate lines
+(x402 228 B, MPP Payment 547 B). The MPP rail is the riskier one —
+the same census has MPP at 64.6% clean against 88% for x402.
+
+Recorded as deliberate, not a defect: the triplicated accepts /
+accepts[] / x402_accepts shim.
+
+Two free options this opened are listed but NOT taken, because both
+are external actions and wait for the owner's explicit approval: a
+free full check by DM, and Fizzl's free hourly single-endpoint
+monitor with alerts.
+
+Re-runnable: _forensics/audit_402_taxonomy.py

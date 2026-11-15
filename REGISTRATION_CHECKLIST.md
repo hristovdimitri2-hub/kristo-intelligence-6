@@ -136,7 +136,9 @@ curl -i -X GET https://kristo-intelligence-api.onrender.com/api/stats
 
 ## ⚠️ CRITICAL: Revoke compromised GitHub token
 
-The token `ghp_666tgT...` (used in earlier sessions) is compromised — it appeared in chat logs.
+A classic personal access token (`ghp_…`) used in earlier sessions is compromised — it
+appeared in chat logs. The literal value is not repeated here; it was truncated even
+before this edit, and a public file should not carry it at all.
 
 **Revoke it NOW:**
 

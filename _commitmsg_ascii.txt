@@ -1,0 +1,38 @@
+fix(x402): the MPP challenge made the paid route unpayable — non-ASCII header
+
+Caught by verifying the previous commit against the LIVE host instead of
+trusting the local suite, and it is the reason that step exists.
+
+What happened, from the deploy at 21:29:31Z:
+
+    x402 payment required: endpoint=/api/v1/verify-seller, price=$0.01
+    [WARNING] Invalid request from ip=10.195.135.23: Invalid HTTP Header:
+      '\'Payment id="e9YDatXFTF3THluuzpPffbyVC5yhT3nT", realm="kristo-intelligence",
+      method="evm", intent="charge", request="…", expires="…",
+      header="PAYMENT-SIGNATURE", description="Verify an x402 seller before you
+      pay it — a seller audit on chain: …"\'' 
+    "GET /api/v1/verify-seller?receiver=0x…" 400 0
+
+The em-dash came from OUR OWN selling copy. `CHALLENGE_DESCRIPTIONS` is written
+in prose, and an HTTP field-value must be ASCII; gunicorn rejected the response
+outright and the edge turned it into a 502. Net effect: adding the MPP challenge
+to satisfy a catalogue WARNING made a PAID ROUTE UNPAYABLE — strictly worse than
+the warning. The legacy `x402` token was never affected because it carries no
+description, which is why every earlier probe of the 402 envelope was clean.
+
+Fixed with `_header_safe`: fold the punctuation our prose actually uses
+(em/en dash, curly quotes, ellipsis, arrows, ≥/≤, nbsp), drop whatever is still
+outside ASCII, escape `\` and `"`, collapse whitespace, truncate. A description
+is decoration and no decoration is worth an unpayable route. A final
+`encode("ascii")` check drops the optional `description` parameter entirely
+rather than let a bad header leave the process.
+
+Three new tests, including one that walks EVERY paid endpoint and asserts every
+response header is ASCII-encodable — the assertion that would have caught this
+before it reached production. Suite 1346.
+
+The other three fixes verified live and are working: OPTIONS now answers 204 with
+`Access-Control-Allow-Methods` and `Access-Control-Allow-Headers` naming the
+payment headers; POST to a GET-only paid route answers 405 `method_not_allowed`
+with `payment_taken: false` and never reaches the settlement rail;
+/api/dashboard/data answers 200.

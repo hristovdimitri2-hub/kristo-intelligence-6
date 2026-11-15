@@ -1,0 +1,82 @@
+Payment path: a dead domain check, an unverified settlement, a racing nonce
+
+Owner said "да за всичко" and left the decisions to me. Six real defects in the
+payment path, each with a test.
+
+1. THE EIP-712 DOMAIN CHECK WAS DEAD (the serious one)
+   precheck_payment_payload compares requirements["extra_name"] /
+   ["extra_version"] to bind the signature to OUR token ("USD Coin", v2). But
+   main.py never set those two keys: the domain travels as accepts[0].extra —
+   an OBJECT — while the check looked for two FLAT keys. The comparison
+   therefore did nothing and a client could sign over any domain it liked.
+   Second defect in the same check: it read payload["extra"] (top level) while
+   _local_recover_signer builds the domain from accepted["extra"] — so it
+   validated a DIFFERENT object than the one signed over.
+   Fixed: main.py now sets extra_name/extra_version from the same `extra` the
+   402 advertises, and both functions read accepted.extra with payload.extra as
+   a fallback. Verified live:
+     good domain  -> []
+     fake domain  -> ["extra.name mismatch: 'Fake Token' != 'USD Coin'"]
+     wrong version -> ["extra.version mismatch: '9' != '2'"]
+
+2. THE SETTLEMENT WAS VERIFIED ONLY BY receipt.status
+   status=1 proves the transaction ran — NOT that it moved OUR USDC to OUR
+   receiver. A facilitator that settled a token the client chose also produces
+   status=1. Both rails now read the same Transfer event through one new
+   helper, _receipt_usdc_transfer, so they cannot disagree about "paid".
+   Fail-open is deliberately preserved: the check runs only when the receipt IS
+   readable with status=1. An unreadable receipt still delivers, because an RPC
+   blip must not cost a paying client their call. A readable receipt with no
+   matching Transfer for at least the price is refused with
+   c2_no_matching_transfer.
+
+3. REVENUE WAS RECORDED AT THE PRICE, NOT THE SIGNED AMOUNT
+   amount >= price is the rule (overpayment is accepted), so a 0.05 USDC
+   settlement on a 0.005 route was recorded as 0.005 — understating revenue on
+   every overpayment. claim_payment_tx and _record_real_sale now receive the
+   amount actually moved (settled_amount); the overpayment is logged.
+
+4. NONCE WITHOUT A LOCK
+   _self_broadcast_settlement read get_transaction_count(addr) with neither
+   "pending" nor a lock. Two concurrent settlements see the same number: the
+   second is rejected as "nonce too low", or replaces the first in the mempool
+   and burns gas for a settlement nobody records. The read and the broadcast
+   are now one critical section under _SELF_BROADCAST_LOCK, and the count is
+   read with "pending".
+   blockchain/wallet.py:pay_request_fee has the same shape but NO caller at all
+   (verified by grep) — its nonce is fixed and a note records that re-enabling
+   it must share THAT lock: one gas wallet is one nonce sequence.
+
+5. THE PUBLIC /api/connectors SIGNED A JWT PER REQUEST
+   _eip3009_detail() calls _cdp_jwt, a real ES256 signature, on a free
+   unauthenticated endpoint. The result is now cached for 60s, and the cache
+   key is the CONFIGURATION (facilitator chain, key_id presence, gas flag) —
+   a config change yields a fresh line, not a stale claim about a setup we no
+   longer run. The JWT failure reason is shown only to an operator
+   (reveal_detail), the same signal that withholds the wallet address.
+
+6. 12 -> 3 CONFIRMATIONS
+   12 was never justified: 12 Base blocks is ~24s, and a 2s block is not a 2s
+   reorg window. 3 blocks is ~6s and _confirmations_ok_with_lag_refresh
+   re-reads the head before refusing. Changed everywhere: code, 402 text,
+   llms.txt, quickstart, README, dashboard, landing, npm README, the example
+   JS, GUARD_METHODOLOGY.md, OUTREACH_WAVE1.md and every test that asserted 12.
+
+Also in this change: the review's smaller items — discovery.py's dead
+`failed = store_error or ("" if scanned_recently else "")` now keeps the honest
+split (unreadable store is `failed`, a stale heartbeat is `partial` with
+coverage.reason="no_recent_scan"); redaction.py now masks quiknode.pro/<KEY>/
+path segments and Telegram bot<id>:<token>; docker-compose.yml binds Postgres to
+127.0.0.1 and refuses to start without POSTGRES_PASSWORD; the x402 Trust list on
+/validation renders from the JSON facts instead of hardcoded values that
+disagreed with them (81.2/B in HTML vs 82.2/A in JSON), and "6 live x402 routes"
+is now 7.
+
+New tests: test_a_settlement_that_moved_no_usdc_to_us_is_refused,
+test_a_settlement_under_the_quoted_price_is_refused,
+test_the_precheck_pins_the_token_domain_the_route_declares,
+test_the_public_health_line_is_cached_and_hides_failure_detail.
+Suite advertised count 1375 -> 1379 (README x2, discovery.py).
+
+Still open: _adopt_already_settled trusts a facilitator's 400 body when the
+text contains "already"; requests_summary is still the slowest dashboard step.

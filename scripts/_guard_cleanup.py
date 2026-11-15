@@ -22,7 +22,7 @@ import requests
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE = "srv-d9maroe7bikc73adkaug"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
 OWNER = "tea-d6n5s3f5r7bs73cq5h30"
 TX = "0x22c442992d33a5bd548f36f9a387e5541d4c81be309bff2cd608e277e96f52ab"
 

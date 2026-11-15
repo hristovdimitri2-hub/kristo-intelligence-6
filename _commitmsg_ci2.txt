@@ -1,0 +1,37 @@
+CI: pin the runner, drop the dead Node, and stop Dependabot bundling a major web3
+
+The owner showed the Actions page for 92bd0d8, whose Secret scan failed. That
+failure is already fixed (.gitleaks.toml; green on da882de). The page did show
+two things worth acting on.
+
+1. WARNINGS THAT COULD BE REMOVED
+   actions/checkout@v4 and actions/setup-python@v5 target Node.js 20, which is
+   deprecated — every run carried a warning nobody could act on. Both bumped to
+   v7 (the v7 tags verified to exist via the API).
+   `ubuntu-latest` migrates to Ubuntu 26 in October 2026. That is a change to
+   the build environment that nobody commits, so the runner is PINNED to
+   ubuntu-24.04: a runner change should be a commit somebody makes on purpose,
+   not something that happens under a green build.
+
+2. THE IMPORTANT ONE: A DEPENDABOT GROUP PR BROUGHT IN A MAJOR web3
+   Dependabot opened four PRs. Their CI results:
+     #4 actions/checkout 4 -> 7        Test suite success
+     #5 actions/setup-python 5 -> 7    Test suite success
+     #7 pytest 9.1.1 -> 9.2.0          Test suite success
+     #6 the 6-package runtime group    Test suite FAILURE
+   PR #6 bundled web3 7.16.0 -> 8.0.0 (a MAJOR bump), gunicorn 26 -> 27,
+   stripe 15 -> 16 and three more. The tests fail on it. Before today this CI
+   did not exist and nobody would have found out — a six-package bump looks
+   routine and does not get read closely, and web3 moves the money.
+   dependabot.yml now IGNORES major versions for web3, cryptography, stripe,
+   gunicorn, Flask and psycopg: they arrive as their own PRs with their own
+   review, or they do not arrive. Since ci.yml already uses @v7, PRs #4 and #5
+   become redundant and Dependabot will close them itself.
+
+Test: test_the_pipeline_does_not_run_on_a_moving_runner_or_a_dead_node forbids
+ubuntu-latest and the dead Node 20 actions in the ACTIVE configuration —
+comments are stripped first, because the note explaining WHY the runner is
+pinned names ubuntu-latest.
+
+Suite advertised count 1388 -> 1389 (README x2, discovery.py).
+Full suite: 1388 passed, 1 skipped, 0 failed.

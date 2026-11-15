@@ -1,0 +1,10 @@
+HANDOVER 39: x402 List follow-up sent
+
+The owner approved sending on 13.11.2026. The email went out at 09:40 Sofia to
+info@x402-list.com (the only address x402 List publishes, per their /contact
+page), from hristovdimitri2@gmail.com via Gmail SMTP. 5,544 bytes of body.
+
+It carries both answers I found myself, the correction of the false traction
+figure we sent on 5 Nov, and the two questions that are still open.
+
+The draft in _forensics/x402list_followup_email.md is marked SENT.

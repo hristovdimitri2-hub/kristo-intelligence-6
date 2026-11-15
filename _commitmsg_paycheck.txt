@@ -1,0 +1,33 @@
+Add /.well-known/paycheck.json, and record the two new measurement layers
+
+WHAT WAS ADDED
+GET /.well-known/paycheck.json returns {"payTo": ["0xd4cd…d08f"]}, the shape
+Lumiere PayCheck documents. It reads X402_RECEIVER_ADDRESS rather than repeating
+the address, because a declaration that can disagree with the 402 quote it
+describes is worse than no declaration — and a test asserts the two are the same
+fact. Free (added to X402_FREE_ENDPOINTS): a wallet rotation has to be
+recognisable exactly when traffic is heaviest, not only below the free tier.
+
+Why it matters: Lumiere watches the payTo of every endpoint it lists. A change it
+cannot confirm is "avoid" for 24 hours, then "caution". This file is what it
+cross-checks against.
+
+Four tests in tests/test_paycheck_declaration.py: the documented shape, the
+declared-wallet-equals-quoted-wallet invariant, free with the tier exhausted, and
+EIP-55 checksumming.
+
+HANDOVER section 30 records what the investigation found, and two of the findings
+are corrections rather than news:
+
+* Settled's scout has paid us 3 times (0xA1d1C0cf…, $0.009, 14.10 and 30.10) and
+  all 3 delivered — matching the rows already in our own payment_guards. We score
+  85/79/73 with delivery 15/15 and a "pay" recommendation.
+* Its `latency 1/10` on /api/v1/signal is NOT a code defect and must not be
+  "fixed": the 402 answers in 330–840 ms when measured live, and the 2123 ms
+  average is a 30-day window polluted by 4 failed probes out of 29. It decays.
+* x402-trust has us as providerVerified with host grade B (78.68) and 1×A + 11×B
+  on the paid rows — and the dead Vercel copy as 18 rows, 14 of them grade F.
+  Unlike x402scan, x402-trust supports self-service removal with the provider
+  key we already hold. NOT executed: removal is irreversible.
+
+Suite 1350.

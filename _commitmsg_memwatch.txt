@@ -1,0 +1,33 @@
+Make the service name its own memory leak
+
+Render has sent three "exceeded its memory limit" notices in twelve hours, and
+the metric endpoint shows the shape plainly: ~1.2 MB/min, steadily, from about
+150 MB to the 512 MB ceiling in a few hours — roughly five kills a day.
+
+What the outside cannot say is WHAT is growing. A leaking dict, a thread that
+never exits, a cache that is quietly unbounded and ordinary fragmentation all
+look identical from a byte count.
+
+So the service now names it itself. `_memory_report()` returns the resident size,
+the live thread count, the gc object census, and the length of every in-process
+container that should be CONSTANT for a service whose state lives in Postgres —
+sales_history, daily_stats, the per-IP dicts, the rate-limit map, the verify
+block, the dashboard cache, the isolated stores and the RPC client pool. A number
+that climbs across samples is the leak; a flat line means the growth is elsewhere
+and the gc census is the next place to look.
+
+`_memory_watch_loop` writes one line every five minutes (KRISTO_MEMORY_WATCH=0
+turns it off, KRISTO_MEMORY_WATCH_SECONDS changes the interval), which gives
+about fifty samples between kills — enough to see a trend, cheap enough that it
+can never be the reason a sample is wrong. It is deliberately NOT on the request
+path: /health is probed every five seconds and a diagnostic must never be able to
+slow it down.
+
+This is a diagnostic, not a fix. It is the step that makes a fix possible rather
+than a guess, and it is worth saying plainly that the leak itself is still open.
+
+Two tests in tests/test_memory_watch.py, and the second one is the important
+one: it asserts the report counts the LIVE containers, because a report that
+counted a copy would be a lie about exactly the thing it exists to measure.
+
+Suite 1368.

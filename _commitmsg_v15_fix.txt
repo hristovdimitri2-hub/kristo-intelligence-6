@@ -1,0 +1,15 @@
+Correct V-15: public_activity.html is live, not dead
+
+The SEO audit inventoried templates/public_activity.html as a dead
+asset with "no render_template reference", and roadmap step 15 told
+the next person to delete it alongside agent_playground.html. Acting
+on that would have broken a live public page.
+
+It is rendered by src/nexus/distribution.py:153
+(/api/public/activity?format=html); the blueprint is registered in
+src/nexus/__init__.py:125, called from main.py:5408
+mount_nexus_engine(app). The audit missed it because grepping
+render_template in main.py cannot see blueprint-registered views.
+
+agent_playground.html is genuinely dead — /agents 302s to /dashboard
+and never renders it — so V-15 still stands for that one file.

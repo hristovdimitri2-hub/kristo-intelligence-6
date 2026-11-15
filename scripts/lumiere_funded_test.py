@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(r"C:\Users\AlienWare\Desktop\проекти\kristo-intelligence-6\scripts")))
+sys.path.insert(0, str(Path(r"os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\scripts")))
 from demo_sponsored_pay import build_signature, echo_extensions  # noqa: E402
 
 TARGET = "https://kristo-intelligence-api.onrender.com/api/v1/verify-seller"

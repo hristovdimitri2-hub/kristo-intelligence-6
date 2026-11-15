@@ -1,0 +1,33 @@
+Answer the external audit: four internal fixes, and the suite count
+
+An external review of an earlier commit named several defects. Four are
+internal and safe; this commit fixes them, and updates the published suite
+count to the real collected size.
+
+1. FREE_TIER_LIMIT default is now 0, not 1. The product is "no free tier";
+   defaulting to 1 meant a fresh deploy, a wiped env or a local run handed
+   out a free call without anyone choosing to. Tests that exercise the
+   paywall itself now grant the free call explicitly.
+
+2. c2_receipt_status_refused renamed to c2_receipt_status_override_delivered
+   on the fail-open branch. The old name said "refused" while the branch
+   DELIVERS, so a dashboard counting "refused" read the opposite of the
+   truth. The old name is kept as a legacy alias row so no board loses its
+   history.
+
+3. Security headers on every response: X-Frame-Options, X-Content-Type-Options,
+   Strict-Transport-Security, Referrer-Policy and a CSP. All setdefault, so a
+   route that deliberately set its own value keeps it.
+
+4. _prune_usage_maps() bounds the per-IP usage maps. _free_tier_usage and
+   _paid_calls_usage were written but never read after the request that wrote
+   them, so a long-lived process grew them with every distinct IP. Pruning
+   runs in the memory-watch loop, never on the request path.
+
+SUITE_TESTS_PASSED 1368 -> 1372 and README's two mentions, plus the stale
+background-thread count in its test (13 -> 14: memory-watch was added and
+never counted). Verified: 1371 passed, 1 skipped, 0 failed.
+
+The public cleanup (PROJECT_STATUS.md, the audit report, the V5 status files,
+the probes, the video scripts) is NOT done here: deleting a tracked file does
+not remove it from git history, so it is a separate decision, not a commit.

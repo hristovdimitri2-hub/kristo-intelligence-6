@@ -1,0 +1,63 @@
+fix(x402): four transport defects found from outside — CORS, wrong method, MPP, corrupt store
+
+Each of these was invisible to a server-side client and fatal to a whole class
+of buyer, which is why a catalogue of 85 paid calls contained none of the
+affected kind. All four were reported by external raters first.
+
+1. CORS PREFLIGHT — no browser agent could ever pay us.
+   Lumiere PayCheck graded /api/v1/verify-seller and reported "Browser agents:
+   can't pay it yet: CORS headers missing" and "The CORS preflight (OPTIONS) is
+   refused with HTTP 402". Reproduced: OPTIONS returned the canonical 402 with
+   Access-Control-Allow-Origin but NO Allow-Methods and NO Allow-Headers, so the
+   browser aborted before the paid retry. Both reference implementations answer
+   it correctly — measured the same hour: tradingagentstack.com -> 204 with
+   Allow-Headers content-type/payment-signature/x-payment; x402pulse.dev -> 204.
+   Now OPTIONS is answered 204 in before_request, before the paywall can
+   challenge it, listing the payment headers we accept. A preflight no longer
+   consumes a free-tier call either.
+
+2. A METHOD THE ROUTE DOES NOT ANSWER WAS SETTLED BEFORE IT WAS REFUSED.
+   Flask runs before_request even after URL matching has already failed, so a
+   POST to a GET-only paid route was challenged, SETTLED, and only then killed
+   by the dispatcher with a 405. Not theoretical: on 21.10.2026
+   JarvisClaw-Federation/1.0 POSTed /api/v1/signal, paid $0.003 and got the 405 —
+   the row is still in payment_guards with delivered_at IS NULL, i.e. exactly the
+   n_paid_undelivered a payer agent counts against a seller. Now refused with 405
+   + Allow before any credential is read; a test asserts the settlement rail is
+   never reached. The guard sits BELOW the parked-surface check on purpose — a
+   retired surface must answer 404 surface_retired for every method, and with the
+   guard first POST /agents answered 405 and broke an existing test.
+
+3. MPP_NO_PAYMENT_CHALLENGES (x402scan, severity error, all 7 paid rows).
+   MPP — the Machine Payments Protocol, contributed by Tempo and Stripe, SDK
+   mppx, IETF spec at paymentauth.org — activated HTTP 402 with a
+   `WWW-Authenticate: Payment ...` challenge. We now send a second Payment
+   challenge in the same response (MPP documents multiple challenges explicitly),
+   carrying the real terms as base64url JCS {amount, currency, recipient} and an
+   HMAC-bound id, advertising header="PAYMENT-SIGNATURE" because that is the
+   field our existing rail verifies. A native MPP {challenge,payload,source}
+   credential is refused with a 401 that settles nothing. The legacy x402 token
+   is byte-identical and a test pins it.
+   MEASURED CAVEAT: neither tradingagentstack.com nor x402pulse.dev emits an MPP
+   challenge. This makes us ahead of the field, not level with it, and it was
+   never the reason anyone failed to buy.
+
+4. THE LOCAL SQLITE SAID "file is not a database" — 1335 times.
+   /api/dashboard/data returned 500 on 10.11 (976 times) and 11.11 (320), and the
+   board served stale=true, with the log line "dashboard: background refresh
+   failed (variant (False, False)): file is not a database".
+   KRISTO_DASHBOARD_DB=data/dashboard_state_v2.db sits on the container's
+   EPHEMERAL disk, so there is nothing to restore and the documented remedy was a
+   human pointing the variable at a fresh name — during the outage. Now
+   _ensure_db catches sqlite3.DatabaseError, quarantines the file (renamed to
+   *.corrupt-<UTC>, never deleted, WAL sidecars removed) and creates a fresh one,
+   once. Safe because that file holds only payapi_state and the scan meta
+   watermarks; onchain_sales, payment_guards, guard_events, request_log and
+   whaleflow_events all live on PostgreSQL via HistoryStore.
+   One subtlety worth keeping: sqlite3.Connection.__exit__ commits but does NOT
+   close, so the handle is closed explicitly — on Windows an open handle makes
+   the quarantine rename fail with WinError 32, i.e. the healing would have
+   worked everywhere except the operator's own machine.
+
+Tests: 16 new in tests/test_paywall_transport_fixes.py, one per measured symptom
+plus a regression that pins the ordering the suite caught. Suite 1343.

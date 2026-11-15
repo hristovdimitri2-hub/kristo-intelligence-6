@@ -1,0 +1,58 @@
+The maintenance window is confirmed — and our backup rail has no gas
+
+CONFIRMED WINDOW
+status.coinbase.com/api/v2/scheduled-maintenances.json (status.cdp.coinbase.com
+does not resolve) carries:
+
+  name:             Scheduled System Maintenance — November 14
+  status:           scheduled
+  scheduled_for:    2026-11-14T10:00:00-08:00
+  scheduled_until:  2026-11-14T18:00:00-08:00
+  body:             "...some users may experience degraded performance across
+                     multiple products. Your funds are safe."
+
+That is 20:00-04:00 Sofia. The reminders (schedule-445ae14c at 19:45,
+schedule-4231b6c2 at 04:05) bracket it correctly. Note the text says "up to 4
+hours" while the window is 8 — the reminders cover the whole thing either way.
+
+THE FINDING: self-broadcast CANNOT RUN
+
+The settlement chain is verify=local -> self-broadcast -> CDP -> payai, and
+self-broadcast pays gas from WALLET_PRIVATE_KEY. Measured:
+
+  WALLET_PRIVATE_KEY -> 0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd
+  ETH on Base        -> 0.00000000
+  nonce              -> 0
+
+No gas, and it has never sent a transaction. So the first fallback against a
+facilitator outage does not exist — and tonight that means EIGHT HOURS on PayAI
+alone, with CDP degraded and our own rail holding an empty wallet.
+
+FIXED: /api/connectors CLAIMED gas=True
+
+_eip3009_detail printed `gas={bool(os.getenv("WALLET_PRIVATE_KEY"))}` — which
+says only that a KEY EXISTS. The one reader who cares about that line is an
+operator during exactly such an outage, and `gas=True` told them the opposite of
+the truth.
+
+`_gas_wallet_status()` now returns absent | key-set | funded | empty | unknown:
+
+  * the PUBLIC line (free, unauthenticated) says `key-set, funds unprobed` and
+    claims NOTHING about funds — probing there would cost an RPC per anonymous
+    request for a nicer word;
+  * the OPERATOR view actually probes and says `funded` or
+    `EMPTY — self-broadcast cannot pay`. The probe is cached (600s funded, 60s
+    otherwise) and a failed probe reports `unknown` instead of guessing.
+
+The balance read lives in `_gas_balance_wei` so the tests can cover the empty,
+funded and failed branches without a network.
+
+Test: test_the_gas_line_reports_funds_not_just_a_key.
+
+FOR THE OWNER'S DECISION (money action, not taken): funding the gas wallet means
+a PUBLISHED, burned key — anyone can withdraw whatever we put there. Options are
+recorded in HANDOVER §52: do nothing; put in ~0.0005 ETH and hand it to whoever
+reads the key; or create a new gas wallet with a new key, which is the correct
+fix and outside this task's scope.
+
+Suite advertised count 1392 -> 1393 (README x2, discovery.py).

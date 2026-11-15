@@ -37,7 +37,7 @@ import time
 import requests
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE = "srv-d9maroe7bikc73adkaug"
+SERVICE = os.environ.get("RENDER_SERVICE_ID", "")
 URL = "https://kristo-intelligence-api.onrender.com/api/webhooks/stripe"
 EVENTS = ["checkout.session.completed",
           "checkout.session.expired",
