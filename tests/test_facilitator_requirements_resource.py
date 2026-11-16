@@ -116,6 +116,23 @@ def test_the_spec_legal_extras_are_kept():
         assert reqs.get("mimeType") == "application/json", name
 
 
+def test_the_outbound_shape_logger_is_off_by_default_and_never_raises():
+    """A diagnostic must not become telemetry, and must not break a settle.
+
+    It exists because the remaining difference between the path that gets a
+    route listed and the path that does not could not be found by reading the
+    code — only by comparing what actually leaves. Off unless
+    `X402_LOG_OUTBOUND=1`.
+    """
+    assert connectors._OUTBOUND_SHAPE is False, (
+        "the outbound shape log must be opt-in")
+    # Malformed bodies must be swallowed, not raised into the settlement path.
+    for bad in ({}, {"paymentRequirements": None},
+                {"paymentRequirements": {"resource": 5},
+                 "paymentPayload": {"accepted": "not-a-dict"}}):
+        connectors._log_outbound_shape("payai", bad)  # must not raise
+
+
 def test_the_signed_terms_are_untouched_by_the_swap():
     """Only `resource` may move — amount/payTo/asset are what the buyer signed."""
     base = _requirements()

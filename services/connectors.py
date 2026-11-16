@@ -511,6 +511,42 @@ def _requirements_for(facilitator: str, requirements: dict) -> dict:
     return reqs
 
 
+#: Set `X402_LOG_OUTBOUND=1` to log the SHAPE of every settlement body sent to a
+#: facilitator — keys, types, and the resource URL, never a signature.
+#:
+#: Added 16.11.2026 while chasing why a route settled through the live server is
+#: never listed while the same route settled by a direct local call is listed
+#: within 45 seconds. Two defects were found that way (`resource` as a string,
+#: and our own `extra_name`/`extra_version`), and the remaining difference could
+#: not be found by reading the code — only by comparing what actually leaves.
+#: Off by default: this is a diagnostic, not telemetry.
+_OUTBOUND_SHAPE = os.getenv("X402_LOG_OUTBOUND", "").strip() == "1"
+
+
+def _log_outbound_shape(facilitator: str, body: dict) -> None:
+    """Log what is actually being sent, without logging anything secret."""
+    if not _OUTBOUND_SHAPE:
+        return
+    try:
+        reqs = body.get("paymentRequirements") or {}
+        pl = body.get("paymentPayload") or {}
+        res = reqs.get("resource")
+        pres = pl.get("resource")
+        log.warning(
+            "x402 OUTBOUND[%s] reqKeys=%s resource=%s url=%s | "
+            "plKeys=%s plResource=%s plAccepted=%s | bodyKeys=%s header=%s",
+            facilitator, sorted(reqs),
+            "object" if isinstance(res, dict) else type(res).__name__,
+            (res.get("url") if isinstance(res, dict) else res),
+            sorted(pl), "object" if isinstance(pres, dict) else type(pres).__name__,
+            sorted(pl.get("accepted") or {}) if isinstance(pl.get("accepted"), dict)
+            else bool(pl.get("accepted")),
+            sorted(body),
+            len(body.get("paymentHeader") or "") if body.get("paymentHeader") else 0)
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never break a settle
+        log.warning("x402 OUTBOUND shape log failed: %s", type(exc).__name__)
+
+
 def _split_signature(signature_hex: str):
     """
     Split a 65-byte hex signature into (v, r, s). Handles both v=27/28 and
@@ -1268,6 +1304,7 @@ def settle_standard_payment(payment_header, requirements: dict):
             # legacy facilitators (PayAI) also accept the raw header field
             body["paymentHeader"] = (payment_header
                                      if isinstance(payment_header, str) else None)
+        _log_outbound_shape(name, body)
         _t = time.monotonic()
         status, resp, _raw, resp_headers = _facilitator_post(base_url, "settle",
                                                              body, token=token)
