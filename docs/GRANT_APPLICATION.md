@@ -15,7 +15,7 @@ signals to AI agents per HTTP call, settled in USDC on Base.
 
 - **Network:** Base mainnet (`eip155:8453`, chainId 8453)
 - **USDC contract (Base):** `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` *(6 decimals)*
-- **Receiver (`payTo`):** `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f`
+- **Receiver (`payTo`):** `0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844`
 - **Payment scheme:** `exact`, x402 v2 canonical 402 challenge, idempotent on retry
 - **Two settlement rails:**
   1. **Rail 1 (STANDARD, gasless):** EIP-3009 `TransferWithAuthorization` — client signs

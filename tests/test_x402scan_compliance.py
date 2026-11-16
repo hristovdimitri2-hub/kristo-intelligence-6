@@ -18,6 +18,8 @@ These tests run against the Flask test client and verify:
 import json
 import pytest
 
+from config import get_base_fee_receiver
+
 
 @pytest.fixture()
 def client(monkeypatch):
@@ -225,8 +227,16 @@ def test_402_response_includes_payment_headers(client, monkeypatch):
         f"Missing X-Payment-Address header. Headers: {list(headers_lower.keys())}"
     assert "x-payment-amount-usdc" in headers_lower, \
         f"Missing X-Payment-Amount-USDC header"
-    # Address must be the canonical EIP-55 form (checksum fix, 19.10)
-    assert headers_lower["x-payment-address"] == "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
+    # The address must be the configured receiver in canonical EIP-55 form.
+    # Read from config rather than hardcoded: the receiver was rotated on
+    # 16.11.2026 and a literal here would test a wallet we no longer use.
+    from config import get_base_fee_receiver
+    from eth_utils import is_checksum_address
+
+    receiver = get_base_fee_receiver()
+    assert is_checksum_address(receiver), (
+        "the configured receiver must be canonical EIP-55, got %r" % receiver)
+    assert headers_lower["x-payment-address"] == receiver
 
 
 def test_402_response_body_includes_payment_details(client, monkeypatch):
@@ -239,8 +249,8 @@ def test_402_response_body_includes_payment_details(client, monkeypatch):
     assert data is not None, "402 response must be JSON"
     # Look for payment details in any reasonable field
     json_str = json.dumps(data)
-    assert "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f" in json_str, \
-        "402 body must include the canonical receiver address"
+    assert get_base_fee_receiver() in json_str, \
+        "402 body must include the configured receiver address"
     # Amount comes from the single source of truth (config.py price map)
     from config import KRISTO_STATS_PRICE
     expected_amount = f"{KRISTO_STATS_PRICE:g}"

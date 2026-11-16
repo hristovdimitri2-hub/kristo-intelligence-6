@@ -22,17 +22,23 @@ except ImportError:  # config се чете и извън пълния venv — 
         return address
 
 # ── Base network fee receiver (HARD FALLBACK) ──────────────────────────────
-# This is the real, bound wallet address that receives the per-request
-# micro-fee on Base (the amount comes from BASE_FEE_AMOUNT_USDC below and is
-# overridden per route by X402_PRICE_MAP — never a literal in this comment).
-# It is used unconditionally when the BASE_FEE_RECEIVER environment variable is
-# absent or empty.
-# EIP-55 canonical form (19.10): the literal below historically carried a
-# mismatched-case register; the BYTES are identical (BaseScan-verified — the
-# wallet does not change). Normalising here means every consumer (402 header,
-# body mirrors, manifests, tests) inherits ONE spelling.
+# This is the wallet that receives the per-request micro-fee on Base (the amount
+# comes from BASE_FEE_AMOUNT_USD below and is overridden per route by
+# X402_PRICE_MAP — never a literal in this comment). It is used unconditionally
+# when the BASE_FEE_RECEIVER environment variable is absent or empty.
+#
+# ROTATED 16.11.2026. The previous receiver (0xd4cdA900…d08f) was the address
+# every settlement had landed in since the project began, and nobody held its
+# private key: not the machine, not the git history, not the mailbox, not the
+# browser wallet, not secrets/. The search is written up in HANDOVER §32, §33 and
+# §63. Money could arrive there and never leave, so it was replaced with a wallet
+# whose key we hold. The old address keeps whatever landed in it; this constant
+# must never point back at it, because that would silently restore a receiver
+# nobody can sign for.
+# EIP-55 canonical form: every consumer (402 header, body mirrors, manifests,
+# tests) inherits ONE spelling from here.
 BOUND_BASE_FEE_RECEIVER = _checksum(
-    "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f")
+    "0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844")
 
 
 def get_base_fee_receiver() -> str:

@@ -13,6 +13,8 @@ import json
 
 import pytest
 
+from config import get_base_fee_receiver
+
 # path -> exact X-Payment-Amount-USDC the 402 must advertise (regression).
 ROUTES = {
     "/api/v1/signal": "0.003",
@@ -65,9 +67,16 @@ def test_payment_required_header_matches_body_field_by_field(client):
     assert b["accepts[]"] == h_acc
     assert b["x402_accepts"] == h_acc
 
-    # canonical EIP-55 payTo everywhere (checksum fix, 19.10 — bytes are
-    # identical, only the register changed; wallet untouched)
-    CANON = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"
+    # Canonical EIP-55 payTo everywhere. The address is READ FROM CONFIG rather
+    # than hardcoded: the receiver was rotated on 16.11.2026 (the old one had no
+    # key anyone could find), and a literal here would have quietly turned this
+    # into a test of a wallet we no longer use. The invariant is what matters —
+    # one canonical spelling, in every mirror, equal to the configured receiver.
+    from eth_utils import is_checksum_address
+
+    CANON = get_base_fee_receiver()
+    assert is_checksum_address(CANON), (
+        "the configured receiver must be canonical EIP-55, got %r" % CANON)
     acc0 = h_acc[0]
     assert acc0["payTo"] == CANON
     assert b["x402_recipient"] == CANON
@@ -132,7 +141,7 @@ def test_402_keeps_existing_headers_body_and_amounts(client):
         body = r.get_json()
         assert body["x402Version"] == 2
         assert body["accepts"][0]["amount"]
-        assert body["accepts"][0]["payTo"].lower().startswith("0xd4cd")
+        assert body["accepts"][0]["payTo"] == get_base_fee_receiver()
 
 
 def test_cors_stays_scoped_to_402(client):
