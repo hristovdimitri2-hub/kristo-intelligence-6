@@ -958,7 +958,8 @@ def verify_standard_payment(payment_header, requirements: dict):
     if recovered is None:
         touch("x402-eip3009")
         log.warning("standard x402 local recovery failed: %s", err)
-        return False, declared_from or None, f"local_eip712_recovery_failed: {err}"
+        return False, declared_from or None, (
+            f"local_eip712_recovery_failed: {redact_rpc(err)}")
     if str(recovered).lower() != str(declared_from).lower():
         touch("x402-eip3009")
         detail = (
