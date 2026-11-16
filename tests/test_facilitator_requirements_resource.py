@@ -51,11 +51,18 @@ def _requirements():
         "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         "resource": "https://kristo-intelligence-api.onrender.com/api/v1/signal",
         "resource_url": "https://kristo-intelligence-api.onrender.com/api/v1/signal",
+        # Spec-legal PaymentRequirements fields, set by the server alongside.
+        "description": "Trading signals",
+        "mimeType": "application/json",
         "resource_object": {
             "url": "https://kristo-intelligence-api.onrender.com/api/v1/signal",
             "description": "Trading signals",
             "mimeType": "application/json",
         },
+        # Server-internal: read by precheck_payment_payload to pin the EIP-712
+        # domain, in no facilitator schema, and measured to stop the indexing.
+        "extra_name": "USD Coin",
+        "extra_version": "2",
     }
 
 
@@ -81,6 +88,32 @@ def test_the_helper_keys_never_reach_a_facilitator():
         reqs = connectors._requirements_for(name, _requirements())
         assert "resource_object" not in reqs, name
         assert "resource_url" not in reqs, name
+
+
+def test_the_internal_domain_keys_never_reach_a_facilitator():
+    """`extra_name`/`extra_version` stopped the indexing DEAD.
+
+    Measured, not reasoned: with them /api/stats was settled eight times over two
+    rounds and never listed; without them, and with the spec-legal `description`
+    and `mimeType` still in the body, it listed within 45 seconds. The cost was
+    silent — the settlement still succeeded and the client still got a tx.
+
+    The server still needs them for `precheck_payment_payload`, so they are
+    stripped on the way OUT, not removed at the source.
+    """
+    for name in ("cdp", "payai"):
+        reqs = connectors._requirements_for(name, _requirements())
+        assert "extra_name" not in reqs, name
+        assert "extra_version" not in reqs, name
+
+
+def test_the_spec_legal_extras_are_kept():
+    """`description` and `mimeType` ARE in the facilitator's schema — and the
+    clean-form test that listed the route still carried them."""
+    for name in ("cdp", "payai"):
+        reqs = connectors._requirements_for(name, _requirements())
+        assert reqs.get("description") == "Trading signals", name
+        assert reqs.get("mimeType") == "application/json", name
 
 
 def test_the_signed_terms_are_untouched_by_the_swap():

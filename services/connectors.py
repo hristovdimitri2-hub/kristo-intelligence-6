@@ -476,23 +476,33 @@ def _merged_requirements(payload: dict, requirements: dict) -> dict:
 def _requirements_for(facilitator: str, requirements: dict) -> dict:
     """The requirements as THIS facilitator should receive them.
 
-    `resource` has two legitimate shapes and they are not interchangeable in
-    practice, so the caller cannot flatten it once and be right for both:
+    TWO things are stripped, and both were measured on the live catalogue on
+    16.11.2026 rather than reasoned about:
 
-      * the x402 spec declares `resource` a string URI, and CDP — which has
-        settled our payments for months — expects that;
-      * a facilitator that also publishes a catalogue indexes the settlement by
-        the OBJECT form (`resource.url`), which is how our own 402 publishes it.
-        Handed the string it accepts the payment and then lists nothing.
+    1. `resource` has two legitimate shapes. The x402 spec declares it a string
+       URI, and CDP — which has settled our payments for months — expects that.
+       A facilitator that also publishes a catalogue indexes the settlement by
+       the OBJECT form (`resource.url`), which is how our own 402 publishes it;
+       handed the string it accepts the payment and then lists nothing. So the
+       server sends both and this picks one per facilitator.
 
-    Measured 16.11.2026 on the live catalogue: requirements carrying the object
-    produced a row within 45 seconds; five settlements carrying the string
-    produced none. So the server sends both forms and this picks one, per
-    facilitator, dropping the helper keys either way.
+    2. `extra_name` / `extra_version` are OURS. They exist so the server's own
+       `precheck_payment_payload` can pin the EIP-712 domain, they appear in no
+       facilitator schema, and sending them STOPS THE INDEXING ENTIRELY. Isolated
+       by settling the same route three ways: with them, /api/stats was settled
+       eight times across two rounds and never listed; without them, and with the
+       spec-legal `description` and `mimeType` still present, it listed within 45
+       seconds. The cost was silent — the settlement still succeeded, so the
+       client saw a tx and we simply never appeared.
+
+    The helper keys are dropped for every facilitator either way; they are not
+    spec fields and nothing off-process should ever see them.
     """
     reqs = dict(requirements)
     obj = reqs.pop("resource_object", None)
     url = reqs.pop("resource_url", None)
+    reqs.pop("extra_name", None)
+    reqs.pop("extra_version", None)
     if facilitator == "cdp":
         if url is not None:
             reqs["resource"] = url
