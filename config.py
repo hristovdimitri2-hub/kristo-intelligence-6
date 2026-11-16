@@ -120,10 +120,10 @@ KRISTO_SALES_PRICE = float(os.getenv("KRISTO_SALES_PRICE", "0.005"))       # /ap
 KRISTO_ARB_PRICE = float(os.getenv("KRISTO_ARB_PRICE", "0.005"))         # /api/arb/opportunities
 KRISTO_RUG_PRICE = float(os.getenv("KRISTO_RUG_PRICE", "0.003"))          # rug-risk endpoint
 KRISTO_WHALE_PRICE = float(os.getenv("KRISTO_WHALE_PRICE", "0.01"))      # whale activity endpoint
-KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.003"))   # /api/v1/signal
+KRISTO_SIGNAL_PRICE = float(os.getenv("KRISTO_SIGNAL_PRICE", "0.01"))    # /api/v1/signal
 # Whale flow feed (built 09.09 per docs/WHALE_FLOW_SPEC.md — owner-approved).
 # Kept at the canary-proven price tier. Existing prices are NOT touched.
-KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.003"))
+KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.01"))
 
 # ── Seller verification: the deepest audit, priced at $0.10 ───────────────
 # This is the arbitrary-receiver audit. It reads the chain for ANY address a
@@ -166,8 +166,23 @@ KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.003"))
 # we sell is not a trade worth the traffic.
 #
 # Overridable like every other price, and it does not touch an existing one.
+# REVISED TO $0.05 ON 16.11, ON AN EXTERNAL AUDIT, AND THE PILOT IS OVER.
+# Ernest (Earnordie.ai) paid two real calls and measured the market rather than
+# arguing from first principles: across 34,890 Bazaar endpoints over 30 days the
+# sub-$0.005 band averages ~$0.03 gross each while the $0.02-$0.06 band averages
+# ~$2.25, and in the on-chain-data category that band averages ~$10.97 per
+# endpoint against $0.02 below $0.005. Volume does NOT rise as price falls; the
+# cheap bands are simply where the inactive endpoints are. The $0.01 pilot was
+# therefore underpricing the only route here that does real RPC work per call.
+#
+# $0.05 is the top of his recommended $0.03-$0.05 range and half the old list.
+# The paragraph above argued against exactly $0.05, on the grounds that it is
+# the ceiling for a listing platform's included automatic purchase. That
+# reasoning is kept rather than deleted, because it is still true — and it is
+# now outweighed: the same audit shows the neighbouring band carries the money,
+# and the 15-minute audit cache bounds what a repeat purchase costs to serve.
 KRISTO_VERIFY_SELLER_PRICE = float(
-    os.getenv("KRISTO_VERIFY_SELLER_PRICE", "0.10"))     # /api/v1/verify-seller
+    os.getenv("KRISTO_VERIFY_SELLER_PRICE", "0.05"))     # /api/v1/verify-seller
 
 # ── Human products (NOT x402 routes) ──────────────────────────────────────
 # The Telegram VIP-analysis unlock is paid in USDC like a route but is a HUMAN

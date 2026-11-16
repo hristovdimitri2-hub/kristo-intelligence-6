@@ -13,13 +13,18 @@ import json
 
 import pytest
 
-from config import get_base_fee_receiver
+from config import (
+    KRISTO_SIGNAL_PRICE,
+    KRISTO_STATS_PRICE,
+    KRISTO_WHALEFLOW_PRICE,
+    get_base_fee_receiver,
+)
 
 # path -> exact X-Payment-Amount-USDC the 402 must advertise (regression).
 ROUTES = {
-    "/api/v1/signal": "0.003",
-    "/api/v1/whaleflow": "0.003",
-    "/api/bot-status": "0.005",
+    "/api/v1/signal": "%g" % KRISTO_SIGNAL_PRICE,
+    "/api/v1/whaleflow": "%g" % KRISTO_WHALEFLOW_PRICE,
+    "/api/bot-status": "%g" % KRISTO_STATS_PRICE,
 }
 REQUIRED_EXPOSE = [
     "PAYMENT-REQUIRED",

@@ -188,7 +188,8 @@ def test_whaleflow_route_402_price_and_description(client, monkeypatch):
     assert resp.status_code == 402
     payload = resp.get_json()
     acc = payload["accepts"][0]
-    assert acc["amount"] == "3000"                        # 0.003 USDC atomic
+    assert acc["amount"] == str(
+        int(round(main.KRISTO_WHALEFLOW_PRICE * 1_000_000)))
     assert acc["payTo"] == main.X402_RECEIVER_ADDRESS
     assert acc["network"] == "eip155:8453"
     assert payload["x402Version"] == 2
@@ -259,7 +260,7 @@ def test_whaleflow_is_listed_after_the_canary(client):
     # canary actually paid.
     listed = {row["endpoint"]: row for row in main.REAL_X402_ROUTES}
     assert "/api/v1/whaleflow" in listed
-    assert listed["/api/v1/whaleflow"]["price_usdc"] == 0.003
+    assert listed["/api/v1/whaleflow"]["price_usdc"] == main.KRISTO_WHALEFLOW_PRICE
 
 
 

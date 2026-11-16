@@ -22,14 +22,14 @@ flow, cross-DEX арбитраж и одит на продавачи, плате
 **Платен маршрут** (8 на брой):
 
 ```
-/api/v1/signal              $0.003
-/api/v1/whaleflow           $0.003
+/api/v1/signal              $0.01
+/api/v1/whaleflow           $0.01
 /api/arb/opportunities      $0.005
 /api/bot-status             $0.005
 /api/sales                  $0.005
 /api/stats                  $0.005
-/api/v1/verify-seller       $0.01   <- пилот, връща се на $0.10 на 11.12.2026
-/api/v1/seller-check        $0.01   <- същото
+/api/v1/verify-seller       $0.05   <- пилотът приключи на 16.11
+/api/v1/seller-check        $0.05   <- същото
 ```
 
 Алиаси: `/api/v1/whale-alerts`, `/api/v1/trading-signals`,

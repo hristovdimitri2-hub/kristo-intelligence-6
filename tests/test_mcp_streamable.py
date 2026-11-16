@@ -241,14 +241,19 @@ def test_the_mcp_terms_cannot_drift_from_the_http_402(client):
 
 def test_the_mcp_payment_terms_are_also_readable_as_text(client):
     """A client that only reads content[] must still be able to pay."""
+    import main
+
     result = _priced_call(client, "get_whale_flow")
     texts = [c["text"] for c in result["content"] if c.get("type") == "text"]
     parsed = [json.loads(t) for t in texts if t.strip().startswith("{")]
 
     assert parsed, "the x402 terms are unreachable from content[]"
     assert parsed[0]["x402Version"] == 2
-    assert parsed[0]["accepts"][0]["amount"] == "3000", (
-        "0.003 USDC is 3000 atomic units on Base")
+    # This tool fronts /api/v1/whaleflow, so the amount is THAT route's price —
+    # read from the constant, so the next revision does not fail a correct build.
+    assert parsed[0]["accepts"][0]["amount"] == str(
+        int(round(main.KRISTO_WHALEFLOW_PRICE * 1_000_000))), (
+        "the atomic amount must be the live price")
 
 
 def test_the_resource_url_is_the_route_not_a_url_glued_to_a_url(client):

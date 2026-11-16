@@ -62,7 +62,8 @@ def test_the_paid_route_still_charges(client):
     if response.status_code == 402:
         payload = response.get_json()
         assert payload["accepts"][0]["payTo"] == main.X402_RECEIVER_ADDRESS
-        assert payload["accepts"][0]["amount"] == "3000"   # 0.003, untouched
+        assert payload["accepts"][0]["amount"] == str(
+            int(round(main.KRISTO_SIGNAL_PRICE * 1_000_000)))
 
 
 # ── rule 2: volatility at issue, immutable; hit/miss/flat boundaries ─────────

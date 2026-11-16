@@ -397,7 +397,8 @@ def test_signal_challenge_description_sells_and_v2_untouched(client, monkeypatch
     acc = payload["accepts"][0]
     assert acc["scheme"] == "exact"
     assert acc["network"] == "eip155:8453"
-    assert acc["amount"] == "3000"                  # atomic units
+    assert acc["amount"] == str(
+        int(round(main.KRISTO_SIGNAL_PRICE * 1_000_000)))   # atomic
     assert acc["payTo"] == main.X402_RECEIVER_ADDRESS
     assert acc["asset"] == main.X402_USDC_CONTRACT
     assert acc["extra"] == {"name": "USD Coin", "version": "2"}

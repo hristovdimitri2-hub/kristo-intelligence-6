@@ -31,7 +31,9 @@ def test_signal_route_returns_signals(client):
     r = client.get("/api/v1/signal")
     assert r.status_code == 200
     payload = r.get_json()
-    assert payload["price_usdc"] == pytest.approx(0.003)
+    import main
+    assert payload["price_usdc"] == pytest.approx(
+        main.KRISTO_SIGNAL_PRICE)
     assert len(payload["signals"]) == 2
     top = payload["signals"][0]
     assert top["token"] == "ETH" and top["action"] == "recommend_buy"
@@ -169,7 +171,8 @@ def test_signal_route_is_paid_when_free_tier_exhausted(client, monkeypatch):
 
 def test_signal_in_price_map_and_paid_set():
     import main
-    assert main.X402_PRICE_MAP["/api/v1/signal"] == pytest.approx(0.003)
+    assert main.X402_PRICE_MAP["/api/v1/signal"] == pytest.approx(
+        main.KRISTO_SIGNAL_PRICE)
     assert "/api/v1/signal" in main.X402_PAID_ENDPOINTS
 
 

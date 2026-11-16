@@ -39,7 +39,7 @@ def client(monkeypatch, tmp_path):
 
 
 def _proof_header(tx_hash: str, payer: str = "0x" + "11" * 20,
-                  amount_usdc: float = 0.003, endpoint: str | None = None) -> str:
+                  amount_usdc: float = 0.05, endpoint: str | None = None) -> str:
     payload = {
         "payer": payer,
         "transaction_hash": tx_hash,
@@ -55,7 +55,7 @@ def _paid_ready(main, monkeypatch, tx_hash, amount=0.05, dash=None):
     """Exhaust the free tier and make the FAST path resolve the proof offline.
 
     `amount` defaults to 0.05 — comfortably above every per-route price
-    (/api/stats is $0.005, the rest $0.003), so the test exercises the guard
+    (the dearest is $0.05), so the test exercises the guard
     under test rather than the price comparison.
     """
     monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
@@ -414,27 +414,29 @@ def test_a_published_tx_hash_cannot_be_claimed_by_another_payer(
     free. The proof must be bound to the recorded sender.
     """
     test_client, main, dash = client
-    # A real, publicly visible payment: canary $0.005 to the bound receiver.
+    # A real, publicly visible payment: canary $0.05 to the bound receiver.
     real_tx = ("0xb8a52dcd61962af4b2d15d6f166b6c5038bbe9d40c171b37508a199bd40a45e6"
                .replace("9d40c", "9c40c"))
     real_sender = "0x7e6b6556322c4e26c567a867964ac793f5ee2b1c"
     attacker = "0x" + "ba" * 20
 
-    _paid_ready(main, monkeypatch, real_tx, amount=0.005)
+    _paid_ready(main, monkeypatch, real_tx, amount=0.05)
     monkeypatch.setattr(main, "_sales_history", [{
-        "tx_hash": real_tx, "token": "USDC", "amount_usd": 0.005,
+        "tx_hash": real_tx, "token": "USDC", "amount_usd": 0.05,
         "sender": real_sender,
     }])
 
     # Attacker copies the published hash but claims it as their own payment.
     forged = test_client.get("/api/v1/signal", headers={
-        "X-Payment-Proof": _proof_header(real_tx, payer=attacker)})
+        "X-Payment-Proof": _proof_header(real_tx, payer=attacker,
+                                         amount_usdc=0.05)})
     assert forged.status_code != 200, \
         "a published tx hash was accepted from a DIFFERENT payer"
 
     # The genuine payer still gets through (the fix must not break the rail).
     genuine = test_client.get("/api/v1/signal", headers={
-        "X-Payment-Proof": _proof_header(real_tx, payer=real_sender)})
+        "X-Payment-Proof": _proof_header(real_tx, payer=real_sender,
+                                         amount_usdc=0.05)})
     assert genuine.status_code == 200
     assert dash.payment_guard_stats()["consumed_total"] == 1
 

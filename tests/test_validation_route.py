@@ -171,7 +171,10 @@ def test_validation_html_carries_x402_trust_section(client):
     for ep_id in (122932, 139367, 139372, 139339, 139342, 139366):
         assert f"/endpoint/{ep_id}" in html, ep_id
     # ...но не и остарялата единна цена: страницата трябва да покрива диапазона
-    assert "$0.003" in html and "$0.005" in html
+    import main as _m
+    floor = "$%.3f" % min(_m.X402_PRICE_MAP.values())
+    ceiling = "$%.3f" % max(_m.X402_PRICE_MAP.values())
+    assert floor in html and ceiling in html
     assert "$0.003 per call" not in html
 
 

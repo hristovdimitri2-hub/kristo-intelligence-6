@@ -4,7 +4,7 @@
 [![Kristo Intelligence MCP server](https://mcprush.com/badge/kristo-intelligence-mcp/card.svg)](https://mcprush.com/to/kristo-intelligence-mcp?ref=badge) [![Lumière PayCheck](https://lumierepaycheck.org/badge?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller)](https://lumierepaycheck.org/e?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller) [![x402 Doctor: payable](https://x402-doctor.fizzl.eu/badge.svg?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller)](https://x402-doctor.fizzl.eu/trust?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller)
 
 **Paid DeFi market intelligence for AI agents. x402-native: agents pay per
-call in USDC, from $0.003 — no signup, no API keys, no subscriptions.**
+call in USDC, from $0.005 — no signup, no API keys, no subscriptions.**
 
 Live API: https://kristo-intelligence-api.onrender.com
 Marketplace listing (settlement-verified): https://payapi.market/api/kristo-intelligence-defi-signals-api
@@ -34,7 +34,7 @@ flow is three steps and works from any HTTP client:
 3. Retry the call with the payment header → `200` with your data
 
 No keys. No accounts. Settled in USDC on Base (chain 8453). Prices start at
-**$0.003 per call** — the complete list is below.
+**$0.005 per call** — the complete list is below.
 
 ### Two payment rails
 
@@ -76,13 +76,13 @@ from the amounts the 402 challenges actually demand:
 
 | Route | USDC per call |
 |---|---|
-| `GET /api/v1/signal` | 0.003 |
-| `GET /api/v1/whaleflow` | 0.003 |
+| `GET /api/v1/signal` | 0.01 |
+| `GET /api/v1/whaleflow` | 0.01 |
 | `GET /api/stats` | 0.005 |
 | `GET /api/sales` | 0.005 |
 | `GET /api/bot-status` | 0.005 |
 | `GET /api/arb/opportunities` | 0.005 |
-| `GET /api/v1/verify-seller` | 0.100 |
+| `GET /api/v1/verify-seller` | 0.05 |
 
 `/api/v1/verify-seller` is the one route that takes input: pass
 `?receiver=0x…` to audit any Base address's incoming USDC before you pay it.

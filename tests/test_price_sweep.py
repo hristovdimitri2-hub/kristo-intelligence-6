@@ -61,20 +61,19 @@ SERVED_TEXTS = [
 #: Prices that used to live on our public surfaces and must never come back.
 #:
 #: NOT a general ban on these numbers -- `$0.10` was removed from this list on
-#: 07.11 when verify-seller was repriced TO $0.10. The old entries meant "the
-#: flat price we used to advertise", a claim about EVERY route; once $0.10
-#: became one route's real price, the pattern banned our own published number
-#: and failed the suite while the surfaces were correct.
+#: 07.11 when verify-seller was repriced TO $0.10, and the three numeric
+#: patterns below were removed on 16.11 when the audit-driven revision made
+#: $0.05 verify-seller's price and $0.01 signal's and whaleflow's. The old
+#: entries meant "the flat price we used to advertise", a claim about EVERY
+#: route; once a number becomes one route's real price, the pattern bans our own
+#: published number and fails the suite while the surfaces are correct.
 #:
 #: The stronger guard is `test_no_served_text_quotes_a_price_outside_the_price_map`
 #: below: it derives the allowed set from X402_PRICE_MAP, so a number is judged
 #: by whether it is a real route price rather than by appearing on a hand-kept
-#: list. These remaining patterns catch specific historical WORDING that the
-#: derived check cannot see (flat-price claims, free-tier promises).
+#: list. What remains here is historical WORDING the derived check cannot see:
+#: free-tier promises, which production does not honour.
 BANNED = [
-    (r"\$0\.05", "the old flat $0.05"),
-    (r"0\.05\s*USDC", "0.05 USDC literal"),
-    (r"\$0\.01\b|0\.01\s*USDC", "the phantom volume 'discount' price"),
     (r"1 free call", "the free-tier promise (production gives none)"),
     (r"first call is free", "the free-tier promise (production gives none)"),
     (r"free call per client", "the free-tier promise (production gives none)"),

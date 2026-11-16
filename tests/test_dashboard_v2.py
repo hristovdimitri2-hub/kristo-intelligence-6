@@ -102,22 +102,35 @@ def test_clients_section_lists_every_external_payer(client):
 
 
 def test_clients_routes_are_never_invented(client):
-    """$0.003 buys EITHER signal OR whaleflow, and $0.005 covers four routes.
+    """A retired price is not a route, and $0.005 still covers four of them.
 
-    With no payment_guards row for those historical txs, the honest answer is
-    the candidate list — naming a single route would be a fabricated fact on
-    the screen that is supposed to hold only facts.
+    The historical rows seeded here carry $0.003 and $0.005. $0.005 still
+    matches four routes, so those rows report the candidate list. The $0.003
+    rows are different now: that price was retired on 16.11, so no route costs
+    it and the honest label is `unknown` with no candidates — not a guess at
+    signal or whaleflow, which is only what it meant while the price was live.
+
+    Naming a single route for either case would be a fabricated fact on the
+    screen that is supposed to hold only facts.
     """
     test_client, _main, dash = client
     dash.seed_verified_sales()
     c = _sections(test_client)["clients"]
+    seen = set()
     for row in c["clients"]:
         for route in row["routes"]:
-            assert route["evidence"] == "price_ambiguous"
-            assert route["route"] is None
-            assert len(route["candidates"]) >= 2
+            seen.add(route["evidence"])
+            assert route["route"] is None, route
+            if route["evidence"] == "price_ambiguous":
+                assert len(route["candidates"]) >= 2, route
+            elif route["evidence"] == "unknown":
+                assert route["candidates"] == [], route
+            else:
+                raise AssertionError("unexpected evidence %r" % (route,))
+    assert {"price_ambiguous", "unknown"} <= seen, seen
     prices = c["route_price_map"]
-    assert prices["/api/v1/signal"] == prices["/api/v1/whaleflow"] == 0.003
+    assert prices["/api/v1/signal"] == _main.KRISTO_SIGNAL_PRICE
+    assert prices["/api/v1/whaleflow"] == _main.KRISTO_WHALEFLOW_PRICE
 
 
 def test_clients_route_becomes_a_fact_once_the_guard_records_it(client):
