@@ -4607,7 +4607,23 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
 
     accepts, resource, _ext = _x402_challenge_core(path, price)
     requirements = dict(accepts[0])
+    # `resource` travels in TWO forms on purpose, and the reason is measured.
+    #
+    # The x402 spec's PaymentRequirements declares `resource` a string URI, and
+    # CDP has settled against that form for months. But a facilitator that also
+    # publishes a catalogue indexes a settlement by the OBJECT form
+    # (`resource.url`) — which is how our own 402 publishes it. A string is
+    # accepted and then never listed.
+    #
+    # Measured 16.11.2026: a settlement whose requirements carried the object
+    # created a catalogue row within 45s, while five settlements carrying the
+    # string created none, four minutes later. So the string stays for the
+    # spec-strict facilitator and the object rides alongside for the one that
+    # keeps a catalogue; `connectors` picks per facilitator.
     requirements["resource"] = resource.get("url")
+    requirements["resource_url"] = resource.get("url")
+    if isinstance(resource, dict):
+        requirements["resource_object"] = dict(resource)
     requirements["description"] = resource.get("description")
     requirements["mimeType"] = resource.get("mimeType")
     # The EIP-712 domain is part of what the buyer signs, so the precheck must be

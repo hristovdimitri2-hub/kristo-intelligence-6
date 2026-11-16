@@ -473,6 +473,34 @@ def _merged_requirements(payload: dict, requirements: dict) -> dict:
     return merged
 
 
+def _requirements_for(facilitator: str, requirements: dict) -> dict:
+    """The requirements as THIS facilitator should receive them.
+
+    `resource` has two legitimate shapes and they are not interchangeable in
+    practice, so the caller cannot flatten it once and be right for both:
+
+      * the x402 spec declares `resource` a string URI, and CDP — which has
+        settled our payments for months — expects that;
+      * a facilitator that also publishes a catalogue indexes the settlement by
+        the OBJECT form (`resource.url`), which is how our own 402 publishes it.
+        Handed the string it accepts the payment and then lists nothing.
+
+    Measured 16.11.2026 on the live catalogue: requirements carrying the object
+    produced a row within 45 seconds; five settlements carrying the string
+    produced none. So the server sends both forms and this picks one, per
+    facilitator, dropping the helper keys either way.
+    """
+    reqs = dict(requirements)
+    obj = reqs.pop("resource_object", None)
+    url = reqs.pop("resource_url", None)
+    if facilitator == "cdp":
+        if url is not None:
+            reqs["resource"] = url
+    elif isinstance(obj, dict):
+        reqs["resource"] = obj
+    return reqs
+
+
 def _split_signature(signature_hex: str):
     """
     Split a 65-byte hex signature into (v, r, s). Handles both v=27/28 and
@@ -1169,7 +1197,8 @@ def settle_standard_payment(payment_header, requirements: dict):
         if token:
             body = {"x402Version": 2,
                     "paymentPayload": payload,
-                    "paymentRequirements": payment_requirements}
+                    "paymentRequirements": _requirements_for(
+                        "cdp", payment_requirements)}
             _t = time.monotonic()
             status, resp, _raw, resp_headers = _facilitator_post(
                 "https://api.cdp.coinbase.com/platform/v2/x402", "settle",
@@ -1223,7 +1252,8 @@ def settle_standard_payment(payment_header, requirements: dict):
                 continue
         body = {"x402Version": 2,
                 "paymentPayload": payload,
-                "paymentRequirements": payment_requirements}
+                "paymentRequirements": _requirements_for(
+                    name, payment_requirements)}
         if name != "cdp":
             # legacy facilitators (PayAI) also accept the raw header field
             body["paymentHeader"] = (payment_header
