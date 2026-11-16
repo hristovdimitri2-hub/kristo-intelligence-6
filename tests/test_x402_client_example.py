@@ -77,16 +77,18 @@ def test_the_example_still_refuses_to_pay_on_the_wrong_network():
 
 def test_the_example_runs_without_a_network_or_a_wallet():
     """It must parse: a syntax error would only surface on a developer's machine."""
+    import shutil
     import subprocess
     import sys
+
+    if shutil.which("node") is None:
+        import pytest
+        pytest.skip("node is not available here")
 
     result = subprocess.run(
         ["node", "--check", str(EXAMPLE)],
         capture_output=True, text=True, timeout=60,
     )
-    if result.returncode != 0 and "ENOENT" in (result.stderr or ""):
-        import pytest
-        pytest.skip("node is not available here")
     assert result.returncode == 0, result.stderr or result.stdout
     del sys
 
