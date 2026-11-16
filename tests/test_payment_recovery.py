@@ -228,6 +228,15 @@ def test_settle_c2_refusal_then_retry_delivers(env, monkeypatch):
     assert r1.status_code == 425, body1
     assert body1["error"] == "settlement_in_flight"
     assert body1["transaction"] == TX_SELF
+    # The x402 Foundation's own name for this state — money moved, not yet
+    # confirmed — so a client written against the spec recognises it without
+    # knowing our private spelling.
+    assert body1["settlement_pending"] is True
+    # And the standard HTTP way to say when to come back. This answer used to
+    # carry `retry_after_seconds` in the body only, so a client that respects
+    # the header had nothing to act on — the difference between a retry and a
+    # lost sale.
+    assert r1.headers.get("Retry-After") == "4"
     assert "PAYMENT-SIGNATURE" not in body1["message"], \
         "never tell a payer whose money already moved to retry the signature"
     assert "PAYMENT-RESPONSE" not in r1.headers

@@ -5669,9 +5669,24 @@ def _x402_paywall():
                     # F1/F6: the settlement EXISTS but our node has not caught
                     # up. Never 401 (that blames the payer) and never 402
                     # ("pay again") — the money already moved on-chain.
-                    return jsonify({
+                    #
+                    # `Retry-After` is the HTTP-standard way to say "come back in
+                    # N seconds", and this answer had only `retry_after_seconds`
+                    # in the body: a client that respects the header had nothing
+                    # to act on, which is the difference between a retry and a
+                    # lost sale. The body field stays for clients already
+                    # reading it.
+                    #
+                    # `settlement_pending` is the x402 Foundation's own name for
+                    # this state — money moved, not yet confirmed — introduced as
+                    # a NON-TERMINAL code in the weekly release. We already read
+                    # it inbound (services/connectors.py, spec §9); carrying the
+                    # same word outbound means a spec-aware client recognises the
+                    # situation without knowing our private spelling.
+                    resp = jsonify({
                         "ok": False,
                         "error": "settlement_in_flight",
+                        "settlement_pending": True,
                         "message": (
                             "Your payment already settled on-chain. Our node "
                             "has not reached the confirming block yet — no new "
@@ -5682,7 +5697,10 @@ def _x402_paywall():
                         "retry_after_seconds": 4,
                         "reason": getattr(g, "x402_reject_reason", ""),
                         "request_id": getattr(g, "request_id", ""),
-                    }), 425
+                    })
+                    resp.status_code = 425
+                    resp.headers["Retry-After"] = "4"
+                    return resp
                 return jsonify({
                     "ok": False,
                     "error": "invalid_standard_payment",
