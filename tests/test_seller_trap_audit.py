@@ -138,3 +138,33 @@ def test_a_preflight_answers_200_with_methods(client):
     r = client.options("/api/v1/signal")
     assert r.status_code in (200, 204), r.status_code
     assert "Access-Control-Allow-Methods" in r.headers
+
+
+def test_cors_never_promises_a_verb_the_paywall_refuses(client):
+    """The preflight must not advertise a method the route then rejects.
+
+    This header used to say `GET, HEAD, POST, OPTIONS` on routes that answer
+    only GET. A browser agent that trusted the preflight sent POST and collected
+    a 405 — the "promise one thing, do another" gap the x402 community writes
+    about, and a wasted round trip for a buyer who is one step from paying.
+
+    The 405 body is the source of truth: whatever it lists as `allowed` is what
+    CORS may advertise, and nothing more.
+    """
+    refused = client.post("/api/v1/signal", json={})
+    assert refused.status_code == 405, refused.status_code
+    allowed = {m.strip() for m in refused.get_json()["allowed"]}
+
+    on_challenge = client.get("/api/v1/signal")
+    advertised = {m.strip() for m in
+                  on_challenge.headers["Access-Control-Allow-Methods"].split(",")}
+    assert advertised <= allowed, (
+        "the 402 advertises %s but the route only answers %s"
+        % (sorted(advertised), sorted(allowed)))
+
+    preflight = client.options("/api/v1/signal")
+    pre = {m.strip() for m in
+           preflight.headers["Access-Control-Allow-Methods"].split(",")}
+    assert pre <= allowed, (
+        "the preflight advertises %s but the route only answers %s"
+        % (sorted(pre), sorted(allowed)))

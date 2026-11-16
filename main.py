@@ -5109,10 +5109,18 @@ _X402_CORS_ALLOW_HEADERS = (
     "X-Admin-Token, x-admin-token"
 )
 
-#: Methods a paid route answers. Kept as a literal rather than derived from the
-#: URL map because the preflight is answered in `before_request`, where a route
-#: that matched no method has no `url_rule` to read.
-_X402_CORS_ALLOW_METHODS = "GET, HEAD, POST, OPTIONS"
+#: Methods a paid route answers. All eight are GET-only: their live 405 bodies
+#: list `GET, HEAD, OPTIONS` for every one of them, and the paywall refuses any
+#: other verb before it reads a credential. This used to advertise POST as well,
+#: which promised a verb we then refused — a browser agent that trusted the
+#: preflight would send POST and collect a 405. POST does exist elsewhere in the
+#: app (`/mcp/message`, `/api/checkout`, the Stripe webhook), but not on a paid
+#: route, and this header is about the paid routes only.
+#:
+#: Kept as a literal rather than derived from the URL map because the preflight
+#: is answered in `before_request`, where a route that matched no method has no
+#: `url_rule` to read.
+_X402_CORS_ALLOW_METHODS = "GET, HEAD, OPTIONS"
 
 
 def _x402_cors_preflight_response():
