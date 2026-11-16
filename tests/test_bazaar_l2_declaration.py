@@ -103,22 +103,59 @@ def test_declared_properties_match_the_public_example(client):
             f"{sorted(example)}")
 
 
-def test_no_required_key_is_declared_so_a_delivery_cannot_mismatch(client):
-    """A required key we cannot prove would turn a delivery into a BLOCK.
+def test_declared_required_keys_are_proven_present_in_the_delivery(client, monkeypatch):
+    """`required` may only list keys MEASURED present in a real delivery.
 
-    The declaration exists to say "the answer is an object with these keys".
-    vet402 only checks `required` keys when the body does not parse; a
-    required key we cannot guarantee is a BLOCK, not a WARN.
+    vet402 reads `.required` from the example object and treats a key missing
+    from the body as a mismatch (a BLOCK), so the list may only hold keys we
+    have proven. This replaces an earlier blanket "declare no required keys"
+    rule: that rule was right about unprovable keys and wrong about provable
+    ones — /api/v1/verify-seller returns all nine keys its example names, on a
+    cold read and on a cached read alike.
     """
     import main
+    import services.seller_audit as sa
 
+    # 1. The declaration must not contradict itself: every required key has to
+    #    be one the same example declares as a property.
+    declared = {}
     for path in main.X402_PAID_ENDPOINTS:
         body = _challenge_for(client, path)
         schema = ((body.get("extensions") or {}).get("bazaar") or {}).get("schema")
         out = _catalog_output_of(schema)
-        assert out["requiredKeys"] == [], (
-            f"{path} declares required keys {out['requiredKeys']}; "
-            "a missing key would be a mismatch")
+        props = set(out["exampleProps"] or {})
+        assert set(out["requiredKeys"]) <= props, (
+            f"{path} requires keys its own example does not declare: "
+            f"{sorted(set(out['requiredKeys']) - props)}")
+        if out["requiredKeys"]:
+            declared[path] = out["requiredKeys"]
+
+    assert declared, "no paid route declares required keys — nothing is proven"
+
+    # 2. Every declared required key must be in the body a paying caller gets.
+    #    The chain read is stubbed, so this never touches the network.
+    monkeypatch.setattr(sa, "_CACHE", {}, raising=False)
+    monkeypatch.setattr(
+        sa, "audit_receiver",
+        lambda receiver, days=7, **kw: sa.build_audit(
+            [{"tx_hash": "0x" + "ab" * 32,
+              "payer": "0x1111111111111111111111111111111111111111",
+              "amount_usdc": 0.003, "block_number": 1}],
+            {"complete": True, "lookback_days": days, "scanned_blocks": 10,
+             "failed_ranges": 0, "split_retries": 0},
+            receiver=receiver, days=days))
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 2)
+
+    for path, required in declared.items():
+        main._free_tier_usage.clear()
+        r = client.get(path + "?receiver="
+                       "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f")
+        assert r.status_code == 200, f"{path} answered {r.status_code}"
+        delivered = r.get_json()
+        missing = [k for k in required if k not in delivered]
+        assert not missing, (
+            f"{path} declares {missing} as required but a real delivery lacks "
+            f"them — vet402 would BLOCK")
 
 
 def test_the_402_header_and_body_agree_on_the_declaration(client):

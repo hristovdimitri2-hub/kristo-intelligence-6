@@ -2282,9 +2282,11 @@ for _alias, _canonical in X402_PATH_ALIASES.items():
 #
 # Our canonical output object carried only {type: "object", description: ...},
 # so the declaration read as empty. We therefore add the top-level keys of the
-# sample the handler actually returns. Deliberately NO `required`: a key we
-# cannot prove would turn a real delivery into a mismatch (a BLOCK), and the
-# point of the declaration is to say "the answer is an object with these keys".
+# sample the handler actually returns. `required` is added ONLY for keys we can
+# prove are always present: a key that can be absent would turn a real delivery
+# into a mismatch (a BLOCK), which is worse than declaring nothing. The point of
+# the declaration is to say "the answer is an object with these keys" — and,
+# where measured, "these ones are always there".
 _BAZAAR_EXAMPLE_SCHEMA_TYPES = {
     "bool": "boolean",
     "int": "integer",
@@ -2310,6 +2312,42 @@ def _bazaar_example_properties(endpoint: str) -> dict:
         key: {"type": _BAZAAR_EXAMPLE_SCHEMA_TYPES.get(type(value).__name__, "object")}
         for key, value in example.items()
     }
+
+
+#: Top-level keys that are ALWAYS present in the paid response, per endpoint.
+#: Only keys we can prove from the handler are listed: a key that can be absent
+#: would turn a real delivery into a schema mismatch (a BLOCK), which is worse
+#: than declaring nothing. Empty for routes whose shape is not yet proven.
+#:
+#: `/api/v1/verify-seller` is measured, not assumed: a fresh 200 and a cached
+#: 200 both carried the same 14 keys, so the 9 the example names are always
+#: there. The other five (`checked_at`, `read_reason`, `source`, `scope_note`,
+#: `buyer_note`) are real but not in the example, so they are not claimed.
+_BAZAAR_EXAMPLE_REQUIRED = {
+    "/api/v1/verify-seller": [
+        "ok",
+        "receiver",
+        "window_days",
+        "read",
+        "coverage",
+        "payer_analysis",
+        "verdict",
+        "notes",
+        "served_from_cache",
+    ],
+}
+
+
+def _bazaar_example_required(endpoint: str) -> dict:
+    """The `required` clause for the example object, or {} when unproven.
+
+    vet402 reads `.required` from the example object and treats a missing key as
+    a BLOCK, so a route with no proven set gets no clause at all rather than an
+    empty one: "declared nothing" is honest, "declared empty" is a claim.
+    """
+    canonical = X402_PATH_ALIASES.get(endpoint, endpoint)
+    keys = _BAZAAR_EXAMPLE_REQUIRED.get(canonical) or []
+    return {"required": list(keys)} if keys else {}
 
 # ── The declared INPUT, which the 402 used to get wrong ────────────────────
 # Every paid route published `queryParams: {}` with additionalProperties False
@@ -2577,6 +2615,10 @@ def _x402_challenge_core(endpoint: str, amount: float, description: str = ""):
                                 # WARN. Declaring the real top-level keys is what
                                 # turns that into "the declaration names output".
                                 "properties": _bazaar_example_properties(endpoint),
+                                # Only for routes whose keys are measured present
+                                # in every delivery (see _BAZAAR_EXAMPLE_REQUIRED).
+                                # Empty for the rest, which omits the clause.
+                                **_bazaar_example_required(endpoint),
                             },
                         },
                         "required": ["type"],
