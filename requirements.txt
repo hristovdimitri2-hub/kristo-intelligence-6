@@ -31,7 +31,7 @@ stripe==15.6.2
 python-telegram-bot==22.8
 
 # ── Database ───────────────────────────────────────────────────────────────
-psycopg[binary]==3.3.8
+psycopg[binary]==3.3.9
 
 # ── Configuration ──────────────────────────────────────────────────────────
 python-dotenv==1.2.4
