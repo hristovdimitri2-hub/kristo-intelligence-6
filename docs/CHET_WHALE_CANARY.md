@@ -23,9 +23,19 @@ Two small things:
    loop on our side and the route goes into discovery right after.
 
 2. Separately — could you drop ~$0.05 USDC (plus a little gas) to our
-   test wallet 0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd? We run
-   external self-paid tests and our hot wallet is empty. If that's not
-   something you can do, no problem at all — we'll top it up ourselves.
+   test wallet? We run external self-paid tests and our hot wallet is empty.
+   If that's not something you can do, no problem at all — we'll top it up
+   ourselves.
+
+> **НЕ ИЗПРАЩАЙ ТОЗИ ТЕКСТ КАТОТО Е (поправено 16.11.2026).** Тук стоеше
+> `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd`, а това е газовият портфейл,
+> чийто ключ е записан като **изгорен/публикуван** още на 27.08 FREEZE
+> (`docs/PROJECT_CHRONOLOGY.md`, `docs/CONTEXT_AND_ROADMAP.md`). Да помолиш
+> трета страна да прати пари там значи да я подканиш да ги подари на всеки,
+> който е прочел ключа. Адресът е махнат. Преди изпращане сложи адрес, чийто
+> ключ държим — газовият се извежда от `WALLET_PRIVATE_KEY` и се проверява с
+> `_forensics/does_self_broadcast_have_gas.py`. За щастие имейлът така и не е
+> бил пратен, а адресът никога не е получавал нищо (ETH 0, USDC 0, nonce 0).
 
 — Dimitri
 

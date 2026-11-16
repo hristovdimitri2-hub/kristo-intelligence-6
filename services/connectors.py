@@ -29,6 +29,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from config import get_base_fee_receiver
+from redaction import redact_rpc
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def _facilitator_post(base_url: str, endpoint: str, body: dict,
     except Exception as e:  # transport (DNS, timeout, TLS)
         log.warning("facilitator %s %s -> %s: %s",
                     base_url, endpoint, type(e).__name__, e)
-        return None, None, f"{type(e).__name__}: {e}", {}
+        return None, None, f"{type(e).__name__}: {redact_rpc(e)}", {}
 
 
 def decode_payment_payload(header_value):
@@ -402,7 +403,7 @@ def _local_recover_signer(payload: dict, requirements: dict = None):
         recovered = Account.recover_message(sm, signature=inner.get("signature"))
         return recovered, None
     except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+        return None, f"{type(e).__name__}: {redact_rpc(e)}"
 
 
 def _with_accepted(payload: dict, requirements: dict) -> dict:
@@ -638,7 +639,7 @@ def _self_broadcast_settlement(payload: dict):
     except Exception as e:
         log.warning("self-broadcast settlement failed: %s: %s",
                     type(e).__name__, e)
-        return None, f"self_broadcast_error: {type(e).__name__}: {e}"
+        return None, f"self_broadcast_error: {type(e).__name__}: {redact_rpc(e)}"
 
 
 def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
@@ -736,7 +737,7 @@ def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
                 except Exception as e:
                     return None, (
                         f"CDP_API_KEY_SECRET base64 payload is not decodable: "
-                        f"{type(e).__name__}: {e}"
+                        f"{type(e).__name__}: {redact_rpc(e)}"
                     )
                 if der[:10] == b"-----BEGIN":
                     secret = der.decode(errors="replace")
@@ -748,7 +749,7 @@ def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
                 return None, (
                     f"CDP_API_KEY_SECRET DER parse failed "
                     f"(len={len(der)}B, not a valid DER EC key): "
-                    f"{type(e).__name__}: {e}"
+                    f"{type(e).__name__}: {redact_rpc(e)}"
                 )
             if not isinstance(priv, ec.EllipticCurvePrivateKey):
                 return None, (
@@ -785,7 +786,7 @@ def _cdp_jwt(host: str, path: str = "/platform/v2/x402/verify",
                  key_id[:24], "-----BEGIN" in secret)
         return token, "ok"
     except Exception as e:
-        detail = f"jwt_build_failed: {type(e).__name__}: {e}"
+        detail = f"jwt_build_failed: {type(e).__name__}: {redact_rpc(e)}"
         log.warning("CDP JWT build failed: %s", detail)
         return None, detail
 
@@ -814,7 +815,7 @@ def _local_verify_transaction_payload(pl: dict, requirements: dict):
     try:
         signer = Account.recover_transaction("0x" + raw_hex)
     except Exception as e:
-        return False, declared_from or None, f"tx_recovery_failed: {e}"
+        return False, declared_from or None, f"tx_recovery_failed: {redact_rpc(e)}"
     if str(signer).lower() != str(declared_from).lower():
         return False, signer, f"tx signer {signer} != declared from {declared_from}"
     try:
@@ -829,7 +830,7 @@ def _local_verify_transaction_payload(pl: dict, requirements: dict):
         tx_data = as_dict.get("data") or b""
         chain_id = as_dict.get("chainId") or as_dict.get("chain_id")
     except Exception as e:
-        return False, signer, f"tx_decode_failed: {e}"
+        return False, signer, f"tx_decode_failed: {redact_rpc(e)}"
     if chain_id and int(chain_id) != 8453:
         return False, signer, f"tx chainId {chain_id} != Base 8453"
     to_s = ("0x" + tx_to.hex()) if isinstance(tx_to, (bytes, bytearray)) else str(tx_to)
@@ -883,7 +884,7 @@ def _broadcast_client_transaction(raw_tx_hex: str):
     try:
         tx_hash = w3.eth.send_raw_transaction(raw)
     except Exception as e:
-        return None, f"client_tx_broadcast_failed: {type(e).__name__}: {e}"
+        return None, f"client_tx_broadcast_failed: {type(e).__name__}: {redact_rpc(e)}"
     hex_tx = tx_hash.hex() if isinstance(tx_hash, (bytes, bytearray)) else str(tx_hash)
     deadline = time.time() + 24
     while time.time() < deadline:

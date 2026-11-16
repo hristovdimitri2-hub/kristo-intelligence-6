@@ -51,7 +51,7 @@ In Render → your service → **Environment**, add these variables:
 | `BASE_RPC_URL` | `https://mainnet.base.org` (default) | (optional) |
 | `BASE_FEE_AMOUNT_USDC` | `0.005` (single source: config.py; per-route prices in X402_PRICE_MAP) | (optional) |
 | `TELEGRAM_BOT_TOKEN` | From @BotFather | (optional) |
-| `WEBHOOK_PUBLIC_URL` | `https://kristo-intelligence-v6.onrender.com` (your Render URL) | (optional) |
+| `WEBHOOK_PUBLIC_URL` | `https://kristo-intelligence-api.onrender.com` (your Render URL) | (optional) |
 | `STRIPE_SECRET_KEY` | `sk_live_...` from Stripe dashboard | (optional) |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_...` from Stripe webhook endpoint | (optional) |
 
@@ -59,7 +59,7 @@ In Render → your service → **Environment**, add these variables:
 
 1. Click **Create Web Service**
 2. Wait ~3 minutes for build and deploy
-3. Note your app URL: `https://kristo-intelligence-v6.onrender.com`
+3. Note your app URL: `https://kristo-intelligence-api.onrender.com`
 
 ### Step 1.4 — Verify deployment
 
@@ -67,27 +67,27 @@ Run these curl commands (replace `YOUR-APP` with your actual Render URL):
 
 ```bash
 # 1. Health check
-curl https://kristo-intelligence-v6.onrender.com/health
+curl https://kristo-intelligence-api.onrender.com/health
 # Expected: {"status":"ok","database":{"backend":"sqlite","ready":true},"blockchain":{"ready":true,...}}
 
 # 2. x402scan-compatible discovery (NO .json extension!)
-curl https://kristo-intelligence-v6.onrender.com/.well-known/x402
+curl https://kristo-intelligence-api.onrender.com/.well-known/x402
 # Expected: {"version":1,"resources":["https://.../api/stats",...],"ownershipProofs":["0xd4cdA900..."]}
 
 # 3. OpenAPI spec with x-payment-info
-curl https://kristo-intelligence-v6.onrender.com/openapi.json | python3 -m json.tool | head -30
+curl https://kristo-intelligence-api.onrender.com/openapi.json | python3 -m json.tool | head -30
 # Expected: openapi 3.0.3, info.x402, x-discovery.ownershipProofs, paths./api/stats.get.x-payment-info
 
 # 4. Free tier call (should return 200)
-curl https://kristo-intelligence-v6.onrender.com/api/stats
+curl https://kristo-intelligence-api.onrender.com/api/stats
 # Expected: 200 OK with stats data
 
 # 5. Paid call (should return 402 with payment headers)
-curl -i https://kristo-intelligence-v6.onrender.com/api/stats
+curl -i https://kristo-intelligence-api.onrender.com/api/stats
 # Expected: 402 with X-Payment-Address and X-Payment-Amount-USDC headers
 
 # 6. Dashboard
-open https://kristo-intelligence-v6.onrender.com/dashboard
+open https://kristo-intelligence-api.onrender.com/dashboard
 ```
 
 If all 6 checks pass — proceed to Phase 2.
@@ -103,7 +103,7 @@ x402scan (https://x402scan.com) is the main ecosystem explorer for x402 APIs. Re
 1. Go to: **https://www.x402scan.com/resources/register**
 2. In the form, enter your app URL:
    ```
-   https://kristo-intelligence-v6.onrender.com
+   https://kristo-intelligence-api.onrender.com
    ```
 3. Click **Submit** / **Add Server**
 
@@ -165,7 +165,7 @@ PayAPI.market (https://payapi.market) is another x402 marketplace with 89 live A
    - **API Name:** Kristo Intelligence API
    - **Description:** AI-powered DeFi trading signals and crypto market intelligence on Base. Real-time prices for ETH, ONDO, KAITO, DEGEN, risk-managed portfolio recommendations, and on-chain sales history.
    - **Category:** Finance / Crypto / DeFi
-   - **Base URL:** `https://kristo-intelligence-v6.onrender.com`
+   - **Base URL:** `https://kristo-intelligence-api.onrender.com`
    - **Pricing:** from $0.003 per request, per route (live: the 402 challenge is the authority)
    - **Receiver wallet:** `0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844`
    - **Chain:** Base (chain_id 8453)
@@ -201,7 +201,7 @@ Required only if you want to accept $29/month VIP subscriptions via Stripe.
 
 1. Go to https://dashboard.stripe.com/webhooks
 2. Click **Add endpoint**
-3. **Endpoint URL:** `https://kristo-intelligence-v6.onrender.com/api/webhooks/stripe`
+3. **Endpoint URL:** `https://kristo-intelligence-api.onrender.com/api/webhooks/stripe`
 4. **Events to send:**
    - `checkout.session.completed`
    - `checkout.session.async_payment_succeeded`
@@ -223,7 +223,7 @@ brew install stripe/stripe-cli/stripe  # macOS
 # or: https://github.com/stripe/stripe-cli/releases
 
 # Forward test events to your local Render URL
-stripe listen --forward-to https://kristo-intelligence-v6.onrender.com/api/webhooks/stripe
+stripe listen --forward-to https://kristo-intelligence-api.onrender.com/api/webhooks/stripe
 
 # In another terminal, trigger a test event
 stripe trigger checkout.session.completed
@@ -237,20 +237,20 @@ Run the full verification suite:
 
 ```bash
 # 1. Health check
-curl -s https://kristo-intelligence-v6.onrender.com/health | python3 -m json.tool
+curl -s https://kristo-intelligence-api.onrender.com/health | python3 -m json.tool
 
 # 2. x402scan discovery (the critical one!)
-curl -s https://kristo-intelligence-v6.onrender.com/.well-known/x402 | python3 -m json.tool
+curl -s https://kristo-intelligence-api.onrender.com/.well-known/x402 | python3 -m json.tool
 
 # 3. OpenAPI spec — verify x-payment-info is present
-curl -s https://kristo-intelligence-v6.onrender.com/openapi.json | \
+curl -s https://kristo-intelligence-api.onrender.com/openapi.json | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print('x-discovery:', d.get('x-discovery')); print('stats x-payment-info:', d['paths']['/api/stats']['get'].get('x-payment-info'))"
 
 # 4. Free tier call
-curl -s https://kristo-intelligence-v6.onrender.com/api/stats | python3 -m json.tool | head -20
+curl -s https://kristo-intelligence-api.onrender.com/api/stats | python3 -m json.tool | head -20
 
 # 5. 402 challenge (after free tier exhausted)
-curl -i -X GET https://kristo-intelligence-v6.onrender.com/api/stats
+curl -i -X GET https://kristo-intelligence-api.onrender.com/api/stats
 
 # 6. Check x402scan listing (after ~5 min)
 # Open in browser: https://www.x402scan.com/?q=kristo
@@ -327,7 +327,7 @@ After deployment, you need real customers to generate revenue. Suggested channel
 
 After completing this checklist, you should have:
 
-- ✅ App deployed at `https://kristo-intelligence-v6.onrender.com`
+- ✅ App deployed at `https://kristo-intelligence-api.onrender.com`
 - ✅ `/health` returns 200 OK
 - ✅ `/.well-known/x402` returns valid x402scan-compatible JSON
 - ✅ `/openapi.json` includes `x-payment-info` and `x-discovery.ownershipProofs`

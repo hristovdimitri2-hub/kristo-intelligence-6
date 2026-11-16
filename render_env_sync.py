@@ -30,6 +30,18 @@ RENDER_API_BASE = "https://api.render.com/v1"
 RENDER_API_KEY = os.getenv("RENDER_API_KEY", "").strip()
 SERVICE_ID = os.environ.get("RENDER_SERVICE_ID", "")  # kristo-intelligence-api
 
+#: Receivers that must never be pushed back to Render, whatever a local .env
+#: says. This script reads the working copy's .env and writes it straight to the
+#: live service, so a stale .env — a restored backup, an old checkout — would
+#: silently redirect every payment to a wallet we no longer use. The first entry
+#: is the receiver the project ran from the beginning until 16.11.2026 and whose
+#: private key nobody holds (HANDOVER §32, §33, §65): pointing the live 402 back
+#: at it means every future sale lands where it cannot be moved.
+DEAD_RECEIVERS = {
+    "0xd4cda900839c0fed4374ee37ea0dbe8e4c6fd08f",   # rotated out 16.11.2026
+    "0xd4cda980839c8fed4374ee37ea8dbe8c4ecfd88f",   # the older wrong address
+}
+
 # Environment variables to sync to Render
 SYNC_ENV_VARS = [
     "STRIPE_API_KEY",
@@ -141,6 +153,13 @@ def update_env_vars(service_id: str, env_vars: dict) -> bool:
     try:
         # Update each variable
         for update in updates:
+            if (update["key"] == "BASE_FEE_RECEIVER"
+                    and str(update["value"]).strip().lower() in DEAD_RECEIVERS):
+                print(f"    ✗ {update['key']} REFUSED: "
+                      f"{update['value']} is a dead receiver — the live 402 "
+                      f"would point every payment at a wallet nobody can sign "
+                      f"for. Fix the local .env, or set it on Render by hand.")
+                return False
             resp = requests.put(
                 f"{url}/{update['key']}",
                 headers=headers,

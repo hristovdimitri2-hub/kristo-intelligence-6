@@ -153,8 +153,12 @@ def check_env_vars():
                     key = var.get("key", "")
                     if "STRIPE" in key or "BASE" in key:
                         value = var.get("value", "")
-                        masked = value[:20] + "..." if len(value) > 20 else value
-                        stripe_vars[key] = masked
+                        # Presence and length only. This used to print the first
+                        # 20 characters, which is most of a `sk_live_…` and well
+                        # past the prefix of a short key — and the output of a
+                        # status check gets pasted into chats and issues.
+                        stripe_vars[key] = (
+                            "set (%d chars)" % len(value) if value else "EMPTY")
             
             if stripe_vars:
                 print(f"  ✓ Found {len(stripe_vars)} environment variables synced:")

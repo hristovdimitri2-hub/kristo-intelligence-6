@@ -38,6 +38,7 @@ def trigger_deploy(api_key: str, service_id: str) -> dict:
         if resp.ok:
             services = resp.json()
             print(f"  [INFO] Found {len(services)} service(s).")
+            matches = []
             for entry in services:
                 # Render API returns {"cursor": ..., "service": {...}}
                 svc = entry.get("service", entry) if isinstance(entry, dict) else {}
@@ -45,10 +46,32 @@ def trigger_deploy(api_key: str, service_id: str) -> dict:
                 sname = svc.get("name", "")
                 stype = svc.get("type", "")
                 print(f"    - {sid} | {sname} | {stype}")
-                # Auto-detect our service by name
                 if "kristo-intelligence" in sname.lower():
-                    service_id = sid
-                    print(f"  [INFO] Auto-detected service ID: {service_id}")
+                    matches.append((sid, sname))
+            # Only fall back to name-matching when the environment did not name
+            # the service. This used to override RENDER_SERVICE_ID with the LAST
+            # name match, so on an account holding more than one service with
+            # "kristo-intelligence" in the name it could deploy to the wrong one
+            # — and the explicit, correct ID was silently discarded.
+            if service_id:
+                print(f"  [INFO] Using RENDER_SERVICE_ID from the environment: "
+                      f"{service_id}")
+                if matches and service_id not in [m[0] for m in matches]:
+                    print(f"  [WARN] That id is not among the name matches "
+                          f"{[m[0] for m in matches]} — check you mean it.")
+            elif len(matches) == 1:
+                service_id = matches[0][0]
+                print(f"  [INFO] Auto-detected service ID: {service_id} "
+                      f"({matches[0][1]})")
+            elif len(matches) > 1:
+                print(f"  [ERROR] {len(matches)} services match "
+                      f"'kristo-intelligence': {[m[0] for m in matches]}. "
+                      f"Refusing to guess — set RENDER_SERVICE_ID.")
+                return {}
+            else:
+                print("  [ERROR] No service matched 'kristo-intelligence' and "
+                      "RENDER_SERVICE_ID is unset — nothing to deploy to.")
+                return {}
         else:
             print(f"  [WARN] Could not list services: {resp.status_code} {resp.text[:200]}")
     except Exception as exc:
