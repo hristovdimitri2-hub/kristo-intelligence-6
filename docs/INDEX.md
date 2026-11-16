@@ -82,7 +82,8 @@ https://raw.githubusercontent.com/hristovdimitri2-hub/kristo-intelligence-6/main
 | файл | редове | какво е |
 |---|---|---|
 | `HANDOVER.md` §62 | — | **Живият списък с отвореното** — чака собственика / външни / вътрешни |
-| `docs/AUDIT_BRIEF.md` | 277 | Бриф с 21 задачи за външен одитор |
+| `docs/AUDIT_BRIEF.md` | 350 | Бриф с 26 задачи за външен одитор |
+| `docs/MULTICHAIN_PLAN.md` | 150 | **План за втора верига** — измерена цена, фази, и защо одитът е по-важен от плащането |
 | `TASK.md` | 63 | Входен брифинг |
 | `docs/WATCH_LIST.md` | 12 | Активни за следене |
 
