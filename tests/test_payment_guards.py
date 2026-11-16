@@ -504,23 +504,50 @@ def test_c2_still_fails_closed_when_the_node_is_really_lagging(client,
     assert kinds.get("head_refreshed_and_accepted") is None
 
 
-def test_c2_depth_shortfall_behaviour_is_unchanged(client, monkeypatch):
-    """The original case must be untouched: a block that IS known but not buried
-    deep enough keeps the old event and the old refusal — and never triggers a
-    refresh, because that is not a clock problem."""
+def test_c2_depth_shortfall_waits_before_refusing(client, monkeypatch):
+    """A block that IS known but not buried deep enough must WAIT once before
+    refusing.
+
+    This used to refuse immediately, on the reasoning that a depth shortfall is
+    not a clock problem. The reasoning was right about the cause and wrong about
+    the cost: on Base a block is ~0.2s, so the required depth normally arrives
+    inside a second, and the payer was handed a 425 for a wait that was almost
+    over. Measured 16.11.2026 against our own new receiver — a $0.003 payment
+    settled and was refused at block+2 against a required depth of 5, and the
+    client never retried, so the money moved and the product did not.
+
+    Fail-closed is unchanged: a shortfall that never resolves is still refused,
+    with the same event. It just happens after the chain has had its second.
+    """
     _test_client, main, dash = client
     monkeypatch.setenv("KRISTO_C2_LAG_WAIT_SECONDS", "0")
     reads = []
 
     def read_head():
         reads.append(1)
-        return 1000                               # and block 999 sits at the tip
+        return 1000                               # block 999 sits at the tip
+
+    # (a) the depth arrives during the wait → accepted, and recorded as such.
+    def read_head_catching_up():
+        reads.append(1)
+        return 1000 if len(reads) == 1 else 1011   # the chain moved on
 
     assert main._confirmations_ok_with_lag_refresh(
-        receipt_block=999, read_head=read_head, required=12,
+        receipt_block=999, read_head=read_head_catching_up, required=12,
         endpoint="/api/v1/signal", tx_hash="0x" + "ee" * 32,
+        rail="proof") is True
+    assert len(reads) == 2, "a depth shortfall must wait and re-read once"
+    kinds = dash.guard_stats(recent_limit=5)["by_kind"]
+    assert kinds.get("waited_and_accepted") == 1
+    assert "c2_insufficient_confirmations" not in kinds
+
+    # (b) the depth never arrives → still refused, fail-closed, same event.
+    reads.clear()
+    assert main._confirmations_ok_with_lag_refresh(
+        receipt_block=999, read_head=read_head, required=12,
+        endpoint="/api/v1/signal", tx_hash="0x" + "ef" * 32,
         rail="proof") is False
-    assert len(reads) == 1, "no refresh/wait for a depth shortfall"
+    assert len(reads) == 2, "one read, one wait, one re-read, then refuse"
     kinds = dash.guard_stats(recent_limit=5)["by_kind"]
     assert kinds.get("c2_insufficient_confirmations") == 1
     assert "node_lagging_rejected" not in kinds

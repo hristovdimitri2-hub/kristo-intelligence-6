@@ -3935,11 +3935,39 @@ def _confirmations_ok_with_lag_refresh(*, receipt_block, read_head, required,
     if _confirmations_ok(block, head, required):
         return True
     if block <= head:
-        # Genuine depth shortfall: not a clock problem, behaviour unchanged.
+        # Genuine depth shortfall: the block is at or behind our head, just not
+        # buried deep enough yet. This used to refuse immediately. On Base a
+        # block is ~0.2s, so the required depth normally arrives within about a
+        # second — refusing instantly sent the payer a 425 for a wait that was
+        # already almost over.
+        #
+        # Measured 16.11.2026, on our own new receiver: a $0.003 payment settled
+        # and was refused at block+2 against a required depth of 5. Our own
+        # client does not retry on 425, so the money moved and the product never
+        # did — twice. That is the same dead end the docstring above describes,
+        # one branch over, and it costs the sale for every client that treats
+        # 425 as final.
+        #
+        # So wait once and re-read before refusing, exactly as the clock-lag
+        # branch does. Fail-closed is kept: the refusal still happens, it just
+        # happens after the chain has had its second.
+        wait = _c2_lag_wait_seconds()
+        if wait:
+            time.sleep(wait)
+        again = _c2_read_head(read_head)
+        if again is not None and _confirmations_ok(block, again, required):
+            log.warning("C2: depth shortfall resolved after a %.1fs wait "
+                        "(block %s, head %s → %s) → ACCEPTED (%s rail, tx=%s)",
+                        wait, block, head, again, rail, tx_hash)
+            dashboard_db.record_guard_event(
+                "waited_and_accepted", endpoint=endpoint, tx_hash=tx_hash,
+                detail=(f"{rail} rail: block {block} vs head {head}; after a "
+                        f"{wait:.1f}s wait head was {again}"))
+            return True
         dashboard_db.record_guard_event(
             "c2_insufficient_confirmations", endpoint=endpoint, tx_hash=tx_hash,
-            detail=(f"{rail} rail: block {block} vs head {head}; need "
-                    f"{required} confirmations"))
+            detail=(f"{rail} rail: block {block} vs head {head} (still {again} "
+                    f"after a {wait:.1f}s wait); need {required} confirmations"))
         return False
 
     refreshed = _c2_read_head(read_head)
