@@ -8,6 +8,7 @@ call in USDC, from $0.003 — no signup, no API keys, no subscriptions.**
 
 Live API: https://kristo-intelligence-api.onrender.com
 Marketplace listing (settlement-verified): https://payapi.market/api/kristo-intelligence-defi-signals-api
+Agent listing (settlement-verified, badged): https://payapi.market/agent-marketplace/kristo-seller-audit-verify-an-x402-seller-before-you-pay
 
 ## What it is
 
@@ -132,6 +133,12 @@ connected to the marketplace warehouse will find our routes from both sides:
 
 Listing: <https://payapi.market/api/kristo-intelligence-defi-signals-api>
 
+**Agent listing (settlement-verified, badged).** The same marketplace carries the
+agent form of this service — a job an agent can hire end to end, rather than an
+API to call. PayAPI verified it with a real paid call on Base:
+
+<https://payapi.market/agent-marketplace/kristo-seller-audit-verify-an-x402-seller-before-you-pay>
+
 ## Try it — one command
 
 The public reference client walks the full payment path (discovery → 402
@@ -183,6 +190,9 @@ tests/                   # Test suite (1414 tests)
 
 - **Settlement-verified** on [PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api):
   4 independent paid canaries settled on-chain, zero payment incidents
+- **Agent listing live and badged** on PayAPI Market: verified with a real paid
+  call on Base (block 58140667, $0.01 settled) —
+  [kristo-seller-audit](https://payapi.market/agent-marketplace/kristo-seller-audit-verify-an-x402-seller-before-you-pay)
 - **x402 registered**: 11 resources on [x402scan](https://www.x402scan.com),
   canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
 - **23/23 adversarial audit** (mystery-agent simulation, 2026-08-29 — a dated
