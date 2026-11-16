@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1415
+SUITE_TESTS_PASSED = 1419
 SUITE_LAST_RUN = "2026-11-16"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1215,7 +1215,7 @@ def verify_seller():
             "ok": False,
             "error": "receiver_required",
             "message": ("Name the Base address to audit, e.g. "
-                        "?receiver=0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"),
+                        "?receiver=0x1111111111111111111111111111111111111111"),
             "free_sample": request.host_url.rstrip("/") + "/api/v1/verify-seller/sample",
         }), 400
 
@@ -1290,11 +1290,14 @@ def verify_seller_sample():
             },
             "example_url": (request.host_url.rstrip("/")
                             + "/api/v1/verify-seller?receiver="
-                              "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f&days=7"),
+                              "0x1111111111111111111111111111111111111111&days=7"),
         },
         "output_example": {
             "ok": True,
-            "receiver": "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
+            # An illustrative address, NOT our receiver — the live payTo
+            # rides in accepts[0].payTo, and a sample that named it (or the
+            # retired one) would send a buyer to audit the wrong address.
+            "receiver": "0x1111111111111111111111111111111111111111",
             "window_days": 7,
             "read": "clean",
             "coverage": {

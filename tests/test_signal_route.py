@@ -171,3 +171,88 @@ def test_signal_in_price_map_and_paid_set():
     import main
     assert main.X402_PRICE_MAP["/api/v1/signal"] == pytest.approx(0.003)
     assert "/api/v1/signal" in main.X402_PAID_ENDPOINTS
+
+
+# ── the route must never take money for an empty answer ─────────────────────
+
+def test_no_payment_is_taken_when_the_engine_has_no_signal(client, monkeypatch):
+    """A paid route with nothing to deliver must not settle a payment.
+
+    Measured from the outside by Ernest (Earnordie.ai) on 16.11.2026: a real
+    $0.003 call settled and came back HTTP 200 with `signal_count: 0` and
+    `generated_at: null`, because `_latest_signals` is an in-process snapshot
+    that starts EMPTY on every deploy and is only refilled by the background
+    agent. A 402 promises a price and a receiver, never that the route has
+    something to sell, so the refusal has to happen before a facilitator is
+    asked to settle — which is what `_x402_unready_payload` does.
+    """
+    import main
+    monkeypatch.setattr(main, "_latest_signals",
+                        {"generated_at": None, "signals": []})
+    # Exhaust the free tier so the request reaches the credential path, and
+    # present a credential so the guard is reached before any settlement.
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {"127.0.0.1": 1})
+
+    r = client.get("/api/v1/signal",
+                   headers={"X-Payment-Proof": "deliberately-not-a-proof"})
+    assert r.status_code == 503, r.status_code
+    body = r.get_json()
+    assert body["error"] == "no_signal_to_deliver"
+    assert body["payment_taken"] is False, "the whole point is that it is not"
+    assert "No payment was taken" in body["message"]
+    assert r.headers.get("Retry-After") == "60", (
+        "a temporary emptiness has to say when to come back")
+
+
+def test_the_guard_stands_down_as_soon_as_a_signal_exists(client):
+    """An empty snapshot is the only trigger; a populated one must pass."""
+    import main
+    assert main._x402_unready_payload("/api/v1/signal") is None
+
+
+def test_the_guard_is_scoped_to_the_routes_that_start_empty(client, monkeypatch):
+    """Only producers that begin empty on a deploy are guarded.
+
+    /api/v1/signal and /api/arb/opportunities both read an in-process cache that
+    nothing fills until a background loop completes its first pass. A route that
+    reads durable storage is deliberately NOT guarded: a restart does not empty
+    it, and "no whale over the threshold in 24h" is a real answer.
+
+    Driven through the client rather than by calling the guard directly, because
+    the refusal body carries a `free_sample` URL built from `request`.
+    """
+    import main
+    monkeypatch.setattr(main, "_latest_signals",
+                        {"generated_at": None, "signals": []})
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 0)
+    monkeypatch.setattr(main, "_free_tier_usage", {"127.0.0.1": 1})
+
+    for path, error in (("/api/v1/signal", "no_signal_to_deliver"),
+                        ("/api/arb/opportunities",
+                         "no_opportunities_to_deliver")):
+        r = client.get(path, headers={"X-Payment-Proof": "not-a-proof"})
+        assert r.status_code == 503, (path, r.status_code)
+        assert r.get_json()["error"] == error, path
+
+    # The rest are not guarded, and the guard must not invent a refusal for one.
+    for path in ("/api/v1/whaleflow", "/api/stats", "/api/sales",
+                 "/api/bot-status", "/api/v1/verify-seller"):
+        assert main._x402_unready_payload(path) is None, path
+
+
+def test_a_producer_that_ran_and_found_nothing_is_a_real_answer(
+        client, monkeypatch):
+    """The rule is "has the producer run", not "is the list empty".
+
+    An engine that completed a pass and published zero signals has answered the
+    question — "no signal right now" IS the product. Refusing that would be its
+    own kind of lie, and it would make the route unbuyable during a genuinely
+    quiet market. Only a snapshot that was never filled is a non-answer.
+    """
+    import main
+    monkeypatch.setattr(main, "_latest_signals",
+                        {"generated_at": "2026-01-01T00:00:00+00:00",
+                         "signals": []})
+    assert main._x402_unready_payload("/api/v1/signal") is None, (
+        "an engine that ran and produced zero signals has still answered")

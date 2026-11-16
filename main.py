@@ -2389,8 +2389,13 @@ X402_INPUT_QUERY_PARAMS = {
             },
         },
         "required": ["receiver"],
+        # An illustrative address, NOT our receiver — the live payTo rides in
+        # accepts[0].payTo. This example used to name our own receiver, and then
+        # the retired one after the 16.11 rotation, so a buyer copying it audited
+        # an address that was not the one it meant. Flagged from the outside by
+        # Ernest (Earnordie.ai) in the 16.11 audit.
         "example": {
-            "receiver": "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f",
+            "receiver": "0x1111111111111111111111111111111111111111",
             "days": 7,
         },
         "note": (
@@ -5380,6 +5385,81 @@ def _x402_unservable_payload(endpoint: str):
     }
 
 
+#: Paid routes whose product comes from an in-process cache filled by a
+#: background producer, mapped to (producer name, error code). Only routes
+#: whose "nothing yet" is indistinguishable from "nothing found" belong here:
+#: a route that reads durable storage does not, because a restart does not
+#: empty it and "no whale over the threshold in 24h" is a real answer.
+_X402_UNREADY_PRODUCERS = {
+    "/api/v1/signal": ("the signal engine", "no_signal_to_deliver"),
+    "/api/arb/opportunities": ("the arbitrage scanner",
+                               "no_opportunities_to_deliver"),
+}
+
+
+def _x402_unready_payload(endpoint: str):
+    """A 503 body when a route's producer has never run, else None.
+
+    A well-formed 402 promises a price and a receiver — not that the route has
+    anything to sell at that instant. A route that answers 200 with an empty
+    product therefore takes money for a non-answer, which is the failure the
+    x402 community treats as the worst one, because the buyer's agent only ever
+    sees that the money is gone.
+
+    THE RULE IS "HAS THE PRODUCER RUN", NOT "IS THE LIST EMPTY". A scanner that
+    ran and found no spread has answered the question, and refusing that would be
+    its own kind of lie. What is not an answer is a snapshot that has never been
+    filled at all — which is exactly the state every in-process cache starts in
+    on a deploy:
+
+      * /api/v1/signal — `_latest_signals` starts `generated_at: None`. Measured
+        from the outside by Ernest (Earnordie.ai) on 16.11.2026: a real $0.003
+        call settled and returned HTTP 200 with `signal_count 0` and
+        `generated_at: null`.
+      * /api/arb/opportunities — `_opportunities` is `[]` and `_last_scan` is
+        `None` until the Arb Radar completes its first pass, so a $0.005 call in
+        that window returns `count: 0` for the same reason.
+
+    Called only when a credential is present — the last moment before a
+    settlement would be attempted — so refusing here moves no money: the
+    authorization is never presented to a facilitator, and it is not consumed,
+    so the caller may resend the very same one.
+    """
+    canonical = X402_PATH_ALIASES.get(endpoint, endpoint)
+    spec = _X402_UNREADY_PRODUCERS.get(canonical)
+    if spec is None:
+        return None
+    producer, error = spec
+    if canonical == "/api/v1/signal":
+        with _lock:
+            produced = _latest_signals.get("generated_at") is not None
+    else:  # /api/arb/opportunities
+        from services.arb_radar import get_scan_info
+        try:
+            produced = bool((get_scan_info() or {}).get("last_scan"))
+        except Exception:
+            # An unreadable clock is not evidence that a run happened.
+            produced = False
+    if produced:
+        return None
+    return {
+        "ok": False,
+        "error": error,
+        "message": (
+            "No payment was taken and none will be: this route has nothing to "
+            "deliver yet — %s has not completed a run since this process "
+            "started, which normally lasts a minute or two after a deploy. "
+            "Nothing was settled, so the authorization you signed has not been "
+            "used and your balance is unchanged — resend the same request "
+            "shortly." % producer
+        ),
+        "producer": producer,
+        "retry_after_seconds": 60,
+        "payment_taken": False,
+        "free_sample": request.host_url.rstrip("/") + canonical + "/sample",
+    }
+
+
 @app.before_request
 def _x402_paywall():
     """
@@ -5528,6 +5608,23 @@ def _x402_paywall():
                         "— the request cannot be served, so nothing is settled",
                         path, unservable["missing"], ip)
                     return jsonify(unservable), 400
+
+                # A route that HAS nothing to deliver must not be paid for
+                # either. Same position and the same reason as the check above:
+                # this is the last moment before a facilitator would be asked to
+                # settle, so refusing here takes no money and consumes no
+                # authorization. See _x402_unready_payload.
+                unready = _x402_unready_payload(path)
+                if unready is not None:
+                    log.info(
+                        "x402 payment NOT taken: endpoint=%s ip=%s — the route "
+                        "has nothing to deliver right now, so nothing is settled",
+                        path, ip)
+                    resp = jsonify(unready)
+                    resp.status_code = 503
+                    resp.headers["Retry-After"] = str(
+                        unready.get("retry_after_seconds") or 60)
+                    return resp
 
             # Rail 1: STANDARD x402 clients (EIP-3009 via facilitator) —
             # v2 spec header PAYMENT-SIGNATURE (x402-fetch, x402scan wallet,

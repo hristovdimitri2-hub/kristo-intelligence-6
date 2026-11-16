@@ -29,7 +29,7 @@
 | Платежен рейл | `self-broadcast → CDP → PayAI`; CDP таймаут 15 s (по подразбиране) |
 | Платени маршрути | 8: `/api/v1/signal`, `/api/v1/whaleflow`, `/api/arb/opportunities`, `/api/bot-status`, `/api/sales`, `/api/stats`, `/api/v1/verify-seller`, `/api/v1/seller-check` |
 | Цени | $0.003–$0.005; `verify-seller`/`seller-check` на **$0.01** (пилот, връща се на $0.10 на **11.12.2026**) |
-| Тестове | **1415 събрани** (1414 минават, 1 пропуснат); CI зелен |
+| Тестове | **1419 събрани** (1418 минават, 1 пропуснат); CI зелен |
 | CDP Bazaar | **19/19 реда с обаждания** |
 | npm | `kristo-x402-client@1.1.2`, публикуван 15.11 |
 | PayAPI | 11 маршрута в каталога, 3 settlement-verified; 1 агент подаден (`pending_checks`) |

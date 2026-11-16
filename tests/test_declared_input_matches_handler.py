@@ -278,6 +278,15 @@ def test_routes_without_required_parameters_are_untouched(client, monkeypatch):
     """The guard is driven by the declaration, so argument-free routes never see
     it: their paid calls still settle exactly as before."""
     import main
+    # /api/v1/signal refuses a payment when its producer has never run (see
+    # `_x402_unready_payload`) — a DIFFERENT guard from the declared-input one
+    # under test here. Give it something to deliver, or this test measures the
+    # new refusal instead of the thing it is about.
+    monkeypatch.setattr(main, "_latest_signals", {
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "signals": [{"token": "ETH", "action": "monitor", "confidence": 0.5,
+                     "price_usd": 2500.0, "reasoning": "fixture", "note": ""}],
+    })
     seen = []
     monkeypatch.setattr(main, "_try_consume_standard_payment",
                         lambda path, price, ip: seen.append(path) or True)

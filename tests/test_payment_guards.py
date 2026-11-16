@@ -66,6 +66,16 @@ def _paid_ready(main, monkeypatch, tx_hash, amount=0.05, dash=None):
         "tx_hash": tx_hash, "token": "USDC", "amount_usd": amount,
         "sender": "0x" + "11" * 20,
     }])
+    # /api/v1/signal refuses a payment when its in-process snapshot is empty
+    # (see `_x402_unready_payload`), so a test that expects a paid call to
+    # DELIVER has to give the route something to deliver. Without this, the
+    # refusal fires before the guard under test is ever reached.
+    monkeypatch.setattr(main, "_latest_signals", {
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "signals": [{"token": "ETH", "action": "monitor", "confidence": 0.5,
+                     "price_usd": 2500.0, "reasoning": "test fixture",
+                     "note": ""}],
+    })
 
 
 # ── fake web3 (scan) ─────────────────────────────────────────────────────────
