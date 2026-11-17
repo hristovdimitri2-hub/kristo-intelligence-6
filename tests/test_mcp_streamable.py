@@ -277,7 +277,21 @@ def test_the_resource_url_is_the_route_not_a_url_glued_to_a_url(client):
     # under the tool. The catalog's own MCP entries are shaped
     # `<mcp endpoint>#<toolName>`, which is what makes 515 of them addressable as
     # tools rather than as endpoints.
-    assert url.endswith("/mcp#get_trading_signal"), url
+    #
+    # WHAT CHANGED AGAIN (17.11), and the assertion flipped with it. That shape
+    # is what the CATALOG STORES, not what a seller should DECLARE — CDP appends
+    # the tool name itself, so declaring the fragment produced it twice:
+    #
+    #     our declaration   .../mcp#get_whale_flow
+    #     CDP stored        .../mcp#get_whale_flow#get_whale_flow
+    #
+    # while 534 of CDP's 541 MCP rows carry exactly one fragment. The proof is a
+    # peer listed beside us: mcp.xrpl-utilities.io declares a BARE ".../mcp" and
+    # CDP stores ".../mcp#xrpl_pulse_recent_events" for it. So the bare endpoint
+    # is what we declare, and the tool identity travels in
+    # extensions.bazaar.info.input.toolName.
+    assert url.endswith("/mcp"), url
+    assert "#" not in url, url
 
 
 def test_the_mcp_tool_keeps_the_legacy_x402_key(client):

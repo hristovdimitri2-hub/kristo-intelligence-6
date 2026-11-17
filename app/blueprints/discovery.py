@@ -2372,6 +2372,26 @@ def _mcp_dispatch(body):
             # `<mcp endpoint>#<toolName>`. That is what makes 515 MCP resources
             # addressable as TOOLS rather than as endpoints, and it is the piece
             # our declaration was missing.
+            #
+            # DO NOT BUILD THAT FRAGMENT OURSELVES — corrected 17.11.2026, and
+            # the correction is measured. We used to emit
+            # `.../mcp#<toolName>`, which is the form the catalog STORES, and CDP
+            # then appended the tool name a second time:
+            #
+            #     our declaration   .../mcp#get_whale_flow
+            #     CDP stored        .../mcp#get_whale_flow#get_whale_flow
+            #
+            # while 534 of CDP's 541 MCP rows carry exactly ONE fragment. The
+            # peer that settled it is listed right next to ours:
+            #
+            #     mcp.xrpl-utilities.io declares  "url": ".../mcp"      (bare)
+            #     CDP stores for it               ".../mcp#xrpl_pulse_recent_events"
+            #
+            # So CDP builds the fragment from the tool name, and a seller that
+            # pre-builds it gets it twice. The tool identity still travels — in
+            # `extensions.bazaar.info.input.toolName` below, which is where both
+            # catalogs read it from. PayAI stores `resource=/mcp` plus a separate
+            # `toolName`, so the bare form is right for it too.
             tool_name = tool.get("name") or name
             if isinstance(resource, dict) and tool_name:
                 parsed = urlsplit(resource.get("url") or "")
@@ -2383,8 +2403,10 @@ def _mcp_dispatch(body):
                     # a url with a url glued into it. The existing test
                     # `test_the_resource_url_is_the_route_not_a_url_glued_to_a_url`
                     # caught it, which is what that test is for.
-                    resource["url"] = "%s://%s/mcp#%s" % (
-                        parsed.scheme, parsed.netloc, tool_name)
+                    #
+                    # And NO fragment: see above. The catalog adds it.
+                    resource["url"] = "%s://%s/mcp" % (
+                        parsed.scheme, parsed.netloc)
             # RETYPE THE BAZAAR EXTENSION FOR MCP, and this is the whole reason
             # our seven tools were invisible to half the catalog.
             #
