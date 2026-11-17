@@ -5,9 +5,29 @@ run_tests:
   stage: test
   image: python:3.12-slim
   before_script:
+    # NODE IS NOT IN python:3.12-slim, AND NINE TESTS NEED IT.
+    #
+    # Measured on the run for a558e4d: 1425 passed, 10 skipped — five of them
+    # "node is required to run the REAL page renderers", three "node is required
+    # to run the REAL JS builder", one the x402 client example. Without node those
+    # tests SKIP rather than fail, so this gate went green while being blind to a
+    # broken dashboard renderer. GitHub's runner has node, which is why the same
+    # suite skips 1 there and 10 here. (The tenth skip is Pillow, and it skips on
+    # both — the icon test only regenerates an asset, it does not serve one.)
+    - apt-get update && apt-get install -y --no-install-recommends nodejs
+    # Debian has historically shipped this binary as `nodejs` while the tests ask
+    # for `node` — and a missing NAME looks exactly like a missing runtime: the
+    # nine tests skip and the gate stays green. So the link is made if needed, and
+    # then the result is ASSERTED. An environment that cannot run them must fail
+    # loudly rather than pass quietly; `-e` is on, so a missing node ends the job.
+    - if ! command -v node >/dev/null 2>&1; then ln -s "$(command -v nodejs)" /usr/local/bin/node; fi
+    - node --version
     - pip install --upgrade pip
-    - pip install pytest
-    - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    # requirements-dev.txt IS `-r requirements.txt` PLUS pytest, so this one line
+    # replaces the two it replaces AND cannot drift from what CI on GitHub
+    # installs. Two separate installs of the same thing is how the two pipelines
+    # come to test different environments.
+    - pip install -r requirements-dev.txt
   script:
     - pytest -ra --junitxml=report.xml
   artifacts:
