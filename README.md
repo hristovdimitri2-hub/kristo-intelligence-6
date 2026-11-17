@@ -202,6 +202,9 @@ tests/                   # Test suite (1435 tests)
 ## Docs
 
 - `docs/MARKET_WRITEUP.md` — on-chain audit of the machine-payments market
+- `docs/INDEXING_WRITEUP.md` — **how an x402 endpoint actually gets indexed**:
+  measured field notes on the two catalogues, the shapes they accept, and the
+  three things we got wrong finding out (17.11.2026)
 - `docs/PAYER_ORIGIN.md` — who actually pays on this market
 - `docs/MYSTERY_AGENT_REPORT.md` — adversarial buyer simulation (2026-08-29;
   its two price figures and its "standard rail not honoured" note are
