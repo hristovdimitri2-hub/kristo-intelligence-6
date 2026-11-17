@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 from typing import Optional
@@ -204,6 +205,14 @@ def _glama_get(path: str, key: str,
     **404 Server not found**, so for over a month this tool reported a missing
     listing as an empty one and nobody could tell the difference. status is 0
     when the request never completed.
+
+    CORRECTED 17.11.2026, because the conclusion above was half wrong. The 404 is
+    real, but it does NOT mean the listing is absent: the public badge for that
+    same slug renders "kristo-intelligence — MCP server rated B on Glama", while
+    a made-up slug renders "This MCP server is not listed on Glama". So the
+    listing exists with a score and is hidden from the API. What this function
+    must never do is let a 404 stand alone as proof of absence — `fetch_glama_state`
+    reads the badge as well for exactly that reason.
     """
     try:
         r = requests.get(f"{GLAMA_BASE}{path}", params=params, timeout=25, headers={
@@ -218,6 +227,36 @@ def _glama_get(path: str, key: str,
         return r.status_code, None
 
 
+def _glama_badge_text(slug: str) -> Optional[str]:
+    """The text the PUBLIC badge renders for a server slug.
+
+    NOT the same question the API answers, and the difference cost us a month.
+    Measured 17.11.2026:
+
+        /v1/servers/hristovdimitri2-hub/kristo-intelligence-6   ->  HTTP 404
+        .../badges/score.svg for that same slug                 ->  "kristo-intelligence
+                                                                    — MCP server rated B on Glama"
+        .../badges/score.svg for a made-up slug                 ->  "This MCP server is
+                                                                    not listed on Glama"
+
+    So a 404 from the API means the listing is NOT VISIBLE to the API — hidden,
+    unclaimed, or under review — and NOT that it does not exist. This tool used
+    to set `missing` from the API status alone, so it reported a hidden listing
+    with a real score as absent for over a month, and the note in `_glama_get`
+    recorded that wrong conclusion as fact.
+    """
+    try:
+        r = requests.get(
+            "https://glama.ai/mcp/servers/%s/badges/score.svg" % slug,
+            timeout=25, headers={"User-Agent": "kristo-listing-monitor/1.0"})
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    text = " ".join(re.findall(r">([^<>]{2,120})</", r.text)).strip()
+    return text or None
+
+
 def fetch_glama_state(key: str) -> dict:
     """Both listings + directory position, straight from the official API.
 
@@ -226,17 +265,45 @@ def fetch_glama_state(key: str) -> dict:
     its most recent check). Positions come from /v1/servers?query=… — the same
     words agents type, so a move here is a real discovery move.
 
-    Every block carries the status it was read at, so "absent" stays distinguishable
-    from "empty". A block with ``status == 404`` means there is NO listing; a block
-    with ``status == 200`` and no tools means there is one and it holds nothing.
+    Every block carries the status it was read at, so "absent" stays
+    distinguishable from "empty" — but the API status is not the whole answer.
+    A 404 means "not visible to the API", which is why the servers block also
+    carries what the public badge renders: a hidden listing answers 404 and still
+    renders a score, and only the badge tells those two apart.
     """
     state: dict = {"servers": {}, "connector": {}, "positions": {}}
 
     s_status, srv = _glama_get(f"/v1/servers/{GLAMA_SERVERS}", key)
     srv = srv or {}
+    badge = _glama_badge_text(GLAMA_SERVERS)
+    # THREE states, not two, because a 404 is not proof of absence.
+    #
+    #   visible -> the API serves it
+    #   hidden  -> the API 404s but the public badge renders a score
+    #              (measured on our own listing: 404 and "rated B on Glama")
+    #   absent  -> the API 404s and the badge says "not listed"
+    #   unknown -> the API 404s and the badge could not be read
+    #
+    # `missing` keeps its old meaning — positive evidence of absence — so it is
+    # only true for `absent`. Collapsing `hidden` or `unknown` into it is what
+    # made this tool report a live, scored listing as missing for a month.
+    if s_status == 200:
+        listing_state = "visible"
+    elif s_status == 404:
+        if badge is None:
+            listing_state = "unknown"
+        elif "not listed" in badge.lower():
+            listing_state = "absent"
+        else:
+            listing_state = "hidden"
+    else:
+        listing_state = "unknown"
     state["servers"] = {
         "status": s_status,
-        "missing": s_status == 404,
+        "listing_state": listing_state,
+        "missing": listing_state == "absent",
+        "badge_text": badge,
+        "badge_renders_a_score": bool(badge and "not listed" not in badge.lower()),
         "quality_score": srv.get("qualityScore"),
         "spdx_license": srv.get("spdxLicense"),
         "tools": len(srv.get("tools") or []),
@@ -282,9 +349,9 @@ def diff_glama(prev: dict, cur: dict) -> List[str]:
         # disappearing is the single most important event this section can
         # report, and without these two fields a 404 turning into a real listing
         # would look like "tools: 0 -> 6" with no explanation of why.
-        for field in ("missing", "status", "quality_score", "healthy",
-                      "tool_count", "tools", "spdx_license", "boosted",
-                      "transport"):
+        for field in ("missing", "status", "listing_state", "quality_score",
+                      "healthy", "tool_count", "tools", "spdx_license", "boosted",
+                      "transport", "badge_renders_a_score", "badge_text"):
             if field in p and field in c and p[field] != c[field]:
                 changes.append(f"{label} {field}: {p[field]} -> {c[field]}")
     p_pos, c_pos = prev.get("positions") or {}, cur.get("positions") or {}

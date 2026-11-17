@@ -269,19 +269,52 @@ def _glama_stub(statuses):
 
 def test_a_404_listing_is_recorded_as_missing_not_as_zero_tools(
         monitor, monkeypatch):
-    """The defect: a missing listing was indistinguishable from an empty one."""
+    """The defect: a missing listing was indistinguishable from an empty one.
+
+    CORRECTED 17.11.2026 — a 404 ALONE is not proof of absence. Our own listing
+    answered 404 from the API while its public badge rendered "MCP server rated
+    B on Glama". So `missing` now needs the badge to say "not listed", and this
+    test stubs that read instead of letting it hit the network.
+    """
     monkeypatch.setattr(monitor, "_glama_get", _glama_stub({
         f"/v1/servers/{monitor.GLAMA_SERVERS}": (404, None),
         f"/v1/connectors/{monitor.GLAMA_CONNECTOR}": (200, {"healthy": True}),
     }))
+    monkeypatch.setattr(monitor, "_glama_badge_text",
+                        lambda slug: "This MCP server is not listed on Glama")
 
     state = monitor.fetch_glama_state("fake-key")
 
     assert state["servers"]["status"] == 404
+    assert state["servers"]["listing_state"] == "absent"
     assert state["servers"]["missing"] is True, (
-        "a 404 was not recorded as a missing listing — nothing downstream can "
-        "then tell it apart from a listing that exists with no tools"
+        "a 404 plus a badge that says 'not listed' was not recorded as a missing "
+        "listing — nothing downstream can then tell it apart from a listing that "
+        "exists with no tools"
     )
+
+
+def test_a_hidden_listing_is_not_recorded_as_missing(monitor, monkeypatch):
+    """The half the old test could not see: 404, and the listing is still there.
+
+    Measured on our own listing, 17.11.2026: the API answered 404 while the
+    badge rendered a score, and Glama support confirmed an existing listing that
+    was "currently unavailable". Reporting that as missing is a false negative
+    from the one tool whose job is to notice.
+    """
+    monkeypatch.setattr(monitor, "_glama_get", _glama_stub({
+        f"/v1/servers/{monitor.GLAMA_SERVERS}": (404, None),
+        f"/v1/connectors/{monitor.GLAMA_CONNECTOR}": (200, {"healthy": True}),
+    }))
+    monkeypatch.setattr(
+        monitor, "_glama_badge_text",
+        lambda slug: "kristo-intelligence — MCP server rated B on Glama")
+
+    state = monitor.fetch_glama_state("fake-key")
+
+    assert state["servers"]["status"] == 404
+    assert state["servers"]["listing_state"] == "hidden"
+    assert state["servers"]["missing"] is False
 
 
 def test_a_real_listing_scoring_zero_tools_is_not_marked_missing(

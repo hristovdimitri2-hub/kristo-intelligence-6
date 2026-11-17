@@ -103,10 +103,15 @@ def test_fetch_glama_state_parses_both_listings(monitor, monkeypatch):
         f"/v1/servers/{monitor.GLAMA_SERVERS}": SERVER_PAYLOAD,
         f"/v1/connectors/{monitor.GLAMA_CONNECTOR}": CONNECTOR_PAYLOAD,
     }))
+    # Stubbed so the assertion is deterministic and no test reaches the network.
+    # `badge_text` is part of the servers block because a 404 is not proof of
+    # absence — see tests/test_listing_monitor_glama_badge.py.
+    monkeypatch.setattr(monitor, "_glama_badge_text", lambda slug: None)
     state = monitor.fetch_glama_state("k")
 
     assert state["servers"] == {
-        "status": 200, "missing": False,
+        "status": 200, "listing_state": "visible", "missing": False,
+        "badge_text": None, "badge_renders_a_score": False,
         "quality_score": None, "spdx_license": None, "tools": 0,
         "attributes": ["hosting:remote-capable"], "boosted": False}
     assert state["connector"]["healthy"] is True
