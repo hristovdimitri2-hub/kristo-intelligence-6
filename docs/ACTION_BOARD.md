@@ -372,6 +372,7 @@ discovery at /.well-known/x402 and an MCP server at /mcp.
 | PulseMCP | поема от регистъра | оправя се сам след §1.5 |
 | Smithery | **мъртъв** — proxy спрян 31.10 | каналът се отписва |
 | CDP Bazaar — платен листинг $0.25 | Coinbase | решение на собственика |
+| **MOI / Mandate** — authority layer в 402 плика, опционално разширение | Piyush Maheshwari (MOI / Sarva Labs) | 18.11 — поискани SDK, формат на изискването и линк към „Signed Is Not Authorized". Договорено: **един маршрут**, без ангажимент. Демото им е със **симулирани пари**, ние сме с истински — затова един маршрут, не седем |
 
 ---
 
