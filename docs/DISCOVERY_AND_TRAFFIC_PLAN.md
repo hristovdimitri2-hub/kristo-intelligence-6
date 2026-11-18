@@ -66,6 +66,8 @@
 | 22.09 | ние | „и двете са готови"; после корекция: контейнерната introspection **НЕ** минава (регистриран по грешка като „Runs from source"); тикет **#135407945** |
 | 23.10 | **punkpeye** | „**the quality score is still not evaluated** … without the score being set, the entry can't be merged" |
 | 27.10 → 01.11 | ние | доказахме, че `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` **не съществува** (404 → homepage), а формата го отказва като дубликат |
+| 01.11 15:30 | **Glama Support** | **„не е одобрен — вече съществува MCP сървър за това репо"**; системата създава втори тикет **#151838421** |
+| 03.11 14:37 | ние | пълното доказателство до Frank: 404 от API, badge **F** за лиценза, опции A/B, готовият stdio bridge. Пробата с `Dockerfile.glama` също е отказана („MCP server already exists for this repository"). Мълчание оттогава |
 
 **Един-единствен блокер:** липсващ `Servers` запис, който **само Glama може да създаде** — освен ако не направим контейнера си годен за introspection.
 
