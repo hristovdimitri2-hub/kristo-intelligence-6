@@ -1,6 +1,6 @@
 # AP2 RADAR — какво се промени от миналия път
 
-Проверено: 2026-11-16 18:00 UTC · read-only, публични артефакти, без идентичности.
+Проверено: 2026-11-18 19:01 UTC · read-only, публични артефакти, без идентичности.
 
 ## Промени по мониторирани repos
 
@@ -208,7 +208,14 @@
 
 - `26ff86cf8d` 2026-04-19 — Initial commit
 - `753973ea1d` 2026-04-22 — feat: full rewrite for x402 v2 (v0.1.1)
+  - файл: README.md
+  - файл: package-lock.json
+  - файл: package.json
+  - файл: src/config.ts
+  - файл: src/index.ts
+  - файл: src/tools/sendToken.ts
 - `e5a1d938d3` 2026-04-22 — docs: trim README for public repo
+  - файл: README.md
 - `5403073e76` 2026-04-22 — feat: accept PRIVATE_KEY with or without 0x prefix
   - файл: src/wallet.ts
 - `31ce483671` 2026-04-25 — updated with additional tool
