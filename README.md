@@ -1,10 +1,17 @@
-# Kristo Intelligence — DeFi Signals API on Base
+# Kristo Intelligence — x402 API for AI agents on Base
 
 [![Kristo Intelligence MCP connector — Glama score](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence/badges/score.svg)](https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence) [![Kristo Intelligence MCP server — Glama score](https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg)](https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Kristo Intelligence MCP server](https://mcprush.com/badge/kristo-intelligence-mcp/card.svg)](https://mcprush.com/to/kristo-intelligence-mcp?ref=badge) [![Lumière PayCheck](https://lumierepaycheck.org/badge?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller)](https://lumierepaycheck.org/e?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller) [![x402 Doctor: payable](https://x402-doctor.fizzl.eu/badge.svg?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller)](https://x402-doctor.fizzl.eu/trust?url=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fv1%2Fverify-seller)
 
-**Paid DeFi market intelligence for AI agents. x402-native: agents pay per
-call in USDC, from $0.005 — no signup, no API keys, no subscriptions.**
+**Check a seller before you pay it.** Paid API for AI agents on Base, x402-native:
+agents pay per call in USDC, from $0.005 — no signup, no API keys, no
+subscriptions.
+
+The first question an agent has before paying an unfamiliar x402 seller is
+whether that seller is real. `verify-seller` answers it from the chain — incoming
+USDC transfers for any Base address, distinct paying addresses, repeat-payer
+concentration, treasury-sized flows separated out. It is the one route here that
+reads live chain logs per call, and the only one priced above the rest.
 
 Live API: https://kristo-intelligence-api.onrender.com
 Marketplace listing (settlement-verified): https://payapi.market/api/kristo-intelligence-defi-signals-api
@@ -12,14 +19,17 @@ Agent listing (settlement-verified, badged): https://payapi.market/agent-marketp
 
 ## What it is
 
-Kristo Intelligence is a live trading-agent API on the Base network (Coinbase's
-L2). Every call returns machine-readable market intelligence:
+Kristo Intelligence is a live x402 API on the Base network (Coinbase's L2).
+Every call returns machine-readable answers — the first one being whether a
+seller is real:
 
+- **Seller verification** — audit any Base receiver's incoming USDC before you
+  pay it: distinct payers, repeat-payer concentration, treasury-sized flows,
+  and the read's own coverage stated
 - **Trading-agent signals** — for ETH, ONDO, KAITO and DEGEN: action,
   0–1 confidence score, current USD price, and one-line reasoning
 - **Whale flow** — large USDC transfer tracking on Base (transfers ≥ $5M, labeled counterparties)
 - **Arbitrage radar** — cross-DEX spreads, refreshed every 60 seconds
-- **Rug-risk checks** — pre-trade safety screening
 - **Market stats** — aggregated activity (CoinGecko, DEXScreener,
   Fear & Greed)
 
@@ -108,9 +118,13 @@ LangChain and any MCP-compatible client:
 
 | Tool | What it returns | Price (USDC/call) |
 |---|---|---|
+| `verify_seller_receiver` | On-chain audit of any Base receiver: distinct payers, concentration, coverage | 0.05 |
+| `get_trading_signal` | Trading signals for ETH, ONDO, KAITO, DEGEN | 0.01 |
+| `get_whale_flow` | Network-wide USDC transfers ≥ $5M on Base | 0.01 |
 | `get_market_stats` | Market activity, daily stats, live market data | 0.005 |
 | `get_onchain_sales` | Real on-chain sales history (USDC transfers) | 0.005 |
 | `get_bot_status` | Telegram bot integration status | 0.005 |
+| `get_arbitrage_opportunities` | Cross-DEX arbitrage spreads on Base | 0.005 |
 
 Each tool advertises its x402 price inline, so an agent can decide and pay
 without reading docs.
