@@ -365,7 +365,7 @@ discovery at /.well-known/x402 and an MCP server at /mcp.
 
 | Какво | Кой държи ключа | Срок |
 |---|---|---|
-| Записът в Glama `/mcp/servers/` | Glama (Frank) | ✅ изпратено 03.11 14:37 — 404 от API, badge F за лиценза, опции A/B. Пробата с `Dockerfile.glama` също е отказана („MCP server already exists for this repository"). Мълчание 15 дни. Два тикета: **#135407945** + авто-създаденият **#151838421**. Nudge 18.11 |
+| Записът в Glama `/mcp/servers/` | Glama (Frank) | ✅ изпратено 03.11 14:37 — 404 от API, badge F за лиценза, опции A/B. Пробата с `Dockerfile.glama` също е отказана („MCP server already exists for this repository"). Два тикета: **#135407945** + авто-създаденият **#151838421**. **Nudge 19.11 — отговорен в Gmail: „ще видим".** Записът **още не съществува** (проверено 19.11: `/mcp/servers/…` → 302 към общия регистър; connector-ът е 200). Темата остава отворена, но вече не се пита — чака се действие от тях |
 | Merge на PR #13219 | punkpeye | зависи от реда по-горе |
 | Merge на PR #1308 | xpaysh | nudge днес (§1.3) |
 | mcp.so верификация | mcp.so | comment #3441 |
