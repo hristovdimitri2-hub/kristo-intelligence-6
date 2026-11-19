@@ -66,7 +66,7 @@ UPTIME_MEASURED_TO = "2026-10-19"
 #:
 #: The x402 protocol version lives beside it in the manifest and is a different
 #: thing; it is not this.
-SERVICE_VERSION = "6.2.0"
+SERVICE_VERSION = "6.3.0"
 
 
 def _sample_disclaimer(endpoint: str) -> str:
@@ -427,52 +427,39 @@ def validation():
             "claim": "4/4 complete (Claim, Email confirmed, Domain file "
                      "seen, verified)",
             "scoring_note": (
-                "Weighted scoring across technical fit, transparency, "
-                "ecosystem presence and operational confidence; letter "
-                "grades per endpoint, listed with the score each carries "
-                "below. Current weights: see the leaderboard. Free snapshots "
-                "refresh at least every 24 h, so the linked pages — not this "
-                "dated copy — are authoritative."
+                "Their published model, read from their leaderboard: "
+                "0.45 × technical reliability + 0.30 × spec compliance "
+                "+ 0.25 × economic reputation, where technical reliability is "
+                "itself 0.45 × uptime + 0.40 × observed age + 0.15 × latency. "
+                "The probes are theirs and the score is recomputed at least "
+                "every 24 h, so the linked pages and the badge are the live "
+                "values and are authoritative. This block used to describe a "
+                "four-part model that appears nowhere on their site, and to "
+                "type a per-endpoint grade list that went "
+                "stale in the direction that flattered us: it said grade A on "
+                "six routes while every live grade was B. We no longer "
+                "re-publish somebody else's moving measurement."
             ),
             "leaderboard": "https://x402-trust.com/trust/leaderboard",
-            "last_checked": "2026-11-04",
-            "paid_endpoints": [
-                {"path": "/api/v1/signal", "grade": "A", "score": 82.2,
-                 "page": "https://x402-trust.com/endpoint/122932"},
-                {"path": "/api/v1/whaleflow", "grade": "A", "score": 81.0,
-                 "page": "https://x402-trust.com/endpoint/139367"},
-                {"path": "/api/stats", "grade": "A", "score": 81.0,
-                 "page": "https://x402-trust.com/endpoint/139372"},
-                {"path": "/api/arb/opportunities", "grade": "A",
-                 "score": 81.0,
-                 "page": "https://x402-trust.com/endpoint/139339"},
-                {"path": "/api/sales", "grade": "A", "score": 81.0,
-                 "page": "https://x402-trust.com/endpoint/139342"},
-                {"path": "/api/bot-status", "grade": "A", "score": 80.9,
-                 "page": "https://x402-trust.com/endpoint/139366"},
-            ],
+            "grades_live_at": (
+                "https://x402-trust.com/trust/search?q=kristo"),
+            "manage": (
+                "https://x402-trust.com/verify/"
+                "kristo-intelligence-api.onrender.com"),
         },
     }
 
     # ---- Нови секции за validation страницата (локални данни, без payment пипане) ----
     from datetime import datetime, timezone
     from main import _real_routes_payload
-    _trust_by_path = {e["path"]: e for e in facts["x402_trust"]["paid_endpoints"]}
-    _probe_checked = facts["x402_trust"]["last_checked"]
     _endpoints = []
     for _r in _real_routes_payload():
         _ep = _r.get("endpoint")
-        _t = _trust_by_path.get(_ep, {})
         _endpoints.append({
             "path": _ep,
             "name": _r.get("name", ""),
             "method": _r.get("method", "GET"),
             "price_usdc": float(_r.get("price_usdc", 0)),
-            "probe_status": _t.get("grade", "—"),
-            "probe_score": _t.get("score"),
-            "probe_last": _probe_checked,
-            "probe_source": "x402-trust",
-            "probe_page": _t.get("page", ""),
         })
     facts["endpoints"] = _endpoints
     facts["wellknown_links"] = {
@@ -518,18 +505,15 @@ def validation():
     _ep_rows = "\n".join(
         f"<tr><td><code>{e['path']}</code><br>"
         f"<span style=\"color:var(--muted);font-size:12px\">{e['name']}</span></td>"
-        f"<td>${e['price_usdc']:.3f}</td>"
-        f"<td class=\"ok\">grade {e['probe_status']} ({e['probe_score']})</td>"
-        f"<td>{e['probe_last']} · <a href=\"{e['probe_page']}\">trust page</a></td></tr>"
+        f"<td>${e['price_usdc']:.3f}</td></tr>"
         for e in _endpoints)
-    # The x402 Trust list was hardcoded in the HTML and disagreed with the JSON
-    # facts: the HTML said 81.2 / grade B for /api/v1/signal, the JSON said 82.2
-    # / grade A. Two versions of one page must not contradict each other, so the
-    # HTML renders the same list the JSON publishes.
-    _trust_rows = "\n".join(
-        f"            <li><code>{e['path']}</code> — grade {e['grade']} "
-        f"({e['score']}) · <a href=\"{e['page']}\">page</a></li>"
-        for e in facts["x402_trust"]["paid_endpoints"])
+    # There was a `_trust_rows` list here rendering each route's x402 Trust grade
+    # and score into the HTML. It is gone deliberately: those are somebody else's
+    # measurements, recomputed daily, and a typed copy of them is how this page
+    # came to advertise grade A on six routes while every live grade was B — a
+    # stale copy that flattered us, on the one page whose whole job is checkable
+    # facts. The badge below is served live; the per-endpoint grades are one link
+    # away and are theirs to state, not ours to cache.
 
     wants_json = request.accept_mimetypes.best_match(
         ["text/html", "application/json"]) == "application/json"
@@ -630,41 +614,43 @@ def validation():
       <dt>x402 Trust — provider profile</dt>
       <dd><a href="https://x402-trust.com/endpoint/139372">endpoint 139372
             (profile)</a> · <a
-            href="https://x402-trust.com/trust/search?q=kristo">search
-            "kristo"</a></dd>
+            href="{facts['x402_trust']['grades_live_at']}">all our endpoints,
+            live grades</a> · <a href="{facts['x402_trust']['manage']}">manage
+            listing</a></dd>
       <dt>Badge (auto-updates with their score)</dt>
       <dd><a href="https://x402-trust.com/endpoint/139372"><img
             src="https://x402-trust.com/badge.svg?resource=https%3A%2F%2Fkristo-intelligence-api.onrender.com%2Fapi%2Fstats"
-            alt="x402 Trust: grade B, recommendation proceed"
+            alt="x402 Trust — independent reliability grade, see the linked profile for the current value"
             height="20"></a></dd>
       <dt>Claim status</dt>
       <dd class="ok">4/4 complete — Claim ✓ · Email confirmed ✓ ·
           Domain file seen ✓ · verified ✓</dd>
       <dt>What x402 Trust measures</dt>
-      <dd>Independent probes scored with a weighted mix of technical fit,
-          transparency, ecosystem presence and operational confidence; each
-          endpoint gets a letter grade (ours currently <b>A–B</b>). The
-          current weighting lives on their
-          <a href="https://x402-trust.com/trust/leaderboard">leaderboard</a>.
-          Free snapshots refresh at least every 24 hours.</dd>
-      <dt>Paid endpoints on x402 Trust</dt>
-      <dd><ul style="margin:6px 0 0; padding-left:18px;">
-{_trust_rows}
-          </ul></dd>
-      <dt>Last checked</dt>
-      <dd>{facts['x402_trust']['last_checked']} (grades/scores read live from x402 Trust that day)</dd>
+      <dd>Their published model: <b>0.45 × technical reliability + 0.30 × spec
+          compliance + 0.25 × economic reputation</b>, where technical
+          reliability is itself 0.45 × uptime + 0.40 × observed age + 0.15 ×
+          latency. The probes and the score are theirs, recomputed at least
+          every 24 hours; the badge above and the
+          <a href="https://x402-trust.com/trust/leaderboard">leaderboard</a> carry
+          the live values, and the per-endpoint grades are on
+          <a href="{facts['x402_trust']['grades_live_at']}">their pages</a>.
+          <b>We do not re-publish their grades here</b> — this block used to type
+          a per-endpoint grade list, and it went stale in the direction that
+          flattered us.</dd>
     </dl>
   </div>
   <div class="panel">
     <dl>
-      <dt>Paid endpoints &amp; prices — 7 live x402 routes</dt>
+      <dt>Paid endpoints &amp; prices — {_route_count} live x402 routes</dt>
       <dd><table>
-        <tr><th>Endpoint</th><th>Price</th><th>Probe status</th><th>Last probe</th></tr>
+        <tr><th>Endpoint</th><th>Price</th></tr>
         {_ep_rows}
       </table>
       Discovery files: <a href="/.well-known/x402-trust.txt">/.well-known/x402-trust.txt</a>
       ∙ <a href="/.well-known/x402.json">/.well-known/x402.json</a>
-      (probe status = x402-trust per-endpoint grade, checked {_probe_checked})</dd>
+      — the prices above are ours; the reliability grades behind
+      <a href="{facts['x402_trust']['grades_live_at']}">those links</a> are
+      x402 Trust's, read live on their site.</dd>
     </dl>
   </div>
   <div class="panel">
