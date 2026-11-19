@@ -98,8 +98,47 @@ paid report. Their published model
 ([leaderboard JSON](https://x402-trust.com/trust/leaderboard)) is
 `0.45 × technical-reliability + 0.30 × spec-compliance + 0.25 × economic-reputation`,
 with technical-reliability itself `0.45 × uptime + 0.40 × observed-age + 0.15 × latency`.
-Their measured columns for us: uptime **97.6 %** (A-slice average 99.8 %), latency
-**950 ms flagged "slow"**, price stability stable, 125 probes/30d.
+
+### We bought the report on 19.11 — and the `avoid` is our own receiver rotation
+
+`_forensics/pay_x402trust_stats.py` (dry-run by default) paid the $0.005 and the
+answer is unambiguous:
+
+```
+score 78.3   grade B   recommendation avoid   confidence 0.95
+subscores  technical-reliability 91.2 · spec-compliance 98.3 · economic-reputation 31.2
+breakdown  uptime 0.976 · compliance 0.976 · latency 0.674 · age 0.929
+           · activity 0.417 · stability 1.000
+flags      provider-verified (info)
+           payto-changed-recently (ERROR)
+           shared-payto-wallet (warn)
+```
+
+> `payTo changed 2 day(s) ago (0xd4cdA900… → 0xB4FcF8ef…) — possible endpoint
+> hijack; verify before paying.`
+
+**That is our own deliberate rotation of the receiver, read as a possible
+hijack.** The change was ours, it was made on purpose, and we publish it in
+`/.well-known/paycheck.json` — a file Lumière PayCheck reads and x402-trust does
+not. The second flag says the wallet is "shared with 12 other endpoint(s)": those
+twelve are our own routes behind the same receiver.
+
+So `avoid` on our most-probed route is **not a product defect**. It is an
+observed change with no declared intent, and it ages out on its own. The two
+subscores that are genuinely ours are:
+
+* **latency 0.674** — 969 ms average, measured from a single EU vantage point,
+  which includes the network distance to Render's region. Structural, not a bug.
+* **activity 0.417** — wallet-level settlement: $0.85 and 4 distinct payers over
+  30 days, most of it our own key. That one is the real demand problem, and no
+  registry flag will fix it.
+
+The report also offers a better-scored alternative in our own category:
+`x402stats.io/api/x402/stats`, grade A, 84.7.
+
+**This is a standards gap worth raising, not a bug to fix:** a legitimate key
+rotation is indistinguishable from a hijack to every index that does not read a
+rotation declaration. We already serve one convention's file; no one reads it.
 
 **Two things on our side are now wrong because of it:**
 
@@ -146,10 +185,9 @@ implement it today.
 
 ## What we should do, in order
 
-1. **Buy the $0.005 x402-trust report for `/api/stats`.** It is the cheapest
-   question we have ever had to ask: a real index recommends `avoid` on our most
-   heavily probed route and the reason is one paid call away. Uptime 97.6 % and
-   950 ms latency are also below the A slice — both are ours to fix.
+1. **Done, 19.11 — the $0.005 x402-trust report for `/api/stats` is bought.** The
+   `avoid` is our own receiver rotation read as a hijack (above). Nothing to fix in
+   code; it decays. What it did buy us is a standards argument, see item 6.
 2. **Fix `/validation`'s third-party block.** Two defects, both ours: a dated 04.11
    copy advertising grade A while the live grade is B/avoid, and a description of
    x402-trust's methodology that is not their methodology. The fix is to stop
@@ -163,10 +201,31 @@ implement it today.
    `endpoint_count 6`, `price_max_usd 0.01`, "$0.003-0.005 per call".
 5. **Buy the $0.05 x402lint rescan** to learn what the 2 fails and 4 warns are —
    the free cached report is older than 24 h and returns `no_fresh_report` *(read)*.
-6. **Take the negative result to `#wg-domain-discovery`**: no index reads a
-   self-published honesty file, which is exactly the gap the working group could
-   close. We have the artefact already built (`/api/v1/settlement-classes`) and can
-   hand it over as a worked example.
+6. **Take two negative results to `#wg-domain-discovery`.** First: no index reads a
+   self-published honesty file, so the artefact we already built
+   (`/api/v1/settlement-classes`) is a worked example nobody can consume. Second,
+   and sharper: **a legitimate `payTo` rotation is indistinguishable from a hijack**
+   to any index that does not read a rotation declaration — we serve one
+   convention's file and x402-trust, which flagged us `error` for exactly this,
+   does not read it. Both are standards gaps, not code we should write.
+
+## Registering on x402-list `/best` and Agent402?
+
+**x402-list: we are already in it** — `status online`, `payment_ready: true`,
+compliance A 14/14, uptime 100 % *(read)*. What we are not is **`verified`**, and
+that status cannot be bought or submitted: it appears when *they* pay one of our
+routes and it delivers. So the action there is not registration, it is fixing the
+stale metadata in item 4 and then being worth probing.
+
+**Agent402: yes, worth one free POST.** `POST https://agent402.tools/api/index/register`
+with our origin *(second-hand)* — free, no review, and it is the only index found
+that carries `supports_x402` as a first-class filter rather than a description
+string. That is the closest thing to a *paid-API* directory, which is our actual
+category.
+
+Neither is urgent, and neither costs anything to try. The honest ordering is: fix
+our own stale files first, because every index above is currently quoting them
+back at us.
 
 ## What this does not change
 
