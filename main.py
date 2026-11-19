@@ -3323,7 +3323,14 @@ def _real_routes_payload() -> List[dict]:
 
 
 def _build_x402_discovery(base_url: str) -> dict:
-    """Build x402 discovery from the REAL routes (6 live x402 endpoints)."""
+    """Build x402 discovery from the REAL routes.
+
+    The route count in `note` is DERIVED, never typed. It used to read "These are
+    the 6 live x402 endpoints" while `agents` below it carried seven — a
+    catalogue or a measured-health registry that reads this file and counts the
+    rows would find our own description disagreeing with our own list.
+    """
+    routes = _real_routes_payload()
     return {
         "schema_version": "1.1",
         "service": "Kristo Intelligence v6",
@@ -3356,9 +3363,10 @@ def _build_x402_discovery(base_url: str) -> dict:
                     "sample_url": base_url + route["endpoint"] + "/sample",
                 },
             }
-            for route in _real_routes_payload()
+            for route in routes
         ],
-        "note": "These are the 6 live x402 endpoints. Payment is verified on-chain (Base, USDC).",
+        "note": (f"These are the {len(routes)} live x402 endpoints. "
+                 "Payment is verified on-chain (Base, USDC)."),
     }
 
 

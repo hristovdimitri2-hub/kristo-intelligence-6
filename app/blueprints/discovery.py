@@ -375,6 +375,11 @@ def validation():
     # 2026-08-29. A trust page does not get to round its own price down.
     _prices = sorted(float(route["price_usdc"]) for route in REAL_X402_ROUTES)
     price_floor, price_ceiling = (_prices[0], _prices[-1]) if _prices else (0.0, 0.0)
+    # Counted, not typed. This note read "six routes across two tiers" while the
+    # page below it headed the same table "7 live x402 routes" and the tiers were
+    # three — the trust page contradicting itself two paragraphs apart.
+    _route_count = len(REAL_X402_ROUTES)
+    _tier_count = len(set(_prices))
 
     # health() returns (response, code) — unwrap before reading the payload.
     hv = health()
@@ -396,7 +401,8 @@ def validation():
                    "measured_to": UPTIME_MEASURED_TO},
         "price_usd_per_call_min": price_floor,
         "price_usd_per_call_max": price_ceiling,
-        "price_note": ("six routes across two tiers; the exact atomic amount is "
+        "price_note": (f"{_route_count} routes across {_tier_count} tiers; "
+                       "the exact atomic amount is "
                        "stated in every 402 challenge and per route in "
                        "endpoints[] below"),
         "third_party_audit": audit,
@@ -3849,6 +3855,9 @@ def llms_txt():
     paid = [(r["endpoint"], r["name"], float(r["price_usdc"]),
              (r.get("description") or "").strip())
             for r in REAL_X402_ROUTES]
+    # Derived, exactly like the prices: this document said "the same six paid
+    # routes" while the list it points at carried seven.
+    route_count = len(paid)
     cheapest = min(price for _e, _n, price, _d in paid)
     free_tier_line = (
         f"- Free tier: {FREE_TIER_LIMIT} free call(s) per client, then payment "
@@ -3862,7 +3871,7 @@ def llms_txt():
         % (endpoint, name, price, ("\n  " + description) if description else "")
         for endpoint, name, price, description in paid
     )
-    # Every paid route has a free /sample twin (all six are in
+    # Every paid route has a free /sample twin (all of them are in
     # X402_FREE_ENDPOINTS), so this list is DERIVED from REAL_X402_ROUTES and can
     # never drift out of sync with the paid list above it. They were previously
     # advertised nowhere at all: an agent had no way to see our response shape
@@ -3969,7 +3978,8 @@ last resort.
 - GET /.well-known/agent-card.json — A2A Agent Card (protocol 0.3.0)
 - POST /a2a — A2A JSON-RPC (message/send, tasks/get): name a product and it
   answers with that product's free sample and its exact terms. Free.
-- GET /api/v1/agents — the same six paid routes as a compact, PRICED catalogue
+- GET /api/v1/agents — the same {route_count} paid routes as a compact, PRICED
+  catalogue
   (id, category, endpoint, price, description) — the fastest way for an agent to
   decide which route to buy. Free, no payment, no key.
 - GET /api/v1/quickstart — step-by-step first-call walkthrough
