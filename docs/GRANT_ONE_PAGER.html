@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kristo Intelligence — Sentient Foundation grant, one pager</title>
+<style>
+  @page { size: A4; margin: 14mm 15mm; }
+  * { box-sizing: border-box; }
+  body {
+    font: 10.5pt/1.42 "Segoe UI", -apple-system, Helvetica, Arial, sans-serif;
+    color: #14161a; margin: 0; max-width: 190mm;
+  }
+  h1 { font-size: 19pt; margin: 0 0 2mm; letter-spacing: -0.2pt; }
+  h2 { font-size: 11pt; margin: 5mm 0 1.5mm; text-transform: uppercase;
+       letter-spacing: 0.6pt; color: #4a5058; border-bottom: 1px solid #d7dbe0;
+       padding-bottom: 1mm; }
+  p { margin: 0 0 2mm; }
+  .lede { font-size: 12pt; color: #2a2f36; }
+  .meta { color: #5c636d; font-size: 9pt; margin-bottom: 4mm; }
+  ul { margin: 0 0 2mm; padding-left: 5mm; }
+  li { margin-bottom: 1.2mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 2mm; font-size: 9.5pt; }
+  th, td { border: 1px solid #d7dbe0; padding: 1.4mm 2mm; text-align: left;
+           vertical-align: top; }
+  th { background: #f3f5f7; font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .box { border-left: 3px solid #14161a; padding: 1mm 0 1mm 3mm; margin: 0 0 3mm;
+         background: #fafbfc; }
+  .page-break { break-before: page; }
+  code { font: 9pt/1.3 Consolas, "Courier New", monospace; background: #f3f5f7;
+         padding: 0.3mm 1mm; border-radius: 2px; }
+  .small { font-size: 9pt; color: #5c636d; }
+  a { color: #14161a; }
+</style>
+</head>
+<body>
+
+<h1>Kristo Intelligence</h1>
+<p class="meta">Sentient Foundation — Open Source AGI Grant application &middot; 20 November 2026 &middot;
+grant track &middot; ask: $25,000 &middot; MIT licensed</p>
+
+<p class="lede">A paid API for AI agents, and the measurement of what happens when an agent
+pays: whether the offer it saw is the offer that was signed, and whether the settlement it
+was told about is the settlement that exists.</p>
+
+<h2>What it is</h2>
+<p>Seven HTTP endpoints and seven MCP tools on Base, paid per call in USDC through x402 v2 —
+no API keys, no signup. Trading signals, whale flow, arbitrage radar, on-chain sales, seller
+verification. Prices $0.005–$0.050. Live at
+<code>kristo-intelligence-api.onrender.com</code>, source at
+<code>github.com/hristovdimitri2-hub/kristo-intelligence-6</code>.</p>
+
+<h2>The problem, measured from the seller's side</h2>
+<div class="box">
+<p><strong>1. Settlement is non-terminal, and the boolean lies.</strong> The v2 spec names
+<code>settlement_pending</code>: the transaction was broadcast but confirmation could not be
+established. We read <code>success: false</code> as "payment failed", so we refused calls
+that had already been paid for. A facilitator operator measured ~19 settle failures across
+~11.7k settlements, 9 of which had in fact settled.</p>
+<p><strong>2. The published offer is not the signed offer.</strong> The catalogue appends
+<code>#toolName</code> to a resource path, so <code>/mcp#get_whale_flow</code> is stored as
+<code>/mcp#get_whale_flow#get_whale_flow</code>. An unknown key inside <code>accepts[0]</code>
+is accepted and silently voids the row: eight settlements produced no listing. Removing two
+keys: listed in 45 seconds.</p>
+</div>
+<p>Both ends have the same shape: everything reports success, and the party that believes
+something happened is not the party that can check it.</p>
+
+<h2>Why this is the public good, not the product</h2>
+<ul>
+  <li><strong>Published conformance cases</strong> for <code>settlement_pending</code> — hash
+      adoption, self-verification against the chain, matching on the error code and never on
+      the message. The v2 spec names the state; it does not give a test.</li>
+  <li><strong>A preview tool</strong> that walks a seller's paid routes, takes each 402, and
+      diffs the declaration against the listing the catalogue intends to publish. First run
+      against the live server: 7/7, no differences.</li>
+  <li><strong>The honest-revenue split</strong>, published as a document rather than a
+      headline: a stranger can check the demand behind the volume.</li>
+</ul>
+
+<h2>What the grant unlocks</h2>
+<table>
+  <tr><th>Milestone</th><th>Deliverable</th><th>When</th></tr>
+  <tr><td>1</td><td>Conformance suite for seller behaviour, generalised and documented</td><td>month 2</td></tr>
+  <tr><td>2</td><td>Preview tool packaged for any seller, with a written method</td><td>month 3</td></tr>
+  <tr><td>3</td><td><code>/.well-known/honest-revenue.json</code> schema and reference</td><td>month 4</td></tr>
+  <tr><td>4</td><td>The two measurements written up as guidance for #2811</td><td>month 5</td></tr>
+  <tr><td>5</td><td>Reference endpoint kept live; corpus handed to the TSC</td><td>continuous</td></tr>
+</table>
+<p class="small">The grant does not fund the product. It funds turning two first-hand findings
+into artefacts other sellers can run — which is the part a business cannot justify and an
+ecosystem needs.</p>
+
+<div class="page-break"></div>
+
+<h2>The numbers, as they are</h2>
+<table>
+  <tr><th>Class</th><th class="num">Settlements</th><th class="num">USDC</th><th>What it is</th></tr>
+  <tr><td>Own key</td><td class="num">122</td><td class="num">1.685</td><td>our own demo key, paying our own routes</td></tr>
+  <tr><td>Canaries</td><td class="num">17</td><td class="num">0.067</td><td>our scheduled self-tests</td></tr>
+  <tr><td>Sampler</td><td class="num">20</td><td class="num">0.077</td><td>the market sampler robot</td></tr>
+  <tr><td><strong>External</strong></td><td class="num">12</td><td class="num">0.054</td><td>real customers: 9 addresses, 1 is the auditor we paid</td></tr>
+  <tr><td><strong>Total</strong></td><td class="num">171</td><td class="num">1.883</td><td>since 9 November — the ledger was rebuilt then</td></tr>
+</table>
+<p>Of the dollar volume, 89.5% is our own key. Excluding the auditor's two payments, external
+demand is 10 payments and $0.041 across 8 buyers. Those 8 wallets hold $131 between them.
+We publish the split because the offer-to-delivery chain is not verifiable if listing volume
+is self-dealing. The product has sold since September; the figure above is the rebuilt store,
+so "since 9 November" is the honest scope, not "all time".</p>
+
+<h2>What we say against our own interest</h2>
+<ul>
+  <li><strong>The signal has no measured edge.</strong> 84 resolved signals, 52% hit rate,
+      mean −0.56%. The published 1.2% is honest. Six of the seven endpoints sell facts; the
+      seventh sells a forecast, and we say so.</li>
+  <li><strong>The registry grades are mixed.</strong> x402register A 90.7; x402-list
+      compliance A 14/14; x402lint B 84 with three fails — all three ours, all three now
+      fixed; x402-trust marks <code>/api/stats</code> "avoid", which traces to our own key
+      rotation and its own scoring method.</li>
+  <li><strong>Two stars, no forks.</strong> The repository is not yet the reason anyone finds
+      the project. The work is.</li>
+</ul>
+
+<h2>What a stranger can check</h2>
+<ul>
+  <li>Seven paid routes, $0.005–$0.050 — <code>/openapi.json</code>, or call any paid route.</li>
+  <li><code>components.securitySchemes.x402</code> present; all seven paid operations carry a
+      security requirement; no description over 500 characters.</li>
+  <li>The revenue split — <code>docs/HONEST_REVENUE.md</code>, and the live dashboard's
+      <code>by_class</code> block.</li>
+  <li>The signal's own track record — <code>/public/signals/history</code>, free, no payment.</li>
+  <li>1,446 tests, 1 skipped — <code>pytest</code> in the repository.</li>
+  <li>The licence — MIT, and the whole payment path is in the repo.</li>
+</ul>
+
+<p class="small">Contact: <code>[NAME]</code> &middot; <code>[EMAIL]</code> &middot;
+<code>github.com/hristovdimitri2-hub</code> &middot;
+<code>kristo-intelligence-api.onrender.com</code></p>
+
+</body>
+</html>

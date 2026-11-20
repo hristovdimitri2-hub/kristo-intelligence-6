@@ -238,12 +238,13 @@ problem. Do not produce a promo.
 > and revenue compatible instead of opposed — the moat is uptime and accuracy, not the
 > source.
 >
-> The measured numbers, including the uncomfortable ones: 171 settlements, $1.883 total.
-> Of that, 122 settlements and $1.685 are our own key and canaries. External customers: 12
-> payments, $0.054, from 9 addresses — one of which is the auditor we paid, so 8 real
-> external payers and $0.041 once the auditor's own two payments are excluded. Those 8
-> addresses hold $131 between them. The chain is not verifiable if listing volume is
-> self-dealing, so we publish the split rather than the total.
+> The measured numbers, including the uncomfortable ones: 171 settlements, $1.883 total —
+> and that is "since 9 November", because the ledger was rebuilt then. Of the 171, 122
+> settlements and $1.685 are our own key paying our own routes, 17 are scheduled canaries and
+> 20 are a market sampler. External customers: 12 payments, $0.054, from 9 addresses — one of
+> which is the auditor we paid, so 8 real external payers and $0.041 once the auditor's own
+> two payments are excluded. Those 8 addresses hold $131 between them. The chain is not
+> verifiable if listing volume is self-dealing, so we publish the split rather than the total.
 
 ### How many users do you currently have?
 
@@ -260,8 +261,8 @@ problem. Do not produce a promo.
 ### Share your project's GitHub metrics
 
 > 645 commits, ~98k lines of Python, 1,446 automated tests (1 skipped), 15 documented
-> OpenAPI paths, MIT licence. `[YOU]` — add stars/forks if you want them quoted; the form
-> asks for metrics and the commit count is the honest one.
+> OpenAPI paths, MIT licence. 2 stars, 0 forks, 1 open issue — small, and stated as it is:
+> the project is young and the repository is not yet the reason people find it.
 
 ---
 
@@ -340,4 +341,6 @@ what you are building, not a produced promo. One take, one minute, the endpoint 
 - Email, LinkedIn, location, how you heard about the programme.
 - Team answers (one person, how much full-time, what you shipped before).
 - The two uploads: the 2-page PDF and the 1-minute video.
-- The decision on stars/forks in the GitHub metrics line.
+- The `LICENSE` fix: GitHub showed "Other" instead of MIT because an SPDX line sat between
+  the title and the copyright. Removed in `cc88adf`'s follow-up commit; GitHub detects the
+  licence only after the push, so check the repo badge after pushing.

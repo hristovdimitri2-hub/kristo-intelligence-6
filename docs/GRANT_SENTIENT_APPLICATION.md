@@ -229,8 +229,9 @@ verify for themselves.
   **19 catalogue rows, all active**, every one returning a correct 402 with our `payTo`,
   and the CDP index holds **20 rows, complete**, all on the live host. That is an
   outside party confirming the payment wire, not our own claim about it.
-- **GitHub:** https://github.com/hristovdimitri2-hub/kristo-intelligence-6
-  `[YOU]` — stars/forks if you want them quoted; the form asks for metrics.
+- **GitHub:** https://github.com/hristovdimitri2-hub/kristo-intelligence-6 — 2 stars,
+  0 forks, 1 open issue. Small, and stated as it is: the repository is not yet the reason
+  people find the project.
 
 **The honest risk, stated plainly.** This is a one-person project with $0.054 of
 external revenue. The grant is not a bet on revenue; it is a bet that the measurement
