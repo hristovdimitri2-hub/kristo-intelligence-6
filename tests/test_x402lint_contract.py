@@ -49,15 +49,21 @@ def _free_operations(spec):
                 yield path, method, op
 
 
-# ── P8: the 500-character cap ────────────────────────────────────────────────
+# ── P8: the description length cap ───────────────────────────────────────────
 
-def test_no_advertised_description_exceeds_the_500_character_cap(client):
-    """CDP truncates or rejects a description over 500 characters.
+def test_no_advertised_description_enters_the_400_character_danger_zone(client):
+    """CDP truncates over 500; x402lint warns from 400.
 
-    The `/api/v1/verify-seller` description was 603. Truncation is worse than
-    shortening here: the sentence that got cut was the honesty rule about
-    reporting `partial` coverage, so the advertised text lost exactly the part
-    that distinguishes the product from a reputation score.
+    The hard cap is 500, but the lint's own wording is "keep advertised
+    descriptions comfortably under 500 characters to avoid CDP truncation", and
+    it reported 496 as "in the 400-500 char danger zone" — a WARN, not a pass.
+    So the number asserted here is 400: where the warning starts, not where
+    truncation does.
+
+    The `/api/v1/verify-seller` description was 603 before the first trim.
+    Truncation is worse than shortening here: the sentence that got cut was the
+    honesty rule about reporting `partial` coverage, so the advertised text lost
+    exactly the part that distinguishes the product from a reputation score.
     """
     spec = client.get("/openapi.json").get_json()
 
@@ -65,13 +71,13 @@ def test_no_advertised_description_exceeds_the_500_character_cap(client):
     for path, method, op in _paid_operations(spec):
         for field in ("description", "summary"):
             text = op.get(field) or ""
-            if len(text) > 500:
+            if len(text) > 400:
                 over.append((path, method, field, len(text)))
-    assert not over, "descriptions over 500 characters: %r" % (over,)
+    assert not over, "descriptions in the 400-500 danger zone: %r" % (over,)
 
     # The document's own description is advertised too, by the same crawler.
     info_description = spec["info"].get("description") or ""
-    assert len(info_description) <= 500, len(info_description)
+    assert len(info_description) <= 400, len(info_description)
 
 
 def test_the_trimmed_description_kept_the_honesty_rule(client):
@@ -223,3 +229,49 @@ def test_the_well_known_endpoints_agree_with_the_paywall(client):
         assert int(endpoint["accepts"][0]["amount"]) == expected, (
             "%s advertises %s atomic units, the paywall charges %s"
             % (path, endpoint["accepts"][0]["amount"], expected))
+
+
+# ── P5: HEAD must not settle ─────────────────────────────────────────────────
+
+def test_head_on_a_paid_route_answers_the_challenge_and_never_settles(client):
+    """P5 "head-no-settle": a HEAD with a junk X-PAYMENT answered 401/400/503.
+
+    A HEAD receives no body, so there is nothing to deliver and nothing to
+    charge for. Before this, a HEAD walked the full paid path: it consumed a
+    free-tier slot, and with a credential present it entered settlement
+    verification. The truthful answer is the 402 challenge, on every paid route,
+    whatever credential arrives.
+    """
+    import main
+
+    for path in sorted(main.X402_PAID_ENDPOINTS):
+        r = client.head(path, headers={"X-PAYMENT": "not-a-real-payment"})
+        assert r.status_code == 402, (
+            "HEAD %s answered %s, not 402" % (path, r.status_code))
+        # The challenge travels in the header, so a HEAD still carries the price
+        # even though the body is dropped.
+        assert r.headers.get("PAYMENT-REQUIRED"), path
+
+
+def test_head_does_not_consume_the_free_tier(client):
+    """A probe must not spend a free call an IP is entitled to.
+
+    Uptime monitors and registries HEAD a route to see whether it is alive. If
+    that spends the free tier, the first real caller is charged for a request
+    nobody made — and the monitor's own probe looks like a purchase. Production
+    runs with FREE_TIER_LIMIT=0, so the counter is asserted directly rather than
+    through the GET that would follow it.
+    """
+    import main
+
+    path = "/api/stats"
+    main._free_tier_usage.clear()
+
+    client.head(path)
+    assert main._free_tier_usage.get("127.0.0.1", 0) == 0, (
+        "a HEAD consumed a free-tier slot")
+
+    # And the GET is not affected by the HEAD that preceded it: it is answered
+    # by the same rule as a GET on a fresh client.
+    assert client.get(path).status_code == 402
+

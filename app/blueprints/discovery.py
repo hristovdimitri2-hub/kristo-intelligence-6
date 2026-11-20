@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1444
+SUITE_TESTS_PASSED = 1446
 SUITE_LAST_RUN = "2026-11-20"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -3445,22 +3445,21 @@ def openapi_spec():
             # with the same defaults a caller would get by omitting it.
             "/api/v1/verify-seller": {"get": _paid_op(
                 "Seller verification — audit any USDC receiver on Base",
-                # 496 characters. x402lint P8 "desc-length-cap" (measured
-                # 19.11): CDP truncates or rejects any advertised description
-                # over 500 characters, and this one was 603 — so the tail of
-                # it, the honesty rule about `partial`, was being cut off
-                # exactly where it mattered. The full text stays in llms.txt
-                # and in the 402 challenge, neither of which has the cap; only
-                # the OpenAPI listing had to shrink.
+                # 383 characters. x402lint P8 "desc-length-cap" (measured
+                # 19.11, then again 20.11): the cap is 500, but a description
+                # in the 400-500 band still warns — "keep comfortably under
+                # 500 to avoid CDP truncation". This one was 603 before the
+                # first trim, so the sentence that got cut was the honesty
+                # rule about `partial`. The full text stays in llms.txt and in
+                # the 402 challenge, neither of which has the cap; only the
+                # OpenAPI listing has to stay short.
                 "Reads the incoming USDC transfers of ANY Base receiver and "
-                "reports what a payer wants before paying it: distinct paying "
+                "reports what a payer wants before paying: distinct paying "
                 "addresses, repeat payers, revenue concentration, "
-                "treasury-sized flows, and which addresses look like "
-                "verification probes rather than customers. Answers 'is this "
-                "seller safe to pay' with chain data, not a reputation "
-                "score. Reports its own coverage and says `partial` or "
-                "`failed` when it could not read the whole window — an "
-                "unmeasured zero is indistinguishable from a real one.",
+                "treasury-sized flows, and probes vs customers. Answers 'is "
+                "this seller safe to pay' with chain data, not a reputation "
+                "score. Says `partial` when it could not read the whole "
+                "window.",
                 _route_price("/api/v1/verify-seller"),
                 parameters=[
                     {

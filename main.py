@@ -5584,6 +5584,27 @@ def _x402_paywall():
     # Paid endpoints — enforce free tier + x402 payment
     if path in X402_PAID_ENDPOINTS:
         ip = _get_client_ip()
+
+        # ── HEAD is never paid and never settled ──────────────────────────
+        #
+        # A HEAD request receives no body, so there is nothing to deliver and
+        # therefore nothing to charge for. Flask answers HEAD by running the
+        # GET handler and dropping the body, which meant a HEAD walked the full
+        # paid path: it consumed a free-tier slot, and with a credential present
+        # it went into settlement verification and answered 401/400/503 to a
+        # garbage header. x402lint P5 measured exactly that on 20.11 — HEAD with
+        # a junk X-PAYMENT returned 401 on four routes, 503 on two, 400 on one.
+        #
+        # The truthful answer to "what does this cost" is the 402 challenge, so
+        # that is what HEAD gets: the same canonical challenge a GET would send,
+        # with the same headers. No free-tier slot is consumed, no facilitator is
+        # asked to settle, and no money can move for a request that cannot be
+        # served. A monitor that only wants liveness should use /health, which is
+        # free and answers 200.
+        if request.method == "HEAD":
+            return _x402_payment_required_response(
+                path, _get_dynamic_price(ip, path))
+
         # READ AND INCREMENT IN ONE CRITICAL SECTION, and the previous shape is
         # why. It read `used` under the lock, released it, then re-acquired and
         # wrote `used + 1` — so two parallel requests from one IP both read 0,
