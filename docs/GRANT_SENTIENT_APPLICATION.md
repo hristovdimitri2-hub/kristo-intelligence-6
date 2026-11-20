@@ -1,6 +1,8 @@
 # Sentient Foundation — Open Source AGI Grant application
 
-**Status:** draft, ready to submit. Written 2026-11-20.
+**Status: SUBMITTED 2026-11-20 18:06** — grant track, ask 25k, supporting document
+`docs/GRANT_ONE_PAGER.pdf`. Confirmation arrived by email; the thank-you page shows no
+reference number. What follows is the argument as it was sent, kept as the record.
 **Form:** https://form.typeform.com/to/IRj7WaKH ("Sentient Foundation Open Source AGI Grant")
 **Programme page:** https://sentient.foundation/grants — $42M committed, two tracks
 (grant + investment), rolling review, no cohorts. Grant track: *"no equity, no claim

@@ -1,5 +1,8 @@
 # Sentient Foundation — the actual form, screen by screen
 
+**SUBMITTED 2026-11-20 18:06.** Grant track, ask 25k, `docs/GRANT_ONE_PAGER.pdf`
+attached. Kept as the record of what was sent, field by field.
+
 **Form:** https://form.typeform.com/to/IRj7WaKH
 **Written:** 2026-11-20, after decoding the form's own branching logic.
 
