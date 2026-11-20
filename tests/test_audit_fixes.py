@@ -152,7 +152,14 @@ def test_a5_reverted_receipt_polls_then_overrides_to_delivery(
                        headers={"PAYMENT-SIGNATURE": _payment_header()})
     assert r.status_code == 200
     assert "PAYMENT-RESPONSE" in r.headers
-    assert sleeps == [2, 2, 2, 2]        # ~4 × 2с poll, НЕ отказ
+    # The subject is the RECEIPT poll: four 2-second waits, then fail-open
+    # delivery. A request path can legitimately sleep for other reasons — a
+    # market-data retry backoff, for instance — and those are not this test's
+    # claim. Counting only the 2-second waits keeps the assertion about the
+    # poll without turning an unrelated upstream hiccup into a red build.
+    # (Observed 20.11.2026 in CI: a 0.2615 s CoinGecko backoff landed in the
+    # same list and failed the build; conftest now zeroes that backoff too.)
+    assert [s for s in sleeps if s == 2] == [2, 2, 2, 2]   # ~4 × 2с poll, НЕ отказ
     assert "c2_receipt_status_override_delivered" in caplog.text
     assert "c2_receipt_status_refused" in events  # guard-събитието както досега
 

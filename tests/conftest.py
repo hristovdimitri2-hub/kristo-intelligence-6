@@ -107,6 +107,32 @@ def _reset_request_summary_caches():
 
 
 @pytest.fixture(autouse=True)
+def _no_market_data_retry_sleep(monkeypatch):
+    """A CoinGecko retry must not sleep inside a request a test is timing.
+
+    `services/market_data.py` retries a failed upstream call with a bounded
+    jittered backoff — base 0.25 s plus up to 25 %, so ~0.25–0.31 s. That sleep
+    happens in the SAME thread as the request that triggered it. Any test that
+    counts sleeps in a request path therefore breaks whenever CoinGecko is
+    unreachable or rate-limited, which is exactly the CI environment and not the
+    developer's warm cache.
+
+    Observed 20.11.2026 in CI on 8fe1ef3: `test_a5_reverted_receipt_polls_then_
+    overrides_to_delivery` asserted `sleeps == [2, 2, 2, 2]` and got a fifth
+    entry of 0.2615 — one market-data backoff, not a payment bug. The same
+    commit's runs on 567eb6c and 241d977 went green, so the pipeline was
+    reporting the upstream's availability, not our code.
+
+    Zeroing the base makes the computed delay 0, so the retry still happens and
+    still falls back to stale data — only the pause disappears. Production reads
+    the same constants from the environment and is untouched. Tests that are
+    ABOUT the backoff (`test_market_data_resilience.py`) set their own values.
+    """
+    from services import market_data
+    monkeypatch.setattr(market_data, "_COINGECKO_BACKOFF_BASE_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def _no_board_persistence_in_the_shared_store(monkeypatch):
     """Keep the dashboard board out of the developer's real database.
 
