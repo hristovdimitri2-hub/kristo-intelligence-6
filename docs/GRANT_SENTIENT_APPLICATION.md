@@ -126,6 +126,23 @@ kept out of the repo. Attach it to the form if the upload accepts video.
 terms — no equity, no claim on the work — are the right shape for it. A closed round
 would make the conformance cases less useful, not more.
 
+**And the support beyond the money.** The programme offers four things next to the
+grant — distribution, compute credits, engineering support from the team behind the
+Sentient Stack (ROMA, Open Deep Search, EvoSkill), and the community. Those are worth
+asking for explicitly, because each one removes a bottleneck the money does not:
+
+| what the programme offers | what we would use it for | why the money alone does not solve it |
+|---|---|---|
+| **Distribution** | Put the conformance corpus and the reference seller in front of the people building open agents — the audience that has to implement the payment leg. | We can publish; we cannot reach. The programme already has the room. |
+| **Compute credits** | A CI runner that runs the conformance suite against live servers on every change, plus a long-running probe for the honest-revenue measurement. | The suite's value is that it runs continuously. A one-off run is a screenshot. |
+| **Engineering** | Review of the conformance-suite design by people who have shipped agent infrastructure; help making the corpus framework-agnostic and CI-friendly. | One person writing a standard is one person's blind spots. |
+| **Community** | Peer review from open-source AI builders, which is what keeps conformance cases honest. | The cases are only as good as the sellers who try to pass them. |
+
+There is a two-way piece here as well: if the Sentient Stack's own agents need an x402
+payment leg, the `settlement_pending` handling and the offer/delivery diff in this repo
+are directly reusable, and we would rather contribute them than have each team rediscover
+them.
+
 ---
 
 ## 8. How much are you asking for, and what would it unlock?
@@ -197,6 +214,14 @@ verify for themselves.
   603 characters against a 500 cap. All three verified in the generated spec.
 - **1,446 automated tests**, 1 skipped. The suite is not decoration: it is what makes
   the claims in this document checkable.
+- **Independently re-checked by a third party, 18.11.2026.** The auditor who cleaned up
+  our dead-host rows (x402scan issue #1340) re-ran the check and published the result:
+  the dead host `kristo-intelligence.vercel.app` returns 404 `DEPLOYMENT_NOT_FOUND` and
+  has **0 rows** left in the Bazaar catalogue dump and the CDP discovery index
+  (`partialResults:false`, a complete list, not a truncated page); the live host has
+  **19 catalogue rows, all active**, every one returning a correct 402 with our `payTo`,
+  and the CDP index holds **20 rows, complete**, all on the live host. That is an
+  outside party confirming the payment wire, not our own claim about it.
 - **GitHub:** https://github.com/hristovdimitri2-hub/kristo-intelligence-6
   `[YOU]` — stars/forks if you want them quoted; the form asks for metrics.
 
@@ -256,12 +281,18 @@ be funded for the first and say the second is unproven.
 
 ## `[YOU]` — what only you can fill in
 
+**Decided already (20.11):** grant track, not investment. Ask for the money *and* the
+four supports next to it (distribution, compute credits, engineering, community). The
+$30,000 ask stands, with the $3,000 micro-grant as the fallback only if the reviewer
+prefers a smaller first round.
+
+Still needed from you:
+
 - Name, email, primary role, how you heard about the programme.
 - Team size and how long the founders have known each other (this is a one-person
   project as far as the repo shows — say so plainly; it is not a weakness).
 - Location / timezone.
 - The demo video link, if the form accepts it.
-- Whether to ask for $30,000 or the $3,000 micro-grant fallback.
 - Whether to name the trading signal as unproven in the application itself. The
   recommendation is yes: it is the difference between a claim and a measurement, and
   it is the reason the conformance work is credible.
