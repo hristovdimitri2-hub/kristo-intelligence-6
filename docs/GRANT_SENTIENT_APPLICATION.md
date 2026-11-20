@@ -1,10 +1,13 @@
 # Sentient Foundation — Open Source AGI Grant application
 
-**Status:** draft, ready to paste. Written 2026-11-20.
+**Status:** draft, ready to submit. Written 2026-11-20.
 **Form:** https://form.typeform.com/to/IRj7WaKH ("Sentient Foundation Open Source AGI Grant")
 **Programme page:** https://sentient.foundation/grants — $42M committed, two tracks
 (grant + investment), rolling review, no cohorts. Grant track: *"no equity, no claim
 on your work."*
+**Field-by-field paste text:** `docs/GRANT_SUBMISSION_PACK.md` — this file is the
+strategy and the evidence; that one is what goes into the form, in order, with the
+amount options the form actually offers.
 
 **Why this programme and not a generic one.** The call asks for two halves: products
 for people, and *"the infrastructure that makes [them] trustworthy"* — naming, in
@@ -12,10 +15,12 @@ their own words, "identity and safe hands for the agents about to act on our beh
 and "proof that a model is what it claims and did what it says". This project is the
 second half, built and measured from the seller's side of a live payment wire.
 
-**How to use this file.** Every answer below is written to be pasted into the matching
-form field. Fields marked `[YOU]` need a fact only you hold. Nothing here is invented:
-every number is either read from the repo or from a live endpoint, and each one is
-cited so a reviewer can check it.
+**How to use this file.** It is the argument and the evidence: why this programme, what
+the project is, what the honest numbers are. The paste-ready answers, in the form's own
+order and with its own limits (the one-liner is capped at 80 characters, the grant
+amounts are fixed choices), are in `docs/GRANT_SUBMISSION_PACK.md`. Fields marked
+`[YOU]` need a fact only you hold. Nothing here is invented: every number is either read
+from the repo or from a live endpoint, and each one is cited so a reviewer can check it.
 
 ---
 
@@ -147,7 +152,9 @@ them.
 
 ## 8. How much are you asking for, and what would it unlock?
 
-**Ask: $30,000 over 6 months.**
+**Ask: $25,000 over 6 months.** *(The form's grant amounts are fixed choices —
+`10k` / `25k` / `50k` / `>50k` — so 25k is the selectable figure closest to the six-month
+scope. See `docs/GRANT_SUBMISSION_PACK.md`.)*
 
 The number is sized to one person working on this full-time for six months, plus
 hosting and the paid probes the measurements require. It is not a valuation of the
@@ -165,9 +172,9 @@ product; it is the cost of finishing the public-good half.
 are currently written for one server (ours) and one person's time. The grant buys the
 generalisation — the part that only pays off for other people.
 
-**If $30,000 is the wrong size for this round:** the honest fallback is a $3,000
-micro-grant for milestone 1 alone (the conformance suite). That is the piece with the
-highest ratio of public value to cost, and it is the piece we would fund first.
+**If 25k is the wrong size for this round:** the honest fallback is the 10k bracket, and
+the piece to fund first is milestone 1 alone (the conformance suite). That is the piece
+with the highest ratio of public value to cost.
 
 ---
 
@@ -283,8 +290,8 @@ be funded for the first and say the second is unproven.
 
 **Decided already (20.11):** grant track, not investment. Ask for the money *and* the
 four supports next to it (distribution, compute credits, engineering, community). The
-$30,000 ask stands, with the $3,000 micro-grant as the fallback only if the reviewer
-prefers a smaller first round.
+form's amount choices are `10k` / `25k` / `50k` / `>50k`, so the ask is **25k**; 10k is
+the fallback if the reviewer prefers a smaller first round.
 
 Still needed from you:
 
