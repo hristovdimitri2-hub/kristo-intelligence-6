@@ -5128,3 +5128,38 @@ compute credits, engineering, community), искането вече е напи�
 инфраструктурата, която ги прави проверими. Ние сме второто. Заявката го казва
 направо и не се преструва на друго; искането е залог за conformance работата, не за
 приходите на endpoint-а. Дали ще мине — решава панелът.
+
+## 76. PayAPI Market: картата е вързана към стария портфейл (20.11.2026)
+
+Chet Parker (PayAPI Market) отговори на писмото от 16.11 за смяната на получателя.
+Отговорът му, дословно по същество:
+
+> „The live listing for Kristo Seller Audit was verified against the old payTo
+> 0xd4cdA900…d08f. … A change of receiver does not auto-update the badge. To re-verify
+> on the new address … please update the form row at https://payapi.market/list with the
+> new wallet and the same paid route, then we can run one new canary. **Do not create a
+> second card from email. One product, one card.**“
+
+**Проверено на живо, за да се знае какво точно е остаряло** (картата
+`/agent-marketplace/kristo-seller-audit-verify-an-x402-seller-before-you-pay`):
+
+| какво показва картата | какво казва живият ни 402 |
+|---|---|
+| примерен вход с `receiver=0xd4cdA900…d08f` (стария) | — |
+| цена **0.01** USDC | `amount: 50000` = **0.05** USDC |
+| портфейл от стария canary | `payTo: 0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844` |
+
+Тоест картата лъже за цената с 5×. Ако canary-то плати обявеното 0.01, нашият 402
+иска 0.05 и проверката на сумата връща 401 — canary-то ще падне по причина, която
+изглежда като наш дефект. Затова при обновяването **цената също трябва да стане 0.05**,
+а примерният вход да не сочи мъртвия портфейл.
+
+**Действието е на собственика** (иска вход с имейл): същият имейл
+`hristovdimitri2@gmail.com`, същият маршрут
+`https://kristo-intelligence-api.onrender.com/api/v1/verify-seller`, новият портфейл
+`0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844`. Формата чете портфейла от 402-та сама,
+така че повторното подаване на същия маршрут трябва да оправи и трите неща.
+
+**Едно уточнение за парите:** canary плащането на PayAPI ($0.01) стои в стария
+портфейл заедно с останалите $1.033. Ключът му никога не е намерен (§32, §33, §65) —
+парите са невъзстановими и не си струва да се гонят.
