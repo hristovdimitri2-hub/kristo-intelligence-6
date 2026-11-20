@@ -4971,10 +4971,10 @@ compliance A 14/14); не сме `verified`, а този статус не се 
 
     openapi 3.0.3
     securitySchemes keys: ['x402']
-    paid ops: 7   without security: []   longest description: 467 chars
+    paid ops: 7   without security: []   longest description: 346 chars
 
 Тоест: `components.securitySchemes.x402` присъства; и седемте платени операции носят
-`security`; нито едно описание не надхвърля 500 знака (най-дългото е 467, беше 603).
+`security`; нито едно описание не надхвърля 500 знака (най-дългото е 346, беше 603).
 Описанието на `/api/v1/verify-seller` е съкратено, без да губи смисъла — загубеното
 изречение за `partial` остава в `llms.txt` и в 402-та, където няма лимит.
 
