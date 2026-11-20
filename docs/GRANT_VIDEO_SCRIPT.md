@@ -1,5 +1,10 @@
 # 1-minute founder video — script
 
+> **Not asked on the Grant branch.** The form's Grant branch ends after the
+> supporting-documents upload and never asks for a video — that field belongs to the
+> investment branch. Keep this script for the case where you switch tracks or want the
+> video for distribution; it is not needed to submit the grant application.
+
 **What the form asks for:** "Share your 1-minute founder video." No production values
 required — the brief is "rough and unscripted is fine, we want you, not a promo".
 

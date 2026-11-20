@@ -7,7 +7,8 @@
 on your work."*
 **Field-by-field paste text:** `docs/GRANT_SUBMISSION_PACK.md` — this file is the
 strategy and the evidence; that one is what goes into the form, in order, with the
-amount options the form actually offers.
+amount options the form actually offers. **The walkthrough to follow with the browser
+open:** `docs/GRANT_STEP_BY_STEP.md`.
 
 **Why this programme and not a generic one.** The call asks for two halves: products
 for people, and *"the infrastructure that makes [them] trustworthy"* — naming, in
@@ -89,7 +90,7 @@ what "correct" means for the next thousand sellers.
 **Open:** MIT licence. The full API implementation, the 1,446-test suite, the
 conformance cases, the preview script, and every measurement write-up are in the
 public repo: https://github.com/hristovdimitri2-hub/kristo-intelligence-6
-(~98k lines of Python, 645 commits, 15 OpenAPI paths).
+(~98k lines of Python, 651 commits, 15 OpenAPI paths).
 
 **What would get worse if it closed, and for whom:**
 
@@ -294,13 +295,18 @@ four supports next to it (distribution, compute credits, engineering, community)
 form's amount choices are `10k` / `25k` / `50k` / `>50k`, so the ask is **25k**; 10k is
 the fallback if the reviewer prefers a smaller first round.
 
+**The form is shorter than this document implies.** On the Grant branch it asks seven
+screens and then ends — no team section, no traction section, no revenue question, no
+founder video. The evidence for all of that has to travel in the uploaded document. See
+`docs/GRANT_STEP_BY_STEP.md` for the walkthrough and `docs/GRANT_SUBMISSION_PACK.md` for
+the exact text per field.
+
 Still needed from you:
 
-- Name, email, primary role, how you heard about the programme.
-- Team size and how long the founders have known each other (this is a one-person
-  project as far as the repo shows — say so plainly; it is not a weakness).
-- Location / timezone.
-- The demo video link, if the form accepts it.
+- Email address, LinkedIn URL, city and country.
+- Your name and the one sentence about what you shipped before.
+- The PDF conversion of `docs/GRANT_ONE_PAGER.html`.
 - Whether to name the trading signal as unproven in the application itself. The
   recommendation is yes: it is the difference between a claim and a measurement, and
-  it is the reason the conformance work is credible.
+  it is the reason the conformance work is credible. (On the Grant branch this goes in
+  the uploaded document, not in a form field.)
