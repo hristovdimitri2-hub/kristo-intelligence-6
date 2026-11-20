@@ -42,8 +42,45 @@ jobs:
       # `requirements-dev.txt` builds on requirements.txt, so this installs the
       # same runtime set the deploy does, plus pytest. The deploy file itself no
       # longer carries a test runner.
+      #
+      # The output is TEED to a file so the next step can turn each failure into
+      # an annotation. Without it a failed run is a bare "Process completed with
+      # exit code 1" and nothing else: the job log needs admin rights on the
+      # repository, so a public-API reader (or an agent working on the repo)
+      # cannot see which test failed. That cost two rounds of guessing on
+      # 20.11.2026 — runs #84 and the run on 179e738 both failed with no test
+      # name anywhere readable, and the second one had a docs-only diff.
+      #
+      # `set -o pipefail` is load-bearing: without it the pipeline's exit status
+      # is `tee`'s, which is always 0, and a failing suite would report success.
       - name: Run the suite
-        run: python -m pytest -q
+        run: |
+          set -o pipefail
+          python -m pytest -q 2>&1 | tee pytest-output.log
+
+      - name: Annotate failed tests
+        if: failure()
+        run: |
+          found=0
+          while IFS= read -r line; do
+            echo "::error::${line}"
+            found=1
+          done < <(grep -E '^(FAILED|ERROR) ' pytest-output.log || true)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::the suite failed but printed no FAILED/ERROR line — read the job log"
+            tail -n 40 pytest-output.log
+          fi
+
+      # Kept even when the suite passes: a green run whose log nobody can read
+      # is one bad day away from being an unreadable red run.
+      - name: Upload the suite output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-output
+          path: pytest-output.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   secrets:
     name: Secret scan (working tree)
