@@ -520,16 +520,14 @@ def test_the_whale_threshold_is_5m_on_every_public_surface(client):
     assert "$50k" not in readme
     assert "≥ $5M" in readme
 
-    # The old securitySchemes.x402 blurb is GONE (x402scan #1270): it was the
-    # surface that once said "send 0.005 USDC" (overpay on cheap routes) and
-    # advertised a wrong X-Payment-Address retry flow. Paid pricing now lives
-    # only in per-op x-payment-info (swept above), so sweep the whole spec.
+    # The `x402` security scheme is BACK (19.11, x402lint S2/S4) but the two
+    # strings that made it harmful in October must never return: the flat
+    # "send 0.005 USDC" (overpay on cheap routes) and the manual
+    # "X-Payment-Address" retry flow. The scheme now describes the real 402
+    # flow and states no amount of its own — per-op x-payment-info does.
     import json as _json
     spec = c.get("/openapi.json").get_json()
     flat = _json.dumps(spec, ensure_ascii=False)
-    assert "x402" not in ((spec.get("components") or {})
-                          .get("securitySchemes") or {}), \
-        "x402 security scheme must stay removed"
     assert "send 0.005 USDC" not in flat
     assert "X-Payment-Address header set to the sender" not in flat
     assert "402 challenge" in flat

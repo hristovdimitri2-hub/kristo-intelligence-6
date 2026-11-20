@@ -170,21 +170,33 @@ def test_openapi_paid_operations_declare_402_response(client):
             f"{path}: missing '402' response declaration"
 
 
-def test_openapi_paid_ops_declare_no_security_scheme(client):
-    """Paid = x-payment-info + 402 ONLY — no security scheme (x402scan #1270).
+def test_openapi_paid_ops_declare_the_x402_scheme_and_no_manual_flow(client):
+    """x402lint S2/S4 want the scheme; x402scan #1270 wanted the blurb gone.
 
-    The old components.securitySchemes.x402 (apiKey named X-Payment-Address)
-    made agentcash discovery classify every paid route as "apiKey+paid", so
-    agents without a key bailed out BEFORE paying. The 402 response and
-    x-payment-info remain the payment contract (asserted by the tests above/
-    below); the free ops keep their explicit security: [] declaration.
+    Both are satisfiable at once, and this test pins the combination. The
+    October removal was blamed on the scheme's EXISTENCE, but what actually
+    broke the classification was its CONTENT: an apiKey scheme named
+    "X-Payment-Address" whose description told a human to send a flat amount
+    and retry manually. The scheme is back, named for the header v2 clients
+    really send, with no amount and no manual flow in its text.
     """
     r = client.get("/openapi.json")
     spec = r.get_json()
+
     schemes = (spec.get("components") or {}).get("securitySchemes") or {}
-    assert "x402" not in schemes, "x402 security scheme must stay removed"
-    # Root document must not apply security globally either.
+    assert "x402" in schemes, "components.securitySchemes.x402 must be declared"
+    scheme = schemes["x402"]
+    # `http` + a custom scheme name, not `apiKey`: measured against agentcash's
+    # discovery tool, an apiKey declaration relabels every paid route
+    # "apiKey+paid", while http keeps "paid" (see the comment in discovery.py).
+    assert scheme.get("type") == "http", scheme
+    assert scheme.get("scheme") == "x402", scheme
+    assert "X-PAYMENT" in (scheme.get("description") or ""), scheme
+
+    # The document-level default stays empty: a global requirement would make
+    # every free route demand a payment proof.
     assert "security" not in spec, "top-level security must not be declared"
+
     paid_paths = [p for p, ops in spec["paths"].items()
                   if isinstance(ops, dict)
                   and isinstance(ops.get("get"), dict)
@@ -192,15 +204,18 @@ def test_openapi_paid_ops_declare_no_security_scheme(client):
     assert len(paid_paths) >= 3, "expected the paid routes in the spec"
     for path in paid_paths:
         op = spec["paths"][path]["get"]
-        assert op.get("security") in (None, []), \
-            f"{path}: paid op must not declare security: {op.get('security')!r}"
+        assert op.get("security") == [{"x402": []}], \
+            f"{path}: paid op must require the x402 scheme: {op.get('security')!r}"
         assert "402" in op.get("responses", {}), \
             f"{path}: paid op must keep its 402 response"
         # The wrong manual flow must be gone everywhere in the spec.
         assert "X-Payment-Address header set to the sender" not in \
             (op.get("description") or ""), path
+
     flat = str(spec)
     assert "X-Payment-Address header set to the sender" not in flat
+    # ...and so must the flat amount the scheme used to quote.
+    assert "send 0.005 USDC" not in flat
 
 
 # ── Runtime 402 challenge behavior ──────────────────────────────────────────

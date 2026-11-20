@@ -42,8 +42,8 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1435
-SUITE_LAST_RUN = "2026-11-16"
+SUITE_TESTS_PASSED = 1444
+SUITE_LAST_RUN = "2026-11-20"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
 #: counter. It lives here, next to the suite figures and for the same reason: the
@@ -2882,17 +2882,19 @@ def well_known_x402_scan():
     Each resource is an OBJECT with url/name/description — the exact shape
     x402 Doctor's well-known-names check reads ("Serve the resources as
     {"url": …, "name": …, "description": …} objects"): directories such as
-    the XRPL AI Hub list resources BY name+description, and 6 bare URL
-    strings would show up unnamed ("6 of 6 resources … have no name and
-    description"). Same 6 URLs, same order as before; only the wrapping
-    changed.
+    the XRPL AI Hub list resources BY name+description, and seven bare URL
+    strings would show up unnamed. URLs and order are unchanged.
+
+    Since 19.11 the file also carries `endpoints[]` (x402lint S6), the same
+    seven routes in the per-resource shape with an `accepts[]` amount in token
+    atomic units. `resources[]` stays because x402scan reads it.
 
     This is the discovery endpoint that https://www.x402scan.com/resources/register
     probes when a user submits the server URL. See:
     https://github.com/Merit-Systems/x402scan/blob/main/docs/DISCOVERY.md
     """
     from main import (X402_RECEIVER_ADDRESS, X402_FEE_USDC, FREE_TIER_LIMIT,
-                      X402_PRICE_MAP)
+                      X402_PRICE_MAP, X402_USDC_CONTRACT)
 
     base_url = request.host_url.rstrip("/")
     # The price note is DERIVED, never typed: it must describe the same numbers
@@ -2908,13 +2910,10 @@ def well_known_x402_scan():
         if FREE_TIER_LIMIT > 0
         else "for each request (no free tier: every unpaid call returns HTTP 402)"
     )
-    return jsonify({
-        "version": 1,
-        # Objects, not bare strings (x402 Doctor well-known-names): each
-        # entry names the resource so directories can list it as
-        # "Kristo — …" instead of a generic label. Order and URLs are the
-        # exact 6 paid routes, unchanged.
-        "resources": [
+    # Objects, not bare strings (x402 Doctor well-known-names): each entry
+    # names the resource so directories can list it as "Kristo — …" instead of
+    # a generic label. Order and URLs are the exact seven paid routes.
+    _resources = [
             {
                 "url": f"{base_url}/api/stats",
                 "name": "Kristo — Market Stats",
@@ -2959,7 +2958,35 @@ def well_known_x402_scan():
                                 "it: distinct payers, repeat payers, "
                                 "concentration, probes vs customers."),
             },
-        ],
+    ]
+    # x402lint S6 "well-known-x402" (measured 19.11): this file answered 200
+    # with JSON but carried no endpoints[]/accepts[] to parse, so the lint
+    # could not read a single payable resource from it. `resources[]` is the
+    # x402scan fan-out shape and stays untouched; `endpoints[]` is the same
+    # seven routes in the shape the lint asks for, with the amount in token
+    # atomic units exactly as the 402 challenge states it. Built from
+    # _resources so the two views cannot drift apart.
+    _endpoints = []
+    for _r in _resources:
+        _path = _r["url"][len(base_url):]
+        _endpoints.append({
+            "url": _r["url"],
+            "method": "GET",
+            "name": _r["name"],
+            "description": _r["description"],
+            "accepts": [{
+                "scheme": "exact",
+                "network": "eip155:8453",
+                "amount": str(int(round(float(X402_PRICE_MAP[_path]) * 1_000_000))),
+                "payTo": X402_RECEIVER_ADDRESS,
+                "asset": X402_USDC_CONTRACT,
+                "maxTimeoutSeconds": 60,
+            }],
+        })
+    return jsonify({
+        "version": 1,
+        "resources": _resources,
+        "endpoints": _endpoints,
         "ownershipProofs": [X402_RECEIVER_ADDRESS],
         # The price line is GENERATED from the price map (see the top of this
         # module) and states a per-route range: an external agent (Circadian,
@@ -3292,10 +3319,30 @@ def openapi_spec():
             "parameters": [] if parameters is None else parameters,
             "x-payment-info": op_payment_info,
             "x402": {"cost_usdc": cost, "free_tier_eligible": True},
-            # NO security/securitySchemes for x402 (maintainer review, x402scan
-            # #1270): an apiKey scheme here made agentcash classify every paid
-            # route as "apiKey+paid" and keyless agents bailed out BEFORE
-            # paying. Paid = x-payment-info + a 402 response, nothing else.
+            # A non-empty security requirement, pointing at the `x402` scheme
+            # declared in components. This is the SECOND position on this
+            # field, and the reason matters.
+            #
+            # 13.10, x402scan #1270: we had security: [{x402: []}] with `x402`
+            # declared as an apiKey scheme whose description told a human to
+            # "send 0.005 USDC then retry with X-Payment-Address". A free
+            # preflight tool reported that every paid route read as
+            # "apiKey+paid", so keyless agents stopped before paying. We
+            # removed the scheme and the per-op security, and agentcash then
+            # listed the routes as plain `paid`.
+            #
+            # 19.11, x402lint S2/S4: the scheme is REQUIRED — "Declare an x402
+            # security scheme under components.securitySchemes" and "Give
+            # every paid operation a non-empty security requirement and a
+            # documented 402 response". Both are major-severity checks, and
+            # x402scan's own DISCOVERY.md now says "Auth requirements: use
+            # OpenAPI security + components.securitySchemes". The October
+            # misclassification was caused by the apiKey TYPE plus a
+            # description that described a manual flow — not by the presence
+            # of a requirement — so the scheme is declared with an accurate
+            # description of the real 402 flow. Verified against agentcash
+            # after the change: routes still read as plain `paid`.
+            "security": [{"x402": []}],
             "responses": {
                 # x402scan: an operation without an input/output schema is
                 # reported as "Input/Output Schema Missing", so every paid route
@@ -3398,7 +3445,22 @@ def openapi_spec():
             # with the same defaults a caller would get by omitting it.
             "/api/v1/verify-seller": {"get": _paid_op(
                 "Seller verification — audit any USDC receiver on Base",
-                "Reads the incoming USDC transfers of ANY receiver address on Base and reports what a payer would want to know before paying it: distinct paying addresses, repeat payers, how concentrated the revenue is, treasury-sized flows, and which addresses look like verification probes rather than customers. Answers 'is this seller safe to pay' and 'verify an x402 endpoint before paying' with chain data instead of a reputation score. Reports its own coverage and says `partial` or `failed` when it could not read the whole window, because a zero it did not measure is indistinguishable from a zero that is real.",
+                # 496 characters. x402lint P8 "desc-length-cap" (measured
+                # 19.11): CDP truncates or rejects any advertised description
+                # over 500 characters, and this one was 603 — so the tail of
+                # it, the honesty rule about `partial`, was being cut off
+                # exactly where it mattered. The full text stays in llms.txt
+                # and in the 402 challenge, neither of which has the cap; only
+                # the OpenAPI listing had to shrink.
+                "Reads the incoming USDC transfers of ANY Base receiver and "
+                "reports what a payer wants before paying it: distinct paying "
+                "addresses, repeat payers, revenue concentration, "
+                "treasury-sized flows, and which addresses look like "
+                "verification probes rather than customers. Answers 'is this "
+                "seller safe to pay' with chain data, not a reputation "
+                "score. Reports its own coverage and says `partial` or "
+                "`failed` when it could not read the whole window — an "
+                "unmeasured zero is indistinguishable from a real one.",
                 _route_price("/api/v1/verify-seller"),
                 parameters=[
                     {
@@ -3456,12 +3518,43 @@ def openapi_spec():
                 "HTML dashboard page with charts and metrics.",
             )},
         },
-        # components.securitySchemes.x402 REMOVED (x402scan #1270): the apiKey
-        # scheme made agentcash classify paid routes as "apiKey+paid" (keyless
-        # agents quit before paying) and its description advertised a wrong
-        # manual flow ("retry with X-Payment-Address …"). The real flow is the
-        # 402 challenge + X-PAYMENT / PAYMENT-SIGNATURE header — documented in
-        # x-payment-info and the 402 response, both kept above.
+        # components.securitySchemes.x402 — restored 19.11 after x402lint S2
+        # failed us for its absence ("components.securitySchemes.x402 is
+        # null/absent"). It was removed on 13.10 under x402scan #1270, and the
+        # defect then was the SCHEME'S DESCRIPTION: it advertised a manual flow
+        # ("retry with X-Payment-Address") that no x402 client uses, plus a flat
+        # "send 0.005 USDC" that mispriced five of the seven routes.
+        #
+        # WHY `type: http` AND NOT `type: apiKey`. Measured 20.11 against four
+        # candidate shapes, using agentcash's own discovery tool on the served
+        # document:
+        #   type apiKey + per-op security   -> "apiKey+paid"  (the October bug)
+        #   type apiKey, no per-op security -> "paid"
+        #   type http   + per-op security   -> "paid"         <-- chosen
+        #   no scheme,   no per-op security -> "paid"
+        # The trigger is the apiKey TYPE, not the requirement's presence. An
+        # apiKey declaration tells a client "you need a credential we issued";
+        # we issue none — the buyer signs a payment authorization. `http` with a
+        # custom scheme name says "a credential travels in a header" without
+        # claiming we handed one out. That satisfies both registries: x402lint
+        # wants the declaration, agentcash keeps reading "paid".
+        "components": {
+            "securitySchemes": {
+                "x402": {
+                    "type": "http",
+                    "scheme": "x402",
+                    "description": (
+                        "x402 v2 payment proof — NOT a credential we issued. "
+                        "Call the route unpaid, read the 402 challenge, and "
+                        "retry with the signed USDC authorization for that "
+                        "challenge's accepts[0] in the X-PAYMENT header (v2 "
+                        "clients send PAYMENT-SIGNATURE). The 402 response is "
+                        "the authoritative source of amount, receiver and "
+                        "chain; this document restates none of them."
+                    ),
+                }
+            }
+        },
     }
     return jsonify(spec)
 
