@@ -5306,3 +5306,45 @@ believe this is an error, reply and a member of staff will review it.“
 `0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844`, с изричното предупреждение да не се
 предлага връщане към стария адрес, и с бележката, че същата причина държи остарели
 още две обяви (API картата с „from $0.003“ и агентската карта с $0.01).
+
+## 79. `server.json` 6.3.0 е публикуван в официалния MCP регистър (20.11.2026)
+
+Публикуван в **17:38:42Z** (19:38 Sofia). Проверено от самия регистър, не от нашия
+файл:
+
+    name    : io.github.hristovdimitri2-hub/kristo-intelligence
+    version : 6.3.0   status: active   isLatest: true
+    tools   : 7
+      get_market_stats /api/stats 0.005 · get_onchain_sales /api/sales 0.005
+      get_bot_status /api/bot-status 0.005 · get_trading_signal /api/v1/signal 0.01
+      get_whale_flow /api/v1/whaleflow 0.01 · get_arbitrage_opportunities
+      /api/arb/opportunities 0.005 · verify_seller_receiver /api/v1/verify-seller 0.05
+    pricing : min 0.005, max 0.05, USDC, Base
+    remotes : /mcp, /mcp/sse
+
+Досега регистърът държеше **6.2.0 от 04.11 с шест инструмента и `$0.003–0.005`** —
+тоест всеки, който ни е търсил там, е виждал стар продукт на стара цена. Версиите
+са неизменяеми, затова се наложи нова версия, а не редакция. Glama поема записа на
+часовия си цикъл, API Tracker — също.
+
+### Капанът на Windows, който изяде два device кода
+
+`mcp-publisher login github` **автентикира успешно** и после пада с:
+
+    Error: failed to save token: open C:\Users\AlienWare\.config\mcp-publisher\token.json:
+    Access is denied
+
+При това PowerShell **може** да пише в същата папка, а самият binary **може** да пише
+файлове (проверено с `mcp-publisher init` — създаде `server.json` в работната папка).
+Тоест блокиран е точно този път, не инструментът.
+
+**Решението:** пренасочване на home директорията само за процеса —
+
+    $env:USERPROFILE='...\_tools\home'; $env:HOME=$env:USERPROFILE
+    mcp-publisher login github      # и после publish, със същия redirect
+
+Токенът отива в `_tools\home\.config\mcp-publisher\token.json`, извън репото (не се
+комитва). Третият код мина. Първите два бяха изгубени заради това — не заради GitHub.
+
+**Ако някой някога пак публикува:** първо този redirect, после login. Иначе се губи
+код напразно.
