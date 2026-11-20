@@ -2373,8 +2373,16 @@ def _mcp_dispatch(body):
             #     our declaration   .../mcp#get_whale_flow
             #     CDP stored        .../mcp#get_whale_flow#get_whale_flow
             #
-            # while 534 of CDP's 541 MCP rows carry exactly ONE fragment. The
-            # peer that settled it is listed right next to ours:
+            # Re-counted 20.11.2026, after Abdellah (github.com/holistis) checked
+            # our published figure and found it no longer held: of CDP's 542 MCP
+            # rows, 190 carry ONE fragment and 352 carry two — and 279 of the
+            # doubled ones belong to a single host (tanod.dev). So the shape is a
+            # function of what the seller declared, not a majority convention.
+            # Our own host now carries BOTH: seven doubled rows (declared the
+            # fragment) and seven single rows (declared the bare URL) — the same
+            # seven tools catalogued twice.
+            #
+            # The peer that settled the mechanism is listed right next to ours:
             #
             #     mcp.xrpl-utilities.io declares  "url": ".../mcp"      (bare)
             #     CDP stores for it               ".../mcp#xrpl_pulse_recent_events"

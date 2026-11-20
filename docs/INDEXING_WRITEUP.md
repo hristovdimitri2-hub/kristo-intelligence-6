@@ -101,10 +101,34 @@ mcp.xrpl-utilities.io declares   "url": "https://mcp.xrpl-utilities.io/mcp"
 CDP stores for it                "https://mcp.xrpl-utilities.io/mcp#xrpl_pulse_recent_events"
 ```
 
-A bare endpoint in, one fragment out. And of CDP's 541 MCP rows, **534 carry
-exactly one fragment** — ours was one of the few with two. Declare the bare
-endpoint; the tool identity travels in `extensions.bazaar.info.input.toolName`,
-which is where both catalogues read it from anyway.
+A bare endpoint in, one fragment out.
+
+**Correction, 2026-11-20.** This section used to say that 534 of CDP's 541 MCP rows
+carry exactly one fragment. That figure does not reproduce, so it is replaced rather
+than left standing. Re-counted today against the same discovery endpoint: **542 rows
+— 190 with one fragment, 352 with two.** The composition matters more than the ratio:
+**279 of those 352 belong to a single host** (`tanod.dev`, last updated 4–5 November),
+so "most rows are doubled" is really "one large seller declares the fragment".
+Excluding it, 73 of 263 rows are doubled.
+
+What is stronger than any ratio is that **our own host now carries both shapes at
+once**:
+
+```
+.../mcp#get_market_stats#get_market_stats   settled 10 Nov, declared the fragment
+.../mcp#get_market_stats                    settled 17 Nov, declared the bare URL
+```
+
+Seven rows of each. The same seven tools are catalogued twice, under two identities,
+and which one you get depends on what the seller declared at settlement time. That is
+the finding; the ratio was only ever a symptom of it.
+
+Thanks to Abdellah (`github.com/holistis`) for re-counting the original figure in
+public and saying so.
+
+Declare the bare endpoint; the tool identity travels in
+`extensions.bazaar.info.input.toolName`, which is where both catalogues read it from
+anyway.
 
 ## Finding 5 — a stale row is invisible from the seller's side
 

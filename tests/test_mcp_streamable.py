@@ -285,10 +285,13 @@ def test_the_resource_url_is_the_route_not_a_url_glued_to_a_url(client):
     #     our declaration   .../mcp#get_whale_flow
     #     CDP stored        .../mcp#get_whale_flow#get_whale_flow
     #
-    # while 534 of CDP's 541 MCP rows carry exactly one fragment. The proof is a
-    # peer listed beside us: mcp.xrpl-utilities.io declares a BARE ".../mcp" and
-    # CDP stores ".../mcp#xrpl_pulse_recent_events" for it. So the bare endpoint
-    # is what we declare, and the tool identity travels in
+    # Re-counted 20.11.2026 (Abdellah, github.com/holistis, checked our published
+    # figure): 542 MCP rows, 190 with one fragment and 352 with two, 279 of the
+    # doubled ones from a single host. The shape depends on what the seller
+    # declared. The proof of the mechanism is a peer listed beside us:
+    # mcp.xrpl-utilities.io declares a BARE ".../mcp" and CDP stores
+    # ".../mcp#xrpl_pulse_recent_events" for it. So the bare endpoint is what we
+    # declare, and the tool identity travels in
     # extensions.bazaar.info.input.toolName.
     assert url.endswith("/mcp"), url
     assert "#" not in url, url
