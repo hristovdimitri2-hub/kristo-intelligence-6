@@ -5210,3 +5210,32 @@ tx `0x2541c190…6f42`, блок 58140667, status 1, 08:41:49 Europe/London, с 
 payer. 425 settlement_in_flight first; same-tx X-Payment-Proof fetch, no second
 payment.“ Тоест badge-ът е истински и е вързан за стария адрес. „Checks are not running
 yet“ — периодичните проверки още не вървят.
+
+### Подадено наново през `/list` — чака платената им проверка (20.11)
+
+Направихме точно каквото Chet поиска: същият имейл, същият маршрут, през формата
+`https://payapi.market/list`. Формата прочете нашата 402-та и показа собствения си
+ред:
+
+    https://kristo-intelligence-api.onrender.com/api/v1/verify-seller
+    HTTP 402, $0.05 USDC, payTo 0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844
+
+Тоест **цената и портфейлът се оправят сами**, щом маршрутът мине през формата —
+таблото не се редактира, защото PayAPI чете от 402-та. Отговорът на Submit:
+
+> „Submitted. Your listing stays pending and goes live once our paid check passes (we
+> pay one call, cap $0.10). … We review your listing within 24 hours. We will pay this
+> exact URL once, up to $0.10. The badge is for the JSON that comes back after pay, not
+> for the 402.“
+
+**Какво да се гледа, когато дойде имейлът:** ако кажат „live“, тогава за същия маршрут
+ще има **две** обяви — старата агентска карта (цена $0.01, стар портфейл) и новата.
+Формата предупреждава, че връща „a second listing that is the same product or a
+sub-path of one already live“, така че е възможно и отказ. И в двата случая следващият
+ход е един и същ: казваме на Chet какво е станало и искаме старата карта да се
+обнови или махне, вместо да стоят две.
+
+**Цената на canary-то не ни струва нищо:** $0.05 е под техния таван от $0.10, те
+плащат. Примерният вход, който изпратиха, беше с адрес-пълнеж; нашият маршрут връща
+валиден отчет и за адрес без активност (`ok: read != "failed"`,
+`services/seller_audit.py`), така че проверката минава и така.
