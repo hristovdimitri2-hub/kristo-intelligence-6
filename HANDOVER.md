@@ -5632,3 +5632,27 @@ provider реда); реакция в r/x402 (постът е с 0 комент�
 (`_try_consume_standard_payment`, клонът след receipt polling) — да връща 425/hold
 вместо доставка, с тест, който пинва поведението. Ако иска fail-open, остава както е и
 само документираме защо.
+
+## 89. Избран вариант 3: `settlement_pending` без receipt се държи, не се доставя (22.11.2026)
+
+Промяна в `main.py`, `_try_consume_standard_payment`, клонът след receipt polling.
+Досега при липсващ receipt след 4×2 s кодът доставяше fail-open — за всички сетълменти.
+Сега това остава само за `success: true` (фасилитаторът е потвърдил). За
+`settlement_pending` (само broadcast, без потвърждение) се връща **425 hold** с
+`settlement_pending: true` и `Retry-After: 4`, защото non-terminal означава „върни се“,
+не „доставено“.
+
+**Защо точно това:** fail-open за потвърден сетълмент е защитим — фасилитаторът е казал
+„успех“, значи парите са тръгнали. Fail-open за `settlement_pending` е различно: там
+фасилитаторът казва „не знам дали е станало“. Да доставиш тогава значи да приемеш
+непотвърдено плащане за платено. Това е и точното място, което векторът на Абдела би
+хванал.
+
+**Тест:** `tests/test_audit_fixes.py :: test_pending_settlement_with_no_receipt_is_held_not_delivered`
+— 425, `settlement_pending: true`, `Retry-After: 4`, guard събитие `c2_pending_held`,
+и НЕ `c2_receipt_status_override_delivered`. Старият тест за success fail-open
+(`test_a5_missing_receipt_polls_then_overrides_to_delivery`) остава зелен и пази
+поведението за потвърдените.
+
+**Какво не се променя:** 425 е hold, не отказ. Купувачът получава хеша и може да опита
+със същото доказателство; nonce търсенето намира сетълмента и не тегли втори път.

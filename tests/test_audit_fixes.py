@@ -386,3 +386,34 @@ def test_a5_missing_receipt_polls_then_overrides_to_delivery(client, monkeypatch
     r = client.get("/api/stats", headers={"PAYMENT-SIGNATURE": _payment_header()})
     assert r.status_code == 200
     assert "PAYMENT-RESPONSE" in r.headers
+
+
+def test_pending_settlement_with_no_receipt_is_held_not_delivered(
+        client, monkeypatch, caplog):
+    """settlement_pending + no readable receipt → 425 hold, NOT fail-open delivery.
+
+    A `settlement_pending` response is a CLAIM that the transfer was broadcast,
+    not a confirmation that it landed. Non-terminal means "come back", not
+    "delivered": holding is the spec's semantics. The `success: true` path keeps
+    the old fail-open behaviour (test_a5_missing_receipt_polls_then_overrides_to_delivery),
+    because there the facilitator DID confirm the settlement.
+    """
+    import main
+    from services import connectors
+    events = []
+    monkeypatch.setattr(main.dashboard_db, "record_guard_event",
+                        lambda kind, **kw: events.append(kind))
+    monkeypatch.setattr(main.time, "sleep", lambda s: None)
+    monkeypatch.setattr(connectors, "settle_standard_payment",
+                        lambda h, req: (TX, "settled_pending_reconcile", None))
+    _install_web3(monkeypatch, raise_missing=True)
+    with caplog.at_level("WARNING"):
+        r = client.get("/api/stats",
+                       headers={"PAYMENT-SIGNATURE": _payment_header()})
+    assert r.status_code == 425, r.status_code
+    body = r.get_json()
+    assert body["settlement_pending"] is True
+    assert body["error"] == "settlement_in_flight"
+    assert r.headers.get("Retry-After") == "4"
+    assert "c2_pending_held" in events
+    assert "c2_receipt_status_override_delivered" not in events

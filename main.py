@@ -4856,6 +4856,26 @@ def _try_consume_standard_payment(path: str, price: float, ip: str) -> bool:
             log.info("c2_receipt_status_confirmed_after_poll: tx=%s — receipt "
                      "status=1 след poll, доставя се по реда", tx_hash)
         else:
+            # `settlement_pending` is a CLAIM that the transfer was broadcast,
+            # not a confirmation that it landed. Non-terminal means "come back",
+            # not "delivered" — so a pending settlement with no readable receipt
+            # is HELD (425), not fail-open delivered. A `success: true`
+            # settlement is different: the facilitator confirms it, so the
+            # fail-open below stays for that case.
+            if settle_detail == "settled_pending_reconcile":
+                g.x402_in_flight = True
+                g.x402_in_flight_tx = tx_hash
+                g.x402_reject_reason = (
+                    f"settlement_pending: {tx_hash} was broadcast but the "
+                    f"receipt is not readable after ~8s — no new payment is "
+                    f"needed, retry with the same proof")
+                log.warning("c2_pending_held: tx=%s receipt unreadable after "
+                            "~8s poll — holding (425), not delivering", tx_hash)
+                dashboard_db.record_guard_event(
+                    "c2_pending_held", endpoint=path, tx_hash=tx_hash,
+                    detail="settlement_pending with no readable receipt after "
+                           "~8s — 425 hold, not a fail-open delivery")
+                return False
             # Fail-open за платилите: settle-ът е потвърден (PayAI), а receipt
             # не се чете като status=1 → доставяме. Отказът връща платещ
             # клиент и губи продажбата (наблюдение 10.10.2026).
