@@ -66,7 +66,7 @@ UPTIME_MEASURED_TO = "2026-10-19"
 #:
 #: The x402 protocol version lives beside it in the manifest and is a different
 #: thing; it is not this.
-SERVICE_VERSION = "6.3.0"
+SERVICE_VERSION = "6.3.1"
 
 
 def _sample_disclaimer(endpoint: str) -> str:
@@ -1865,7 +1865,7 @@ def _mcp_tools(base_url):
     return [
         _tool(
             "get_market_stats", "/api/stats",
-            "Read-only operation — no side effects, no parameters. Returns "
+            "Read-only; no parameters. Returns "
             "the live Base market snapshot: aggregated activity, daily "
             "request/sales counters, the official agent catalog, and "
             "real-time market data (CoinGecko, DEXScreener, Fear & Greed). "
@@ -1875,30 +1875,30 @@ def _mcp_tools(base_url):
         ),
         _tool(
             "get_onchain_sales", "/api/sales",
-            "Read-only operation — no side effects, no parameters. Returns "
+            "Read-only; no parameters. Returns "
             "the real on-chain payment history to this service's fee "
             "receiver on Base: total_volume_usd, total_sales, by_token, up "
             "to 100 history rows (tx hash, payer, amount, block, "
-            "timestamp), source=\"real_blockchain\", plus the wallet state "
-            "and a market snapshot. Use it when you need provable revenue "
-            "or settlement evidence; use get_market_stats for prices and "
-            "get_bot_status for integration health. ",
+            "timestamp), source=\"real_blockchain\". Authoritative for "
+            "provable revenue. wallet_address, usdc_balance and market_data "
+            "are convenience copies for one-call use; get_bot_status owns "
+            "wallet state and get_market_stats owns market data. ",
         ),
         _tool(
             "get_bot_status", "/api/bot-status",
-            "Read-only operation — no side effects, no parameters. Returns "
+            "Read-only; no parameters. Returns "
             "the service's Telegram integration status as JSON: "
             "telegram_bot_running, telegram_token_configured, "
             "last_heartbeat, uptime_started, messages_sent, active_users, "
-            "commands_processed, vip_invites_sent, plus the wallet state. "
-            "Use it to confirm this service's own monitoring is alive (and "
-            "its heartbeat recent) before trusting other outputs; use "
-            "get_market_stats for market data or get_onchain_sales for "
-            "provable revenue. ",
+            "commands_processed, vip_invites_sent, and the full wallet "
+            "state. Authoritative for wallet state, and for whether this "
+            "service's monitoring is alive: check the heartbeat before "
+            "trusting other outputs. get_onchain_sales carries a two-field "
+            "copy of the wallet, and get_market_stats owns market data. ",
         ),
         _tool(
             "get_trading_signal", "/api/v1/signal",
-            "Read-only operation — no side effects, no parameters. Returns "
+            "Read-only; no parameters. Returns "
             "this service's flagship trading-agent signals for ETH, ONDO, "
             "KAITO and DEGEN: action, confidence, price_usd and the model's "
             "reasoning. Use it when you need a directional call rather than "
@@ -1907,7 +1907,7 @@ def _mcp_tools(base_url):
         ),
         _tool(
             "get_whale_flow", "/api/v1/whaleflow",
-            "Read-only operation — no side effects, no parameters. Returns "
+            "Read-only; no parameters. Returns "
             "network-wide USDC whale flow on Base: transfers of $5M or more, "
             "refreshed every 60 seconds, with labelled counterparties. Use it "
             "to see where size is moving; use get_trading_signal for "
@@ -1915,7 +1915,7 @@ def _mcp_tools(base_url):
         ),
         _tool(
             "get_arbitrage_opportunities", "/api/arb/opportunities",
-            "Read-only operation — no side effects, no parameters. Returns "
+            "Read-only; no parameters. Returns "
             "live cross-DEX arbitrage spreads on Base, refreshed every 60 "
             "seconds. Use it for executable price gaps between venues; use "
             "get_market_stats for aggregate prices or get_trading_signal for "
