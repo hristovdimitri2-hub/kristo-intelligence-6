@@ -5876,3 +5876,30 @@ https://gist.github.com/hristovdimitri2-hub/0d2f4436cc73a14d837c39f88168a5bf —
 readme като частен gist. Пита и дали да ни кредитира като `mitaka7210` (Slack) и
 `hristovdimitri2-hub` (собственик на gist-а), или другояче. **Отговорът се пише от
 собственика.**
+
+## 96. Fixture 2 е публикувана; fixture 1 се промени след верификацията (23.11.2026)
+
+**Jamenbin (VibeMirror-coder / HumanMirror) верифицира fixture 1** на 23.11: изтегли gist-а
+през GitHub API, хешът съвпадна с обявения (`d76537a7...`), пусна го локално —
+**exit 0, седем PASS, нула грешки**. Плюс коректна забележка за обхвата: това възпроизвежда
+синтетичната таблица с решения, не живото поведение на facilitator/RPC, не on-chain
+settlement и не идемпотентността на продукционния страничен ефект; за stateful workflow
+трябва **durable operation-level idempotency key около бизнес записа, отделен от
+payment-hash guard-а**.
+
+**Проблемът, който трябва да се каже на глас:** ние обновихме gist-а на fixture 1 СЛЕД
+неговата верификация (поправките по прегледа на Абдела). Записаният от него хеш вече не
+съвпада:
+- верифициран от него (7 теста, 22 973 байта): `d76537a70102c6399deb9b8be9e8ceae3a90728e2e7d6004cef5840edc4b524e`,
+  git blob `b0a6150a63cb2aedaa6b26eda85db2cf8cfb85a0` (commit `82ee482`)
+- текущ (9 теста, 29 522 байта): `d3e0d11a6b3b912bf9db999df3600716ac9ba3ea6d16afb1a1ccfc82afde2c55`
+
+**Fixture 2 е публикувана:** https://gist.github.com/hristovdimitri2-hub/759c51a57df2a2c92deeb3b6d3689956
+(public), файл `docs/omnidome_fixture2/test_catalogue_key_and_unknown_accepts_key.py`,
+**9 теста**, минават и със собствения runner, и с pytest. SHA-256
+`d307b3e950a8199b26ec82aedea304a3b4acbad29360cac9018c5cb7f77d7f7b`, 20 784 байта.
+Покрива точно поисканите четири неща: декларирано име срещу публикуван ключ; точно-веднъж
+суфикс; отказ на непознат ключ в `accepts[0]` с посочване на мястото, вместо тихо
+анулиране; и „ред в каталог не е разписка“ (присъствие ≠ платено). Плюс измереното:
+`/validate` е HTTP-оформен и дава `returns_402: failed` еднакво за листнати и нелистнати MCP
+ресурси, тоест не е тест за MCP допустимост.
