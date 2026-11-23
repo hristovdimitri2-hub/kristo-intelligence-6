@@ -6043,10 +6043,33 @@ login github-oidc` в GitHub Actions workflow с `id-token: write` би махн
 
 Тоест Disambiguation поправката от §99 е жива и в MCP сървъра, и в регистъра.
 
-**Какво това отваря:** Glama чете от собствения си connector тест, не от регистъра,
-така че 6.3.1 тръгва и по двата пътя едновременно. Остава само да се пусне
-повторен Glama тест, за да се види дали Disambiguation 4/5 става 5/5 (TDQS 4.4 →
-4.6 при всичко друго равно).
+**Glama вече се е претествал сам, и резултатът е поучителен.** Тестът е минал
+**16:42**, оценен **16:45**, по **новите** текстове (цитира точно нашата формулировка
+„wallet and market_data copies … openly flagged with an authoritative owner“). Двата
+списъка, преди и сега:
+
+| ос | §98 (15:28) | сега (16:42) |
+|---|---|---|
+| Disambiguation | 4/5 | **5/5** |
+| Naming Consistency | 5/5 | 5/5 |
+| Tool Count | 5/5 | **4/5** |
+| Completeness | 4/5 | 4/5 |
+| **TDQS** | **A 4.4** | **A 4.4** |
+
+Точката не се загуби, а **се премести**. Поправката проработи — оценителят вече
+пише „Each tool owns a clearly distinct data domain … an agent will not misselect“.
+Но същият текст, който обяви копията на wallet/market състояние за удобство с ясен
+собственик, накара Tool Count да ги види като излишък: „three tools bundle
+convenience copies of wallet/market state, suggesting slightly tighter boundaries
+could shrink the payload footprint“. От 5/5 на 4/5 — заради нашата собствена
+честност. Общото остава 4.4.
+
+**Решението, което НЕ взехме:** да махнем `wallet_address`, `usdc_balance` и
+`market_data` от отговора на `/api/sales`. Това е единственият лост, който би върнал
+Tool Count на 5/5 → TDQS 4.6, но е и **промяна в тялото на платен ендпойнт**: купувач,
+който чете тези полета, ще ги загуби. За 0.1 от оценката на трета страна не се
+чупи платен API. Ако собственикът реши друго, промяната е в `get_onchain_sales`,
+нов `SERVICE_VERSION` и ново публикуване в регистъра.
 
 **Токенът** (`_tools/home/.config/mcp-publisher/token.json`) е валиден и сега; при
 следващо вдигане на версия пак ще иска нов device код, освен ако не минем на
