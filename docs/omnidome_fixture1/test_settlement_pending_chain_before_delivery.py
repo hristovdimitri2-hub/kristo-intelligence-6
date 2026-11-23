@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Kristo Intelligence
+#
+# This file is MIT-licensed: run it, copy it, change it, ship it. The line
+# "Production source this was extracted from (MIT)" further down is the licence
+# of the code this was extracted FROM; this block is the licence of the file
+# itself, so a stranger who runs it does not have to guess.
+
 """settlement_pending acceptance + chain-before-delivery, as a runnable test.
 
 FIXTURE 1 for OmniDome Agent Commons (issue #3, "chain-before-delivery").
@@ -41,6 +49,13 @@ WHAT IT PINS
    pending/indeterminate — never "allow".
 5. Matching is on the errorReason CODE, never on the message text; a terminal
    failure is never adopted, even when it carries a hash.
+6. The transfer is BOUND to this payment, not merely to the seller's address:
+   the transfer's sender must equal the payer that signed the proof. Without
+   that binding, an old confirmed payment of ours, to our own payTo, for at
+   least the price, is indistinguishable from this payment.
+7. Amounts are compared in ATOMIC UNITS (integers), never as floats. A float
+   comparison is exact for USDC at six decimals and silently wrong above
+   2**53, which a token with 18 decimals reaches.
 
 RUN IT
 ------
@@ -85,14 +100,38 @@ USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 #: The seller's own receiving address. Synthetic.
 PAY_TO = "0x00000000000000000000000000000000000000a1"
 
+#: The address that signed the payment. The transfer's sender must be THIS
+#: address, not merely a transfer to PAY_TO: without that binding an old
+#: confirmed payment of ours satisfies every other check. Synthetic.
+PAYER = "0x00000000000000000000000000000000000000c3"
+
+#: A second payer, for the "somebody else's payment" case. Synthetic.
+OTHER_PAYER = "0x00000000000000000000000000000000000000e5"
+
 #: A different address, for the "paid someone else" case. Synthetic.
 OTHER_PAY_TO = "0x00000000000000000000000000000000000000b2"
 
 #: A different token, for the "wrong asset" case. Synthetic.
 OTHER_TOKEN = "0x00000000000000000000000000000000000000d4"
 
-#: The price of one call, in USDC. Synthetic.
-PRICE = 0.05
+#: USDC has six decimals. Amounts are compared in atomic units - integers -
+#: never as floats. `0.1 + 0.2 != 0.3` is the small version of that; the large
+#: version is that a float loses integer precision above 2**53, which an
+#: 18-decimal token reaches at about nine tokens.
+USDC_DECIMALS = 6
+USDC_SCALE = 10 ** USDC_DECIMALS
+
+
+def to_atomic(usdc: float) -> int:
+    """A human USDC amount as exact atomic units."""
+    return int(round(usdc * USDC_SCALE))
+
+
+#: The price of one call, in atomic units (0.05 USDC). Synthetic.
+PRICE_ATOMIC = 50_000
+
+#: The same price for display and for the fixture JSON only. Never compared.
+PRICE = PRICE_ATOMIC / USDC_SCALE
 
 #: How deep a receipt must be buried. Our production default is 3 on the
 #: proof rail; the standard rail requires 1. 3 is the stricter case.
@@ -102,12 +141,20 @@ REQUIRED_CONFIRMATIONS = 3
 # ── The chain, as a plain in-memory object ────────────────────────────────
 @dataclass(frozen=True)
 class Transfer:
-    """One ERC-20 Transfer log, already decoded."""
+    """One ERC-20 Transfer log, already decoded.
+
+    `amount_atomic` is the integer the chain actually carries; `amount_usdc` is
+    derived for display only. Comparisons use the integer.
+    """
 
     token: str
     to: str
-    amount_usdc: float
-    sender: str = "0x00000000000000000000000000000000000000c3"
+    amount_atomic: int
+    sender: str = PAYER
+
+    @property
+    def amount_usdc(self) -> float:
+        return self.amount_atomic / USDC_SCALE
 
 
 @dataclass(frozen=True)
@@ -151,13 +198,29 @@ def _is_tx_hash(value: Any) -> bool:
     return True
 
 
-def _is_usdc_transfer(t: Transfer, pay_to: str, price: float) -> bool:
-    """The one rule for "this transfer is the payment": token, payTo, amount."""
-    return (
-        t.token.lower() == USDC.lower()
-        and t.to.lower() == pay_to.lower()
-        and t.amount_usdc + 1e-9 >= price
-    )
+def _is_usdc_transfer(
+    t: Transfer,
+    pay_to: str,
+    price_atomic: int,
+    payer: Optional[str] = None,
+) -> bool:
+    """The one rule for "this transfer is THIS payment".
+
+    Four things, not three: the token, the recipient, the amount in atomic
+    units, and - when a payer is known - the sender. The sender is the binding
+    that makes it *this* payment rather than any payment this seller ever
+    received: a transfer to our own payTo, for at least the price, is otherwise
+    satisfied by an old confirmed payment of ours.
+    """
+    if t.token.lower() != USDC.lower():
+        return False
+    if t.to.lower() != pay_to.lower():
+        return False
+    if not isinstance(t.amount_atomic, int) or t.amount_atomic < price_atomic:
+        return False
+    if payer is not None and t.sender.lower() != payer.lower():
+        return False
+    return True
 
 
 # ── Rule 1: adopt a settlement_pending hash, never a terminal one ─────────
@@ -192,7 +255,7 @@ class ChainCheck:
     found: bool
     status: Optional[int]
     confirmations: int
-    matching_amount: Optional[float]
+    matching_amount: Optional[int]
     reasons: List[str]
 
 
@@ -200,14 +263,16 @@ def check_chain(
     chain: SyntheticChain,
     tx: str,
     pay_to: str = PAY_TO,
-    price: float = PRICE,
+    price_atomic: int = PRICE_ATOMIC,
     required: int = REQUIRED_CONFIRMATIONS,
+    payer: Optional[str] = PAYER,
 ) -> ChainCheck:
-    """Verify the transfer itself: USDC, payTo, amount, depth, status.
+    """Verify the transfer itself: USDC, payTo, amount, sender, depth, status.
 
-    Fail-closed throughout: an unknown transaction, a reverted one, a
-    shallow one, or one that moved the wrong asset to the wrong address is
-    never "verified".
+    Fail-closed throughout: an unknown transaction, a reverted one, a shallow
+    one, one that moved the wrong asset to the wrong address, one that is short
+    by a single atomic unit, or one sent by somebody other than the payer the
+    proof named is never "verified".
     """
     r = chain.receipt(tx)
     if r is None:
@@ -222,12 +287,22 @@ def check_chain(
         reasons.append("confirmations_%d_lt_%d" % (conf, required))
 
     matching = None
+    right_shape_wrong_sender = False
     for t in r.transfers:
-        if _is_usdc_transfer(t, pay_to, price):
-            matching = t.amount_usdc
+        if _is_usdc_transfer(t, pay_to, price_atomic, payer):
+            matching = t.amount_atomic
             break
+        if (payer is not None
+                and t.token.lower() == USDC.lower()
+                and t.to.lower() == pay_to.lower()
+                and isinstance(t.amount_atomic, int)
+                and t.amount_atomic >= price_atomic
+                and t.sender.lower() != payer.lower()):
+            right_shape_wrong_sender = True
     if matching is None:
-        reasons.append("no_matching_usdc_transfer")
+        reasons.append(
+            "payer_mismatch" if right_shape_wrong_sender
+            else "no_matching_usdc_transfer")
 
     return ChainCheck(True, r.status, conf, matching, reasons)
 
@@ -249,11 +324,12 @@ def _decide_on_chain(
     chain: SyntheticChain,
     tx: str,
     pay_to: str,
-    price: float,
+    price_atomic: int,
     required: int,
     adopted: bool,
+    payer: Optional[str] = None,
 ) -> Decision:
-    check = check_chain(chain, tx, pay_to, price, required)
+    check = check_chain(chain, tx, pay_to, price_atomic, required, payer)
 
     # Not mined yet: hold. The transaction may still land.
     if not check.found:
@@ -284,8 +360,9 @@ def decide(
     resp: Any,
     chain: SyntheticChain,
     pay_to: str = PAY_TO,
-    price: float = PRICE,
+    price_atomic: int = PRICE_ATOMIC,
     required: int = REQUIRED_CONFIRMATIONS,
+    payer: Optional[str] = PAYER,
 ) -> Decision:
     """Map one settle response to one verdict.
 
@@ -293,6 +370,11 @@ def decide(
     `settlement_pending` -> adopt the hash, verify the chain, then allow/hold.
     terminal code    -> deny. Never adopted, even with a hash.
     anything else    -> deny. An unknown code is not a payment.
+
+    `payer` is the address that signed the payment. It is passed into the chain
+    check so the transfer is bound to THIS payment. Pass `payer=None` only when
+    no payer is known - which is exactly when the proof rail has nothing to
+    bind to, and the durable one-hash-one-delivery claim is doing the work.
     """
     if not isinstance(resp, dict):
         return Decision(DENY, None, False, ["not_a_dict"])
@@ -303,12 +385,14 @@ def decide(
     if resp.get("success") is True:
         if not _is_tx_hash(tx):
             return Decision(DENY, None, False, ["success_without_transaction"])
-        return _decide_on_chain(chain, tx, pay_to, price, required, adopted=False)
+        return _decide_on_chain(chain, tx, pay_to, price_atomic, required,
+                               adopted=False, payer=payer)
 
     if code == SETTLEMENT_PENDING_CODE:
         if not _is_tx_hash(tx):
             return Decision(DENY, None, False, ["settlement_pending_without_transaction"])
-        return _decide_on_chain(chain, tx, pay_to, price, required, adopted=True)
+        return _decide_on_chain(chain, tx, pay_to, price_atomic, required,
+                               adopted=True, payer=payer)
 
     if code in TERMINAL_CODES:
         return Decision(DENY, tx if _is_tx_hash(tx) else None, False, ["terminal:" + code])
@@ -417,7 +501,8 @@ def chain_with(
     head: int = 997,
     to: str = PAY_TO,
     token: str = USDC,
-    amount: float = PRICE,
+    amount_atomic: int = PRICE_ATOMIC,
+    sender: str = PAYER,
 ) -> SyntheticChain:
     return SyntheticChain(
         head=head,
@@ -426,7 +511,9 @@ def chain_with(
                 tx_hash=tx,
                 status=status,
                 block_number=block,
-                transfers=(Transfer(token=token, to=to, amount_usdc=amount),),
+                transfers=(Transfer(token=token, to=to,
+                                    amount_atomic=amount_atomic,
+                                    sender=sender),),
             )
         },
     )
@@ -467,12 +554,64 @@ def test_retry_verifies_the_chain_not_just_the_hash():
     assert d.verdict == INDETERMINATE, d.verdict
 
     # 6. Mined, deep, but underpaid -> indeterminate.
-    d = decide(pending_resp(), chain_with(amount=0.01))
+    d = decide(pending_resp(), chain_with(amount_atomic=10_000))
     assert d.verdict == INDETERMINATE, d.verdict
 
     # 7. Every check passes -> allow.
     d = decide(pending_resp(), chain_with())
     assert d.verdict == ALLOW, d.verdict
+
+
+def test_an_old_payment_from_another_payer_is_not_this_payment():
+    """Assertion 6: payTo + amount is not enough; the sender must be the payer.
+
+    This is the case a reader cannot see without the binding. A confirmed
+    transfer to the seller's own payTo, for at least the price, sent by
+    somebody else - an old payment of ours, or a payment for a different order
+    - passes every check in assertions 2 and 4 and would be delivered.
+    """
+    # Same payTo, same token, same amount, status 1, deep. Different sender.
+    d = decide(pending_resp(), chain_with(sender=OTHER_PAYER))
+    assert d.verdict == INDETERMINATE, d.verdict
+    assert "payer_mismatch" in d.reasons, d.reasons
+    assert d.verdict != ALLOW, "a payment from another payer was delivered"
+
+    # The same chain, sent by the payer the proof named -> allow.
+    d = decide(pending_resp(), chain_with(sender=PAYER))
+    assert d.verdict == ALLOW, d.verdict
+
+    # With no payer known the binding cannot be checked, so it is not applied.
+    d = decide(pending_resp(), chain_with(sender=OTHER_PAYER), payer=None)
+    assert d.verdict == ALLOW, d.verdict
+
+
+def test_amounts_are_compared_in_atomic_units_not_floats():
+    """Assertion 7: the comparison is integer, so precision cannot drift.
+
+    One atomic unit short is underpaid - a float comparison with an epsilon
+    calls it paid. And because the amount is an int, a token with 18 decimals
+    cannot silently lose precision above 2**53.
+    """
+    # Exactly the price -> paid.
+    d = decide(pending_resp(), chain_with(amount_atomic=PRICE_ATOMIC))
+    assert d.verdict == ALLOW, d.verdict
+
+    # One atomic unit short -> not paid. No epsilon tolerance.
+    d = decide(pending_resp(), chain_with(amount_atomic=PRICE_ATOMIC - 1))
+    assert d.verdict == INDETERMINATE, d.verdict
+
+    # One atomic unit over -> paid.
+    d = decide(pending_resp(), chain_with(amount_atomic=PRICE_ATOMIC + 1))
+    assert d.verdict == ALLOW, d.verdict
+
+    # An integer above 2**53 is compared exactly, because it is an int.
+    big = 2 ** 53 + 3
+    t = Transfer(token=USDC, to=PAY_TO, amount_atomic=big, sender=PAYER)
+    assert isinstance(t.amount_atomic, int) and t.amount_atomic == big
+    assert _is_usdc_transfer(t, PAY_TO, big, PAYER) is True
+    assert _is_usdc_transfer(t, PAY_TO, big + 1, PAYER) is False
+    # The float view of the same integer is where precision used to be lost.
+    assert to_atomic(PRICE) == PRICE_ATOMIC
 
 
 def test_confirmed_settles_exactly_one_effect_and_recovers_a_lost_response():
@@ -518,7 +657,7 @@ def test_unconfirmed_or_mismatched_is_held_never_allow():
         (chain_with(status=1, block=997, head=998), PENDING),
         (chain_with(to=OTHER_PAY_TO), INDETERMINATE),
         (chain_with(token=OTHER_TOKEN), INDETERMINATE),
-        (chain_with(amount=0.001), INDETERMINATE),
+        (chain_with(amount_atomic=1_000), INDETERMINATE),
     ]
     for chain, expected in cases:
         d = decide(pending_resp(), chain)
@@ -585,12 +724,16 @@ def fixture() -> Dict[str, Any]:
                     "status": 1,
                     "block_number": 995,
                     "transfers": [
-                        {"token": USDC, "to": PAY_TO, "amount_usdc": PRICE}
+                        {"token": USDC, "to": PAY_TO, "sender": PAYER,
+                         "amount_atomic": PRICE_ATOMIC,
+                         "amount_usdc": PRICE}
                     ],
                 },
             },
-            "price": PRICE,
+            "price_atomic": PRICE_ATOMIC,
+            "price_usdc": PRICE,
             "pay_to": PAY_TO,
+            "payer": PAYER,
             "required_confirmations": REQUIRED_CONFIRMATIONS,
         },
         "expected_output": {
