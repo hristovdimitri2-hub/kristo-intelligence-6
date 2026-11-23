@@ -5966,3 +5966,52 @@ Glama ни държи като **connector** (remote-only, без пакет): �
 `server.json`; версиите в официалния регистър са неизменяеми, значи трябва **нова версия**
 (6.3.1) и `mcp-publisher login github` + `publish`. Живият MCP се обновява с деплоя и Glama
 го хваща оттам; регистърът остава стар без нов publish.
+
+## 99. Glama Disambiguation: поправено, живо, и чака само публикуване (23.11.2026)
+
+**Направеното.** Описанията на `get_onchain_sales` и `get_bot_status` вече казват кой
+инструмент притежава кои данни:
+
+- `get_onchain_sales` — „Authoritative for provable revenue. wallet_address, usdc_balance
+  and market_data are convenience copies for one-call use; get_bot_status owns wallet state
+  and get_market_stats owns market data."
+- `get_bot_status` — „and the full wallet state. Authoritative for wallet state, and for
+  whether this service's monitoring is alive: check the heartbeat before trusting other
+  outputs. get_onchain_sales carries a two-field copy of the wallet, and get_market_stats
+  owns market data."
+
+**Ограничението, което почти спря промяната.** `server.json` се генерира от тия описания
+(`scripts/build_registry_server_json.py` чете `_mcp_tools`), а регистърът има твърд лимит
+**4096 байта** с тест, който иска **≥200 байта резерв**. Първият опит даде 3942 байта →
+резерв **154** → щеше да счупи публикуването. Решението дойде от самото съобщение на
+теста: „Trim repetition, not facts." Отварящото изречение
+„Read-only operation — no side effects, no parameters." се повтаряше **шест пъти**, а
+`readOnlyHint`/`idempotentHint` вече пътуват в annotations на инструментите — тоест
+прозата повтаряше машиночетим факт. Съкратено на „Read-only; no parameters.":
+
+| | преди | сега |
+|---|---|---|
+| publisher-provided | 3889 байта | **3762 байта** |
+| резерв под лимита | 207 | **334** |
+
+**Версия 6.3.0 → 6.3.1** (`discovery.py:SERVICE_VERSION`,
+`build_registry_server_json.py:VERSION`, `tests/test_price_sweep.py:547`, `server.json`).
+Версиите в регистъра са неизменяеми, а записът 6.3.0 носи старите описания.
+
+**Проверено:** `build_registry_server_json.py --check` → exit 0; **1440 passed, 1 skipped**
+(1441 събрани = `SUITE_TESTS_PASSED`); живият MCP сервира новите текстове — проверено с
+истинско `initialize` + `tools/list` по JSON-RPC, не по предположение.
+
+**Публикувано:** `c29e5a4`, Render deploy `dep-dc2679jm8hqs738gtmr0` = `live`.
+
+**Остава: публикуването в регистъра.** Два блокера, и двата външни:
+1. Записаният токен е изтекъл — `publish` връща `401 Invalid or expired Registry JWT
+   token`. `validate` минава, значи файлът е наред; само auth-ът липсва.
+2. Интерактивният `mcp-publisher login github` (device flow) изтече **два пъти**
+   (18:04→18:19 и 18:15→18:30), защото собственикът не беше на клавиатурата. Изгорени
+   два кода. **Трети се пуска само когато той каже, че е готов** — кодът важи 15 минути.
+
+**Дълготрайна алтернатива, записана като опция, не като направено:** `mcp-publisher
+login github-oidc` в GitHub Actions workflow с `id-token: write` би махнал интерактивната
+стъпка завинаги — публикуването става от CI, вързано за репото. Иска нов workflow и
+внимание да не публикува при всеки push (версията се вдига нарочно).
