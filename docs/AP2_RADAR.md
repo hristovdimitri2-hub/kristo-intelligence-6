@@ -1,6 +1,6 @@
 # AP2 RADAR — какво се промени от миналия път
 
-Проверено: 2026-11-20 18:00 UTC · read-only, публични артефакти, без идентичности.
+Проверено: 2026-11-22 18:00 UTC · read-only, публични артефакти, без идентичности.
 
 ## Промени по мониторирани repos
 
@@ -133,10 +133,25 @@
 ### alchemyplatform/alchemy-x402
 
 - `1cf2ff51ae` 2026-03-10 — Merge branch 'main' into chris/architecture-required
+  - файл: .changeset/config.json
+  - файл: .changeset/switch-changelog-github.md
+  - файл: .github/workflows/publish.yml
+  - файл: CHANGELOG.md
+  - файл: MAINTAINERS.md
+  - файл: package.json
 - `99aa16e2b4` 2026-03-10 — Merge pull request #24 from alchemyplatform/chris/architecture-required
+  - файл: README.md
 - `fdd3b3934d` 2026-03-11 — gp/revert changes - i give up for now (#36)
+  - файл: .github/workflows/publish.yml
+  - файл: package.json
 - `2960f9edef` 2026-03-11 — chore: add changeset for v0.6.3 (#37)
+  - файл: .changeset/update-readme-solana-support.md
+  - файл: .claude/skills/changeset/SKILL.md
+  - файл: MAINTAINERS.md
 - `a6337cf358` 2026-03-11 — chore: release v0.6.3
+  - файл: .changeset/update-readme-solana-support.md
+  - файл: CHANGELOG.md
+  - файл: package.json
 - `a4b4575e38` 2026-03-11 — chore: add husky pre-commit hook with lint-staged (#38)
   - файл: .husky/pre-commit
   - файл: package.json
@@ -174,12 +189,47 @@
 
 ### tanaka-77/mart402-agent-kit
 
-- (API грешка: HTTP 403)
+- `d8884449d5` 2026-07-22 — Initial commit
+  - файл: LICENSE
+  - файл: README.md
+- `d58c305a44` 2026-07-22 — Create pay_and_parse.py
+  - файл: examples/python/pay_and_parse.py
+- `eaa122b2e8` 2026-07-22 — Create extract.ts
+  - файл: examples/typescript/extract.ts
+- `4809a6f695` 2026-07-22 — Create config.json
+  - файл: examples/mcp/config.json
+- `bf9ea7c93d` 2026-07-22 — Create selftest.yml
+  - файл: .github/workflows/selftest.yml
+- `d5800b9f65` 2026-07-22 — Update README.md
+  - файл: README.md
 
 
 ### node4dev/x402-agent-toolkit
 
-- (API грешка: HTTP 403)
+- `26ff86cf8d` 2026-04-19 — Initial commit
+- `753973ea1d` 2026-04-22 — feat: full rewrite for x402 v2 (v0.1.1)
+  - файл: README.md
+  - файл: package-lock.json
+  - файл: package.json
+  - файл: src/config.ts
+  - файл: src/index.ts
+  - файл: src/tools/sendToken.ts
+- `e5a1d938d3` 2026-04-22 — docs: trim README for public repo
+  - файл: README.md
+- `5403073e76` 2026-04-22 — feat: accept PRIVATE_KEY with or without 0x prefix
+  - файл: src/wallet.ts
+- `31ce483671` 2026-04-25 — updated with additional tool
+  - файл: README.md
+  - файл: package.json
+  - файл: src/index.ts
+  - файл: src/tools/x402Quote.ts
+  - файл: src/tools/x402Request.ts
+- `a15366a2bb` 2026-04-25 — Merge pull request #1 from node4dev/feat/x402-quote-tool
+  - файл: README.md
+  - файл: package.json
+  - файл: src/index.ts
+  - файл: src/tools/x402Quote.ts
+  - файл: src/tools/x402Request.ts
 
 
 ### haoruilee/awesome-agent-native-services
