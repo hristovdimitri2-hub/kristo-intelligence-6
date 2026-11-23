@@ -5675,3 +5675,43 @@ provider реда); реакция в r/x402 (постът е с 0 комент�
 
 **Едно ограничение на проверката:** `/api/dashboard/data` с operator изглед дава хеша в
 `sections.onchain.history`, но не и `delivered_at`; за него трябва `payment_guards`.
+
+## 90. Махнахме `requirements.lock` — пазачът беше прав, локът беше грешката (23.11.2026)
+
+GitLab pipeline-ът на клона на dependabot падна. Диагнозата: dependabot вдигна
+`psycopg[binary]` от `3.3.8` на `3.3.9` в `requirements.txt`, но **не пипна
+`requirements.lock`**, и пазачът
+`tests/test_requirements_lock.py::test_every_exact_pin_agrees_between_the_two_files`
+падна с „psycopg: requirements.txt says ==3.3.9, requirements.lock says ==3.3.8“.
+Възпроизведено локално на клона: 1 failed, 10 passed. `psycopg 3.3.9` съществува в
+PyPI (12.11.2026), така че инсталацията минава — проблемът беше само разминаването.
+
+**Решението: локът се маха, не се поправя.** Той не се инсталира никъде (Dockerfile,
+DEPLOYMENT.md и DEPLOYMENT_CHECKLIST.md инсталират `requirements.txt`), няма нито един
+`--hash` ред, значи не проверява нищо, и се поддържа на ръка — тоест всеки ъпдейт на
+зависимост го чупи, докато някой не го пипне. Това е точно дрейфът, който локът уж
+предотвратява. Собственият му docstring го признаваше: „not a hash-pinned reproducible
+build“ и „the deploy does NOT install it“.
+
+**Какво се промени:**
+- `requirements.lock` — изтрит.
+- `psycopg[binary]` в `requirements.txt` — вдигнат на `3.3.9` (това, което dependabot
+  искаше; PR #10 е затворен като погълнат).
+- `tests/test_requirements_lock.py` → `tests/test_dependency_hygiene.py`; петте теста за
+  лока са махнати, останалите шест (Dockerfile, pytest като dev, `cryptography` като
+  runtime, CI инсталира dev файла, gitleaks обхват, pinned runner) са запазени.
+- Броячът: 1446 → **1441** (`app/blueprints/discovery.py` + README).
+- Коментарите в `requirements.txt` и `requirements-dev.txt` вече казват защо лок няма.
+
+**Защо не другите два варианта.** Преименуването на `requirements-lock.txt`, за да го
+чете dependabot, е опасно: dependabot би третирал ~80-те транзитивни пина като преки
+зависимости и би ги вдигал до последна версия, без да знае ограниченията, които
+`requirements.txt` налага върху тях — тоест локът може да стане вътрешно
+несъвместим, а пазачът няма да го хване, защото проверява само преките пинове.
+`pip-compile` + CI проверка за свежест е правилният тежък вариант: иска `pip-tools`,
+мрежова резолюция и в двата pipeline-а и преминаване на деплоя към истински
+hash-pinned лок. За файл, който никой не инсталира, това е повече машина, отколкото
+проектът има нужда.
+
+**F-35 остава** в `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` като запис защо този файл
+съществуваше — `cryptography` липсваше в лока. Локът е премахнат, находката не се трие.

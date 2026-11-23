@@ -4,14 +4,16 @@
 # DEPLOYMENT_CHECKLIST.md all run `pip install -r requirements.txt`, and
 # pyproject.toml calls this the single source of truth.
 #
-# requirements.lock is a point-in-time snapshot of the transitive closure, for a
-# hermetic or audited install by hand. It is NOT a hash-pinned reproducible build
-# (no --hash lines) and the deploy does not use it. It used to say "for full
-# reproducible builds, install from requirements.lock instead", which was wrong on
-# both counts - see F-35.
+# There is no requirements.lock any more. It existed as a hand-maintained
+# snapshot of the transitive closure, but the deploy never installed it
+# (Dockerfile:25, DEPLOYMENT.md and DEPLOYMENT_CHECKLIST.md all install THIS
+# file), it carried no --hash lines so it verified nothing, and every
+# dependency bump left it disagreeing with this file until somebody updated it
+# by hand. That is the drift a lock file exists to prevent, and on 23.11.2026 a
+# Dependabot bump of psycopg broke the pipeline on exactly that disagreement.
+# Removed rather than kept half-true. See HANDOVER 90.
 #
-# This file lists only direct dependencies with pinned minor versions.
-# Transitive dependencies are resolved by pip and pinned in requirements.lock.
+# This file lists only direct dependencies, each pinned exactly.
 
 # ── Web framework ──────────────────────────────────────────────────────────
 Flask==3.1.3
@@ -31,7 +33,7 @@ stripe==15.6.2
 python-telegram-bot==22.8
 
 # ── Database ───────────────────────────────────────────────────────────────
-psycopg[binary]==3.3.8
+psycopg[binary]==3.3.9
 
 # ── Configuration ──────────────────────────────────────────────────────────
 python-dotenv==1.2.4
