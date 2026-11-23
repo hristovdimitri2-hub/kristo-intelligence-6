@@ -57,6 +57,30 @@ WHAT IT PINS
    comparison is exact for USDC at six decimals and silently wrong above
    2**53, which a token with 18 decimals reaches.
 
+REVISIONS
+---------
+This file is a verification artifact, so its own history is part of what it has
+to declare. Superseded revisions, and why each was superseded:
+
+    v1  SHA-256 d76537a70102c6399deb9b8be9e8ceae3a90728e2e7d6004cef5840edc4b524e
+        7 tests, 22 973 bytes. Verified independently on 23.11.2026 (fetched
+        through the GitHub API, hash matched the declared one, exit 0). Two
+        defects were found in it by a later external review: the decision
+        function checked token, payTo and amount but never the SENDER, so run as
+        written it delivered on an old confirmed payment; and it compared
+        amounts as floats, which is exact for USDC at six decimals and wrong
+        above 2**53 for a token with 18 decimals. Frozen in git as blob
+        b0a6150a63cb2aedaa6b26eda85db2cf8cfb85a0 at commit 82ee482.
+
+    v2  SHA-256 d3e0d11a6b3b912bf9db999df3600716ac9ba3ea6d16afb1a1ccfc82afde2c55
+        9 tests, 29 522 bytes. Adds the payer binding (PAYER, the sender check,
+        the payer_mismatch reason) and atomic-unit comparison.
+
+    this revision adds this REVISIONS block and nothing else of substance, so
+    its hash is the one a verifier computes from the bytes in front of them.
+    Run it, hash it, and if the hash is not the one the thread names, say so -
+    that is the whole point of shipping the bytes rather than the claim.
+
 RUN IT
 ------
     python3 test_settlement_pending_chain_before_delivery.py
