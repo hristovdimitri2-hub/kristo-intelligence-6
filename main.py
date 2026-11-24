@@ -5456,16 +5456,31 @@ def _x402_unready_payload(endpoint: str):
     producer, error = spec
     if canonical == "/api/v1/signal":
         with _lock:
-            produced = _latest_signals.get("generated_at") is not None
+            generated_at = _latest_signals.get("generated_at")
+        produced = generated_at is not None
+        evidence = {"signal_generated_at": generated_at}
     else:  # /api/arb/opportunities
         from services.arb_radar import get_scan_info
         try:
-            produced = bool((get_scan_info() or {}).get("last_scan"))
-        except Exception:
+            info = get_scan_info() or {}
+        except Exception as exc:                               # noqa: BLE001
             # An unreadable clock is not evidence that a run happened.
-            produced = False
+            info = {}
+            evidence = {"arb_scan_info_error": repr(exc)}
+        else:
+            evidence = {"arb_last_scan": info.get("last_scan"),
+                        "arb_scan_count": info.get("scan_count"),
+                        "arb_opportunity_count": info.get("opportunity_count")}
+        produced = bool(info.get("last_scan"))
     if produced:
         return None
+    # A refusal that says only "nothing to deliver" cannot be told apart from a
+    # producer that never started, a producer whose state lives in another
+    # module object, or a guard reading the wrong snapshot. The evidence is
+    # logged with the refusal so the next occurrence is diagnosable from the
+    # logs instead of from a reproduction.
+    log.info("x402 unready: endpoint=%s producer=%s pid=%s %s",
+             endpoint, producer, os.getpid(), evidence)
     return {
         "ok": False,
         "error": error,
