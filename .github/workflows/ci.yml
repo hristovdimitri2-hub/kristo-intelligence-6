@@ -122,7 +122,9 @@ jobs:
           python3 scripts/doc_language_audit.py 2>&1 | tee lang-output.log
 
       # Same reasoning as the suite job: the log needs admin rights, so the
-      # failure itself has to carry the file names.
+      # failure itself has to carry the file names. It reads the `not-English:`
+      # marker and NOT the per-file table, because that table also lists the
+      # generated files the rule exempts on purpose.
       - name: Annotate the documents that are not English
         if: failure()
         run: |
@@ -130,7 +132,7 @@ jobs:
           while IFS= read -r line; do
             echo "::error::not English: ${line}"
             found=1
-          done < <(grep -E '^ *[0-9]+ +.*\.md$' lang-output.log || true)
+          done < <(sed -n 's/^not-English: //p' lang-output.log)
           if [ "$found" -eq 0 ]; then
             echo "::error::the language audit failed without naming a file — read the job log"
             tail -n 40 lang-output.log

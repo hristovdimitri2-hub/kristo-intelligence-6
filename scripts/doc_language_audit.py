@@ -115,6 +115,11 @@ def language_audit():
         for p in not_utf8:
             print("  " + p)
     print("\nmarkdown files with Cyrillic: %d" % len(md_bad))
+    # One machine-readable line per real offender. The per-file table above also
+    # lists exempt files, so CI must not scrape that table — it would annotate a
+    # file the rule deliberately allows.
+    for p in sorted(md_bad):
+        print("not-English: %s" % p)
     exempt = sorted(p for rows in by_ext.values() for _, p in rows
                     if p in OWNER_FACING_GENERATED)
     if exempt:
