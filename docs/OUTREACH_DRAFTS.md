@@ -237,3 +237,32 @@ The rest of the digest is either a documentation refresh
 (`api-evangelist/ibanforge#2`), a vendor pitch by the same author
 (`oneshot-agent/sdk#10`), or a listing submission. A comment there would be
 noise.
+
+---
+
+## I. Exact destinations — verified 24.11.2026
+
+Every link below was opened or resolved through the GitHub API on 24.11.2026.
+Where a repo name was wrong in an earlier draft, the correction is noted.
+
+| # | Destination | Exact link | State |
+|---|---|---|---|
+| 1 | Ernest | `ernest@nolimbsfighting.com` | warm thread, reply to his message |
+| 2 | r/x402 | https://www.reddit.com/r/x402/ | thread about the fourfold increase, posted 23.11 |
+| 3 | Virtuals ACP | https://github.com/Virtual-Protocol/acp-cli/issues/new | **note the hyphen**: `Virtual-Protocol`, not `Virtuals-Protocol` |
+| 4 | Olas | https://t.me/olaschat | Telegram; also https://olas.network/mech-marketplace |
+| 5 | x402scan | https://github.com/Merit-Systems/x402scan/issues/1270 | **our listing request already exists** |
+| 5b | x402scan | https://github.com/Merit-Systems/x402scan/issues/1340 | dead-host cleanup, already open |
+
+**Two corrections to the earlier drafts.**
+
+`Virtual-Protocol/acp-cli` — the org is `Virtual-Protocol` with a hyphen. The
+`Virtuals-Protocol` spelling resolves to nothing. The repo has 45 stars, 37 open
+issues and issues enabled.
+
+**x402scan already has our listing request.** Issue #1270 is open and titled
+`[Listing Request] Kristo Intelligence — live DeFi signals & whale-flow API (x402
+v2, Base)`. Do not open a second one — comment on #1270 with the current host and
+the seven routes. Issue #1340, `Remove dead listings: 16 resources on a 404 host
+(kristo-intelligence.vercel.app)`, is also open and is about the host we left; a
+short comment there confirming the migration closes it honestly.
