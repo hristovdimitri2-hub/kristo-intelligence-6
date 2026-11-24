@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kristo-x402-client"
+version = "1.1.2"
+description = "Zero-dependency x402 payment client for the Kristo Intelligence API — speaks the standard PAYMENT-SIGNATURE rail (EIP-3009, settles in ~2s) and falls back to the smart-wallet rail (X-Payment-Proof) for wallets that cannot sign a typed authorization. Signs at most once per request. Includes a LangChain tool factory."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = [
+    "x402",
+    "base",
+    "usdc",
+    "ai-agents",
+    "langchain",
+    "defi",
+    "payments",
+    "http-402",
+    "kristo",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://kristo-intelligence-api.onrender.com"
+Repository = "https://github.com/hristovdimitri2-hub/kristo-intelligence-6"
+
+[tool.setuptools]
+packages = ["kristo_x402_client"]
+
+[tool.setuptools.package-data]
+kristo_x402_client = ["py.typed"]

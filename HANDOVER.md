@@ -6973,4 +6973,62 @@ passed. Nothing else to do.
 The two failures are both fixed and both have a named cause — neither is "flaky,
 retry until green", which is how a real defect gets buried.
 
+## 112. A Python client, so integration costs three lines (24.11.2026)
+
+**The diagnosis this answers.** The measured market (§108) has two models that
+work: high-value integration, and cheap volume woven into somebody's pipeline.
+Both require a developer to integrate, and integration cost is the barrier. The
+JavaScript client (`kristo-x402-client` on npm, v1.1.2) already existed; the
+Python equivalent did not, and most agent developers write Python. So the
+cheapest real lever was to remove the handshake from the developer's problem.
+
+**What was built:** `packages/x402-client-python/`, a zero-dependency Python
+package that mirrors the JavaScript client's behaviour exactly.
+
+```python
+from kristo_x402_client import KristoX402Client
+client = KristoX402Client(pay=my_signer)
+result = client.get("/api/sales")          # 200, delivered JSON
+```
+
+Three lines, and the developer supplies one callback that signs. Everything else
+— the 402, the two rails, the retry when a settlement is still confirming, the
+at-most-once signing rule — is handled.
+
+**The guarantees are the same as the JavaScript client, because the defects are
+the same:**
+
+- **Signs at most once per request.** A second 402 for terms already signed
+  returns `payment_outcome_unknown` rather than signing a second payment. A
+  second signature is a second charge.
+- **A 425 is retried with the same credential**, never a fresh one.
+- **Decimal-versus-atomic amounts are read the way the server means them**, and
+  where the two readings could disagree the smaller is chosen — an understated
+  amount costs a rejected request; an overstated one costs the buyer's balance.
+- **Both rails are supported**: `PAYMENT-SIGNATURE` (EIP-3009, v2) and
+  `X-Payment-Proof` (smart-wallet fallback).
+
+**Verified two ways, not one:**
+
+1. **14 unit tests** over the parsing, the header construction, the at-most-once
+   rule, the 425 retry and the legacy rail — all pass, no network.
+2. **One real paid call** against the live service: `/api/sales` answered 200 and
+   delivered its JSON. Cost $0.005. A client that parses but cannot pay is not a
+   client, so this was measured rather than assumed.
+
+**Deliberately not published to PyPI yet.** The package installs from the
+repository in one command, which is enough for a pilot. Publishing needs an
+account decision the owner has not made, and a package that is installable but
+unpublished is honest about being new.
+
+**Optional extras, both lazy imports so the core stays dependency-free:**
+`kristo_x402_client.langchain` exposes the seven routes as LangChain tools, and
+`make_openai_tool` returns an OpenAI-style function schema. A developer who
+already has an agent framework can wire the API in without writing HTTP code.
+
+**Tests live in the package, not in `tests/`.** They are run explicitly
+(`pytest packages/x402-client-python/tests`), so the main suite's count and the
+1444 figure in the README are unaffected.
+
+
 
