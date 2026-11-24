@@ -93,6 +93,7 @@ the sale — which argues for a higher price per job or a subscription.
 | 3 | x402-list | Manual review; the FORTE tier cannot be bought yet (§101). |
 | 4 | Olas | The one message not sent. |
 | 5 | Glama | Tool Count 4/5 — decision taken: do not chase it. Removing response fields to buy 0.1 of a third-party score is not worth changing a paid endpoint. |
+| 6 | Glama, the `/mcp/servers/` record | The connector is listed and rated A; the `/mcp/servers/` record does not exist and cannot be created from our side (both Add Server paths reject "already listed as a hosted connector"). `quality` is computed only for `/mcp/servers/`, so `awesome-mcp-servers` PR #13219 cannot merge. Discord message drafted in `OUTREACH_DRAFTS.md` §K; ticket #135407945 open since September. |
 
 ---
 

@@ -315,3 +315,54 @@ If you integrated against the first revision, nothing breaks: the signature is b
 
 Dimitri
 ```
+
+---
+
+## K. Glama Discord — the `/mcp/servers/` record that cannot be created
+
+**Where:** the Glama Discord (`https://glama.ai/discord`), in the channel where the
+team handles listing and duplicate requests. Verified 24.11.2026 that the team
+answers there — the channel shows concrete fixes being done for Clifty
+(`io.justroadmap/just-roadmap` vs `io.justroadmap/justroadmap`) and CodersTalk
+(`com.keepplain` listed twice), both by naming the duplicate and saying what to keep.
+
+**Why it is the only remaining path.** The connector is listed, healthy and rated A,
+but `awesome-mcp-servers` PR #13219 needs the `quality` field, and Glama computes
+`quality` only for `/mcp/servers/` entries. That record does not exist and we cannot
+create it: both Add Server paths reject the endpoint because it is already a connector.
+
+**Verified 24.11.2026, so the message carries facts and not claims:**
+
+| URL | Result |
+|---|---|
+| `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` | 200 — ownership verified, tool definitions rated A, 7 tools |
+| `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` | 200, but renders the registry index (127 068 servers, zero "kristo") |
+| `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg` | 200, renders "This MCP server is not listed on Glama" |
+| `/mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence` | 404 |
+
+**Message to post:**
+
+```
+Kristo Intelligence — the /mcp/servers/ record for a hosted endpoint does not exist, and we cannot create it
+
+Our server is a hosted x402 endpoint: https://kristo-intelligence-api.onrender.com/mcp — 7 tools, streamable HTTP, Base mainnet.
+
+It is listed and healthy as a connector, and we would like to keep that record exactly as it is:
+https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence
+(ownership verified, tool definitions rated A, 7 tools, TDQS 4.4/5.0)
+
+The problem is the /mcp/servers/ record. It does not exist:
+- /mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 renders the registry index — no "kristo" on the page
+- /mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence returns 404
+- both Add Server paths reject with "already listed as a hosted connector"
+
+Why it matters: awesome-mcp-servers PR #13219 cannot merge because the listing's `quality` field shows "?", and quality is computed only for /mcp/servers/ entries. Ticket #135407945 has been open since September.
+
+What we are asking for, either way:
+1. create the /mcp/servers/ record for the repo, pointing at the same hosted endpoint — keep the connector, add the server record alongside it; or
+2. compute `quality` for the connector listing.
+
+The repo carries a Dockerfile and a stdio bridge (Dockerfile.glama, scripts/mcp_stdio_bridge.py), verified end to end: initialize → tools/list returns all 7 tools with full schemas, so the introspection check should pass. Nothing else is pending on our side.
+
+Thank you.
+```
