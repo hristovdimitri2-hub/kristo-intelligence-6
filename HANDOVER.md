@@ -7160,6 +7160,78 @@ something it already knows it wants. A marketplace is where it looks for
 something to hire. Being listed in six catalogues is not distribution; being
 hireable in one marketplace is.
 
+## 116. "Degraded" on PayAPI is a six-week-old record, and the page price comes from the test payments (24.11.2026)
+
+**The symptom.** The PayAPI dashboard showed our listing as degraded with an
+uptime around 90.4%. The open question in the sent message to Chet was what
+PayAPI probes to produce that number. It does not need asking — it can be
+measured from here.
+
+**The record is frozen.** Read from the listing's own fields:
+
+| field | value |
+|---|---|
+| `reliability.computed_at` | 2026-09-06 |
+| `last_seen_at` | 2026-10-12 |
+| `last_verified_at` | 2026-09-21 |
+| `status` | `live` |
+| `verification_paused` | `false` |
+
+Three dates, all two to ten weeks old, while the listing itself is live and not
+paused. The uptime window closed in September, when the service was being
+redeployed several times a day. The number is a historical measurement that never
+resumed.
+
+**The price edit worked; the page text is a different field.** Confirmed on 24.11
+against `GET https://payapi.market/api/listings?status=all&limit=200`:
+
+```json
+"price": { "min": 0.005, "max": 0.05, "currency": "USDC", "unit": "per_call" },
+"payment_verified": true,
+"endpoints_count": 3
+```
+
+`price` now matches the seven live routes. But the page still prints
+`3 of 3 routes settlement-verified · $0.003 to $0.005 USDC/request · 3 endpoints`,
+because that line is rendered from **`verified_routes`** — the three test payments
+of 2 Sep (`$0.005`, `$0.003`) and 21 Sep (`$0.003`) — and not from `price`. The
+four routes absent from `verified_routes` are `/api/sales`,
+`/api/arb/opportunities`, `/api/bot-status` and `/api/v1/verify-seller`.
+
+That is the whole defect, and it is not something a `PUT` or a resubmission can
+reach: `verified_routes` moves only when PayAPI verifies a route. Their OpenAPI
+documents that resubmitting an existing URL returns the existing fields rather
+than refreshing them, and Chet's rule is one product, one card.
+
+**We are not degraded — measured, not asserted.** Seven routes, six unpaid
+requests each, from here:
+
+| route | 402 / 6 | avg | max |
+|---|---|---|---|
+| `/api/stats` | 6/6 | 381 ms | 707 ms |
+| `/api/sales` | 6/6 | 299 ms | 421 ms |
+| `/api/arb/opportunities` | 6/6 | 260 ms | 282 ms |
+| `/api/bot-status` | 6/6 | 258 ms | 289 ms |
+| `/api/v1/signal` | 6/6 | 272 ms | 320 ms |
+| `/api/v1/whaleflow` | 6/6 | 294 ms | 357 ms |
+| `/api/v1/verify-seller` | 6/6 | 251 ms | 282 ms |
+
+42 of 42 answered `402`. `HEAD` answers `402`, `OPTIONS` answers `204`,
+`/health` answers `200`, `/` answers `200`. The `PAYMENT-REQUIRED` envelope
+decodes to `scheme=exact`, `network=eip155:8453`, `payTo=0xB4Fc…C844`,
+`amount=5000`, `extra.{name:"USD Coin",version:"2"}`.
+
+**A hypothesis tested and dropped.** `last_seen_at` is 12 Oct and the first commit
+after it is 13 Oct, `fix(402): Cache-Control no-store + CORS expose headers` — a
+change inside the 402 envelope, which looked like the cause. It is not: a `HEAD`
+probe, an `OPTIONS` probe and a full `GET` all answer correctly today, and the
+envelope is valid. The timing is a coincidence, not a regression.
+
+**The rule this leaves behind:** a third-party dashboard field is a claim until
+you read its timestamp. Before treating a partner's number as a fact about your
+own service, find the date it was computed — and then measure the service
+directly instead of asking the partner what they probe.
+
 
 
 

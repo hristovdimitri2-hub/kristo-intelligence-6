@@ -459,3 +459,37 @@ One question, since you sell the measurement and I have now bought it twice. Of 
 
 Dimitri
 ```
+
+## M. PayAPI — the measured follow-up to Chet (24.11.2026)
+
+**Where:** the same thread as the sent message to `chet@payapi.market`.
+
+**Why it replaces the earlier draft:** the first message asked what PayAPI probes to
+produce `degraded` / `Uptime 90.4%`. That question is now answered by measurement on
+our side, so it is dropped and the message carries the finding instead. Full working
+in `NEXT_ACTIONS.md` §2b.
+
+**Subject:** `Kristo Intelligence listing — price is fixed; page text and reliability are still on September data`
+
+```
+Chet,
+
+Two things on the Kristo Intelligence listing, and I measured both before writing, so this is a report rather than a question.
+
+The structured price is correct now: the public record reads min 0.005, max 0.05, payment_verified true. Thank you for that.
+
+What is still on September data:
+
+1. The line on the listing page reads "3 of 3 routes settlement-verified - $0.003 to $0.005 USDC/request - 3 endpoints". It is generated from verified_routes, not from price, and verified_routes holds the three test payments from 2 Sep and 21 Sep. Four routes are therefore missing from it: /api/sales, /api/arb/opportunities, /api/bot-status and /api/v1/verify-seller. Could those four be settlement-verified onto the same card? I do not want a second card for the same product, and I understand your rule is one product, one card.
+
+2. The dashboard shows the listing as degraded, with an uptime around 90.4%. The record behind that number is frozen: reliability computed 2026-09-06, last seen 2026-10-12, last verified 2026-09-21, while the listing itself is status live and verification_paused false. That window closed in September, when I was redeploying several times a day, which I think is what it is measuring.
+
+On 24 November I probed the service myself: all seven routes, six requests each, forty-two of forty-two answered the x402 challenge, average 251 to 381 ms with a worst case of 707 ms. HEAD returns the challenge, OPTIONS returns 204, /health returns 200, and the payment envelope decodes with the correct scheme, network, payTo and amount. We are not degraded.
+
+So: will a re-verification refresh the reliability window and the page text, or does that need something from me? If it refreshes on its own schedule, tell me the interval and I will stop asking.
+
+One last item: please delete the three rejected listings under my account - "Verify an x402 seller before you pay it", "Kristo Intelligence AI Gateway" and "Kristo Intelligence AI Agents". They were created in error and one of them carries a claim that is not true.
+
+Thank you,
+Dimitri Hristov
+```

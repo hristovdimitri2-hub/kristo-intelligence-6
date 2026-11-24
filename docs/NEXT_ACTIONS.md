@@ -106,33 +106,77 @@ marketplace is where you are hired instead. Two doors, and both point away from
 | 1 | **Jamenbin** — tell him the fixture moved | **DONE.** Comment posted 24.11 at 16:46Z on `VibeMirror-coder/n8n-nodes-omnidome#3`, verified by reading the issue back. |
 | 2 | **Free or pilot tier** | **Approved.** Marketplace conversations may promise a pilot. |
 | 3 | **`X402LIST_VERIFICATION_TOKEN`** | **Prepared.** Token still present (`x402list-verify-rCh48s…`, 59 chars) and `/.well-known/x402list.txt` serves it (HTTP 200). It expires 26.11 15:06Z. `_tools/remove_x402list_token.py` does the whole job — dry-run verified, `--apply` deletes the variable with `DELETE /env-vars/{key}` (never a `PUT` of the collection), triggers the deploy, then polls until the path returns 404. Reminder set for 26.11 17:10 EET. |
-| 4 | **PayAPI's `Price` field** | **Blocked on the owner's email.** See §2b. |
+| 4 | **PayAPI's `Price` field** | **Half done.** The price edit went through on 24.11 — the public record now reads `$0.005 – $0.05`. The visible page text and `endpoints_count` still show the September values, for the reason measured in §2b. |
 
-### 2b. PayAPI — the field cannot be fixed by API
+### 2b. PayAPI — price fixed, and "degraded" is a six-week-old record
 
-Measured 24.11 through PayAPI's own discovery API, not from memory:
+Measured 24.11 through PayAPI's own discovery API
+(`GET https://payapi.market/api/listings?status=all&limit=200`), not from memory.
 
-| | listing says | truth |
+**The price edit worked.** The public record for
+`6278cdce-f93a-45c7-9829-ffbe570f4df5` now reads:
+
+```json
+"price": { "min": 0.005, "max": 0.05, "currency": "USDC", "unit": "per_call" },
+"payment_verified": true,
+"endpoints_count": 3
+```
+
+`price` matches the seven live routes. `endpoints_count` is still `3`.
+
+**Why the page still prints the old numbers.** The listing page renders its price
+line from `verified_routes`, not from `price`:
+
+```
+3 of 3 routes settlement-verified · $0.003 to $0.005 USDC/request · 3 endpoints
+```
+
+`verified_routes` holds the three test payments of September — `$0.005` (2 Sep),
+`$0.003` (2 Sep), `$0.003` (21 Sep). So the page advertises `$0.003 – $0.005`
+while the 402 challenge charges `$0.005 – $0.05`. **Nothing we can PUT fixes
+that line**; it only moves when PayAPI re-verifies a route. Submitting again does
+not refresh it either — their OpenAPI documents that an existing URL returns the
+existing fields — and Chet's rule is one product, one card. The four missing
+routes are `GET /api/sales`, `/api/arb/opportunities`, `/api/bot-status` and
+`/api/v1/verify-seller`.
+
+**What `degraded` / `Uptime 90.4%` actually is.** Not an outage. The reliability
+record is frozen:
+
+| field | value | age |
 |---|---|---|
-| price | `$0.003 – $0.005` | `$0.005 – $0.05` |
-| endpoints | `3` | `7` |
-| base_url | correct (the new host) | correct |
+| `reliability.computed_at` | 2026-09-06 | 2.5 months |
+| `last_seen_at` | 2026-10-12 | 6 weeks |
+| `last_verified_at` | 2026-09-21 | 2 months |
+| `status` | `live` | — |
+| `verification_paused` | `false` | — |
 
-The listing is `kristo-intelligence-defi-signals-api`; the record is a leftover
-from their September verification, when we really did have three routes at those
-prices. **Submitting again will not fix it**: their OpenAPI documents that a URL
-that already exists returns the existing fields rather than refreshing them, and
-Chet has warned against creating a second card for one product.
+Their uptime window closed in September, when we really were redeploying daily.
+Nothing about it describes today.
 
-**The fix is the provider dashboard**, which needs one click in the owner's inbox:
+**We measured the service ourselves, so the question does not need asking.** 24.11
+20:17 EET, seven routes × six requests, all unpaid (the prober's view):
 
-1. Open `https://payapi.market/agent-marketplace/list`
-2. Enter `hristovdimitri2@gmail.com` (the address the listing is registered under)
-3. Click the sign-in link PayAPI emails, then edit the DeFi Signals API listing:
-   price `$0.005 – $0.05`, seven endpoints
+| route | 402 / 6 | avg | max |
+|---|---|---|---|
+| `/api/stats` | 6/6 | 381 ms | 707 ms |
+| `/api/sales` | 6/6 | 299 ms | 421 ms |
+| `/api/arb/opportunities` | 6/6 | 260 ms | 282 ms |
+| `/api/bot-status` | 6/6 | 258 ms | 289 ms |
+| `/api/v1/signal` | 6/6 | 272 ms | 320 ms |
+| `/api/v1/whaleflow` | 6/6 | 294 ms | 357 ms |
+| `/api/v1/verify-seller` | 6/6 | 251 ms | 282 ms |
 
-The email to `hello@payapi.market` (`OUTREACH_DRAFTS.md` J1) stays as the
-fallback if the dashboard has no price field.
+42 of 42 answered `402`. `HEAD` returns `402`, `OPTIONS` returns `204`,
+`/health` returns `200`. The `PAYMENT-REQUIRED` envelope decodes and carries
+`scheme=exact`, `network=eip155:8453`, `payTo=0xB4Fc…C844`, `amount=5000`,
+`extra.{name:"USD Coin",version:"2"}`. **We are not degraded, and the challenge
+was not broken by the 13.10 header change** (`Cache-Control: no-store` + CORS
+expose) — a `HEAD`/`OPTIONS` probe and a full GET both answer correctly.
+
+**Conclusion.** The only lever left is a re-verification by PayAPI, on the
+existing card. That is the one thing to ask Chet for, and the message in
+`OUTREACH_DRAFTS.md` §L2 now says exactly that instead of asking what they probe.
 
 ---
 
