@@ -7062,6 +7062,57 @@ same in shorter form and offering to go through the Add Server flow if a
 contradiction is worse than an empty space, because a reader trusts it. Before
 adding any third-party badge, open its URL and read what it actually says.
 
+## 114. CoinMarketCap sells the same data we sell, at the same price (24.11.2026)
+
+The owner forwarded a Base daily digest (23.11) listing twenty projects. Two
+items in it mattered and the rest did not; but checking the first one surfaced a
+finding that changes the product strategy, and it came from the navigation bar of
+a page rather than from the digest.
+
+**CoinMarketCap runs an x402 API.** `pro-api.coinmarketcap.com/x402/v3/...`
+sells crypto quotes, listings and DEX pair quotes for **$0.01 per request**, over
+the same protocol we use, with `payment-required` carrying the same base64
+envelope. Four endpoints are public: `/x402/v3/cryptocurrency/quotes/latest`,
+`/x402/v3/cryptocurrency/listings/latest`, `/x402/v4/dex/pairs/quotes/latest`,
+`/x402/v1/dex/search`. Their own page names Coinbase, Binance, Kraken,
+Blockchain.com and Crypto.com as customers.
+
+**Why this matters more than any listing.** Our `/api/stats` and
+`/api/market-stats` routes sell market data. An agent that needs market data now
+has a choice between a brand-name provider with 200+ endpoints, already trusted
+by five exchanges, at $0.01 — and us at $0.005. Price is not a moat when the
+brand is on the other side. **That part of the catalogue is a commodity, and it
+was commoditised while we were polishing listings.**
+
+**What is not commoditised** is what requires reading the chain rather than
+quoting a feed: `/api/arb/opportunities` (DEX arbitrage across Base pools),
+`/api/v1/whaleflow` (transfers and their source), and `/api/v1/verify-seller`
+(whether a receiver is what it claims to be, before money moves). CoinMarketCap
+cannot produce those from a price feed. That is the product; the rest is filler
+that makes the catalogue look larger.
+
+**The consequence for the roadmap, stated plainly:** stop investing in
+market-data routes and in the catalogues that list them. Invest in the three
+chain-analysis routes and in the integration that makes them callable. This is
+consistent with the measured market in §108 — 95.4% of the money sits in ten
+services, and the two models that work are high-value integration and cheap
+volume inside somebody's pipeline. A $0.005 quote is neither.
+
+**Wiretap is not a channel.** The digest's other interesting item, `wiretap.lol`
+(ClawBank + Darksol), is an A2A network where agents register, exchange messages
+and request payment — `/api/aim/auth/register`, `/api/aim/payment/request`,
+`/api/agentemail/messages`. It is a comms and payment layer, not a service
+directory: there is no catalogue of third-party endpoints to be listed in. Its
+`skill.md` link points at `darklabz.com`, which answers **HTTP 402** — but not an
+x402 one: the header is `X-Vercel-Error: DEPLOYMENT_DISABLED`. The site is dead,
+so the skill document cannot be read. Recording it as dead rather than as a
+competitor, because the difference matters if anyone follows that link later.
+
+**The rule this leaves behind:** when a directory offers to list us, the first
+question is not "what does it cost" but "who else is already selling this, and at
+what price". A listing in a market where a brand-name provider sells the same
+thing cheaper is not distribution — it is a page nobody will read.
+
 
 
 
