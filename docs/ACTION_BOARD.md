@@ -1,3 +1,6 @@
+> **SUPERSEDED 24.11.2026.** This board was compiled on 03.11.2026 and is kept as history.
+> The live board is docs/NEXT_ACTIONS.md.
+
 # ACTION BOARD — Kristo Intelligence
 
 **Compiled:** 03.11.2026, 14:10 · **Sources:** `PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` (F-01…F-40),
