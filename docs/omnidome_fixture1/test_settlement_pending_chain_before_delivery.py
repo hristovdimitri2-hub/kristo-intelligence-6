@@ -88,7 +88,7 @@ to declare. Superseded revisions, and why each was superseded:
 
     v3  SHA-256 558351e6daf4faaa6ffa8293bf3cf593e030ff0933c0eea00d7fa09e33a7a1e2
         9 tests, 30 900 bytes. Adds this REVISIONS block and nothing else of
-        substance. Verified independently on 24.11.2026 against the 36-vector
+        substance. Verified independently on 23.11.2026 against the 36-vector
         reference set: 9 tests pass, 22 vectors agree, 12 differ where the
         vectors allow either answer, and 2 differed by delivering where the
         reference refuses - both on the authorization rail, because the file
