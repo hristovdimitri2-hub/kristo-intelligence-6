@@ -39,6 +39,32 @@ in hand: adding a seventh channel to a service that 457 agents already found and
 every measurement are the ones §108 named — **data a buyer cannot get elsewhere**,
 and **selling the measurement itself**.
 
+### The decision taken (24.11.2026, no approval requested)
+
+**We sell the measurement.** It is the only asset in this project with no
+competitor: 84 days of demand-side behaviour at a live paywall, including 135
+payment attempts read individually. Nobody else has it, because seeing it requires
+running a paywalled service for months and keeping the ledger.
+
+The split is deliberate:
+
+- **Public — `docs/X402_DEMAND_CENSUS.md`.** The aggregate, the method and the
+  conclusion. It is a specimen, not a gift: it proves the dataset exists and shows
+  what is being sold.
+- **Held back — the per-agent table and the per-wallet payment history.** That is
+  the product.
+
+**The first buyer to test is Ernest** (`OUTREACH_DRAFTS.md` §N), because he sells
+this measurement, he asked which of the two directions to take, and his own census
+covers only the seller side. The message asks him to price it rather than accept it
+as a favour, and asks him to confirm or contradict the monitor-not-buyer reading.
+
+**Not yet done, and deliberately:** shipping the census as a new paid route. A
+route needs an entry in `X402_PRICE_MAP` and a price constant in `config.py`, and
+the standing rule forbids touching those without explicit approval. That decision
+is the owner's, and it is the next step if the public specimen draws interest.
+
+
 ---
 
 ## The marketplace line (unchanged)

@@ -493,3 +493,36 @@ One last item: please delete the three rejected listings under my account - "Ver
 Thank you,
 Dimitri Hristov
 ```
+
+## N. Ernest — the demand-side dataset (24.11.2026)
+
+**Where:** the same Gmail thread as §L2, after the market audit. He is the one
+person in this market who sells the measurement, and the measurement is now the
+product.
+
+**Why this is a follow-up and not a new pitch:** he offered a free benchmark and
+asked which of the two earning things he would push a seller toward. We built the
+answer instead of asking again. He measures the seller side of a public index;
+this is the demand side of one live service — the half his own numbers cannot see.
+
+**Subject:** `The other side of your numbers — 457 agents at one paywall, and what they did`
+
+```
+Ernest,
+
+You asked which of the two things I should build. I built the second one before answering, and this is the result.
+
+I run a live x402 service on Base. Seven routes, $0.005 to $0.05. Over 84 days it answered 1,246,641 requests in the last thirty (that is my retention limit, not a quiet period), was found by 457 distinct user agents, and was paid by twelve wallets that are not mine. Total external revenue, lifetime: five and a half cents. I published the aggregate and the method. The per-agent table is the part I kept.
+
+What makes this different from your census is direction. Your numbers describe what sellers earn. These describe what the demand side does at the moment it meets a price: which agents arrive, how often they come back, which route they choose, whether they ever present a credential, and what that credential says when they do. I read all 135 recorded payment attempts one by one. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs. That is the part I could not see from any index, and I suspect it was missing from yours too.
+
+Two things I want to know, and neither is a favour.
+
+One: you sell this measurement. Is a demand-side ledger worth anything to you or to your clients, and if so in what shape? I am not offering it as a favour and I am not asking for a free read. I would rather price it than give it away, because a dataset nobody pays for is the same mistake I have just finished documenting.
+
+Two: the agents are overwhelmingly monitors and crawlers, not buyers. If that matches what you see, say so plainly and I will stop treating the demand side as a market. If it does not match, I want to know what you see instead, because then one of us is measuring the wrong thing.
+
+The aggregate is written up and I will send it in whatever form is useful to you.
+
+Dimitri
+```
