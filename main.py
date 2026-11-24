@@ -5420,6 +5420,49 @@ _X402_UNREADY_PRODUCERS = {
                                "no_opportunities_to_deliver"),
 }
 
+#: Producers the unready guard has already tried to start in THIS process.
+#: One attempt each: if the loop is merely late, this is what starts it; if it
+#: is hung, a second copy would duplicate its work for no gain.
+_unready_kick_attempted: set = set()
+
+
+def _kick_unready_producer(canonical: str) -> None:
+    """Start, at most once per process, a producer that has never run here.
+
+    The refusal this guard returns is CORRECT — the route has nothing to sell,
+    and taking money for it is the failure the guard exists to prevent. What it
+    must not be is PERMANENT.
+
+    Measured 24.11.2026: the process serving payments reported
+    `arb_scan_count: 0` and `signal_generated_at: None` on every attempt over
+    minutes, while `Arb Radar scan #N` lines ran successfully in the same
+    service. `_start_background_threads` skips its entire set on a duplicate
+    module load (see its root guard), so a process can end up serving traffic
+    with no producers at all — and then every buyer is refused forever and the
+    route is unsellable rather than merely late.
+
+    Starting the loop here costs one thread and moves no money: the caller
+    still receives the 503 with Retry-After, and the authorization is never
+    presented to a facilitator. It converts "never" into "shortly".
+    """
+    if canonical in _unready_kick_attempted:
+        return
+    _unready_kick_attempted.add(canonical)
+    try:
+        if canonical == "/api/arb/opportunities":
+            from services.arb_radar import start_arb_radar_thread
+            start_arb_radar_thread()
+        else:
+            threading.Thread(target=_background_agent_loop, daemon=True,
+                             name="agent-loop-kick").start()
+    except Exception as exc:                                   # noqa: BLE001
+        log.warning("x402 unready: could not start the %s loop in pid=%s: %s",
+                    canonical, os.getpid(), exc)
+        return
+    log.info("x402 unready: started the %s loop in this process (pid=%s) — "
+             "the refusal is temporary, the route was not unsellable",
+             canonical, os.getpid())
+
 
 def _x402_unready_payload(endpoint: str):
     """A 503 body when a route's producer has never run, else None.
@@ -5481,6 +5524,9 @@ def _x402_unready_payload(endpoint: str):
     # logs instead of from a reproduction.
     log.info("x402 unready: endpoint=%s producer=%s pid=%s %s",
              endpoint, producer, os.getpid(), evidence)
+    # Refuse — but do not refuse FOREVER. A process that never started its
+    # producers must start them, or this route is unsellable rather than late.
+    _kick_unready_producer(canonical)
     return {
         "ok": False,
         "error": error,

@@ -208,6 +208,60 @@ def test_no_payment_is_taken_when_the_engine_has_no_signal(client, monkeypatch):
         "a temporary emptiness has to say when to come back")
 
 
+def test_the_guard_starts_a_producer_that_never_ran_in_this_process(monkeypatch):
+    """A refusal must be temporary: the process has to start its own producer.
+
+    Measured 24.11.2026: the process serving payments answered
+    `arb_scan_count: 0` and `signal_generated_at: None` on every attempt for
+    minutes, while the scanner ran elsewhere in the same service. Without this
+    kick the route is not late, it is unsellable — and the guard, which is
+    right to refuse, would be the thing keeping it that way.
+    """
+    import time
+    import main
+
+    started = []
+    monkeypatch.setattr(main, "_unready_kick_attempted", set())
+    monkeypatch.setattr(main, "_background_agent_loop", lambda: started.append(1))
+
+    main._kick_unready_producer("/api/v1/signal")
+    for _ in range(100):
+        if started:
+            break
+        time.sleep(0.02)
+    assert started, "the signal engine was never started in this process"
+
+    # Once per process, not once per refused request.
+    main._kick_unready_producer("/api/v1/signal")
+    time.sleep(0.05)
+    assert len(started) == 1, "a second copy of the producer was started"
+
+
+def test_the_guard_starts_the_arbitrage_scanner_too(monkeypatch):
+    """Same rule on the other guarded route, through its own entry point."""
+    import main
+    import services.arb_radar as arb_radar
+
+    calls = []
+    monkeypatch.setattr(main, "_unready_kick_attempted", set())
+    monkeypatch.setattr(arb_radar, "start_arb_radar_thread",
+                        lambda: calls.append(1))
+
+    main._kick_unready_producer("/api/arb/opportunities")
+    assert calls == [1], "the arbitrage scanner was not started"
+
+
+def test_the_rest_are_not_guarded_and_have_nothing_to_kick(client, monkeypatch):
+    """Only producers that begin empty on a deploy are guarded and kicked."""
+    import main
+    monkeypatch.setattr(main, "_unready_kick_attempted", set())
+    for path in ("/api/v1/whaleflow", "/api/stats", "/api/sales",
+                 "/api/bot-status", "/api/v1/verify-seller"):
+        assert main._x402_unready_payload(path) is None, path
+    assert main._unready_kick_attempted == set(), (
+        "a route that is not guarded must not start anything")
+
+
 def test_the_guard_stands_down_as_soon_as_a_signal_exists(client):
     """An empty snapshot is the only trigger; a populated one must pass."""
     import main
