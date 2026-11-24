@@ -1,11 +1,11 @@
-# GLAMA REPLY — имейл към рецензента (за копи-пейст)
+# GLAMA REPLY — email to the reviewer (for copy-paste)
 
-**Кога:** след като README-то и Streamable HTTP транспортът са push-нати и
-live (проверено от мен — поискай „пусни седмичния монитор" + смъртна проверка
-на POST /mcp).
+**When:** after the README and the Streamable HTTP transport are pushed and
+live (verified by me — ask for „run the weekly monitor" + a death check
+of POST /mcp).
 
-**До:** рецензентът от Glama (отговора идва на имейла, от който е дойдал
-отказът „README няма достатъчно информация")
+**To:** the reviewer from Glama (the reply comes to the email the rejection
+„README doesn't contain enough information" came from)
 
 **Subject:** Re: Kristo Intelligence listing — README expanded
 
@@ -40,12 +40,12 @@ there as well.
 — Dimitri
 ```
 
-**Правила:** нула wallet адреса в имейла; нула въпроси освен „another look";
-изпраща се САМО след живата проверка на POST /mcp (Стъпка 3 от задачата за
-Smithery — „вратата отваря и по двата начина").
+**Rules:** zero wallet addresses in the email; zero questions other than
+„another look"; it is sent ONLY after the live check of POST /mcp (Step 3 of
+the Smithery task — „the door opens both ways").
 
-**🟢 Допълнение (07.09, одобрено от собственика):** последният абзац
-(Streamable HTTP + призив „tell us exactly what" + причината
-awesome-mcp-servers да зависи от тях) се изпраща от **Димитри** като
-**follow-up коментар в отворения билет #130688574** (не като нов имейл към
-друг адрес). Изпраща се само след живата POST /mcp проверка.
+**🟢 Addendum (07.09, approved by the owner):** the last paragraph
+(Streamable HTTP + the „tell us exactly what" appeal + the reason
+awesome-mcp-servers depends on them) is sent by **Dimitri** as a
+**follow-up comment in the open ticket #130688574** (not as a new email to
+another address). It is sent only after the live POST /mcp check.

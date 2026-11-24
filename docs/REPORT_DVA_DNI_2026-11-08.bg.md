@@ -1,209 +1,216 @@
-# Два дни работа — какво се случи, какво се обърка, къде сме
+# Two days of work — what happened, what went wrong, where we stand
 
-**Дата:** 08.11.2026
-**Билд:** `2804857` · 1147 теста, всички зелени
+**Date:** 08.11.2026
+**Build:** `2804857` · 1147 tests, all green
 
 ---
 
-## 1. Накратко, за човек без технически познания
+## 1. Briefly, for a person without technical knowledge
 
-През последните два дни системата мина през **четири отделни повреди**. Нито една
-не беше в това, което продаваме. Всичките бяха в **инфраструктурата около него**:
-как услугата се качва, как чете базата си, и как си пише бележките.
+Over the past two days the system went through **four separate outages**. Not one
+of them was in what we sell. All of them were in the **infrastructure around it**:
+how the service deploys, how it reads its database, and how it writes its notes.
 
-В един момент услугата **отговаряше на заявки и не записваше нищо** — в продължение
-на часове. Външно изглеждаше здрава. Това беше най-опасното.
+At one point the service **was answering requests and writing nothing** — for
+hours. Externally it looked healthy. That was the most dangerous part.
 
-Сега:
+Now:
 
-| Проверка | Резултат |
+| Check | Result |
 |---|---|
-| `/health` | **0.32–0.45 сек** (беше 2.3–2.7) |
-| Таблото | **0.30 сек** (беше зависване) |
-| Записани заявки днес | **979** (беше замръзнало на 46) |
-| Организъм | **5 блока `ok`, 1 `not_reached`** |
-| Деплой | ~1 минута (беше 15 и се проваляше) |
-| Тестове | **1147 зелени** |
+| `/health` | **0.32–0.45 sec** (was 2.3–2.7) |
+| The dashboard | **0.30 sec** (was hanging) |
+| Requests recorded today | **979** (was frozen at 46) |
+| Organism | **5 blocks `ok`, 1 `not_reached`** |
+| Deploy | ~1 minute (was 15 and failing) |
+| Tests | **1147 green** |
 
 ---
 
-## 2. Предупрежденията от Glama и mcptry — с прости думи
+## 2. The warnings from Glama and mcptry — in plain words
 
-Двете директории пишеха едно и също нещо за нашите инструменти, и аз не го
-обясних добре. Ето какво казват **буквално**:
+Both directories said the same thing about our tools, and I did not explain it
+well. Here is what they say **literally**:
 
-**mcptry, под всеки инструмент:**
-> „Този инструмент **не е отбелязан като само-четящ**, затова може да промени
-> нещо на сървъра или в акаунт, който си свързал. [Разбирам, изпълни го все едно]"
+**mcptry, under every tool:**
+> "This tool **is not marked as self-reading**, so it may change something on
+> the server or in an account you have connected. [I understand, run it anyway]"
 
-**Glama, при оценката на качеството:**
-> „**Не са подадени анотации**, затова описанието понася цялата тежест"
+**Glama, on the quality score:**
+> "**No annotations submitted**, so the description carries the whole weight"
 
-**Какво означава това на човешки език.** Протоколът MCP има специално поле, в
-което сървърът декларира машинно: „това само чете", „това не разрушава нищо",
-„това може да пипа външния свят". Ние **не бяхме попълнили това поле** — писахме
-го само в текстовото описание, което човек чете, но програмата не.
+**What this means in human language.** The MCP protocol has a special field in
+which the server declares in machine-readable form: "this only reads", "this
+destroys nothing", "this can touch the outside world". We **had not filled in**
+that field — we wrote it only in the text description, which a human reads but a
+program does not.
 
-Затова автоматичните клиенти виждаха инструмент с **неизвестно поведение** и
-показваха предупреждение. А предупреждението стоеше **точно преди платено
-извикване, което само чете**. Всеки агент, който решава дали да плати, виждаше
-„може да промени нещо" — преди да е похарчил цент.
+That is why automated clients saw a tool with **unknown behaviour** and showed a
+warning. And the warning stood **right before a paid call that only reads**.
+Every agent deciding whether to pay saw "it may change something" — before it had
+spent a cent.
 
-**Поправено:** всичките 7 инструмента вече декларират машинно „само чете",
-„не разрушава", „повтаряемо е". Проверено на живо — `7/7`.
+**Fixed:** all 7 tools now declare in machine-readable form "only reads",
+"destroys nothing", "is repeatable". Verified live — `7/7`.
 
-**Отделно, честно:** нашата оценка при Glama беше 4/5 точно по този показател, на
-всичките седем инструмента. Сега вече има шанс да стане 5/5.
+**Separately, honestly:** our Glama score was 4/5 on exactly this indicator,
+across all seven tools. Now there is a chance for it to become 5/5.
 
 ---
 
-## 3. Четирите повреди
+## 3. The four outages
 
-### 3.1 Деплоите се проваляха по 15 минути
+### 3.1 Deploys were failing for 15 minutes
 
-**Симптом:** всеки деплой стоеше 15 минути и се проваляше с „няма отворени портове".
+**Symptom:** every deploy sat for 15 minutes and failed with "no open ports".
 
-**Истинска причина:** проверката за здраве на Render. Тя получаваше **HTTP 200 от
-`/health` стотици пъти** — доказано, 139 заявки, всички успешни — и пак отказваше
-деплоя с „изтече времето".
+**Real cause:** Render's health check. It received **HTTP 200 from `/health`**
+hundreds of times — proven, 139 requests, all successful — and still refused the
+deploy with "timed out".
 
-**Поправка:** изключих проверката. Деплоят мина за **1.1 минути**.
+**Fix:** I disabled the check. The deploy completed in **1.1 minutes**.
 
-**Моя грешка, която трябва да се знае:** преди да намеря истината, направих две
-поправки, които **влошиха нещата** — вдигнах изчакванията и превърнах бърз провал в
-**зависване**, което заклещи услугата и счупи външните монитори. Върнах ги и
-записах в commit-а защо са грешни, за да не се повторят.
+**My mistake, which should be known:** before I found the truth, I made two
+fixes that **made things worse** — I raised the timeouts and turned a fast
+failure into a **hang**, which wedged the service and broke the external
+monitors. I reverted them and recorded in the commit why they are wrong, so they
+are not repeated.
 
-### 3.2 Таблото умираше
+### 3.2 The dashboard was dying
 
-**Симптом:** `/api/dashboard/data` даваше грешка с часове, докато всичко друго беше
-здраво.
+**Symptom:** `/api/dashboard/data` returned an error for hours, while everything
+else was healthy.
 
-**Истинска причина:** таблото сглобяваше данните си през **същата една връзка с
-базата**, която ползват още 19 нишки. Един бавен панел караше всички да чакат; който
-чакнеше твърде дълго, се отказваше. Таблото не можеше да се сглоби → кешът оставаше
-празен → всяка заявка се проваляше пак.
+**Real cause:** the dashboard assembled its data over **the same single database
+connection** that another 19 threads use. One slow panel made everyone wait;
+whoever waited too long gave up. The dashboard could not assemble → the cache
+stayed empty → every request failed again.
 
-**Поправка:** таблото получи **собствена връзка**. Сглобяването падна от зависване
-до **40 милисекунди**.
+**Fix:** the dashboard got **its own connection**. Assembly dropped from a hang
+to **40 milliseconds**.
 
-### 3.3 Услугата отговаряше, но не записваше нищо — най-коварната
+### 3.3 The service was answering but writing nothing — the most insidious
 
-**Симптом:** услугата отговаряше, даваше правилните 402, `/health` казваше `ok` — и
-**не записваше нито една заявка с часове**. Външно не можеше да се познае.
+**Symptom:** the service was responding, returning the correct 402s, `/health`
+said `ok` — and **recorded not a single request for hours**. Externally there was
+no way to tell.
 
-**Истинска причина, верига от три неща:**
-1. Връзката с базата умираше по SSL (сървърът я затваря при бездействие).
-2. Затварянето ѝ ставаше, **докато ключалката е взета** — а на мъртъв сокет това
-   виси. Затова ключалката оставаше заключена завинаги.
-3. Четири фонови задачи държаха същата връзка с минути: кит-скенерът (45 сек),
-   сентинелът (289 сек), скенерът на таблото (200 сек).
+**Real cause, a chain of three things:**
+1. The database connection was dying over SSL (the server closes it on idle).
+2. Its closing happened, **while the lock is held** — and on a dead socket that
+   hangs. So the lock stayed locked forever.
+3. Four background tasks held the same connection for minutes: the kit scanner
+   (45 sec), the sentinel (289 sec), the dashboard scanner (200 sec).
 
-**Защо беше невидимо:** записът се проваляше в голо `except Exception: pass` — без
-нито един ред в лога. Първата поправка беше **да направя провала видим**. Едва
-тогава логът каза имената.
+**Why it was invisible:** the write failed inside a bare `except Exception:
+pass` — not one line in the log. The first fix was **to make the failure
+visible**. Only then did the log say the names.
 
-**Поправки:**
-- Всяка фонова задача получи **собствена връзка**.
-- `close()` вече става **след** освобождаване на ключалката.
-- Добавени TCP keepalives, за да се открива мъртвият сокет веднага.
-- Ключалката стана **честна (FIFO)** — вече не може чакащ да губи надпреварата,
-  докато му изтече таймаутът.
+**Fixes:**
+- Every background task got **its own connection**.
+- `close()` now happens **after** the lock is released.
+- Added TCP keepalives, so the dead socket is detected immediately.
+- The lock became **fair (FIFO)** — a waiting thread can no longer lose the race
+  while its timeout expires.
 
-**Резултат:** `today` от замръзналите **46** на **979**.
+**Result:** `today` went from the frozen **46** to **979**.
 
-### 3.4 (същото семейство) Изолираните връзки повтаряха схемата на базата
+### 3.4 (the same family) The isolated connections were re-running the database schema
 
-**Симптом:** след като дадох собствени връзки, таблото пак спря.
+**Symptom:** after I gave out their own connections, the dashboard stopped again.
 
-**Причина:** всяка нова връзка пускаше **цялата схема (DDL)**. Базата ни е **0.1 CPU**
-— най-малкият план — и три едновременни DDL паса се блокират взаимно.
+**Cause:** every new connection ran **the whole schema (DDL)**. Our database is
+**0.1 CPU** — the smallest plan — and three concurrent DDL passes block each
+other.
 
-**Поправка:** изолираните връзки не пускат схемата. Само собственикът я създава.
+**Fix:** isolated connections do not run the schema. Only the owner creates it.
 
-### 3.5 Прекалих със самото изолиране — и това също счупи таблото
+### 3.5 I overdid the isolation itself — and that also broke the dashboard
 
-**Това е моя грешка и си заслужава да е записана.**
+**This is my mistake, and it deserves to be recorded.**
 
-След като изолирах всяка фонова задача, всяка получи **собствена връзка към
-базата**. Но всяка връзка е **реална връзка**, а нашият план е най-малкият
-(`0.1c-256mb`) с **нисък лимит**. Осем задачи × два процеса ≈ **16 връзки** —
-достатъчно близо до тавана, че отварянето на още една да блокира.
+After I isolated every background task, each one got **its own database
+connection**. But every connection is a **real connection**, and our plan is the
+smallest (`0.1c-256mb`) with a **low limit**. Eight tasks × two processes ≈ **16
+connections** — close enough to the ceiling that opening one more blocks.
 
-Измерено, и контрастът е целият аргумент:
+Measured, and the contrast is the whole argument:
 
-| | таблото |
+| | the dashboard |
 |---|---|
-| 4 басейна | **0.30 секунди** |
-| 8 басейна | **виси на първата стъпка**, таймингите празни, 503 след 20s |
+| 4 pools | **0.30 seconds** |
+| 8 pools | **hangs on the first step**, timings empty, 503 after 20s |
 
-**Защо беше трудно за откриване:** `/health` беше 0.32–0.44s през цялото време.
-Значи задръстването на ключалката **наистина беше решено** — таблото се проваляше
-по **съвсем друга причина**, изчерпване на връзки.
+**Why it was hard to detect:** `/health` was 0.32–0.44s the whole time. So the
+lock contention **really was solved** — the dashboard was failing for a
+**completely different reason**, connection exhaustion.
 
-**Поправка:** един малък брой **басейни**, разпределени по това какво всъщност
-струва задачата, а не по това, че сме ѝ дали име:
+**Fix:** a small number of **pools**, allocated by what the task actually costs,
+not by the fact that we gave it a name:
 
-| басейн | кой го ползва | защо |
+| pool | who uses it | why |
 |---|---|---|
-| `dashboard-build` | таблото | това е пътят за четене на таблото |
-| `snapshot` | снапшът | осем пълни сканирания, минути всяко |
-| `background-heavy` | кит-скенер, ретенция | мрежови и груби |
-| `background-light` | сентинел, скенер, reorg, telegram | евтините по график |
+| `dashboard-build` | the dashboard | this is the dashboard's read path |
+| `snapshot` | the snapshot | eight full scans, minutes each |
+| `background-heavy` | kit scanner, retention | network-bound and heavy |
+| `background-light` | sentinel, scanner, reorg, telegram | the cheap scheduled ones |
 
-Неизвестна задача получава **свой** басейн — така нова задача никога не споделя
-**мълчаливо** с вече заета.
+An unknown task gets **its own** pool — so a new task never shares
+**silently** with an already busy one.
 
-**Урокът:** „изолирай всичко" не е същото като „изолирай правилното". Всяка
-изолация струва ресурс и на малка база ресурсът свършва.
-
----
-
-## 4. Правилото, което свързва всичко
-
-Едно и също правило намери причината и при четирите повреди:
-
-> **„Не можах да погледна" не е същото като „погледнах и няма нищо".**
-
-- Организмът е построен върху него (`not_reached` никога не се показва като „нищо").
-- Таблото го спазва (панел, който не може да се прочете, се показва като недостъпен).
-- И беше **нарушено** точно там, където попречи най-много: записът на заявки се
-  проваляше **мълчаливо**.
-
-Затова най-важната поправка днес не беше „оправи записа", а **„направи провала
-видим"**.
+**The lesson:** "isolate everything" is not the same as "isolate the right
+thing". Every isolation costs a resource, and on a small database the resource
+runs out.
 
 ---
 
-## 5. Какво НЕ съм пипал
+## 4. The rule that ties everything together
 
-Цени, `payTo`, адрес на получателя, комисиона, структура на 402 envelopes,
-`secrets/`, `config.py`. Всяко качване е проверявано срещу този списък.
+One and the same rule found the cause in all four outages:
 
----
+> **"I could not look" is not the same as "I looked and there is nothing".**
 
-## 6. Къде сме в момента
+- The organism is built on it (`not_reached` is never shown as "nothing").
+- The dashboard respects it (a panel that cannot be read is shown as
+  unavailable).
+- And it was **violated** exactly where it hurt most: request recording failed
+  **silently**.
 
-**Организмът работи на живо.** Пет блока съобщават `ok` с реални доказателства,
-шестият (`payment_rail`) е `not_reached` — защото още няма плащане, и това е
-правилният отговор.
-
-**Инструментът за конверсия записва** — `authorised` и `abandoned` вече се виждат.
-
-**Изпълнителите остават изключени** (`KRISTO_ORGANISM_ACT` не е зададен). Организмът
-наблюдава, решава и записва — и не предприема нищо. Това е нарочно.
-
-**Директориите:** mcptry `Working · 97/100`, Glama `Healthy · 99.6% за 52 дни`.
+That is why the most important fix today was not "fix the recording", but **"make
+the failure visible"**.
 
 ---
 
-## 7. Отворено
+## 5. What I did NOT touch
 
-- **`payment_rail` е `not_reached`, докато не дойде първото плащане.** Това е
-  измервателният уред, който чака нещо за измерване.
-- **Организмът сам се възстанови от `failed` на `ok`** по време на днешните деплои —
-  доказателство, че работи. Но това означава и че **честите деплои предизвикват
-  истински преходни повреди**. По-малко деплои = по-малко шум.
-- **Латентността на таблото при студен кеш** е ~3 секунди; топъл е 0.3 сек.
-- **Не знам нищо за споменатото „Христо с Оракъл"** — нямам такава информация в тази
-  сесия и няма да си измислям връзка.
+Prices, `payTo`, recipient address, commission, the structure of 402 envelopes,
+`secrets/`, `config.py`. Every deployment was checked against this list.
+
+---
+
+## 6. Where we stand right now
+
+**The organism runs live.** Five blocks report `ok` with real evidence, the sixth
+(`payment_rail`) is `not_reached` — because there is no payment yet, and that is
+the correct answer.
+
+**The conversion tool records** — `authorised` and `abandoned` are now visible.
+
+**The executors remain disabled** (`KRISTO_ORGANISM_ACT` is not set). The organism
+observes, decides and records — and takes no action. That is deliberate.
+
+**The directories:** mcptry `Working · 97/100`, Glama `Healthy · 99.6% for 52
+days`.
+
+---
+
+## 7. Open
+
+- **`payment_rail` is `not_reached` until the first payment arrives.** It is the
+  meter waiting for something to measure.
+- **The organism recovered by itself from `failed` to `ok`** during today's
+  deploys — proof that it works. But it also means that **frequent deploys cause
+  real transient outages**. Fewer deploys = less noise.
+- **The dashboard's cold-cache latency** is ~3 seconds; warm it is 0.3 sec.
+- **I know nothing about the mentioned "Hristo with Oracle"** — I have no such
+  information in this session and I will not invent a connection.

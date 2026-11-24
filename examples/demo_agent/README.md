@@ -1,45 +1,45 @@
 # Kristo Demo Agent — public reference x402 client
 
-Демонстрира ПЪЛНИЯ път на платено извикване в 3 стъпки — това е цялата
-интеграция: без signup, без API ключове, без библиотеки на нашата страна.
+Demonstrates the COMPLETE path of a paid call in 3 steps — this is the entire
+integration: no signup, no API keys, no libraries on our side.
 
 ```
-python examples/demo_agent/demo_agent.py                      # discovery + 402 challenge (safe, без wallet)
+python examples/demo_agent/demo_agent.py                      # discovery + 402 challenge (safe, without wallet)
 python examples/demo_agent/demo_agent.py --endpoint /api/v1/signal
-python examples/demo_agent/demo_agent.py --pay                # РЕАЛНО плащане: DEMO_PRIVATE_KEY=funded test wallet
+python examples/demo_agent/demo_agent.py --pay                # REAL payment: DEMO_PRIVATE_KEY=funded test wallet
 ```
 
-## Какво прави
-1. **Discovery** — GET `/.well-known/x402` (free): всички платени ресурси
-2. **Challenge** — GET платен endpoint → HTTP 402 с x402 v2 challenge
-   (схема, мрежа, сума в атомни единици, payTo, описание)
-3. **Pay & retry** — изпраща точната сума USDC на Base до `payTo`, изчаква
-   потвърждения, retry с `X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))`
-   → 200 с данните
+## What it does
+1. **Discovery** — GET `/.well-known/x402` (free): all paid resources
+2. **Challenge** — GET paid endpoint → HTTP 402 with x402 v2 challenge
+   (scheme, network, amount in atomic units, payTo, description)
+3. **Pay & retry** — sends the exact amount of USDC on Base to `payTo`, waits for
+   confirmations, retry with `X-Payment-Proof: base64url(JSON({payer, transaction_hash, amount_usdc}))`
+   → 200 with the data
 
-> **Две платежни релси — и едната е по-бърза.**
-> Демото показва **smart-wallet** релсата, защото се обяснява най-лесно с обикновен
-> трансфер. Тя обаче изисква **3 потвърждения (≈6 секунди)** между плащането
-> и данните.
-> **Предпочитаната** релса е стандартната x402: подписваш EIP-3009
-> `transferWithAuthorization` и retry-ваш с `PAYMENT-SIGNATURE` (x402 v2;
-> `X-PAYMENT` за v1 клиенти). Facilitator-ът сетълва — не се чака блок.
-> И двете връщат данните; изборът е колко бързо искаш да е.
+> **Two payment rails — and one is faster.**
+> The demo shows the **smart-wallet** rail because it is easiest to explain with a
+> simple transfer. However, it requires **3 confirmations (≈6 seconds)** between the
+> payment and the data.
+> The **preferred** rail is standard x402: you sign EIP-3009
+> `transferWithAuthorization` and retry with `PAYMENT-SIGNATURE` (x402 v2;
+> `X-PAYMENT` for v1 clients). The facilitator settles — no waiting for a block.
+> Both return the data; the choice is how fast you want it.
 
-## Защо е публичен
-- **Доказателство:** всеки може да пусне клиента и да види работещо
-  плащане от своя машина — trust през репродукция, не през обещания
-- **E2E тест:** стъпка 3 с реален wallet е точно E2E self-paid тестът
-- **Шаблон:** агент-билдъри копират `parse_challenge()` + платежния header
-  директно в своя код — и двете релси са описани по-горе
+## Why it is public
+- **Proof:** anyone can run the client and see a working
+  payment from their own machine — trust through reproduction, not promises
+- **E2E test:** step 3 with a real wallet is exactly the E2E self-paid test
+- **Template:** agent builders copy `parse_challenge()` + the payment header
+  directly into their code — both rails are described above
 
-⚠️ Никога не ползвай production private key. `--pay` е за funded test
-wallet с микро-суми (0.003–0.005 USDC; точната сума я казва 402 challenge-ът).
+⚠️ Never use a production private key. `--pay` is for a funded test
+wallet with micro-amounts (0.003–0.005 USDC; the 402 challenge states the exact amount).
 
 **Listing:** [Kristo Intelligence — DeFi Signals API on PayAPI Market](https://payapi.market/api/kristo-intelligence-defi-signals-api) — settlement-verified, $0.003/call, USDC on Base.
 
-**Discover via PayAPI MCP** - агентите, вече свързани към warehouse-а на
-пазара, намират нашите маршрути и от двете страни:
+**Discover via PayAPI MCP** - agents already connected to the market's
+warehouse find our routes on both sides:
 
 ```json
 {

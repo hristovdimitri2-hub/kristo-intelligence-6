@@ -1,108 +1,110 @@
-# Задача за Kilo: намери private ключа на payTo портфейла
+# Task for Kilo: find the private key of the payTo wallet
 
-## Целта, точно
+## The goal, exactly
 
-Намери **private ключа** на портфейла, който получава плащанията:
+Find the **private key** of the wallet that receives the payments:
 
 ```
 payTo (receiver):  0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f
 ```
 
-Ти си строил това приложение. Ако някой знае къде е записан ключът, това си ти.
+You built this application. If anyone knows where the key is written down,
+that is you.
 
-**Задължително изискване за отговор:** всеки кандидат за ключ трябва да бъде
-проверен, преди да го върнеш — изведи адреса от него и го сравни:
+**Mandatory requirement for the answer:** every candidate key must be verified
+before you return it — derive the address from it and compare:
 
 ```python
 from eth_account import Account
 Account.from_key(candidate).address.lower() == "0xd4cda900839c0fed4374ee37ea0dbe8e4c6fd08f"
 ```
 
-Ключ, който не дава ТОЧНО този адрес, не е отговорът. Не връщай „вероятно това е".
-Искам път до файл или категорично „не е на диска, защото …".
+A key that does not produce EXACTLY this address is not the answer. Do not
+return "probably this is it". I want a path to a file or a categorical
+"it is not on the disk, because …".
 
-**Не отпечатвай самия ключ** в чата. Кажи къде е. Аз ще го прочета.
-
----
-
-## Какво вече е изключено — не го повтаряй
-
-Проверил съм следното и във всичко е чисто (нула съвпадения):
-
-| Къде | Обхват | Резултат |
-|---|---|---|
-| Работното дърво | 7 715 файла, 8 398 кандидата | 0 |
-| `secrets/` | само demo ключ, CDP, render, glama, metal | 0 |
-| Git история (всички обекти) | 4 221 обекта, 3 487 кандидата | 0 |
-| Gmail (вкл. „Всички съобщения") | 400 self-sent писма, скан за 64-hex | 0 |
-| `AppData\Roaming\Code\User\globalStorage\kilocode.kilo-code` | **празна е** (0 файла) | — |
-| Render env `WALLET_PRIVATE_KEY` | това е **газ портфейлът** `0x9c1eb97e…`, не получателят | — |
-| `Documents\Backups\kristo_wallet_key_0xE50c.txt` | това е **demo** ключът (`0xE50c5212…`) | — |
-| `.agents/memory/*.md` в worktree-а | само бележки за Postgres/CoinGecko/GitHub | — |
-| **`secrets/` — прикачени директно, всичките 7 файла** | всеки `0x`+64 hex | 0 |
-| **`chatbox-backup-2026-11-3.zip` (316 MB, 1 299 члена)** | целият архив, **декомпресиран** | 0 |
-| **`dsh-session-*.zip` (308 MB)** | целият архив, **декомпресиран** | 0 |
-
-⚠️ **Методологична бележка, за да не се повтори грешката:** първият скан на
-архивите четеше `.zip` файловете като сурови байтове — това е безполезно,
-защото zip е компресиран и вътре няма видим текст. Числата по-горе са от
-**истински** скан с декомпресия на всеки член. Ако някой пак търси тук, да
-декомпресира, не да чете raw.
+**Do not print the key itself** in the chat. Say where it is. I will read it.
 
 ---
 
-## Он-чейн доказателството (12.11.2026, Base mainnet)
+## What is already excluded — do not repeat it
 
-Това променя въпроса. Проверено директно срещу `base-rpc.publicnode.com`:
+I have checked the following and everything is clean (zero matches):
 
-| | активен `0xd4cdA900…` | стар `0xd4cdA980…` |
+| Where | Scope | Result |
 |---|---|---|
-| **nonce (изпратени tx)** | **0** | **0** |
-| тип | EOA (без код) | EOA (без код) |
+| Working tree | 7 715 files, 8 398 candidates | 0 |
+| `secrets/` | only demo key, CDP, render, glama, metal | 0 |
+| Git history (all objects) | 4 221 objects, 3 487 candidates | 0 |
+| Gmail (incl. "All Mail") | 400 self-sent emails, scan for 64-hex | 0 |
+| `AppData\Roaming\Code\User\globalStorage\kilocode.kilo-code` | **is empty** (0 files) | — |
+| Render env `WALLET_PRIVATE_KEY` | this is the **gas wallet** `0x9c1eb97e…`, not the receiver | — |
+| `Documents\Backups\kristo_wallet_key_0xE50c.txt` | this is the **demo** key (`0xE50c5212…`) | — |
+| `.agents/memory/*.md` in the worktree | only notes about Postgres/CoinGecko/GitHub | — |
+| **`secrets/` — attached directly, all 7 files** | every `0x`+64 hex | 0 |
+| **`chatbox-backup-2026-11-3.zip` (316 MB, 1 299 members)** | the whole archive, **decompressed** | 0 |
+| **`dsh-session-*.zip` (308 MB)** | the whole archive, **decompressed** | 0 |
+
+⚠️ **Methodological note, so the mistake is not repeated:** the first scan of the
+archives read the `.zip` files as raw bytes — that is useless, because zip is
+compressed and there is no visible text inside. The numbers above are from a
+**real** scan with decompression of every member. If anyone searches here again,
+they should decompress, not read raw.
+
+---
+
+## The on-chain evidence (12.11.2026, Base mainnet)
+
+This changes the question. Verified directly against `base-rpc.publicnode.com`:
+
+| | active `0xd4cdA900…` | old `0xd4cdA980…` |
+|---|---|---|
+| **nonce (sent tx)** | **0** | **0** |
+| type | EOA (no code) | EOA (no code) |
 | ETH | 0 | 0 |
 | **USDC** | **1.02** | 0 |
 
-⚠️ **НЕ тълкувай `nonce = 0` като „никой не е подписвал".** Първо го написах
-така и беше грешно. Доказателството: **всичките четири наши портфейла имат
-`nonce = 0`** — включително demo портфейлът `0xE50c5212…`, **чийто private ключ
-стои в `secrets/demo_private_key.txt` и с който сме плащали реални тестове**
-(Lumière, Lazaretto). Причината е самият рейл: x402 плаща чрез **EIP-3009
-`transferWithAuthorization`** — платецът подписва **офчейн**, а транзакцията
-подава facilitator-ът. Nonce-ът на платеца остава 0 завинаги, колкото и да е
-подписвал.
+⚠️ **DO NOT interpret `nonce = 0` as "nobody has signed".** I first wrote it that
+way and it was wrong. The proof: **all four of our wallets have `nonce = 0`** —
+including the demo wallet `0xE50c5212…`, **whose private key sits in
+`secrets/demo_private_key.txt` and with which we have paid real tests** (Lumière,
+Lazaretto). The reason is the rail itself: x402 pays via **EIP-3009
+`transferWithAuthorization`** — the payer signs **off-chain**, and the
+facilitator submits the transaction. The payer's nonce stays 0 forever, no matter
+how much they signed.
 
-Затова: **`nonce = 0` не е доказателство, че ключът е загубен, нито че е
-наличен.** Он-чейн данните са безмълвни по този въпрос.
+Therefore: **`nonce = 0` is not proof that the key is lost, nor that it is
+available.** The on-chain data is silent on this question.
 
-**И двата адреса имат ВАЛИДЕН EIP-55 checksum.** Това е доказателството, което
-държи: ако някой беше сбъркал цифра на ръка, case-шаблонът почти сигурно щеше
-да е грешен. Валиден checksum значи, че активният адрес е взет от **реален
-източник с правилен casing** — портфейл, генератор или explorer. **Не е
-печатна грешка на стария адрес.**
+**Both addresses have a VALID EIP-55 checksum.** This is the proof that holds: if
+someone had mistyped a digit by hand, the case pattern would almost certainly be
+wrong. A valid checksum means the active address was taken from a **real source
+with correct casing** — a wallet, a generator or an explorer. **It is not a typo
+of the old address.**
 
-### Какво следва от това
+### What follows from this
 
-Три възможности, и само три:
+Three possibilities, and only three:
 
-1. **Ключът/seed-ът е в MetaMask на собственика** (разширението е инсталирано в
-   Chrome: `nkbihfbeogaeaoehlefnkodbefgpgknn`). Тогава той може да подписва.
-2. **Портфейлът е създаден от seed фраза, записана на хартия/другаде.** Тогава
-   ключът е възстановим.
-3. **Ключът е бил генериран, адресът копиран, и ключът изхвърлен** — тогава
-   **1.02 USDC са невъзстановими** и е нужна ротация на payout адреса.
+1. **The key/seed is in the owner's MetaMask** (the extension is installed in
+   Chrome: `nkbihfbeogaeaoehlefnkodbefgpgknn`). Then he can sign.
+2. **The wallet was created from a seed phrase written down on paper/elsewhere.**
+   Then the key is recoverable.
+3. **The key was generated, the address copied, and the key thrown away** — then
+   **1.02 USDC is unrecoverable** and a rotation of the payout address is needed.
 
-След **седем** независими нулеви обиколки (вкл. двата големи архива и BIP-39
-seed фрази) най-вероятният отговор е **1 или 3**, а не „записан е във файл".
-Но **не твърди, че ключът не съществува** — кажи, че не е на диска.
+After **seven** independent zero rounds (incl. the two large archives and BIP-39
+seed phrases) the most likely answer is **1 or 3**, not "it is written in a file".
+But **do not claim that the key does not exist** — say that it is not on the disk.
 
-Ако стигнеш до 3, не спирай дотам: кажи какъв е пътят напред (нов портфейл +
-ротация на `payTo` в `config.py`, discovery документите и `paycheck.json`).
+If you reach 3, do not stop there: say what the way forward is (a new wallet +
+rotation of `payTo` in `config.py`, the discovery documents and `paycheck.json`).
 
 ---
 
-## Оловото, което трябва да проследиш
+## The lead you must follow
 
-Историята на git съдържа следното, и то е важно:
+The git history contains the following, and it matters:
 
 ```
 f6c40da  fix(storefront): dashboard advertises FEE RECEIVER
@@ -117,137 +119,140 @@ dcebafd  fix(wallet): unify x402 fee receiver address across all public specs
 d848a72  docs(status): key rotation done
 ```
 
-Има **два почти еднакви адреса**, които се различават по няколко знака:
+There are **two nearly identical addresses** that differ in a few characters:
 
 ```
-0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f   ← стар, "грешен", изгорен ключ, публикуван
-0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f   ← активният payTo
+0xd4cdA980839C8FED4374EE37EA8DBE8c4ECfd88f   ← old, "wrong", burned key, published
+0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f   ← the active payTo
                     ^^                  ^^
                     A900 vs A980        0DBE vs 8DBE
 ```
 
-**Отговори на тези въпроси с доказателство от кода/историята:**
+**Answer these questions with evidence from the code/history:**
 
-1. Активният `0xd4cdA900…` **печатна грешка** на `0xd4cdA980…` ли е, или са два
-   различни портфейла, създадени по различно време?
-2. Ако са два различни — **кой ги е създал и с какъв инструмент?** Търси скрипт
-   за генериране на портфейл, `Account.create()`, `eth_account`, MetaMask
-   инструкция, или бележка „нов портфейл".
-3. Ключът на активния `0xd4cdA900…` — **записан ли е някъде при създаването му?**
-   Ако да, къде. Ако не, кажи го изрично.
-4. Какво точно означава „burned key, published" в `f6c40da` — на кой адрес е
-   изгорен ключът и **публикуван ли е някъде, където още стои?**
+1. Is the active `0xd4cdA900…` a **typo** of `0xd4cdA980…`, or are they two
+   different wallets created at different times?
+2. If they are different — **who created them and with what tool?** Look for a
+   wallet generation script, `Account.create()`, `eth_account`, a MetaMask
+   instruction, or a note "new wallet".
+3. The key of the active `0xd4cdA900…` — **was it written down anywhere when it
+   was created?** If yes, where. If not, say so explicitly.
+4. What exactly does "burned key, published" mean in `f6c40da` — on which address
+   was the key burned and **was it published somewhere where it still sits?**
 
-Прочети `git show f6c40da`, `git show 8dc22e9`, `git show dcebafd`,
-`git show d848a72` и audit-а, на който `dcebafd` се позовава.
+Read `git show f6c40da`, `git show 8dc22e9`, `git show dcebafd`,
+`git show d848a72` and the audit that `dcebafd` refers to.
 
 ---
 
-## Къде още да погледнеш (неща, до които аз нямам достъп)
+## Where else to look (things I do not have access to)
 
-1. **Собствената си история на задачите и разговорите** — където си създавал
-   портфейла или си инструктирал собственика как да го направи. Ако в нея има
-   ключ или път до ключ, това е отговорът.
-2. **`.kilo/worktrees/believed-dancer/`** — твоят собствен worktree. Прегледай го
-   за скриптове и бележки, които не са в основното дърво.
-3. **Скриптовете, които са пипали портфейла:**
-   `scripts/check_wallet_gas.py`, `scripts/render_e2e.py`,
-   `scripts/cdp_secret_tool.py`, `blockchain/wallet.py`,
-   `scripts/_seed_verify.py`, `scripts/_verify_seed_chain.py`.
-   Кой от тях е създал портфейла и откъде е взел ключа?
-4. **Откъде идва литералът в `config.py`?**
+1. **Your own task and conversation history** — where you created the wallet or
+   instructed the owner how to do it. If there is a key or a path to a key in it,
+   that is the answer.
+2. **`.kilo/worktrees/believed-dancer/`** — your own worktree. Go through it for
+   scripts and notes that are not in the main tree.
+3. **The scripts that touched the wallet:** `scripts/check_wallet_gas.py`,
+   `scripts/render_e2e.py`, `scripts/cdp_secret_tool.py`, `blockchain/wallet.py`,
+   `scripts/_seed_verify.py`, `scripts/_verify_seed_chain.py`. Which of them
+   created the wallet and where did it take the key from?
+4. **Where does the literal in `config.py` come from?**
    `BOUND_BASE_FEE_RECEIVER = "0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f"` —
-   кой комит го е добавил и какво пише в съобщението му?
-5. **Chrome/MetaMask.** В Chrome е инсталиран MetaMask
-   (`nkbihfbeogaeaoehlefnkodbefgpgknn`). Ако собственикът държи ключа там, кажи
-   го — това е валиден отговор и е добър, защото означава, че той може да
-   подписва. Не се опитвай да разбиваш хранилището на MetaMask.
-6. **Viber** — собственикът казва, че веднъж е пращал ключа и там. Кажи дали
-   Viber съхранява история на съобщенията локално и къде, ако да.
+   which commit added it and what does its message say?
+5. **Chrome/MetaMask.** MetaMask is installed in Chrome
+   (`nkbihfbeogaeaoehlefnkodbefgpgknn`). If the owner holds the key there, say so
+   — that is a valid answer and a good one, because it means he can sign. Do not
+   try to break into the MetaMask vault.
+6. **Viber** — the owner says he once sent the key there too. Say whether Viber
+   stores message history locally and where, if yes.
 
 ---
 
-## Какво искам накрая
+## What I want in the end
 
-Едно от следните, с доказателство:
+One of the following, with evidence:
 
-- **„Ключът е в `<пълен път>`"** — и аз ще го прочета.
-- **„Ключът е в MetaMask/браузър на собственика"** — с обосновка.
-- **„Ключът не е записан на диска, защото `<причина>`"** — и тогава кажи какъв
-  е пътят напред: нов портфейл и ротация, или възстановяване от seed фраза.
+- **"The key is in `<full path>`"** — and I will read it.
+- **"The key is in MetaMask/the owner's browser"** — with justification.
+- **"The key is not written on the disk because `<reason>`"** — and then say what
+  the way forward is: a new wallet and rotation, or recovery from the seed
+  phrase.
 
-**Не приключвай със „не мога да го намеря".** Приключи с едно от трите.
-
----
-
-## Защо това е спешно (контекст, който нямаш)
-
-Този адрес получава **всеки приход на проекта** — 91 сетълмента досега, расте с
-всяка продажба. Без ключ:
-
-- не могат да се изтеглят парите;
-- не можем да подпишем заявки при външни каталози, които искат доказателство за
-  собственост (Settled иска точно това и заради това не можем да заявим
-  страницата си там);
-- смяна на payout адрес по-късно е много по-скъпа, след като купувачи и
-  каталози вече сочат към него.
-
-Затова не търся „един ключ". Търся **дали съществува човек, който може да
-подпише с този адрес.**
+**Do not end with "I cannot find it".** End with one of the three.
 
 ---
 
-## 13.11.2026 — собственикът отвори MetaMask. Ето какво има вътре
+## Why this is urgent (context you do not have)
 
-Собственикът погледна портфейла си и подаде списъка с акаунти. Това е първото
-**пряко** доказателство, че някой държи нещо, и стеснява въпроса значително.
+This address receives **every revenue of the project** — 91 settlements so far,
+growing with every sale. Without the key:
 
-| Акаунт | Показано | Идентификация |
+- the money cannot be withdrawn;
+- we cannot sign applications with external catalogs that require proof of
+  ownership (Settled asks for exactly this and that is why we cannot apply for
+  our page there);
+- changing the payout address later is much more expensive once buyers and
+  catalogs already point to it.
+
+So I am not looking for "a key". I am looking for **whether there exists a person
+who can sign with this address.**
+
+---
+
+## 13.11.2026 — the owner opened MetaMask. Here is what is inside
+
+The owner looked at his wallet and handed over the list of accounts. This is the
+first **direct** evidence that someone holds something, and it narrows the
+question considerably.
+
+| Account | Shown | Identification |
 |---|---|---|
-| Account 1 | `0xd4cdA...fd88f` | **двусмислено — виж по-долу** |
-| Account 2 | `0xaE8B6...3917C` | **неизвестен** — не се среща в код, история, документи или архив |
-| Account 3 | `0x9c1eb...750dd` | = `WALLET_PRIVATE_KEY`, газовият портфейл (HANDOVER.md:2123) |
+| Account 1 | `0xd4cdA...fd88f` | **ambiguous — see below** |
+| Account 2 | `0xaE8B6...3917C` | **unknown** — does not appear in code, history, documents or archive |
+| Account 3 | `0x9c1eb...750dd` | = `WALLET_PRIVATE_KEY`, the gas wallet (HANDOVER.md:2123) |
 
-**Account 3 вече е бил известен.** Това е газовият/горещ портфейл, чийто ключ е
-изгорен и публикуван (27.08 FREEZE). Присъствието му в MetaMask не помага — той
-никога не е получавал приход и не трябва да се финансира.
+**Account 3 was already known.** This is the gas/hot wallet whose key is burned
+and published (27.08 FREEZE). Its presence in MetaMask does not help — it has
+never received revenue and must not be funded.
 
-**Account 1 е двусмислен и НЕ може да се реши с четене.** Двата кандидата
-съвпадат в първите 5 знака (`d4cdA`), затова MetaMask ги показва еднакво
-съкратени; различават се само в един знак, който елипсата крие:
+**Account 1 is ambiguous and CANNOT be decided by reading.** The two candidates
+match in the first 5 characters (`d4cdA`), so MetaMask shows them abbreviated
+identically; they differ only in one character that the ellipsis hides:
 
-| | пълен адрес | последни 4 | USDC |
+| | full address | last 4 | USDC |
 |---|---|---|---|
-| активен payTo | `0xd4cdA9`**`0`**`0839c0feD4374EE37EA0dbe8E4C6fd08f` | `d08f` | **1.02** |
-| стар грешен | `0xd4cdA9`**`8`**`0839C8FED4374EE37EA8DBE8c4ECfd88f` | `d88f` | 0.00 |
+| active payTo | `0xd4cdA9`**`0`**`0839c0feD4374EE37EA0dbe8E4C6fd08f` | `d08f` | **1.02** |
+| old wrong | `0xd4cdA9`**`8`**`0839C8FED4374EE37EA8DBE8c4ECfd88f` | `d88f` | 0.00 |
 
-Показаното съдържа `d88f` (последните 4), тоест сочи към **стария** адрес. Но
-`0` срещу `8` е точно символът, който се размазва, и собственикът подаде един и
-същ низ два пъти — вероятно е чел един и същ екран, а не две независими
-наблюдения. Затова **не се приема за решено.** Нужен е или пълният адрес
-(копиран), или подпис.
+What was shown contains `d88f` (the last 4), that is, it points to the **old**
+address. But `0` versus `8` is exactly the character that blurs, and the owner
+submitted the same string twice — probably he read the same screen, not two
+independent observations. Therefore **it is not accepted as settled.** Either the
+full address (copied) or a signature is needed.
 
-**И двата кандидата имат валидна EIP-55 контролна сума** (проверено с
-`eth_utils.to_checksum_address`) — тоест старият адрес не е печатна грешка в
-низа, а реален адрес, който някой може да притежава.
+**Both candidates have a valid EIP-55 checksum** (verified with
+`eth_utils.to_checksum_address`) — that is, the old address is not a typo in the
+string, but a real address that someone may own.
 
-**Провери и сам:** и двата имат nonce 0 и 0 ETH. Това не е доказателство за
-нищо — виж бележката за EIP-3009 по-горе.
+**Check it yourself too:** both have nonce 0 and 0 ETH. That is not proof of
+anything — see the note about EIP-3009 above.
 
-### Какво следва
+### What follows
 
-1. Собственикът копира **пълния** адрес на Account 1 (влиза в акаунта, не чете
-   от списъка) → сравняваме с таблицата. Това решава въпроса.
-2. Ако е активният payTo — ключът е в MetaMask и собственикът може да подписва;
-   изобщо не е нужно ключът да напуска портфейла.
-3. Ако е старият — тогава **1.02 USDC седят на адрес без ключ**, а активният
-   payTo не е в този портфейл. Тогава пътят напред е друг: търсим трети
-   портфейл/seed фраза, или ротация на payout адреса.
+1. The owner copies the **full** address of Account 1 (enters the account, does
+   not read from the list) → we compare with the table. That settles the
+   question.
+2. If it is the active payTo — the key is in MetaMask and the owner can sign;
+   there is no need at all for the key to leave the wallet.
+3. If it is the old one — then **1.02 USDC sits on an address without a key**,
+   and the active payTo is not in this wallet. Then the way forward is different:
+   we look for a third wallet/seed phrase, or a rotation of the payout address.
 
-### Тестът, който не зависи от четене
+### The test that does not depend on reading
 
-Подпис е по-добър от копиран низ, защото не минава през човешко око. Искаме
-`personal_sign` на фиксиран текст; адресът се възстановява от подписа:
+A signature is better than a copied string, because it does not pass through a
+human eye. We want `personal_sign` of a fixed text; the address is recovered from
+the signature:
 
 ```python
 from eth_account.messages import encode_defunct
@@ -255,7 +260,6 @@ from eth_account import Account
 Account.recover_message(encode_defunct(text=FIXED_TEXT), signature=sig)
 ```
 
-Ако възстановеният адрес е активният payTo — имаме подписващ. Това е и
-подписът, който липсва на „settled" заявката. Ключът никога не напуска
+If the recovered address is the active payTo — we have a signer. This is also the
+signature that is missing on the "settled" application. The key never leaves
 MetaMask.
-

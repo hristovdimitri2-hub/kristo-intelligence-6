@@ -1,108 +1,110 @@
-# рџЊЌ KRISTO INTELLIGENCE вЂ” 90-РґРЅРµРІРµРЅ РїР»Р°РЅ Р·Р° РіР»РѕР±Р°Р»РЅР° РІРёРґРёРјРѕСЃС‚
+# 🌍 KRISTO INTELLIGENCE — 90-day plan for global visibility
 
-> **Р¦РµР»:** РЎРІРµС‚СЉС‚ РґР° РѕС‚РєСЂРёРµ API-С‚Рѕ. Р’СЃРµРєРё РєР°РЅР°Р», РІСЃСЏРєР° РґРёСЂРµРєС‚РѕСЂРёСЏ, РІСЃСЏРєР° РѕР±С‰РЅРѕСЃС‚.
-> **РЇРґСЂРѕ:** https://kristo-intelligence-api.onrender.com
-> **РњРѕС‚Рѕ:** "Р‘РѕС‚СЉС‚, РєРѕР№С‚Рѕ РїР»Р°С‰Р° Р·Р° DeFi РёРЅС‚РµР»РёРіРµРЅС‚РЅРѕСЃС‚ СЃ 2 HTTP Р·Р°СЏРІРєРё."
+> **Goal:** Get the world to discover the API. Every channel, every directory,
+> every community.
+> **Core:** https://kristo-intelligence-api.onrender.com
+> **Motto:** "The bot that pays for DeFi intelligence with 2 HTTP requests."
 
 ---
 
-## вљЎ Р¤РђР—Рђ 0 вЂ” Р¤РЈРќР”РђРњР•РќРў (вњ… РР—РџРЄР›РќР•РќРћ)
+## ⚡ PHASE 0 — FOUNDATION (✅ DONE)
 
-| РђРєС‚РёРІ | РЎС‚Р°С‚СѓСЃ |
+| Asset | Status |
 |-------|--------|
-| Machine-readable discovery suite (x402.json, OpenAPI, MCP, llms.txt, agents.json) | вњ… Live |
-| SEO (robots.txt, sitemap.xml, https URLs) | вњ… Live |
-| PR в†’ awesome-x402 (#1308) вЂ” 2,4k+ Р·РІРµР·РґРё | рџџЎ Open |
-| PR в†’ awesome-mcp-servers (#13219 — чист; #12799 ЗАТВОРЕН 29.08) вЂ” 60k+ Р·РІРµР·РґРё | рџџЎ Open |
-| GitHub repo topics + РѕРїРёСЃР°РЅРёРµ + homepage | вњ… Live |
-| Discord webhook announcements | вњ… РР·РїСЂР°С‚РµРЅРё |
-| Marketing kit (docs/MARKETING_KIT.md) | вњ… Live |
-| Telegram Р±РѕС‚ @kristointelbot | вњ… РђРєС‚РёРІРµРЅ |
-| Stripe LIVE + x402 on-chain РїР»Р°С‰Р°РЅРёСЏ | вњ… РђРєС‚РёРІРЅРё |
+| Machine-readable discovery suite (x402.json, OpenAPI, MCP, llms.txt, agents.json) | ✅ Live |
+| SEO (robots.txt, sitemap.xml, https URLs) | ✅ Live |
+| PR → awesome-x402 (#1308) — 2,4k+ stars | 🟡 Open |
+| PR → awesome-mcp-servers (#13219 — clean; #12799 CLOSED 29.08) — 60k+ stars | 🟡 Open |
+| GitHub repo topics + description + homepage | ✅ Live |
+| Discord webhook announcements | ✅ Sent |
+| Marketing kit (docs/MARKETING_KIT.md) | ✅ Live |
+| Telegram bot @kristointelbot | ✅ Active |
+| Stripe LIVE + x402 on-chain payments | ✅ Active |
 
 ---
 
-## рџ”Ґ Р¤РђР—Рђ 1 (Р”РЅРё 1вЂ“14): Р”РћРњРРќРђР¦РРЇ РќРђ Р”РР Р•РљРўРћР РРРўР•
+## 🔥 PHASE 1 (Days 1–14): DIRECTORY DOMINANCE
 
-**РџСЂРёРЅС†РёРї:** Р’СЃСЏРєРѕ РјСЏСЃС‚Рѕ, РєСЉРґРµС‚Рѕ AI Р°РіРµРЅС‚Рё Рё dev-СЉСЂРё С‚СЉСЂСЃСЏС‚ РїР»Р°С‚РµРЅРё API-С‚Р° вЂ” С‚СЂСЏР±РІР° РґР° СЃРјРµ С‚Р°Рј. РўРѕРІР° Рµ РЅР°Р№-РІРёСЃРѕРєРѕРєРѕРЅРІРµСЂС‚РёСЂР°РЅРёСЏС‚ С‚СЂР°С„РёРє.
+**Principle:** Every place where AI agents and devs look for paid APIs — we must be
+there. This is the highest-converting traffic.
 
-### Р”РЅРё 1вЂ“3 вЂ” Glama + MCP СЂРµРіРёСЃС‚СЂРё (РњРћР–Р• Р”Рђ РЎР• РЎРўРђР РўРР Рђ Р’Р•Р”РќРђР“Рђ)
-| # | РљР°РЅР°Р» | URL | Р”РµР№СЃС‚РІРёРµ | РљРѕР№ |
+### Days 1–3 — Glama + MCP registries (CAN BE STARTED IMMEDIATELY)
+| # | Channel | URL | Action | Who |
 |---|-------|-----|----------|-----|
-| 1 | **Glama.ai MCP** | https://glama.ai/mcp/servers | Submit server Р·Р° evaluation в†’ quality score badge. Glama Р±РѕС‚-СЉС‚ РІРµС‡Рµ РЅРё РєР°РЅРё РІ PR #12799! | Р’РёРµ (Р°РєР°СѓРЅС‚) |
-| 2 | **Smithery.ai** | https://smithery.ai | Registry Р·Р° MCP servers вЂ” РѕРіСЂРѕРјРµРЅ С‚СЂР°С„РёРє РѕС‚ Claude/Cursor РїРѕС‚СЂРµР±РёС‚РµР»Рё | Р’РёРµ (Р°РєР°СѓРЅС‚) |
-| 3 | **mcp.run** | https://mcp.run | MCP registry РѕС‚ Cloudflare community | Р’РёРµ (Р°РєР°СѓРЅС‚) |
-| 4 | **PulseMCP** | https://www.pulsemcp.com | MCP РґРёСЂРµРєС‚РѕСЂРёСЏ + newsletter (30k+ Р°Р±РѕРЅР°С‚Рё) | Р’РёРµ (Р°РєР°СѓРЅС‚) |
+| 1 | **Glama.ai MCP** | https://glama.ai/mcp/servers | Submit server for evaluation → quality score badge. The Glama bot is already inviting us in PR #12799! | You (account) |
+| 2 | **Smithery.ai** | https://smithery.ai | Registry for MCP servers — huge traffic from Claude/Cursor users | You (account) |
+| 3 | **mcp.run** | https://mcp.run | MCP registry from the Cloudflare community | You (account) |
+| 4 | **PulseMCP** | https://www.pulsemcp.com | MCP directory + newsletter (30k+ subscribers) | You (account) |
 
-### Р”РЅРё 3вЂ“7 вЂ” x402 РµРєРѕСЃРёСЃС‚РµРјР°С‚Р° (РЅР°Р№-С‚РѕРїР»РёСЏС‚ С‚СЂР°С„РёРє)
-| # | РљР°РЅР°Р» | Р”РµР№СЃС‚РІРёРµ | РљРѕР№ |
+### Days 3–7 — the x402 ecosystem (the hottest traffic)
+| # | Channel | Action | Who |
 |---|-------|----------|-----|
-| 5 | **CDP x402 Bazaar** (Coinbase) | Р‘РѕС‚-СЉС‚ РѕС‚ PR-Р° СЃРїРѕРјРµРЅР° "Indexed on Bazaar" вЂ” РїРѕРґР°РІР°РјРµ СЃРµ РІ РѕС„РёС†РёР°Р»РЅР°С‚Р° Coinbase РґРёСЂРµРєС‚РѕСЂРёСЏ: https://www.cdp.ai / Bazaar listing РїСЂРµР· Base Discord #x402 | Р’РёРµ + Р°Р· (РіРѕС‚РѕРІСЏ С‚РµРєСЃС‚Р°) |
-| 6 | **agentic.market** | Agentic marketplace вЂ” РґСЂСѓРіРё x402 СѓСЃР»СѓРіРё СЃР° С‚Р°Рј | Р’РёРµ (Р°РєР°СѓРЅС‚) |
-| 7 | **Base Discord #x402 РєР°РЅР°Р»** | РџРѕСЃС‚ СЃ curl РґРµРјРѕ (С‚РµРєСЃС‚СЉС‚ Рµ РІ MARKETING_KIT.md В§4) | Р’РёРµ (5 РјРёРЅ) |
-| 8 | **orbisapi.com** | API РґРёСЂРµРєС‚РѕСЂРёСЏ, РІРёР¶РґР°РЅР° РІ РєРѕРЅРєСѓСЂРµРЅС‚РЅРё entries | Р’РёРµ (Р°РєР°СѓРЅС‚) |
+| 5 | **CDP x402 Bazaar** (Coinbase) | The bot from the PR mentioned "Indexed on Bazaar" — we submit ourselves to the official Coinbase directory: https://www.cdp.ai / Bazaar listing via Base Discord #x402 | You + me (I'm preparing the text) |
+| 6 | **agentic.market** | Agentic marketplace — other x402 services are there | You (account) |
+| 7 | **Base Discord #x402 channel** | Post with a curl demo (the text is in MARKETING_KIT.md §4) | You (5 min) |
+| 8 | **orbisapi.com** | API directory, seen in competitor entries | You (account) |
 
-### Р”РЅРё 7вЂ“14 вЂ” РЎРѕС†РёР°Р»РЅРё РїСЉСЂРІРё РІСЉР»РЅРё
-| # | РљР°РЅР°Р» | Р”РµР№СЃС‚РІРёРµ | РљРѕР№ |
+### Days 7–14 — First social waves
+| # | Channel | Action | Who |
 |---|-------|----------|-----|
-| 9 | **Twitter/X** | Launch РїРѕСЃС‚ (MARKETING_KIT В§1) + tag @coinbasedev, @x402org | Р’РёРµ |
-| 10 | **Reddit r/LocalLLaMA** (300k+ AI devs) | РўРµС…РЅРёС‡РµСЃРєРёСЏС‚ РїРѕСЃС‚ (MARKETING_KIT В§3) | Р’РёРµ |
-| 11 | **Reddit r/LangChain + r/Base** | РЎСЉС‰РёСЏС‚ РїРѕСЃС‚, Р°РґР°РїС‚РёСЂР°РЅ | Р’РёРµ |
-| 12 | **Reddit r/mcp** | MCP РѕР±С‰РЅРѕСЃС‚С‚Р° С‚СЉСЂСЃРё С‚РѕС‡РЅРѕ С‚Р°РєРёРІР° servers | Р’РёРµ |
+| 9 | **Twitter/X** | Launch post (MARKETING_KIT §1) + tag @coinbasedev, @x402org | You |
+| 10 | **Reddit r/LocalLLaMA** (300k+ AI devs) | The technical post (MARKETING_KIT §3) | You |
+| 11 | **Reddit r/LangChain + r/Base** | The same post, adapted | You |
+| 12 | **Reddit r/mcp** | The MCP community is looking for exactly such servers | You |
 
-**РљРџР• РЅР° С„Р°Р·Р°С‚Р°:** 12 РґРёСЂРµРєС‚РѕСЂРёРё/РєР°РЅР°Р»Р° Р°РєС‚РёРІРёСЂР°РЅРё.
+**KPI for the phase:** 12 directories/channels activated.
 
 ---
 
-## рџ“ќ Р¤РђР—Рђ 2 (Р”РЅРё 14вЂ“30): CONTENT ENGINE
+## 📝 PHASE 2 (Days 14–30): CONTENT ENGINE
 
-**РџСЂРёРЅС†РёРї:** Р”РёСЂРµРєС‚РѕСЂРёРёС‚Рµ РґР°РІР°С‚ РЅР°С‡Р°Р»РµРЅ С‚Р»Р°СЃСЉРє; РєРѕРЅС‚РµРЅС‚СЉС‚ РїРѕРґРґСЉСЂР¶Р° РїРѕС‚РѕРєР°.
+**Principle:** Directories give the initial push; content sustains the flow.
 
-| # | РђРєС‚РёРІ | Р¤РѕСЂРјР°С‚ | РљРѕР№ |
+| # | Asset | Format | Who |
 |---|-------|--------|-----|
-| 13 | DONE: published as npm package `kristo-x402-client` + demo repo | **dev.to СЃС‚Р°С‚СЊСЏ** | "How I built an API where HTTP 402 is the checkout" вЂ” С‚РµС…РЅРёС‡РµСЃРєРё РґСЉР»Р±РѕС‡РёРЅРµРЅ РїРѕСЃС‚ (Ghost = HN prep). РђР· РїРёС€Р° С‡РµСЂРЅРѕРІР°С‚Р° Р’Р•Р”РќРђР“Рђ (РІРёР¶ РїРѕ-РґРѕР»Сѓ). | РђР· РїРёС€Р° в†’ РІРёРµ РїСѓР±Р»РёРєСѓРІР°С‚Рµ |
-| 14 | **Hacker News Show HN** | РЎР»РµРґ 2-3 РґРЅРё СЃРѕС†РёР°Р»РЅРѕ РґРѕРєР°Р·Р°С‚РµР»СЃС‚РІРѕ в†’ Show HN (MARKETING_KIT В§6). РљСЂРёС‚РёС‡РЅРѕ: РїРѕС‡С‚РµРЅ С‚РѕРЅ, Р±РµР· РјР°СЂРєРµС‚РёРЅРі РіРѕРІРѕСЂ. | Р’РёРµ |
-| 15 | **Twitter thread (6 С‚СѓРёС‚Р°)** | Р Р°Р·Р±РёРІРєР° РЅР° Р°СЂС…РёС‚РµРєС‚СѓСЂР°С‚Р° СЃ РґРёР°РіСЂР°РјРё: 402 flow, on-chain monitor, agent discovery. РђР· РїРёС€Р° thread-Р°. | РђР· РїРёС€Р° в†’ РІРёРµ РїСѓСЃРєР°С‚Рµ |
-| 16 | **GitHub README badges** | Live status badge + x402 badge + Glama score (СЃР»РµРґ СЂРµРіРёСЃС‚СЂР°С†РёСЏ) вЂ” РїСЂР°РІРё repo-С‚Рѕ РїСЂРѕРґР°РІР°РµРјРѕ РЅР° РїСЂСЉРІ РїРѕРіР»РµРґ | вњ… РђР· (РёР·РїСЉР»РЅРµРЅРѕ РґРЅРµСЃ) |
-| 17 | **LinkedIn РїРѕСЃС‚** | B2B СЉРЅРіСЉР»: "Monetizing APIs for the agentic web" | Р’РёРµ |
+| 13 | DONE: published as npm package `kristo-x402-client` + demo repo | **dev.to article** | "How I built an API where HTTP 402 is the checkout" — technical deep-dive post (Ghost = HN prep). I write the draft IMMEDIATELY (see below). | I write → you publish |
+| 14 | **Hacker News Show HN** | After 2-3 days of social proof → Show HN (MARKETING_KIT §6). Critical: honest tone, no marketing talk. | You |
+| 15 | **Twitter thread (6 tweets)** | Breakdown of the architecture with diagrams: 402 flow, on-chain monitor, agent discovery. I write the thread. | I write → you post |
+| 16 | **GitHub README badges** | Live status badge + x402 badge + Glama score (after registration) — makes the repo sellable at first glance | ✅ Me (done today) |
+| 17 | **LinkedIn post** | B2B angle: "Monetizing APIs for the agentic web" | You |
 
 ---
 
-## рџ”„ Р¤РђР—Рђ 3 (РњРµСЃРµС† 2): COMMUNITY ENGAGEMENT LOOP
+## 🔄 PHASE 3 (Month 2): COMMUNITY ENGAGEMENT LOOP
 
-**РџСЂРёРЅС†РёРї:** РќРµ СЃРїР°Рј вЂ” РїСЂРёСЃСЉСЃС‚РІРёРµ. 30 РјРёРЅСѓС‚Рё РЅР° РґРµРЅ, РІСЃРµРєРё РґРµРЅ.
+**Principle:** No spam — presence. 30 minutes a day, every day.
 
-| РђРєС‚РёРІ | Р РёС‚СЉРј | РљР°РЅР°Р»Рё |
+| Asset | Cadence | Channels |
 |-------|-------|--------|
-| РћС‚РіРѕРІР°СЂСЏРЅРµ РЅР° РІСЉРїСЂРѕСЃРё Р·Р° x402/MCP/Base | Р”РЅРµРІРЅРѕ | Base Discord, x402 Discord, r/BaseChain, r/mcp |
-| "Built with x402" РґРµРјРѕ С‚СѓРёС‚РѕРІРµ | 2Г—/СЃРµРґРјРёС†Р° | Twitter (РєСЂРѕС‚РєРё screen recordings РЅР° dashboard-Р°) |
-| РџРѕРґРѕР±СЂРµРЅРёСЏ РїРѕ СЃРёРіРЅР°Р»РёС‚Рµ РѕС‚ РїРѕС‚СЂРµР±РёС‚РµР»Рё | РЎРµРґРјРёС‡РЅРѕ | Git commits в†’ РїРѕРєР°Р·РІР°С‚ Р°РєС‚РёРІРЅРѕСЃС‚ РІ РґРёСЂРµРєС‚РѕСЂРёРёС‚Рµ |
-| Newsletter РєРѕРјРµРЅС‚Р°СЂРё (Bankless, The Defiant) | РџСЂРё СЃР»СѓС‡Р°Р№ | РљРѕРіР°С‚Рѕ С‚РµРјР°С‚Р° Рµ x402/agents вЂ” РєРѕРјРµРЅС‚РёСЂР°РјРµ СЃ РѕРїРёС‚ |
+| Answering questions about x402/MCP/Base | Daily | Base Discord, x402 Discord, r/BaseChain, r/mcp |
+| "Built with x402" demo tweets | 2×/week | Twitter (short screen recordings of the dashboard) |
+| Improvements based on user signals | Weekly | Git commits → show activity in the directories |
+| Newsletter comments (Bankless, The Defiant) | On occasion | When the topic is x402/agents — we comment with experience |
 
 ---
 
-## рџљЂ Р¤РђР—Рђ 4 (РњРµСЃРµС† 3): РЎРљРђР›РР РђРќР•
+## 🚀 PHASE 4 (Month 3): SCALING
 
-| # | РђРєС‚РёРІ | РЈСЃР»РѕРІРёРµ |
+| # | Asset | Condition |
 |---|-------|---------|
-| 18 | **Product Hunt launch** | РЎР»РµРґ в‰Ґ3 sociР°Р»РЅРё proof С‚РѕС‡РєРё (РїР»Р°С‰Р°РЅРµ, Р·РІРµР·РґРё, Reddit upvotes) |
-| 19 | **Pitch РєСЉРј crypto media** (Bankless, The Defiant, CoinDesk) | РЎР»РµРґ РїСЉСЂРІРёС‚Рµ СЂРµР°Р»РЅРё РїСЂРёС…РѕРґРё вЂ” РёРјР°РјРµ РёСЃС‚РѕСЂРёСЏ |
-| 20 | **Affiliate/referral РїСЂРѕРіСЂР°РјРјР°** | 20% Р·Р° РІСЃРµРєРё РґРѕРІРµРґРµРЅ VIP вЂ” РєРѕРґ РІ main.py |
-| 21 | **YouTube dev РІРёРґРµРѕ** | "Adding x402 payments to your API in 10 minutes" СЃ Kristo РєР°С‚Рѕ РїСЂРёРјРµСЂ |
+| 18 | **Product Hunt launch** | After ≥3 social proof points (payment, stars, Reddit upvotes) |
+| 19 | **Pitch to crypto media** (Bankless, The Defiant, CoinDesk) | After the first real revenue — we have a story |
+| 20 | **Affiliate/referral program** | 20% for every referred VIP — code in main.py |
+| 21 | **YouTube dev video** | "Adding x402 payments to your API in 10 minutes" with Kristo as an example |
 
 ---
 
-## рџ“Љ РњР•РўР РРљР (РїСЂРѕРІРµСЂСЏРІР°РјРµ РІСЃСЏРєР° РЅРµРґРµР»СЏ)
+## 📊 METRICS (we check every week)
 
-| РњРµС‚СЂРёРєР° | РћС‚РєСЉРґРµ | Р¦РµР» РњРµСЃРµС† 1 | Р¦РµР» РњРµСЃРµС† 3 |
+| Metric | Source | Goal Month 1 | Goal Month 3 |
 |---------|--------|-------------|-------------|
-| External requests/РґРµРЅ | Render logs (Р±РµР· keep-alive IPs) | 20+ | 200+ |
-| РћРґРѕР±СЂРµРЅРё РґРёСЂРµРєС‚РѕСЂРёРё | PR merges + registrations | 5 | 12 |
-| Telegram Р°РєС‚РёРІРЅРё С‡Р°С‚РѕРІРµ | /api/bot-status | 3 | 30 |
-| РџСЉСЂРІРѕ РїР»Р°С‰Р°РЅРµ | check_revenue.py + Stripe | 1 | 10+ |
-| VIP Р°Р±РѕРЅР°С‚Рё | Stripe dashboard | 0вЂ“1 | 3вЂ“5 |
+| External requests/day | Render logs (excluding keep-alive IPs) | 20+ | 200+ |
+| Approved directories | PR merges + registrations | 5 | 12 |
+| Telegram active chats | /api/bot-status | 3 | 30 |
+| First payment | check_revenue.py + Stripe | 1 | 10+ |
+| VIP subscribers | Stripe dashboard | 0–1 | 3–5 |
 
-**РљРѕРјР°РЅРґР° Р·Р° СЃРµРґРјРёС‡РµРЅ С‡РµРє:**
+**Weekly check command:**
 ```
 curl -s https://kristo-intelligence-api.onrender.com/api/stats
 cd <local-path>
@@ -111,9 +113,12 @@ venv\Scripts\python.exe scripts\check_revenue.py
 
 ---
 
-## вљ пёЏ Р–Р•Р›Р•Р—РќР РџР РђР’РР›Рђ
+## ⚠️ IRON RULES
 
-1. **РќРёРєРѕРіР° РЅРµ СЃРїР°РјРІР°РјРµ** вЂ” РµРґРёРЅ РїРѕСЃС‚ РЅР° РєР°РЅР°Р», РїРѕСЃР»Рµ РѕС‚РіРѕРІР°СЂСЏРјРµ РЅР° РєРѕРјРµРЅС‚Р°СЂРёС‚Рµ.
-2. **Р’СЃСЏРєРѕ СЃРїРѕРјРµРЅР°РІР°РЅРµ РЅР° РєРѕРЅРєСѓСЂРµРЅС‚Рё Рµ СѓРІР°Р¶РёС‚РµР»РЅРѕ** вЂ” РѕР±С‰РЅРѕСЃС‚С‚Р° Рµ РјР°Р»РєР°, СЂРµРїСѓС‚Р°С†РёСЏС‚Р° Рµ РІСЃРёС‡РєРѕ.
-3. ** Р’СЃРµРєРё РІСЉРїСЂРѕСЃ РѕС‚ Р±РѕС‚/dev = РїСЂРёРѕСЂРёС‚РµС‚ в„–1** вЂ” РїСЉСЂРІРёСЏС‚ РїР»Р°С‚РµРЅ РєР»РёРµРЅС‚ РёРґРІР° РѕС‚ С‡РѕРІРµРє, РЅР° РєРѕРіРѕС‚Рѕ СЃРјРµ РїРѕРјРѕРіРЅР°Р»Рё.
-4. **Р§РµСЃС‚РЅРѕСЃС‚ РїСЂРё 402:** Р’РёРЅР°РіРё РєР°Р·РІР°РјРµ, С‡Рµ СЃРјРµ РЅРѕРІРё Рё РјР°Р»РєРё вЂ” Р°РІС‚РµРЅС‚РёС‡РЅРѕСЃС‚С‚Р° РєРѕРЅРІРµСЂС‚РёСЂР° РїРѕ-РґРѕР±СЂРµ РѕС‚ Р±Р»СЏСЃСЉРє.
+1. **We never spam** — one post per channel, then we answer the comments.
+2. **Every mention of competitors is respectful** — the community is small,
+   reputation is everything.
+3. ** Every question from a bot/dev = priority №1** — the first paying client
+   comes from a person we helped.
+4. **Honesty at 402:** We always say that we are new and small — authenticity
+   converts better than gloss.

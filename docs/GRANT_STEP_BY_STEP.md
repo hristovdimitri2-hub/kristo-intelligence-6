@@ -1,111 +1,116 @@
-# Грантът на Sentient Foundation — водене стъпка по стъпка
+# The Sentient Foundation Grant — step-by-step walkthrough
 
-> **Подадено на 20.11.2026 в 18:06.** Grant track, искане 25k, прикачен
-> `docs/GRANT_ONE_PAGER.pdf`. Този наръчник остава като запис как е минало
-> попълването — полезен е, ако някой ден кандидатстваме пак или ако ни върнат с
-> въпроси.
+> **Submitted on 20.11.2026 at 18:06.** Grant track, ask 25k, attached
+> `docs/GRANT_ONE_PAGER.pdf`. This walkthrough stays as a record of how the
+> submission went — it is useful if we ever apply again, or if they come back
+> with questions.
 
-Това е наръчникът, който държиш отворен, докато попълваш. Всичко останало —
-`GRANT_SUBMISSION_PACK.md` (точният текст за копиране), `GRANT_ONE_PAGER.html` (документът
-за прикачване) и `GRANT_SENTIENT_APPLICATION.md` (защо кандидатстваме точно така) — е
-подробност към него.
-
----
-
-## Първо: какво представлява формата (чети това преди да отвориш линка)
-
-Формата има **два клона** и клонът се избира от въпроса за пътя. Проверих логиката в самата
-форма:
-
-- **Избереш ли „Grant“ — формата е 7 екрана и свършва.** След прикачването на документа
-  скача директно на „благодарим“. **Не пита** за екип, за traction, за приходи, за рунда,
-  за видео, за условия.
-- **Избереш ли „Investment“ — формата е дългата версия** с екип, founder, traction, рунд,
-  видео и условия.
-
-Тоест: това, което ревюърът иска да знае за екипа и числата, **трябва да е в прикачения
-документ**, защото формата не го пита. Затова PDF-ът е по-важен от всеки отделен отговор.
-
-**Всички полета в клона „Grant“ са задължителни.** Опция няма. Едноредовият отговор е с
-лимит **80 знака**.
+This is the walkthrough you keep open while you fill it in. Everything else —
+`GRANT_SUBMISSION_PACK.md` (the exact text to copy), `GRANT_ONE_PAGER.html` (the
+document to attach) and `GRANT_SENTIENT_APPLICATION.md` (why we are applying
+exactly this way) — is detail hanging off it.
 
 ---
 
-## Преди да отвориш формата — приготви три неща
+## First: what the form actually is (read this before you open the link)
 
-**1. Линкът към LinkedIn.** Задължително поле, проверява се като адрес. Копирай го от
-адресната лента на браузъра, не от „share“ бутона на приложението. Трябва да започва с
+The form has **two branches**, and the branch is chosen by the question about the
+path. I checked the logic in the form itself:
+
+- **If you pick "Grant" — the form is 7 screens and it ends.** After you attach
+  the document it jumps straight to "thank you". It **does not ask** about team,
+  traction, revenue, the round, video or terms.
+- **If you pick "Investment" — the form is the long version** with team, founder,
+  traction, round, video and terms.
+
+That is: what the reviewer wants to know about the team and the numbers **has to
+be in the attached document**, because the form does not ask for it. That is why
+the PDF is more important than any individual answer.
+
+**All fields in the "Grant" branch are required.** There is no option. The one-line
+answer is limited to **80 characters**.
+
+---
+
+## Before you open the form — prepare three things
+
+**1. The LinkedIn link.** A required field, validated as an address. Copy it from
+the browser address bar, not from the app's "share" button. It must start with
 `https://www.linkedin.com/in/...`.
 
-**2. PDF-ът за прикачване.** Направи го така:
-- Отвори файла `docs/GRANT_ONE_PAGER.html` в браузър (двоен клик върху файла).
-- `Ctrl+P` → „Save as PDF“ / „Запази като PDF“.
-- Хартия **A4**, полета по подразбиране, **включи „Background graphics“** (иначе сивите
-  ленти изчезват).
-- Трябва да излязат **2 страници**. Ако излязат 3 — намали мащаба на 90% и пробвай пак.
+**2. The PDF to attach.** Make it like this:
+- Open the file `docs/GRANT_ONE_PAGER.html` in a browser (double-click the file).
+- `Ctrl+P` → "Save as PDF" / "Save as PDF".
+- Paper **A4**, default margins, **turn on "Background graphics"** (otherwise the
+  grey bars disappear).
+- You should get **2 pages**. If you get 3 — reduce the scale to 90% and try again.
 
-**3. Петте числа**, за да не ги търсиш по средата: 171 сетълмента, $1.883 брутно, 122 от
-тях са твоят собствен ключ ($1.685), 12 външни плащания ($0.054), 8 външни купувача.
+**3. The five numbers**, so you do not have to hunt for them halfway through: 171
+settlements, $1.883 gross, 122 of them are your own key ($1.685), 12 external
+payments ($0.054), 8 external buyers.
 
 ---
 
-## Линкът
+## The link
 
 **https://form.typeform.com/to/IRj7WaKH**
 
-Отваря се в браузър. Не иска регистрация и не иска вход — просто попълваш и натискаш
-„Submit“ накрая.
+It opens in a browser. It does not ask for registration and does not ask you to
+sign in — you just fill it in and press "Submit" at the end.
 
 ---
 
-## Екран 1 — „Open Source AGI Grants & Investment Program“
+## Screen 1 — "Open Source AGI Grants & Investment Program"
 
-Това е началният екран. Показва двата пътя и че грантът е кратък. Натисни **Apply Now**.
+This is the opening screen. It shows the two paths and that the grant is short.
+Press **Apply Now**.
 
 ---
 
-## Екран 2 — *Who are you?* (4 полета, всички задължителни)
+## Screen 2 — *Who are you?* (4 fields, all required)
 
-| поле | какво пишеш |
+| field | what you write |
 |---|---|
-| Your email address | твоят имейл — този, който четеш. Там отива решението. |
-| Share your LinkedIn | пълният адрес, копиран от браузъра |
+| Your email address | your email — the one you read. The decision goes there. |
+| Share your LinkedIn | the full address, copied from the browser |
 | What best describes your primary role? | **Founder** |
-| Where are you currently based? | Град, Държава |
+| Where are you currently based? | City, Country |
 
 ---
 
-## Екран 3 — *What are you building?* (6 полета, всички задължителни)
+## Screen 3 — *What are you building?* (6 fields, all required)
 
-Това е най-дългият екран. Шест полета, всяко иска различен отговор. Точният текст е в
-`GRANT_SUBMISSION_PACK.md`, раздел „Screen 3“ — копирай го поле по поле. Ето какво е важно
-за всяко:
+This is the longest screen. Six fields, each one asking for a different answer.
+The exact text is in `GRANT_SUBMISSION_PACK.md`, section "Screen 3" — copy it field
+by field. Here is what matters for each one:
 
-**3a. What problem are you solving, and why now?** — Двете повреди: `settlement_pending`
-(сетълментът е пратен, но не е потвърден, и „success: false“ лъже) и обявата, която се
-публикува, не е обявата, която е подписана. Завършва с „защо сега“: спецификацията се
-променя точно сега и conformance случаите още ги няма.
+**3a. What problem are you solving, and why now?** — The two failures:
+`settlement_pending` (the settlement has been sent but is not confirmed, and
+"success: false" lies) and the announcement that gets published is not the
+announcement that was signed. It ends with "why now": the spec is changing right
+now and the conformance cases do not exist yet.
 
-**3b. Who does this help?** — Продавачите на платени endpoint-и и агентите, които купуват от
-тях. И двете страни губят, когато едната вижда „success“, а другата не.
+**3b. Who does this help?** — The sellers of paid endpoints and the agents that
+buy from them. Both sides lose when one sees "success" and the other does not.
 
-**3c. In one line, what are you building?** — **Точно този ред, 68 знака:**
+**3c. In one line, what are you building?** — **Exactly this line, 68 characters:**
 
 > Paid endpoints for AI agents that prove a payment actually happened.
 
-Не го удължавай. Лимитът е 80 и полето може да отреже или да откаже.
+Do not make it longer. The limit is 80 and the field may truncate or reject it.
 
-**3d. Who is building this, and why are you the right one?** — Твоето име + едно изречение:
-ти си продавачът, който загуби парите и после измери защо. Това е квалификацията, не
-слайдът с екипа.
+**3d. Who is building this, and why are you the right one?** — Your name + one
+sentence: you are the seller who lost the money and then measured why. That is
+the qualification, not the team slide.
 
-**3e. What's open about it, and what would get worse if it closed tomorrow?** — MIT лиценз,
-цялото репо. Ако се затвори: conformance случаите, preview инструментът и честното
-разделяне на числата. Кажи и за кого точно — за следващия продавач, който ще прочете
-„success: false“ и ще откаже плащане, което вече е минало.
+**3e. What's open about it, and what would get worse if it closed tomorrow?** —
+MIT license, the whole repo. If it closed: the conformance cases, the preview
+tool and the honest breakdown of the numbers. Also say for whom exactly — for
+the next seller who will read "success: false" and decline a payment that has
+already gone through.
 
-**3f. Please provide demo or trial links** — Четири адреса, по един на ред. Първият трябва да
-е гол адрес (полето се проверява като website):
+**3f. Please provide demo or trial links** — Four addresses, one per line. The
+first must be a bare address (the field is validated as a website):
 ```
 https://kristo-intelligence-api.onrender.com
 https://github.com/hristovdimitri2-hub/kristo-intelligence-6
@@ -115,80 +120,90 @@ https://kristo-intelligence-api.onrender.com/.well-known/x402
 
 ---
 
-## Екран 4 — *Are you interested in applying for the grant track or the investment track?*
+## Screen 4 — *Are you interested in applying for the grant track or the investment track?*
 
-Цъкни **Grant**.
+Click **Grant**.
 
-**Внимание:** ако по погрешка избереш „Investment“, формата се превръща в дългата версия и
-ще те пита за оценка на компанията. Ако това стане — върни се назад и смени на Grant.
-
----
-
-## Екран 5 — *How much grant funding are you asking for?*
-
-Цъкни **25k**.
-
-Опциите са `10k` / `25k` / `50k` / `>50k`. Няма 3 000 и няма 30 000. 25k е най-близкото до
-обхвата; 10k е резервният вариант, ако решиш да искаш по-малко.
+**Warning:** if you pick "Investment" by mistake, the form turns into the long
+version and will ask you about the company valuation. If that happens — go back
+and switch to Grant.
 
 ---
 
-## Екран 6 — *What would the grant unlock?*
+## Screen 5 — *How much grant funding are you asking for?*
 
-Пет неща, по реда, в който излизат: conformance наборът (месец 2), preview инструментът
-(месец 3), `honest-revenue.json` схемата (месец 4), живият endpoint (постоянно), записът за
-работната група (месец 6). Завърши с това, което **не може** без гранта: обобщаването.
-Случаите сега живеят в едно Flask приложение; да ги накараш да работят срещу чужд сървър е
-седмици работа без търговска възвръщаемост.
+Click **25k**.
 
----
-
-## Екран 7 — *Please upload any supporting documents, decks, or research materials*
-
-Прикачи PDF-а от `GRANT_ONE_PAGER.html`. Той носи това, което формата не пита: екипа,
-честното разделяне на приходите, оценките от регистрите и милстоуните.
-
-**След този екран формата скача на „благодарим“.** Няма секция за екип, няма traction, няма
-въпрос за приходи, няма видео и няма чекбокс за условия. Не ги търси.
+The options are `10k` / `25k` / `50k` / `>50k`. There is no 3 000 and no 30 000.
+25k is the closest to the scope; 10k is the fallback option if you decide to ask
+for less.
 
 ---
 
-## След като натиснеш Submit
+## Screen 6 — *What would the grant unlock?*
 
-Страницата казва, че решението идва по имейл. Няма номер на заявление — ако искаш запис,
-направи screenshot на екрана „благодарим“. Друго не се иска.
-
----
-
-## Петте неща, които най-често се объркват
-
-1. **Едноредовият отговор над 80 знака.** Полето отрязва или отказва. Версията по-горе е 68.
-2. **LinkedIn като handle** (`/in/name`) вместо пълен адрес. Полето проверява за website.
-3. **Прикачване на `.md` файл.** Качва се документ; първо направи PDF.
-4. **Търсене на въпросите за екип и traction.** Те не са в клона „Grant“. Ако искаш тази
-   информация пред ревюъра, тя трябва да е в PDF-а.
-5. **Избиране на „Investment“ по погрешка.** Обръща цялата форма в дългата версия и иска
-   оценка. Правилното е Grant.
+Five things, in the order in which they come up: the conformance suite (month 2),
+the preview tool (month 3), the `honest-revenue.json` schema (month 4), the live
+endpoint (ongoing), the working-group record (month 6). End with what **cannot**
+be done without the grant: the generalization. The cases now live in one Flask
+app; making them run against someone else's server is weeks of work with no
+commercial return.
 
 ---
 
-## Какво остава само твое
+## Screen 7 — *Please upload any supporting documents, decks, or research materials*
 
-- Имейл адресът, който четеш.
-- LinkedIn адресът.
-- Градът и държавата.
-- Името ти в 3d и изречението какво си правил преди.
-- Превръщането на one-pager-а в PDF.
+Attach the PDF from `GRANT_ONE_PAGER.html`. It carries what the form does not
+ask: the team, the honest splitting of the revenue, the valuations from the
+registries and the milestones.
+
+**After this screen the form jumps to "thank you".** There is no team section, no
+traction, no question about revenue, no video and no checkbox for terms. Do not
+look for them.
 
 ---
 
-## Ако нещо се обърка по средата
+## After you press Submit
 
-- **Формата не приема LinkedIn адреса** → провери, че започва с `https://` и няма интервал
-  в края.
-- **PDF-ът е 3 страници** → намали мащаба на 90% при печата.
-- **Upload-ът отказва PDF-а** → провери размера; ако е над лимита, снимай го на 2 страници с
-  по-малък шрифт или качи само първата.
-- **Затвориш ли формата по средата** → Typeform помни отговорите в браузъра, но не винаги.
-  По-добре подготви текста предварително (той е в `GRANT_SUBMISSION_PACK.md`) и попълвай
-  наведнъж — седем екрана са 10–15 минути.
+The page says the decision comes by email. There is no application number — if
+you want a record, take a screenshot of the "thank you" screen. Nothing else is
+asked.
+
+---
+
+## The five things that most often get mixed up
+
+1. **A one-line answer over 80 characters.** The field truncates or rejects. The
+   version above is 68.
+2. **LinkedIn as a handle** (`/in/name`) instead of a full address. The field
+   validates for a website.
+3. **Uploading a `.md` file.** A document is uploaded; make a PDF first.
+4. **Looking for the team and traction questions.** They are not in the "Grant"
+   branch. If you want that information in front of the reviewer, it has to be
+   in the PDF.
+5. **Picking "Investment" by mistake.** It flips the whole form into the long
+   version and asks for a valuation. The right one is Grant.
+
+---
+
+## What remains yours alone
+
+- The email address you read.
+- The LinkedIn address.
+- The city and the country.
+- Your name in 3d and the sentence about what you did before.
+- Turning the one-pager into a PDF.
+
+---
+
+## If something goes wrong halfway through
+
+- **The form does not accept the LinkedIn address** → check that it starts with
+  `https://` and has no space at the end.
+- **The PDF is 3 pages** → reduce the scale to 90% when printing.
+- **The upload rejects the PDF** → check the size; if it is over the limit, shrink
+  it to 2 pages with a smaller font or upload only the first one.
+- **If you close the form halfway through** → Typeform remembers the answers in
+  the browser, but not always. Better to prepare the text in advance (it is in
+  `GRANT_SUBMISSION_PACK.md`) and fill it in in one go — seven screens are 10–15
+  minutes.

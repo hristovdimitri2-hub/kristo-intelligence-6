@@ -1,488 +1,488 @@
 # CONTEXT & ROADMAP — kristo-intelligence-6
 
-**Изготвен:** 2026-11-03 · **Час:** 13:10–13:35 (Europe/Sofia)
-**Ревизия, за която е валиден:** `9089ba5` — „audit-b1: stop key leaks" (2026-11-03 12:56:40 +0200)
-**Локален корен:** `<local-path>`
-**Отдалечено:** `github.com/hristovdimitri2-hub/kristo-intelligence-6` · `origin/main` = **`ae216f2`** (2026-11-01)
-**Репозиториум:** 352 комита, първи `619f005` (2026-08-19) · 29 untracked записа · лиценз MIT
+**Prepared:** 2026-11-03 · **Time:** 13:10–13:35 (Europe/Sofia)
+**Revision for which it is valid:** `9089ba5` — "audit-b1: stop key leaks" (2026-11-03 12:56:40 +0200)
+**Local root:** `<local-path>`
+**Remote:** `github.com/hristovdimitri2-hub/kristo-intelligence-6` · `origin/main` = **`ae216f2`** (2026-11-01)
+**Repository:** 352 commits, first `619f005` (2026-08-19) · 29 untracked entries · MIT license
 
-> **Обхват и ограничения:** документът е **само за четене** — консолидация на вече извършена работа. Не е променен нито един файл по кода, x402 хедърите, цените, `payTo`, защитените конфигурации или `secrets/`. Няма `git add/commit/push`. `secrets\` и `.env` не са отваряни. Всяка стъпка в §5 е **предложение**.
+> **Scope and limitations:** this document is **read-only** — a consolidation of work already done. Not a single file related to the code, the x402 headers, the prices, `payTo`, the protected configurations or `secrets/` was changed. There is no `git add/commit/push`. `secrets\` and `.env` were not opened. Every step in §5 is a **proposal**.
 >
-> **Защо това е важно:** `main` → авто-деплой на Render. Всяка промяна по `main` е продукционна промяна. Затова планът е разделен на вълни с изрични гейтове, а не на „списък със задачи".
+> **Why this matters:** `main` → auto-deploy on Render. Any change to `main` is a production change. That is why the plan is divided into waves with explicit gates, and not into a "to-do list".
 
 ---
 
-## 0. Резюме за ръководството
+## 0. Executive summary
 
-**Проектът е технически зрял, но търговски неизправен по три независими причини — и трите са поправими.**
+**The project is technically mature but commercially broken for three independent reasons — and all three are fixable.**
 
-| # | Проблем | Същност | Тежест |
+| # | Problem | Essence | Severity |
 |---|---|---|---|
-| 1 | **Платеното се раздава безплатно** | 3 от 6 платени SKU-та се получават с $0 през `/api/dashboard-stats` и `/api/dashboard/data`. Paywall-ът е декоративен. | 🔴 Блокиращ за бизнес модела |
-| 2 | **Подписът по плащането не е авторитет** | `accepted.amount` (от клиента) замества подписаната `authorization.value` → подплащане; при нечетим receipt доставката минава **fail-open**. | 🔴 Финансов риск |
-| 3 | **Продуктът не може да бъде намерен от купувач** | 3 индексируеми HTML страници в цялото приложение; нула OG/Twitter/canonical/JSON-LD; 0 analytics; `/f/<channel>` построен, но неизползван. | 🟠 Нулев органичен трафик |
+| 1 | **The paid data is handed out for free** | 3 of 6 paid SKUs are obtainable for $0 via `/api/dashboard-stats` and `/api/dashboard/data`. The paywall is decorative. | 🔴 Blocking for the business model |
+| 2 | **The payment signature is not authoritative** | `accepted.amount` (from the client) replaces the signed `authorization.value` → underpayment; when the receipt is unreadable, delivery goes **fail-open**. | 🔴 Financial risk |
+| 3 | **The product cannot be found by a buyer** | 3 indexable HTML pages in the whole application; zero OG/Twitter/canonical/JSON-LD; 0 analytics; `/f/<channel>` built but unused. | 🟠 Zero organic traffic |
 
-**Три факта, които изискват решение днес:**
+**Three facts that require a decision today:**
 
-1. **Два комита не са в продукция.** `origin/main` = `ae216f2` (01.11), а HEAD = `9089ba5`. Непубликувани са:
-   - `9089ba5` — **спира изтичането на ключове** (F-13/F-14/F-15/F-30);
-   - `66a0ce4` — **CDP Bazaar listing trigger** (02.11), който е предусловието за попадане в основния x402 индекс.
-   Тъй като `push` = авто-деплой, двете вървят заедно — решение на собственика, не автоматично действие.
+1. **Two commits are not in production.** `origin/main` = `ae216f2` (01.11), while HEAD = `9089ba5`. Unpublished are:
+   - `9089ba5` — **stops key leaks** (F-13/F-14/F-15/F-30);
+   - `66a0ce4` — **CDP Bazaar listing trigger** (02.11), which is the precondition for getting into the main x402 index.
+   Since `push` = auto-deploy, the two go together — an owner decision, not an automatic action.
 
-2. **Има противоречие за продукционния сървър.** `Procfile:1` и `Dockerfile` казват `gunicorn --workers 1 --threads 8`; `TASK.md:107` (снимка от 30.09) твърди, че продукцията работи на **`python main.py`** (werkzeug dev сървър) и че Procfile/gunicorn **не се ползва**. И двете не могат да са верни. Това променя целия анализ на конкурентността (§3.4). Изисква проверка в Render dashboard.
+2. **There is a contradiction about the production server.** `Procfile:1` and `Dockerfile` say `gunicorn --workers 1 --threads 8`; `TASK.md:107` (a snapshot from 30.09) claims that production runs on **`python main.py`** (werkzeug dev server) and that Procfile/gunicorn is **not used**. Both cannot be true. This changes the whole concurrency analysis (§3.4). It requires a check in the Render dashboard.
 
-3. **Финансовото състояние е ясно и малко.** Он-чейн: **16 реда / $0.052**; от тях **3 външни човешки портфейла / $0.011**, 7 sampler реда / $0.021, 6 canary реда / $0.020. Stripe: $34.80 върнато, **нетно $0.00**. Пазарът (самоизмерен): лидерът в PayAPI прави ~$1.2/месец при 2–4 купувача. **Трафик сам по себе си не решава нищо** — трябва точното малко трафик: агенти и оператори, които плащат.
+3. **The financial position is clear and small.** On-chain: **16 rows / $0.052**; of these **3 external human wallets / $0.011**, 7 sampler rows / $0.021, 6 canary rows / $0.020. Stripe: $34.80 refunded, **net $0.00**. The market (self-measured): the leader in PayAPI makes ~$1.2/month with 2–4 buyers. **Traffic by itself decides nothing** — what is needed is the right small traffic: agents and operators that pay.
 
-**Най-важният извод от цялата история:** единственият **потвърден външен платен трафик** идва от **машинно-четима директория за агенти** (`nohumans.directory` → 3 × $0.005 от `nohumans-scout`, 30.10), докато усилието е било хвърляно в човешки канали (Reddit, HN, Product Hunt), които **никога не са използвани**. Стратегията следва да последва доказаното: **машинни повърхности + измеримост**, а човешките канали — едва след като има какво да се покаже.
+**The most important conclusion from the whole history:** the only **confirmed external paid traffic** comes from a **machine-readable directory for agents** (`nohumans.directory` → 3 × $0.005 from `nohumans-scout`, 30.10), while the effort was being thrown into human channels (Reddit, HN, Product Hunt) that were **never used**. The strategy should follow what has been proven: **machine surfaces + measurability**, and human channels only once there is something to show.
 
 ---
 
-## 1. Източници, обхват и методология
+## 1. Sources, scope and methodology
 
-### 1.1 Използвани източници
+### 1.1 Sources used
 
-| Източник | Обем | Състояние |
+| Source | Volume | Status |
 |---|---|---|
-| `docs/PROJECT_CHRONOLOGY.md` | 264 реда / 23.5 KB | Прочетен. **Спира на 28.09** (маркер `<!-- CONT -->`) — не покрива последните ~5 седмици |
-| `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` | 573 реда / 98 KB | Прочетен изцяло (индекс F-01…F-40, §8 план, §9 ограничения, Приложение A) |
-| `PROJECT_STATUS.md` | 2633 реда / 272 KB | Прочетени актуалните секции (02.10 MIGUEL, ПАЗАРНА РЕКОНСТРУКЦИЯ, CURRENT STATE, OPEN ITEMS). Останалото е HISTORY |
-| `TASK.md` | 107 реда | Прочетен. **Снимка от 30.09** (`3661419`) — остарял |
-| `docs/VISIBILITY_AND_TRAFFIC_STRATEGY.md` | 457 реда / 54 KB | Прочетен (собствена изработка от 03.11) |
-| `git log` / `git show` | 352 комита | Извлечена историята 27.09 → 03.11 (70 комита) + диффът на `9089ba5` |
-| Технически SEO одит (паралелен агент) | — | Завършен; доказателства от кодовите генератори |
+| `docs/PROJECT_CHRONOLOGY.md` | 264 lines / 23.5 KB | Read. **Stops at 28.09** (marker `<!-- CONT -->`) — does not cover the last ~5 weeks |
+| `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` | 573 lines / 98 KB | Read in full (index F-01…F-40, §8 plan, §9 limitations, Appendix A) |
+| `PROJECT_STATUS.md` | 2633 lines / 272 KB | The current sections were read (02.10 MIGUEL, MARKET RECONSTRUCTION, CURRENT STATE, OPEN ITEMS). The rest is HISTORY |
+| `TASK.md` | 107 lines | Read. **Snapshot from 30.09** (`3661419`) — outdated |
+| `docs/VISIBILITY_AND_TRAFFIC_STRATEGY.md` | 457 lines / 54 KB | Read (own work from 03.11) |
+| `git log` / `git show` | 352 commits | The history 27.09 → 03.11 was extracted (70 commits) + the diff of `9089ba5` |
+| Technical SEO audit (parallel agent) | — | Completed; evidence from the code generators |
 
-### 1.2 Какво НЕ можа да бъде направено
+### 1.2 What could NOT be done
 
-- **`<local-path>` — директорията НЕ съществува.** Точка 3 от заявката (анализ на чат логове/експорт) е **неизпълнима** на тази машина: пътят не съществува, няма експорт. Алтернативата е използвана изцяло: `PROJECT_STATUS.md` + `docs/PROJECT_CHRONOLOGY.md` + `TASK.md` + `git log` дават същата информация с по-висока достоверност (правилото на архива: „при разминаване с чат историята вярва HISTORY").
-- **Продукционна проверка.** Няма достъп до Render dashboard/логове/БД. Твърденията за продукцията са от документи и от кода, маркирани като `[ДОКУМЕНТИРАНО]`.
-- **Платен E2E тест.** Не е извършван (изисква финансиран портфейл).
+- **`<local-path>` — the directory does NOT exist.** Item 3 of the request (analysis of chat logs/export) is **impossible** on this machine: the path does not exist, there is no export. The alternative was used in full: `PROJECT_STATUS.md` + `docs/PROJECT_CHRONOLOGY.md` + `TASK.md` + `git log` give the same information with higher reliability (the archive rule: "when in doubt versus the chat history, trust HISTORY").
+- **Production verification.** There is no access to the Render dashboard/logs/DB. The claims about production come from documents and from the code, marked as `[DOCUMENTED]`.
+- **Paid E2E test.** Has not been performed (it requires a funded wallet).
 
-### 1.3 Правило за четене на този документ
+### 1.3 How to read this document
 
-- `[ПРОВЕРЕНО]` — проверено в кода/git/на живо на 03.11.
-- `[ДОКУМЕНТИРАНО]` — идва от документ в репото, без независима проверка.
-- `[ЗА ПРОВЕРКА]` — противоречие между източници; изисква човешко потвърждение.
+- `[VERIFIED]` — verified in the code/git/live on 03.11.
+- `[DOCUMENTED]` — comes from a document in the repo, without independent verification.
+- `[TO VERIFY]` — a contradiction between sources; requires human confirmation.
 
 ---
 
-## 2. Кратко обобщение на извършената историческа работа
+## 2. Brief summary of the historical work performed
 
-### 2.1 Фази на проекта
+### 2.1 Project phases
 
-| Период | Фаза | Какво е постигнато | Източник |
+| Period | Phase | What was achieved | Source |
 |---|---|---|---|
-| **19.08** | Генезис | `619f005` „Initialize Kristo Intelligence Number 6" + внасяне на санитизиран snapshot като независим проект. Идеята: платен DeFi market-intelligence API за AI агенти на Base, плащане с x402 (402 → USDC → 200), без signup/абонамент/ключове | git, `TASK.md:11-21` |
-| **27.08** | **FREEZE** | Проектът спира (приоритет: freelance/CV). Събира се `State at freeze` + `Resume checklist`. Известни дупки: receiver ключ непотвърден, E2E непровеждан, изгорен `WALLET_PRIVATE_KEY` | `CHRONOLOGY:12-21` |
-| **29.08** | Growth sprint (resume) | Storefront фиксове LIVE (receiver, честни микро-цени, favicon); ново `services/connectors.py` — registry от 9 конектора + **STANDARD x402 EIP-3009 rail** през facilitator + L402 bridge + `/api/connectors` + quickstart. **108/108 теста**. Правило: две AI сесии не пушат едновременно | `CHRONOLOGY:23-31` |
-| **02.09** | 🏁 **Първа реална продажба** | PayAPI canary: **0.005 USDC** от външен tester (`0x7e6b…2b1c`, блок 50783187, 13:28:41 UTC). Root-cause веригата закърпена през 5 canary-та (CDP JWT claims, CDP body schema, v2 exact). Сървърът приема и двете форми. **124/124 теста** | `CHRONOLOGY:33-44` |
-| **03.09** | **ФАЗА ЗАВЪРШЕНА** | „Само проверка, нито една кодова промяна." Обявено: **product verified → GO-TO-MARKET**. Оттук започва търговската фаза, която е и настоящият проблем | `CHRONOLOGY:51-54` |
-| **05–08.09** | Правила и канали | Записани „ПОСТОЯННИ ОТБЕЛЕЖКИ" + „Планове при събития" (валидни за цялата история). Пълен одит на листинг каналите (`LISTING_CHANNELS_AUDIT.md`). Подаден PR в `awesome-remote-mcp-servers` | `CHRONOLOGY:56-78` |
-| **06.09** | Първи външен клиент | **`0x4dB7` плати 0.003 USDC** за `/api/v1/signal` — вердикт „LAUNCH SIGNAL", fingerprint = умерен multi-API оператор, не crawler | `CHRONOLOGY:62-68` |
-| **13.09** | 🔴 „Ден на истината" | Плътни on-chain хешове, **2 root-cause бъга**, гардове **C1/C2/H2**. Публикувана `GUARD_METHODOLOGY`. Одит 2 (Stripe/CRM/entitlements). Табло 2.0 | `PROJECT_STATUS:2117-2303` |
-| **14–15.09** | 🔴 **INCIDENT** | Платещ външен клиент (crawler `e3ba`) **отказан от C2 race → HTTP 401** след плащане (tx `0x06b4c8f2…58ce7`, блок 51313253, $0.003). Фикснат `8bdd45f` на 15.09. Гардовете никога не са отказвали **човешки** клиент; това е единственият отказ | `PROJECT_STATUS:34-46` |
-| **16.09** | Първи човешки платец | Първо плащане от човек (Starter $29 през Stripe) — крайъгълен камък на търговската валидация | `[ДОКУМЕНТИРАНО]` |
-| **20–25.09** | Одити и F1 гейт | Одити #4/#5; диагностициран и фикснат `c2_reorg_detected` loop (`8bdd45f`); дефиниран **F1 гейт** — „златната стъпка": реален E2E превод с demo портфейл. A1 живо, A2 no-pay E2E зелено, **липсва само финансиран ключ** | `PROJECT_STATUS:193-288` |
-| **27–28.09** | 🔧 Стабилизация | Реструктуриране на `PROJECT_STATUS.md`. Три коренни фикса: **flaky тестове** (`a3d4362` — production нишки не стартират под pytest), **placeholder-hash** (`9418c8f` — лаг-claim никога не записва `000…0`, с регресионен тест), **env-guard** (`ad3f642` — спира двойния boot → край на дублираните Telegram alerts). **422/422 теста** | `PROJECT_STATUS:26`, `TASK.md:36-40` |
-| **29.09–02.10** | 📊 Числата стават твърди | Корекции по дати (по production DB + блокови timestamps). **Miguel (ReturnCheck)** = **3-ти външен човешки платец** (01.10 17:46:35 UTC, 0.003 USDC, блок 52043724, директен ERC-20 transfer). Каса: **16 реда / $0.052** (on-chain баланс съвпада 1:1). Честна метрика: **3 души + 2 машини**. Първи бизнес диалог (обратен тест). **426/426 теста** | `PROJECT_STATUS:1-20` |
-| **08.10** | 🔒 Сигурност | `54a7ba3` — **9 security hardening фикса** (durability на rejected_signals, coingecko кеш, demo nonce, XFF fallback, logging, sentinel atomic, adopt nonce check, arb boundary, pinning) | git |
-| **11.10** | ⚡ Производителност | `858ad4c` — sargable day window + unified funnel scan + индекс `idx_request_log_path`: **cold build ~41 s → ~1 s**. `ecd2522` — 60 s TTL кеш за публичния dashboard payload. `4fb8c27` — A+ guards: poll receipt 4×2 s, след което fail-open override | git |
-| **13–24.10** | 🔧 x402 коректност и доверие | `10a3be0` Cache-Control no-store + CORS само на 402; `137b85a` openapi без x402 securityScheme; `10a3be0`… `12192bb`/`db6c8fc` **envelope-body-mirror** (402 тялото не се сортира, за да съвпада с хедъра); `386dc07` каноничен EIP-55 `payTo`; `16a3791`/`4c61a8d` **x402 Trust профил, badge, claim 4/4**; `c99be97` Sentinel седмичен доклад с 6 пазарни числа; `a1eeb79`/`3279f56` certifi bump/pin; `e2dc7ea` mcprush badge; `1912350` блог пост x401/x402 | git |
-| **30.10–01.11** | 📇 Листинги и валидация | `c1bbde4` README броят тестове 423 → **550**. `a6004bf` — validation labels (nohumans/organic), input schema в x402.json, 6 безплатни sample route-а, **550/550 зелени**. `648089c`/`6c46745`/`ae216f2` — временен `/.well-known/nohumans-claim` challenge (добавен, ротиран, премахнат след успешен claim) | git |
-| **02.11** | 📇 **Bazaar trigger** | `66a0ce4` — „echo extensions + resource in x402 payment payload (CDP bazaar listing trigger)". **НЕ е в продукция** (виж §0) | git |
-| **03.11** | 🔒 **audit-b1** | `9089ba5` — „stop key leaks": `.dockerignore` + `secrets/` + `*.mp4`; `redact_rpc()` на RPC грешките; `_redact_tg()` за Telegram токена; маскиране на env стойности в `_t2_render_env_check.py`. **НЕ е в продукция** | git |
+| **19.08** | Genesis | `619f005` "Initialize Kristo Intelligence Number 6" + importing a sanitized snapshot as an independent project. The idea: a paid DeFi market-intelligence API for AI agents on Base, payment with x402 (402 → USDC → 200), without signup/subscription/keys | git, `TASK.md:11-21` |
+| **27.08** | **FREEZE** | The project stops (priority: freelance/CV). `State at freeze` + `Resume checklist` are assembled. Known gaps: receiver key unconfirmed, E2E not run, burned `WALLET_PRIVATE_KEY` | `CHRONOLOGY:12-21` |
+| **29.08** | Growth sprint (resume) | Storefront fixes LIVE (receiver, honest micro-prices, favicon); new `services/connectors.py` — a registry of 9 connectors + **STANDARD x402 EIP-3009 rail** through the facilitator + L402 bridge + `/api/connectors` + quickstart. **108/108 tests**. Rule: two AI sessions do not push at the same time | `CHRONOLOGY:23-31` |
+| **02.09** | 🏁 **First real sale** | PayAPI canary: **0.005 USDC** from an external tester (`0x7e6b…2b1c`, block 50783187, 13:28:41 UTC). The root-cause chain patched through 5 canaries (CDP JWT claims, CDP body schema, v2 exact). The server accepts both forms. **124/124 tests** | `CHRONOLOGY:33-44` |
+| **03.09** | **PHASE COMPLETE** | "Verification only, not a single code change." Announced: **product verified → GO-TO-MARKET**. From here begins the commercial phase, which is also the current problem | `CHRONOLOGY:51-54` |
+| **05–08.09** | Rules and channels | "STANDING NOTES" + "Plans on events" were recorded (valid for the whole history). A full audit of the listing channels (`LISTING_CHANNELS_AUDIT.md`). A PR was submitted to `awesome-remote-mcp-servers` | `CHRONOLOGY:56-78` |
+| **06.09** | First external client | **`0x4dB7` paid 0.003 USDC** for `/api/v1/signal` — verdict "LAUNCH SIGNAL", fingerprint = a moderate multi-API operator, not a crawler | `CHRONOLOGY:62-68` |
+| **13.09** | 🔴 "Day of truth" | Dense on-chain hashes, **2 root-cause bugs**, guards **C1/C2/H2**. `GUARD_METHODOLOGY` published. Audit 2 (Stripe/CRM/entitlements). Dashboard 2.0 | `PROJECT_STATUS:2117-2303` |
+| **14–15.09** | 🔴 **INCIDENT** | A paying external client (crawler `e3ba`) was **rejected by the C2 race → HTTP 401** after payment (tx `0x06b4c8f2…58ce7`, block 51313253, $0.003). Fixed in `8bdd45f` on 15.09. The guards have never rejected a **human** client; this is the only rejection | `PROJECT_STATUS:34-46` |
+| **16.09** | First human payer | First payment from a human (Starter $29 via Stripe) — a milestone of commercial validation | `[DOCUMENTED]` |
+| **20–25.09** | Audits and the F1 gate | Audits #4/#5; the `c2_reorg_detected` loop diagnosed and fixed (`8bdd45f`); the **F1 gate** defined — "the golden step": a real E2E transfer with a demo wallet. A1 live, A2 no-pay E2E green, **only a funded key is missing** | `PROJECT_STATUS:193-288` |
+| **27–28.09** | 🔧 Stabilization | Restructuring of `PROJECT_STATUS.md`. Three root fixes: **flaky tests** (`a3d4362` — production threads do not start under pytest), **placeholder-hash** (`9418c8f` — the lag claim never writes `000…0`, with a regression test), **env-guard** (`ad3f642` — stops the double boot → an end to duplicated Telegram alerts). **422/422 tests** | `PROJECT_STATUS:26`, `TASK.md:36-40` |
+| **29.09–02.10** | 📊 The numbers become hard | Date corrections (based on the production DB + block timestamps). **Miguel (ReturnCheck)** = **3rd external human payer** (01.10 17:46:35 UTC, 0.003 USDC, block 52043724, direct ERC-20 transfer). Treasury: **16 rows / $0.052** (the on-chain balance matches 1:1). Honest metric: **3 humans + 2 machines**. First business dialogue (reverse test). **426/426 tests** | `PROJECT_STATUS:1-20` |
+| **08.10** | 🔒 Security | `54a7ba3` — **9 security hardening fixes** (durability of rejected_signals, coingecko cache, demo nonce, XFF fallback, logging, sentinel atomic, adopt nonce check, arb boundary, pinning) | git |
+| **11.10** | ⚡ Performance | `858ad4c` — sargable day window + unified funnel scan + index `idx_request_log_path`: **cold build ~41 s → ~1 s**. `ecd2522` — a 60 s TTL cache for the public dashboard payload. `4fb8c27` — A+ guards: poll receipt 4×2 s, then a fail-open override | git |
+| **13–24.10** | 🔧 x402 correctness and trust | `10a3be0` Cache-Control no-store + CORS only on 402; `137b85a` openapi without the x402 securityScheme; `10a3be0`… `12192bb`/`db6c8fc` **envelope-body-mirror** (the 402 body is not sorted, so that it matches the header); `386dc07` canonical EIP-55 `payTo`; `16a3791`/`4c61a8d` **x402 Trust profile, badge, claim 4/4**; `c99be97` Sentinel weekly report with 6 market numbers; `a1eeb79`/`3279f56` certifi bump/pin; `e2dc7ea` mcprush badge; `1912350` blog post x401/x402 | git |
+| **30.10–01.11** | 📇 Listings and validation | `c1bbde4` README test count 423 → **550**. `a6004bf` — validation labels (nohumans/organic), input schema in x402.json, 6 free sample routes, **550/550 green**. `648089c`/`6c46745`/`ae216f2` — a temporary `/.well-known/nohumans-claim` challenge (added, rotated, removed after a successful claim) | git |
+| **02.11** | 📇 **Bazaar trigger** | `66a0ce4` — "echo extensions + resource in x402 payment payload (CDP bazaar listing trigger)". **NOT in production** (see §0) | git |
+| **03.11** | 🔒 **audit-b1** | `9089ba5` — "stop key leaks": `.dockerignore` + `secrets/` + `*.mp4`; `redact_rpc()` on RPC errors; `_redact_tg()` for the Telegram token; masking of env values in `_t2_render_env_check.py`. **NOT in production** | git |
 
-### 2.2 Какво реално е постигнато (честната равносметка)
+### 2.2 What was actually achieved (the honest reckoning)
 
-**Силни страни (реални, проверими):**
-- Работещ x402 платежен рейл с **две релси** (v2 `PAYMENT-SIGNATURE`/`PAYMENT-REQUIRED` + legacy `X-Payment-Proof`), EIP-3009 `transferWithAuthorization`, facilitator верига PayAI→CDP със self-broadcast fallback.
-- **Потвърдени реални плащания** от външни портфейли (5 различни външни адреса), с on-chain доказателства и блокови номера.
-- Изградена **防护 срещу replay** (durable lock в `payment_guards`), изчисление на EIP-712 локално, проверки `auth.to == payTo` и `asset`.
-- **550 теста**, покриващи платежния плик, гардовете, реорг-детекцията, secret hygiene.
-- Изградени **машинно-четими повърхности**: `/.well-known/x402`, `/.well-known/x402.json`, `agents.json`, `/mcp.json`, `/openapi.json`, `/llms.txt`, `/robots.txt`, `/sitemap.xml`, `server.json` за официалния MCP Registry.
-- **MCP сървър** с 3 инструмента, листване в официалния MCP Registry (active, v6.0.0) и Glama connector.
-- Публикуван **npm пакет** `kristo-x402-client@1.0.0`.
-- Няколко външни потвърждения: x402 Trust **grade B**, PayAPI Market листинг, 1 merge в awesome-списък.
-- **Реален платен трафик от машина** през `nohumans.directory` (3 × $0.005).
+**Strengths (real, verifiable):**
+- A working x402 payment rail with **two rails** (v2 `PAYMENT-SIGNATURE`/`PAYMENT-REQUIRED` + legacy `X-Payment-Proof`), EIP-3009 `transferWithAuthorization`, a facilitator chain PayAI→CDP with self-broadcast fallback.
+- **Confirmed real payments** from external wallets (5 different external addresses), with on-chain evidence and block numbers.
+- Built-in **protection against replay** (durable lock in `payment_guards`), EIP-712 computation locally, checks `auth.to == payTo` and `asset`.
+- **550 tests**, covering the payment envelope, the guards, reorg detection, secret hygiene.
+- Built **machine-readable surfaces**: `/.well-known/x402`, `/.well-known/x402.json`, `agents.json`, `/mcp.json`, `/openapi.json`, `/llms.txt`, `/robots.txt`, `/sitemap.xml`, `server.json` for the official MCP Registry.
+- An **MCP server** with 3 tools, listed in the official MCP Registry (active, v6.0.0) and a Glama connector.
+- A published **npm package** `kristo-x402-client@1.0.0`.
+- Several external confirmations: x402 Trust **grade B**, a PayAPI Market listing, 1 merge into an awesome list.
+- **Real paid traffic from a machine** via `nohumans.directory` (3 × $0.005).
 
-**Слаби страни (също реални):**
-- **Нулева търговска валидация.** 3 човешки платеца за 2.5 месеца, общо $0.011 от външни човешки адреси; Stripe нетно $0.00.
-- **Продуктът се самоподкопава** — платените данни са налични безплатно (§4, F-01).
-- **Видимост почти нулева** — 3 индексируеми HTML страници, 0 OG тагове, 0 analytics (§4.4).
-- **Документацията изпреварва реалността.** „11 resources", „zero payment incidents", „Rug-risk checks", „$29 VIP unlimited" — всички са неверни или неизпълнени, а са в публични повърхности.
-- **Многократно повторени грешки в процеса:** подаване на PR без изпълнено предусловие (Glama quality score), записване на успех преди проверка (Smithery днес е 404), блокиране на готов outreach зад инженерен гейт.
+**Weaknesses (also real):**
+- **Zero commercial validation.** 3 human payers in 2.5 months, $0.011 in total from external human addresses; Stripe net $0.00.
+- **The product undercuts itself** — the paid data is available for free (§4, F-01).
+- **Visibility almost zero** — 3 indexable HTML pages, 0 OG tags, 0 analytics (§4.4).
+- **The documentation runs ahead of reality.** "11 resources", "zero payment incidents", "Rug-risk checks", "$29 VIP unlimited" — all are false or unfulfilled, and they sit on public surfaces.
+- **Process mistakes repeated many times:** submitting a PR without a fulfilled precondition (Glama quality score), recording a success before verification (Smithery is a 404 today), blocking ready outreach behind an engineering gate.
 
 ---
 
-## 3. Текущо състояние
+## 3. Current state
 
-### 3.1 Проверени факти (03.11.2026)
+### 3.1 Verified facts (03.11.2026)
 
-| Показател | Стойност | Статус |
+| Indicator | Value | Status |
 |---|---|---|
-| HEAD | `9089ba5` (03.11 12:56) | `[ПРОВЕРЕНО]` |
-| `origin/main` | `ae216f2` (01.11) | `[ПРОВЕРЕНО]` |
-| Непубликувани комита | **2** (`66a0ce4` Bazaar trigger, `9089ba5` key-leak fixes) | `[ПРОВЕРЕНО]` |
-| Общо комита | 352 (първи 19.08.2026) | `[ПРОВЕРЕНО]` |
-| Untracked записи | 29 (вкл. двата нови одитни документа, diff-файлове, `kristo-intelligence/`) | `[ПРОВЕРЕНО]` |
-| Тестове | **550 passed** (потвърден пълен прогон, 180.46 s, 1 DeprecationWarning) | `[ПРОВЕРЕНО]` |
-| Платени рута | **6**: `/api/v1/signal`, `/api/stats`, `/api/arb/opportunities`, `/api/bot-status`, `/api/sales`, `/api/v1/whaleflow` | `[ПРОВЕРЕНО]` |
-| Безплатни рута | 27 в allow-list + 6 `/sample` route-а | `[ПРОВЕРЕНО]` |
-| Цени | signal 0.003 · whaleflow 0.003 · arb 0.005 · stats 0.005 · sales 0.005 · bot-status 0.005 (`config.py:75-83`) | `[ПРОВЕРЕНО]` |
-| Free tier | `KRISTO_FREE_TIER_LIMIT` default **1** в кода; продукцията разчита на env **0** | `[ЗА ПРОВЕРКА]` |
-| Приходи он-чейн | **16 реда / $0.052** — 3 външни човека / $0.011 · 7 sampler / $0.021 · 6 canary / $0.020 | `[ДОКУМЕНТИРАНО]` (02.10) |
-| Stripe | $34.80 върнато, нетно **$0.00** | `[ДОКУМЕНТИРАНО]` |
-| MCP инструменти | 3 (`get_market_stats`, `get_onchain_sales`, `get_bot_status`) | `[ПРОВЕРЕНО]` |
-| Индексируеми HTML страници | **3** — `/` (en), `/launch` (bg), `/validation` (сирак) | `[ПРОВЕРЕНО]` |
-| Open Graph / Twitter / canonical / JSON-LD | **0 от 9** шаблона | `[ПРОВЕРЕНО]` |
-| Third-party analytics | **0** (няма gtag/plausible/umami/posthog и др.) | `[ПРОВЕРЕНО]` |
-| npm сваляния | **37** / 30 дни (пик 119 в деня на публикуване) | `[ПРОВЕРЕНО]` |
-| GitHub | 2 stars, 0 forks, 0 issues, 0 releases, **без `.github/`** | `[ПРОВЕРЕНО]` |
-| Индексирани страници (DuckDuckGo `site:`) | **1** (началната) | `[ПРОВЕРЕНО]` |
-| CDP Bazaar присъствие | **Непотвърдено** (първа страница: 46 записа, 12 доставчика, без нашия `payTo`) | `[ПРОВЕРЕНО]` |
+| HEAD | `9089ba5` (03.11 12:56) | `[VERIFIED]` |
+| `origin/main` | `ae216f2` (01.11) | `[VERIFIED]` |
+| Unpublished commits | **2** (`66a0ce4` Bazaar trigger, `9089ba5` key-leak fixes) | `[VERIFIED]` |
+| Total commits | 352 (first 19.08.2026) | `[VERIFIED]` |
+| Untracked entries | 29 (incl. the two new audit documents, diff files, `kristo-intelligence/`) | `[VERIFIED]` |
+| Tests | **550 passed** (confirmed full run, 180.46 s, 1 DeprecationWarning) | `[VERIFIED]` |
+| Paid routes | **6**: `/api/v1/signal`, `/api/stats`, `/api/arb/opportunities`, `/api/bot-status`, `/api/sales`, `/api/v1/whaleflow` | `[VERIFIED]` |
+| Free routes | 27 in the allow-list + 6 `/sample` routes | `[VERIFIED]` |
+| Prices | signal 0.003 · whaleflow 0.003 · arb 0.005 · stats 0.005 · sales 0.005 · bot-status 0.005 (`config.py:75-83`) | `[VERIFIED]` |
+| Free tier | `KRISTO_FREE_TIER_LIMIT` default **1** in the code; production relies on env **0** | `[TO VERIFY]` |
+| On-chain revenue | **16 rows / $0.052** — 3 external humans / $0.011 · 7 sampler / $0.021 · 6 canary / $0.020 | `[DOCUMENTED]` (02.10) |
+| Stripe | $34.80 refunded, net **$0.00** | `[DOCUMENTED]` |
+| MCP tools | 3 (`get_market_stats`, `get_onchain_sales`, `get_bot_status`) | `[VERIFIED]` |
+| Indexable HTML pages | **3** — `/` (en), `/launch` (bg), `/validation` (orphan) | `[VERIFIED]` |
+| Open Graph / Twitter / canonical / JSON-LD | **0 of 9** templates | `[VERIFIED]` |
+| Third-party analytics | **0** (no gtag/plausible/umami/posthog etc.) | `[VERIFIED]` |
+| npm downloads | **37** / 30 days (peak 119 on the day of publication) | `[VERIFIED]` |
+| GitHub | 2 stars, 0 forks, 0 issues, 0 releases, **no `.github/`** | `[VERIFIED]` |
+| Indexed pages (DuckDuckGo `site:`) | **1** (the home page) | `[VERIFIED]` |
+| CDP Bazaar presence | **Unconfirmed** (first page: 46 entries, 12 providers, without our `payTo`) | `[VERIFIED]` |
 
-### 3.2 Он-чейн и търговска картина
+### 3.2 On-chain and commercial picture
 
 ```
-Приходи (он-чейн, 16 реда / $0.052)
-├── Външни човешки платци:  3 портфейла / $0.011   ← реалната валидация
+Revenue (on-chain, 16 rows / $0.052)
+├── External human payers:   3 wallets / $0.011   ← the real validation
 │     ├── 0x4dB7   06.09  $0.003  /api/v1/signal
-│     ├── 0x902dcf (самостоятелен, без връзка с хъба)
+│     ├── 0x902dcf (standalone, no link to the hub)
 │     └── 0xce4fbd 01.10  $0.003  (Miguel / ReturnCheck)
-├── Sampler машини:         7 реда / $0.021
-│     └── 0x4c29ec (промотиран, hub-fed 0x6302; 353 получатели/13 дни)
-└── Canary (наши тестове): 6 реда / $0.020
+├── Sampler machines:        7 rows / $0.021
+│     └── 0x4c29ec (promoted, hub-fed 0x6302; 353 recipients/13 days)
+└── Canary (our tests):      6 rows / $0.020
 ```
 
-- **Мигел (ReturnCheck)** е единственият **бизнес диалог** — предложи обратен тест (ние плащаме на негов endpoint), насрочен след финансиране на demo портфейла.
-- **Клъстер хипотеза:** `0x6302` е hub-контракт, споделен фундър на `a19f`, `54e1`, `e3ba`, `4dB7` (седмични микросуми, двупосочни) → вероятно **един оператор зад клъстера**. Непотвърдено.
-- **F1 гейтът** (реален E2E превод с demo портфейл `0xE50c5212…35763`) остава **отворен** от 25.09 — блокира го само човешко действие: депозит ≥ 0.003 USDC + газ.
+- **Miguel (ReturnCheck)** is the only **business dialogue** — he proposed a reverse test (we pay his endpoint), scheduled after the demo wallet is funded.
+- **Cluster hypothesis:** `0x6302` is a hub contract, a shared funder of `a19f`, `54e1`, `e3ba`, `4dB7` (weekly micro-amounts, bidirectional) → probably **one operator behind the cluster**. Unconfirmed.
+- **The F1 gate** (a real E2E transfer with the demo wallet `0xE50c5212…35763`) remains **open** since 25.09 — it is blocked only by human action: a deposit of ≥ 0.003 USDC + gas.
 
-### 3.3 Разминавания и остаряла информация `[ЗА ПРОВЕРКА]`
+### 3.3 Discrepancies and outdated information `[TO VERIFY]`
 
-| Твърдение | Къде | Реалност |
+| Claim | Where | Reality |
 |---|---|---|
-| „Тестове 422/422" | `PROJECT_STATUS:26` | **550** (потвърдено) |
-| „Тестове 423/423" | `TASK.md:31` | **550** |
-| HEAD = `3661419`, 10 локални непушнати комита | `TASK.md:33` | HEAD = `9089ba5`, **2** непушнати |
-| HEAD = `66a0ce4`, 351 комита, 29 untracked | одитен доклад:495 | HEAD = `9089ba5`, 352 комита |
-| Продукцията работи на werkzeug dev сървър (`python main.py`), Procfile/gunicorn не се ползва | `TASK.md:107` | `Procfile:1` + `Dockerfile` CMD казват gunicorn. **Изисква проверка в Render** |
-| „11 resources" | `README.md:112` | **6** в кода (`main.py:2183`) |
-| „zero payment incidents" | `README.md:111` | Има INCIDENT 14.09 (401 след плащане) |
-| „Rug-risk checks" | `README.md:21` | Няма такъв route (само неизползван import) |
-| „$29 VIP — неограничен достъп" | `agents.json`, `/api/mcp/manifest`, npm README | **Не е имплементиран никъде**; има само $0.10 Telegram invite праг |
-| „Free tier: 1 call per client" | npm README, `ai-plugin.json:1511` | Продукцията работи с `KRISTO_FREE_TIER_LIMIT=0` |
-| „$0.05 USDC" / „USD 0.01" | npm README | Реално **0.003–0.005** |
-| `settlement_status: "discovery_only"` + „settlement is not enabled in this preview" | `main.py:1944`, `main.py:2161`, `docs/x402-client-example.js:26-33` | Противоречи на „settled through the Coinbase x402 facilitator" (`main.py:4054-4058`, `discovery.py:1019-1020`) — **директно противоречие в публични повърхности** |
-| „whaleflow sample = $0.005" | `discovery.py:440` | `config.py:83` = **0.003** |
-| Порог за кит: $50k | `PROJECT_STATUS:2440`, `WHALE_FLOW_SPEC:19` | Кодът: **$5,000,000** (`dashboard_store.py:98`) |
-| Хронология до „днес" | `PROJECT_CHRONOLOGY.md` | Спира на **28.09** (маркер `<!-- CONT -->`) |
-| ICP: „retail crypto трейдъри" + Meta/Google ads | `marketing/offer-and-ad-strategy.md:6-11`, `launch/launch-plan-30d.md:43` | Различен продукт от agent-paid API-то |
+| "Tests 422/422" | `PROJECT_STATUS:26` | **550** (confirmed) |
+| "Tests 423/423" | `TASK.md:31` | **550** |
+| HEAD = `3661419`, 10 local unpushed commits | `TASK.md:33` | HEAD = `9089ba5`, **2** unpushed |
+| HEAD = `66a0ce4`, 351 commits, 29 untracked | audit report:495 | HEAD = `9089ba5`, 352 commits |
+| Production runs on the werkzeug dev server (`python main.py`), Procfile/gunicorn is not used | `TASK.md:107` | `Procfile:1` + `Dockerfile` CMD say gunicorn. **Requires a check in Render** |
+| "11 resources" | `README.md:112` | **6** in the code (`main.py:2183`) |
+| "zero payment incidents" | `README.md:111` | There is an INCIDENT on 14.09 (401 after payment) |
+| "Rug-risk checks" | `README.md:21` | No such route (only an unused import) |
+| "$29 VIP — unlimited access" | `agents.json`, `/api/mcp/manifest`, npm README | **Not implemented anywhere**; there is only a $0.10 Telegram invite threshold |
+| "Free tier: 1 call per client" | npm README, `ai-plugin.json:1511` | Production runs with `KRISTO_FREE_TIER_LIMIT=0` |
+| "$0.05 USDC" / "USD 0.01" | npm README | Actually **0.003–0.005** |
+| `settlement_status: "discovery_only"` + "settlement is not enabled in this preview" | `main.py:1944`, `main.py:2161`, `docs/x402-client-example.js:26-33` | Contradicts "settled through the Coinbase x402 facilitator" (`main.py:4054-4058`, `discovery.py:1019-1020`) — **a direct contradiction on public surfaces** |
+| "whaleflow sample = $0.005" | `discovery.py:440` | `config.py:83` = **0.003** |
+| Whale threshold: $50k | `PROJECT_STATUS:2440`, `WHALE_FLOW_SPEC:19` | The code: **$5,000,000** (`dashboard_store.py:98`) |
+| Chronology up to "today" | `PROJECT_CHRONOLOGY.md` | Stops at **28.09** (marker `<!-- CONT -->`) |
+| ICP: "retail crypto traders" + Meta/Google ads | `marketing/offer-and-ad-strategy.md:6-11`, `launch/launch-plan-30d.md:43` | A different product from the agent-paid API |
 
-### 3.4 Архитектурна топология (с отворения въпрос)
+### 3.4 Architectural topology (with the open question)
 
 ```
-[ВАРИАНТ А — ако продукцията ползва Procfile/Dockerfile]
-  1 процес · gunicorn --workers 1 --threads 8 --timeout 120
-  → 8 нишки = ЦЯЛАТА HTTP способност (всяко блокиращо обаждане = −12.5%)
-  → + ~11 background нишки в СЪЩИЯ процес
+[OPTION A — if production uses Procfile/Dockerfile]
+  1 process · gunicorn --workers 1 --threads 8 --timeout 120
+  → 8 threads = the WHOLE HTTP capacity (every blocking call = −12.5%)
+  → + ~11 background threads in the SAME process
 
-[ВАРИАНТ Б — ако продукцията ползва `python main.py` (твърдение в TASK.md:107)]
-  1 процес · werkzeug dev server, app.run(host, port)
-  → Flask подава threaded=True по подразбиране → НЕОГРАНИЧЕН брой нишки
-  → dev сървър в продукция: без production hardening, слаба устойчивост
-  → същите ~11 background нишки в процеса
+[OPTION B — if production uses `python main.py` (the claim in TASK.md:107)]
+  1 process · werkzeug dev server, app.run(host, port)
+  → Flask passes threaded=True by default → an UNLIMITED number of threads
+  → dev server in production: no production hardening, weak resilience
+  → the same ~11 background threads in the process
 
-И в двата случая: ЕДИН процес, споделено in-RAM състояние,
-и ~11 фонови цикъла (monitor, dashboard scan, whale scan, agent, catalog,
+In both cases: ONE process, shared in-RAM state,
+and ~11 background loops (monitor, dashboard scan, whale scan, agent, catalog,
 stripe snapshot, arbitrage, sentinel, keep-alive, reorg-watch-per-call…).
 ```
 
-**Последица:** и при двата варианта анализът за споделено състояние, глобален DB lock и блокиращи бюджети остава в сила. Разликата е в капацитета на HTTP слоя и в production-readiness на сървъра.
+**Consequence:** in both variants the analysis of shared state, the global DB lock and the blocking budgets still holds. The difference is in the capacity of the HTTP layer and in the production-readiness of the server.
 
-### 3.5 Инфраструктурен инвентар
+### 3.5 Infrastructure inventory
 
-- **Приложение:** Flask 3.1.3, 44 `@app.route` в `main.py` + 26 blueprint рута, 345 `.py` файла, `main.py` = 5859 реда.
-- **Зависимости:** web3.py 7.16.0, psycopg[binary] 3.3.4 (Postgres, SQLite fallback), requests 2.34.2, `stripe==15.5.1`, `python-telegram-bot==22.8`, pytest 9.1.1, `cryptography>=42.0.0`.
-- **Контейнер:** non-root потребител `kristo`, HEALTHCHECK на 30 s.
-- **Документи:** `docs/` = 89 файла / ~0.57 MB (49 в SEO инвентара), 46 `.md`, 26 probe `.py`.
-- **Отсъстващи артефакти:** `.github/` (изцяло), `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `render.yaml`, `docs/README.md` индекс, `scripts/seo/`.
-- **Мъртви/неизползвани активи:** `templates/agent_playground.html` (наистина мъртъв — `/agents` прави 302 към `/dashboard` и никога не го рендерира); `docs/x402-client-example.js` (остарял и подвеждащ); `kristo-intelligence/` (untracked дубликат); `.kilo/worktrees/believed-dancer/` (пълен дублиращ worktree, игнориран само през `.git/info/exclude`).
-  - **ПОПРАВЕНО (2026-11-12):** `templates/public_activity.html` НЕ е мъртъв и не бива да се трие. Рендерира се от `src/nexus/distribution.py:153` (`/api/public/activity?format=html`), а blueprint-ът се регистрира в `src/nexus/__init__.py:125`, извикан от `main.py:5408 mount_nexus_engine(app)`. Пропуснат е при одита, защото `grep render_template main.py` не вижда blueprint-ите.
+- **Application:** Flask 3.1.3, 44 `@app.route` in `main.py` + 26 blueprint routes, 345 `.py` files, `main.py` = 5859 lines.
+- **Dependencies:** web3.py 7.16.0, psycopg[binary] 3.3.4 (Postgres, SQLite fallback), requests 2.34.2, `stripe==15.5.1`, `python-telegram-bot==22.8`, pytest 9.1.1, `cryptography>=42.0.0`.
+- **Container:** non-root user `kristo`, HEALTHCHECK every 30 s.
+- **Documents:** `docs/` = 89 files / ~0.57 MB (49 in the SEO inventory), 46 `.md`, 26 probe `.py`.
+- **Missing artifacts:** `.github/` (entirely), `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `render.yaml`, a `docs/README.md` index, `scripts/seo/`.
+- **Dead/unused assets:** `templates/agent_playground.html` (truly dead — `/agents` does a 302 to `/dashboard` and never renders it); `docs/x402-client-example.js` (outdated and misleading); `kristo-intelligence/` (an untracked duplicate); `.kilo/worktrees/believed-dancer/` (a full duplicate worktree, ignored only via `.git/info/exclude`).
+  - **CORRECTED (2026-11-12):** `templates/public_activity.html` is NOT dead and must not be deleted. It is rendered by `src/nexus/distribution.py:153` (`/api/public/activity?format=html`), and the blueprint is registered in `src/nexus/__init__.py:125`, called from `main.py:5408 mount_nexus_engine(app)`. It was missed during the audit because `grep render_template main.py` does not see blueprints.
 
 ---
 
-## 4. Регистър на критичните дефекти
+## 4. Register of critical defects
 
-> Пълните доказателства (файл:ред) са в `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` §0 (индекс F-01…F-40).
-> **Статус:** ✅ = адресиран в `9089ba5` (но **не е в продукция**); ⬜ = отворен.
+> The full evidence (file:line) is in `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` §0 (index F-01…F-40).
+> **Status:** ✅ = addressed in `9089ba5` (but **not in production**); ⬜ = open.
 
-### 4.1 🔴 P0 — блокиращи за бизнес модела (без тях таксуването е декоративно)
+### 4.1 🔴 P0 — blocking for the business model (without them billing is decorative)
 
-| ID | Дефект | Доказателство | Статус |
+| ID | Defect | Evidence | Status |
 |---|---|---|---|
-| **F-01** | **Платените данни се раздават безплатно.** `/api/dashboard-stats` се различава от платения `/api/stats` само по `recent_requests[-50:]`; `/api/dashboard/data` сервира история + китове + пълния `/api/sales` payload. **3 от 6 SKU-та са 100% заменими при $0** | `main.py:142-157, 3427-3428, 3986-3989, 5573-5582` | ⬜ |
-| **F-02** | **`accepted.amount` засенчва подписаната `authorization.value`** → подплащане. Доказано: `accepted.amount=5000` + подписано `value=1` → precheck връща `[]`; нечислов amount прескача проверката | `services/connectors.py:195-200` | ⬜ |
-| **F-03** | **Fail-open при нечетим receipt.** При грешка при четене на разписката платеното обаждане се **доставя**; `block_number`/`hash` остават `0`/`""`; `except` в confirmation проверката поглъща изключението и дава достъп | `main.py:3082-3110, 3132, 3158-3159` | ⬜ |
-| **F-04** | **4 ЗАПИСА на безплатен GET.** `guard_stats()` прави INSERT/DELETE в `payment_guards` — таблицата на replay-заключването — на анонимно четящ рут, който dashboard-ът poll-ва на всеки 45 s, под **същия `_pg_lock`** като `claim_payment_tx` | `integrations/dashboard_store.py:1542-1555` | ⬜ |
-| **F-05** | **Реорг никога не отменя кредитирано плащане** — `_detect_reorgs` само логва | `main.py:2631-2690`; `tests/test_reorg_watch.py` фиксира detection-only | ⬜ |
-| **F-06** | **Приемане по nonce без проверка за дълбочина** (depth 1) | `main.py:2321-2435, 2484` | ⬜ |
-| **F-07** | **Нула rate limit по платежния път**; газ-разходът се контролира от анонимен клиент; `maxFeePerGas = gas_price*2` без таван | `main.py:1406-1416, 3431-3523`; `connectors.py:350, 376` | ⬜ |
+| **F-01** | **The paid data is handed out for free.** `/api/dashboard-stats` differs from the paid `/api/stats` only in `recent_requests[-50:]`; `/api/dashboard/data` serves history + whales + the full `/api/sales` payload. **3 of 6 SKUs are 100% replaceable at $0** | `main.py:142-157, 3427-3428, 3986-3989, 5573-5582` | ⬜ |
+| **F-02** | **`accepted.amount` shadows the signed `authorization.value`** → underpayment. Proven: `accepted.amount=5000` + signed `value=1` → precheck returns `[]`; a non-numeric amount skips the check | `services/connectors.py:195-200` | ⬜ |
+| **F-03** | **Fail-open on an unreadable receipt.** If an error occurs while reading the receipt, the paid call is **delivered**; `block_number`/`hash` remain `0`/`""`; the `except` in the confirmation check swallows the exception and grants access | `main.py:3082-3110, 3132, 3158-3159` | ⬜ |
+| **F-04** | **4 WRITES on a free GET.** `guard_stats()` does INSERT/DELETE in `payment_guards` — the replay-lock table — on an anonymously read route that the dashboard polls every 45 s, under **the same `_pg_lock`** as `claim_payment_tx` | `integrations/dashboard_store.py:1542-1555` | ⬜ |
+| **F-05** | **A reorg never reverses a credited payment** — `_detect_reorgs` only logs | `main.py:2631-2690`; `tests/test_reorg_watch.py` pins detection-only | ⬜ |
+| **F-06** | **Acceptance by nonce without a depth check** (depth 1) | `main.py:2321-2435, 2484` | ⬜ |
+| **F-07** | **Zero rate limit on the payment path**; the gas spend is controlled by an anonymous client; `maxFeePerGas = gas_price*2` with no cap | `main.py:1406-1416, 3431-3523`; `connectors.py:350, 376` | ⬜ |
 
-### 4.2 🟠 P1 — стабилност, производителност, изтичане на информация
+### 4.2 🟠 P1 — stability, performance, information leakage
 
-| ID | Дефект | Доказателство | Статус |
+| ID | Defect | Evidence | Status |
 |---|---|---|---|
-| **F-08** | Един RPC доставчик (`https://mainnet.base.org`), без fallback, без cooldown при 429/`Retry-After` | `config.py:57` | ⬜ |
-| **F-09** | Една споделена DB връзка под глобален lock, отваряна **без `connect_timeout`** | `dashboard_store.py:307, 334-340, 342-372` | ⬜ |
-| **F-10** | `/health` зависи от DB → връща 503 → Render рестартира единствения worker → цикъл | `discovery.py:32-76` | ⬜ |
-| **F-11** | `/mcp/sse` е безплатен и неограничен; пинира 1 от 8 нишки за ≥15 s → **пълен DoS с шепа заявки** | `discovery.py:665-717` | ⬜ |
-| **F-12** | Неограничен thread-per-payment reorg watch + **нечанкнат `eth_getLogs(5000 блока)`** | `main.py:3217, 2321-2435, 2621-2628` | ⬜ |
-| **F-13** | Суровият RPC текст (`rpc_error`) се публикува на **безплатен** рут | `main.py:643 → 3792 → 3986` | ✅ `redact_rpc()` приложен (`main.py:642/645/771/780/1143/1160/1230/1237`) — **в продукция: не** |
-| **F-14** | Telegram bot token изтича в логовете през `requests` изключения (токенът е в URL-а) | `services/telegram_sales.py:72, 80-81, 198-212` | ✅ `_redact_tg()` приложен — **в продукция: не** |
-| **F-15** | `secrets/` се bake-ва в Docker образа (`.dockerignore` без запис) | `Dockerfile:29` | ✅ `secrets/`, `*.mp4`, `kristo_paid_demo_clip*` добавени — **в продукция: не** |
-| **F-22** | Статистическият агрегат: 12 заявки, 5 пълни сканирания; **528 ms при 46 301 реда** локално; в кода: „~783K реда, ~22 seq scans, измерени ~41 s на живо". Няма кеш на `/api/stats` и `/api/dashboard/data` | `main.py:3944-3945` | ⬜ |
-| **F-23** | Бюджетите за блокиране по платения път надхвърлят `--timeout 120` | одит §4 | ⬜ |
-| **F-24** | Stripe SDK: 80 s timeout × 3 retry-а на request пътя | одит §4 | ⬜ |
-| **F-25** | `_stripe_payment_snapshot_loop` **без `try/except`** — едно изключение убива цикъла | одит §4 | ⬜ |
-| **F-26** | `/api/launch/health` без auth | `main.py` | ⬜ |
-| **F-27** | `/api/connectors` разкрива hot wallet адрес, `gas=` и вътрешен маршрут | `services/connectors.py:950-1034` | ⬜ |
-| **F-28** | Render конфигурацията **не е версионирана** (`render.yaml` никога не е съществувал) | `git log --all -- render.yaml` → празно | ⬜ |
-| **F-29** | Админ токенът пада към `SESSION_SECRET` при липса на собствен | одит §6 | ⬜ |
-| **F-30** | Операторски скрипт принтира живи env стойности | `scripts/_t2_render_env_check.py` | ✅ маскиране добавено — **в продукция: не** |
-| **F-31** | Липсващи индекси по `request_log(user_agent)`, `(source)`, `(funnel)`; неограничени in-RAM карти | одит §4/§7 | ⬜ |
+| **F-08** | A single RPC provider (`https://mainnet.base.org`), no fallback, no cooldown on 429/`Retry-After` | `config.py:57` | ⬜ |
+| **F-09** | One shared DB connection under a global lock, opened **without `connect_timeout`** | `dashboard_store.py:307, 334-340, 342-372` | ⬜ |
+| **F-10** | `/health` depends on the DB → returns 503 → Render restarts the only worker → a loop | `discovery.py:32-76` | ⬜ |
+| **F-11** | `/mcp/sse` is free and unlimited; it pins 1 of 8 threads for ≥15 s → **a full DoS with a handful of requests** | `discovery.py:665-717` | ⬜ |
+| **F-12** | Unbounded thread-per-payment reorg watch + **an unchunked `eth_getLogs(5000 blocks)`** | `main.py:3217, 2321-2435, 2621-2628` | ⬜ |
+| **F-13** | The raw RPC text (`rpc_error`) is published on a **free** route | `main.py:643 → 3792 → 3986` | ✅ `redact_rpc()` applied (`main.py:642/645/771/780/1143/1160/1230/1237`) — **in production: no** |
+| **F-14** | The Telegram bot token leaks into the logs via `requests` exceptions (the token is in the URL) | `services/telegram_sales.py:72, 80-81, 198-212` | ✅ `_redact_tg()` applied — **in production: no** |
+| **F-15** | `secrets/` is baked into the Docker image (`.dockerignore` without an entry) | `Dockerfile:29` | ✅ `secrets/`, `*.mp4`, `kristo_paid_demo_clip*` added — **in production: no** |
+| **F-22** | The statistics aggregate: 12 queries, 5 full scans; **528 ms at 46 301 rows** locally; in the code: "~783K rows, ~22 seq scans, measured ~41 s live". There is no cache on `/api/stats` and `/api/dashboard/data` | `main.py:3944-3945` | ⬜ |
+| **F-23** | The blocking budgets on the paid path exceed `--timeout 120` | audit §4 | ⬜ |
+| **F-24** | Stripe SDK: an 80 s timeout × 3 retries on the request path | audit §4 | ⬜ |
+| **F-25** | `_stripe_payment_snapshot_loop` **without `try/except`** — one exception kills the loop | audit §4 | ⬜ |
+| **F-26** | `/api/launch/health` without auth | `main.py` | ⬜ |
+| **F-27** | `/api/connectors` exposes the hot wallet address, `gas=` and an internal route | `services/connectors.py:950-1034` | ⬜ |
+| **F-28** | The Render configuration is **not versioned** (`render.yaml` has never existed) | `git log --all -- render.yaml` → empty | ⬜ |
+| **F-29** | The admin token falls back to `SESSION_SECRET` when it has none of its own | audit §6 | ⬜ |
+| **F-30** | An operator script prints live env values | `scripts/_t2_render_env_check.py` | ✅ masking added — **in production: no** |
+| **F-31** | Missing indexes on `request_log(user_agent)`, `(source)`, `(funnel)`; unbounded in-RAM maps | audit §4/§7 | ⬜ |
 
-### 4.3 🟡 P2 — документация, твърдения, хигиена
+### 4.3 🟡 P2 — documentation, claims, hygiene
 
-| ID | Дефект | Статус |
+| ID | Defect | Status |
 |---|---|---|
-| **F-16** | `X-Payment-Proof` е препредаваем bearer токен върху публично публикувани данни | ⬜ |
-| **F-17** | Едно плащане може да достави два пъти при конкурентност | ⬜ |
-| **F-18** | `payment.amount_usdc` връща атомарни единици под име на USDC (5000 вместо 0.005) | ⬜ |
-| **F-19** | Рекламираните цени дрейфват от 402 предизвикателството в **5+ повърхности** | ⬜ |
-| **F-20** | „$29 VIP — неограничен достъп" не е имплементиран никъде | ⬜ |
-| **F-21** | `FREE_TIER_LIMIT` по подразбиране 1; продукцията разчита на env променлива, която не е документирана | ⬜ |
-| **F-32…F-40** | Дребни: количество/хигиена на документацията, противоречия между документи, мъртви активи | ⬜ |
-| **F-33** | `/validation` публикува живи платени адреси и остаряло число `550/550` | ⬜ |
+| **F-16** | `X-Payment-Proof` is a replayable bearer token over publicly published data | ⬜ |
+| **F-17** | A single payment can deliver twice under concurrency | ⬜ |
+| **F-18** | `payment.amount_usdc` returns atomic units under a USDC name (5000 instead of 0.005) | ⬜ |
+| **F-19** | The advertised prices drift from the 402 challenge on **5+ surfaces** | ⬜ |
+| **F-20** | "$29 VIP — unlimited access" is not implemented anywhere | ⬜ |
+| **F-21** | `FREE_TIER_LIMIT` defaults to 1; production relies on an env variable that is not documented | ⬜ |
+| **F-32…F-40** | Minor: documentation volume/hygiene, contradictions between documents, dead assets | ⬜ |
+| **F-33** | `/validation` publishes live paid addresses and the outdated number `550/550` | ⬜ |
 
-### 4.4 🟠 Видимост — констатации от техническия SEO одит
+### 4.4 🟠 Visibility — findings from the technical SEO audit
 
-| ID | Дефект | Доказателство |
+| ID | Defect | Evidence |
 |---|---|---|
-| **V-01** | **Само 3 индексируеми HTML страници** в цялото приложение. Няма `/pricing`, `/docs`, `/faq`, `/about`, `/mcp`, `/changelog`, `/guides`, `/blog`, нито per-route страници | SEO одит §8 |
-| **V-02** | **0 Open Graph / Twitter Card / canonical / JSON-LD от 9 шаблона** — всяко споделяне е гол URL | `grep` = 0 съвпадения |
-| **V-03** | **Sitemap-ът е счупен:** съдържа `/dashboard`, който има `<meta name="robots" content="noindex">` (приоритет 0.9, hourly!), и два 302 редиректа (`/agents`, `/nexus` → `/dashboard`); **пропуска** `/validation` и `/api/v1/quickstart`; няма `<lastmod>`; изброява `.txt`/`.json` като страници | `discovery.py:1387-1413`, `dashboard.html:6` |
-| **V-04** | **`/validation` е сирак** — не е линкнат от нито един шаблон и липсва в sitemap-а | SEO одит §1 |
-| **V-05** | **6 `/sample` route-а са невидими** — рекламирани само като `sample_url` в `/.well-known/x402.json`; липсват в sitemap, openapi, llms.txt и всички HTML | SEO одит §2 |
-| **V-06** | `llms.txt` документира **само legacy `X-Payment-Proof`** релсата; списъкът с 402 хедъри пропуска `PAYMENT-REQUIRED`/`PAYMENT-SIGNATURE` | `discovery.py:1588-1596, 1617-1621` |
-| **V-07** | **`settlement_status: "discovery_only"`** в две публични повърхности противоречи на „settled through the facilitator" в други две | `main.py:1944, 2161` vs `main.py:4054-4058`, `discovery.py:1019-1020` |
-| **V-08** | `agents.json` изброява **5** endpoint-а (липсва `/api/v1/whaleflow`), `/.well-known/x402` — 6, README — „11" | `discovery.py:1416-1482` |
-| **V-09** | `/mcp.json` дава **плоска цена 0.005** за всичките 6 инструмента → надтаксува signal/whaleflow (0.003) | `discovery.py:1026-1126` |
-| **V-10** | `/api/mcp/manifest` съдържа **VIP $29** (човешки Stripe tier) в машинен manifest | `discovery.py:874-881` |
-| **V-11** | **OPTIONS preflight на платените рута също получава 402** → счупва browser базирани x402 клиенти | `main.py:3379-3380` |
-| **V-12** | npm README (в самия пакет) съдържа **остарели цени** ($0.05, $29 VIP, „1 free call") и само legacy релсата → „handles x402 paywalls automatically" е **невярно за spec клиенти** | `packages/x402-client/README.md` |
-| **V-13** | `examples/demo_agent/demo_agent.py` е крехък: изисква 402, но при default `FREE_TIER_LIMIT=1` първото обаждане връща 200 → „UNEXPECTED status 200" и изгаря безплатното обаждане. Зависимостта от `KRISTO_FREE_TIER_LIMIT=0` е **недокументирана** | SEO одит §6 |
-| **V-14** | Няма GSC/Bing verification, няма analytics, няма IndexNow/sitemap ping, няма `X-Robots-Tag` | SEO одит §9 |
-| **V-15** | Един мъртъв шаблон (`agent_playground.html`; `public_activity.html` е ЖИВ — вж. бележката в инвентара по-горе) и един подвеждащ пример (`docs/x402-client-example.js`, твърди че сървърът не проверява proof хедъри — невярно) | SEO одит §1/§6 |
+| **V-01** | **Only 3 indexable HTML pages** in the whole application. There is no `/pricing`, `/docs`, `/faq`, `/about`, `/mcp`, `/changelog`, `/guides`, `/blog`, nor per-route pages | SEO audit §8 |
+| **V-02** | **0 Open Graph / Twitter Card / canonical / JSON-LD across 9 templates** — every share is a bare URL | `grep` = 0 matches |
+| **V-03** | **The sitemap is broken:** it contains `/dashboard`, which has `<meta name="robots" content="noindex">` (priority 0.9, hourly!), and two 302 redirects (`/agents`, `/nexus` → `/dashboard`); it **omits** `/validation` and `/api/v1/quickstart`; there is no `<lastmod>`; it lists `.txt`/`.json` as pages | `discovery.py:1387-1413`, `dashboard.html:6` |
+| **V-04** | **`/validation` is an orphan** — it is not linked from any template and is missing from the sitemap | SEO audit §1 |
+| **V-05** | **6 `/sample` routes are invisible** — advertised only as `sample_url` in `/.well-known/x402.json`; missing from the sitemap, openapi, llms.txt and all HTML | SEO audit §2 |
+| **V-06** | `llms.txt` documents **only the legacy `X-Payment-Proof`** rail; the list of 402 headers omits `PAYMENT-REQUIRED`/`PAYMENT-SIGNATURE` | `discovery.py:1588-1596, 1617-1621` |
+| **V-07** | **`settlement_status: "discovery_only"`** on two public surfaces contradicts "settled through the facilitator" on two others | `main.py:1944, 2161` vs `main.py:4054-4058`, `discovery.py:1019-1020` |
+| **V-08** | `agents.json` lists **5** endpoints (missing `/api/v1/whaleflow`), `/.well-known/x402` — 6, README — "11" | `discovery.py:1416-1482` |
+| **V-09** | `/mcp.json` gives a **flat price of 0.005** for all 6 tools → it overcharges signal/whaleflow (0.003) | `discovery.py:1026-1126` |
+| **V-10** | `/api/mcp/manifest` contains **VIP $29** (a human Stripe tier) in a machine manifest | `discovery.py:874-881` |
+| **V-11** | **OPTIONS preflight on the paid routes also gets 402** → it breaks browser-based x402 clients | `main.py:3379-3380` |
+| **V-12** | The npm README (in the package itself) contains **outdated prices** ($0.05, $29 VIP, "1 free call") and only the legacy rail → "handles x402 paywalls automatically" is **false for spec clients** | `packages/x402-client/README.md` |
+| **V-13** | `examples/demo_agent/demo_agent.py` is fragile: it expects a 402, but with the default `FREE_TIER_LIMIT=1` the first call returns 200 → "UNEXPECTED status 200" and it burns the free call. The dependency on `KRISTO_FREE_TIER_LIMIT=0` is **undocumented** | SEO audit §6 |
+| **V-14** | There is no GSC/Bing verification, no analytics, no IndexNow/sitemap ping, no `X-Robots-Tag` | SEO audit §9 |
+| **V-15** | One dead template (`agent_playground.html`; `public_activity.html` is ALIVE — see the note in the inventory above) and one misleading example (`docs/x402-client-example.js`, which claims the server does not check proof headers — false) | SEO audit §1/§6 |
 
 ---
 
-## 5. План за действие
+## 5. Action plan
 
-> Всяка точка е **предложение**. Промени в продукция минават през вратата „push = авто-деплой".
-> **Непокътнати инварианти** (виж §8): x402 хедъри и структура на плика, `payTo`/fee receiver, цените в `config.py`, `/.well-known/x402-trust.txt`, `secrets/` и `.env`.
+> Every item is a **proposal**. Changes to production go through the gate "push = auto-deploy".
+> **Untouched invariants** (see §8): the x402 headers and the envelope structure, `payTo`/fee receiver, the prices in `config.py`, `/.well-known/x402-trust.txt`, `secrets/` and `.env`.
 
-### 5.1 🔒 Сигурност и платежна цялост
+### 5.1 🔒 Security and payment integrity
 
-**Вълна S1 — P0, финансов риск (най-висок приоритет):**
+**Wave S1 — P0, financial risk (highest priority):**
 
-1. **F-02 — подписът става авторитет.** Извличай сумата **само** от `auth.value`; отказвай при несъответствие с `accepted.amount`; отказвай **нечислови** amount-и, вместо да прескачаш проверката; препрочитай `Transfer` сумата от receipt-а преди грант (adoption пътят вече го прави правилно на `main.py:2419-2421`).
-   - *Проверка:* тест, който подава `accepted.amount=5000` + подписано `value=1` → **трябва да върне 402/400**, не `[]`.
-2. **F-03 — край на fail-open.** Една изрична политика: fail-closed след poll-а (401/425 с tx hash, както прави in-flight клонът `main.py:3144-3157`), или override **само** с независимо потвърждение. **Никога** изключение в confirmation проверката не бива да води до доставка.
-   - *Проверка:* тест с mock receipt, който хвърля изключение → **не** трябва да има 200.
-3. **F-07 — rate limit и бюджет по платежния път.** Лимит per IP **и** per signer; pre-check на USDC баланса на купувача преди broadcast; таван на `maxFeePerGas`; изнасяне на сетълмента извън request нишката.
-4. **F-04 — махни записа от read пътя.** `guard_stats()` не трябва да прави INSERT/DELETE; пробата за живост се мести в background цикъл, а рутът чете последния резултат от кеширан read model.
-5. **F-05 + F-06 — семантика на реорг.** Минимум: маркирай `onchain_sales` реда като `reorged` и го изключи от тоталите; добави проверка за дълбочина на adoption пътя по nonce.
+1. **F-02 — the signature becomes authoritative.** Derive the amount **only** from `auth.value`; reject on a mismatch with `accepted.amount`; reject **non-numeric** amounts instead of skipping the check; re-read the `Transfer` amount from the receipt before granting (the adoption path already does this correctly at `main.py:2419-2421`).
+   - *Check:* a test that supplies `accepted.amount=5000` + signed `value=1` → **must return 402/400**, not `[]`.
+2. **F-03 — an end to fail-open.** One explicit policy: fail-closed after the poll (401/425 with a tx hash, as the in-flight branch `main.py:3144-3157` does), or an override **only** with independent confirmation. **Never** may an exception in the confirmation check lead to delivery.
+   - *Check:* a test with a mock receipt that throws an exception → there must **not** be a 200.
+3. **F-07 — rate limit and budget on the payment path.** A limit per IP **and** per signer; a pre-check of the buyer's USDC balance before broadcast; a cap on `maxFeePerGas`; moving settlement out of the request thread.
+4. **F-04 — remove the write from the read path.** `guard_stats()` must not do INSERT/DELETE; the liveness probe moves into a background loop, and the route reads the latest result from a cached read model.
+5. **F-05 + F-06 — reorg semantics.** Minimum: mark the `onchain_sales` row as `reorged` and exclude it from the totals; add a depth check to the adoption path by nonce.
 
-**Вълна S2 — P1, изтичане на информация и защита:**
+**Wave S2 — P1, information leakage and protection:**
 
-6. **F-26 + F-27** — админ guard за `/api/launch/health`; махни `payer wallet=`, `gas=` и CDP детайла от публичния `/api/connectors`.
-7. **F-28 + F-29** — версионирай Render конфигурацията (или изрично документирай защо не); премахни fallback-а на админ токена към `SESSION_SECRET`.
-8. **Разшири `tests/test_secret_hygiene.py`** да **открива** файлове по шаблон, вместо да проверява 5 поименно зададени (това е и препоръката на одита към комита `9089ba5`).
-9. **F-16** — `X-Payment-Proof` е препредаваем; обмисли обвързване с IP/UA или къс TTL (продуктово решение).
+6. **F-26 + F-27** — an admin guard for `/api/launch/health`; remove `payer wallet=`, `gas=` and the CDP detail from the public `/api/connectors`.
+7. **F-28 + F-29** — version the Render configuration (or explicitly document why not); remove the admin token's fallback to `SESSION_SECRET`.
+8. **Extend `tests/test_secret_hygiene.py`** to **discover** files by pattern, instead of checking 5 named ones (this is also the audit's recommendation for commit `9089ba5`).
+9. **F-16** — `X-Payment-Proof` is replayable; consider binding it to IP/UA or a short TTL (a product decision).
 
-**Вече адресирано (в `9089ba5`, но НЕ в продукция):** F-13 (redact RPC), F-14 (redact Telegram token), F-15 (`.dockerignore` + `secrets/`), F-30 (mask env).
+**Already addressed (in `9089ba5`, but NOT in production):** F-13 (redact RPC), F-14 (redact the Telegram token), F-15 (`.dockerignore` + `secrets/`), F-30 (mask env).
 
-### 5.2 ⚡ Производителност и устойчивост
+### 5.2 ⚡ Performance and resilience
 
-**Вълна P1 — тесни места (по данни от одита):**
+**Wave P1 — bottlenecks (based on audit data):**
 
-1. **F-22 + F-31** — един **кеширан read model с single-flight** за `/api/dashboard/data`, `/api/dashboard-stats` **и** платения `/api/stats`; индекси по `request_log(user_agent)`, `(source)`, `(funnel)`; агрегирай `payment_guards` в SQL и индексирай `consumed_at`.
-   - *Контекст:* студеното изграждане е било ~41 s на живо при ~783K реда; локално 528 ms при 46 301 реда.
-2. **F-09** — `psycopg_pool` + `connect_timeout` + `statement_timeout`; престани да държиш един глобален lock върху една споделена връзка (`dashboard_store.py:624` вече показва правилния модел).
-3. **F-10** — `/health` да е **чисто liveness** (без DB); readiness — отделен рут. Това елиминира рестарт-цикъла.
-4. **F-11** — изолирай и ограничи `/mcp/sse`: кап на едновременни сесии **+** rate limit. Безплатен неограничен SSE, който пинира нишка за 15 s, е най-евтиният DoS в проекта.
-5. **F-23 + F-24 + F-25** — ограничи всеки блокиращ бюджет по платения път под `--timeout 120`; явни Stripe timeout-и и `max_network_retries=0` за request пътя; обвий тялото на `_stripe_payment_snapshot_loop` в `try/except`.
-6. **F-08 + F-12** — списък от RPC доставчици с health ротация + process-wide cooldown с `Retry-After`; **един ограничен** reorg watcher с опашка вместо нишка на плащане; чанкни `getLogs` през вече съществуващия `_adaptive_get_logs`.
-7. **Реши въпроса със сървъра** (§3.4): потвърди стартовата команда в Render. Ако продукцията наистина работи на werkzeug dev сървър → премини към gunicorn (Procfile вече е готов) **или** изрично документирай компромиса.
+1. **F-22 + F-31** — one **cached read model with single-flight** for `/api/dashboard/data`, `/api/dashboard-stats` **and** the paid `/api/stats`; indexes on `request_log(user_agent)`, `(source)`, `(funnel)`; aggregate `payment_guards` in SQL and index `consumed_at`.
+   - *Context:* the cold build was ~41 s live at ~783K rows; locally 528 ms at 46 301 rows.
+2. **F-09** — `psycopg_pool` + `connect_timeout` + `statement_timeout`; stop holding a single global lock over one shared connection (`dashboard_store.py:624` already shows the correct model).
+3. **F-10** — `/health` should be **pure liveness** (no DB); readiness — a separate route. This eliminates the restart loop.
+4. **F-11** — isolate and limit `/mcp/sse`: a cap on concurrent sessions **+** a rate limit. A free unlimited SSE that pins a thread for 15 s is the cheapest DoS in the project.
+5. **F-23 + F-24 + F-25** — keep every blocking budget on the paid path below `--timeout 120`; explicit Stripe timeouts and `max_network_retries=0` for the request path; wrap the body of `_stripe_payment_snapshot_loop` in `try/except`.
+6. **F-08 + F-12** — a list of RPC providers with health rotation + a process-wide cooldown with `Retry-After`; **one bounded** reorg watcher with a queue instead of a thread per payment; chunk `getLogs` through the already existing `_adaptive_get_logs`.
+7. **Resolve the server question** (§3.4): confirm the start command in Render. If production really runs on the werkzeug dev server → move to gunicorn (the Procfile is already ready) **or** explicitly document the trade-off.
 
-### 5.3 💰 Продукт и бизнес модел (коренът на проблема)
+### 5.3 💰 Product and business model (the root of the problem)
 
-**F-01 е продуктово решение, не бъг — paywall-ът не може да се „поправи" при налично безплатно копие.**
+**F-01 is a product decision, not a bug — the paywall cannot be "fixed" while a free copy exists.**
 
-1. **Реши кое поле реално се продава** и го махни от публичния read model на `/api/dashboard-stats` и `/api/dashboard/data`: история с `tx_hash`+`sender`, `whales`, market snapshot.
-   - **Вариант А (препоръчан):** dashboard payload-ът остава агрегат (брой, сума, канали), а транзакционната история, самоличностите и whale feed-ът минават **само** през платените рута.
-   - **Вариант Б:** dashboard payload-ът минава зад админ/session обхват.
-   - **Вариант В:** приемеш, че dashboard-ът е маркетинг и не е SKU — но тогава махни `/api/sales`, `/api/stats` и `/api/v1/whaleflow` от платения allow-list, за да не е таксуването декоративно.
-2. **F-19 — една цена, един източник.** Генерирай всички публични цени от `config.py`/`REAL_X402_ROUTES` вместо да ги дублираш в `agents.json`, `/mcp.json`, `ai-plugin.json`, openapi, npm README, `/.well-known/x402`.
-3. **F-20 — махни фантомния VIP $29** от `agents.json`, `/api/mcp/manifest` и npm README (или го имплементирай — но не го рекламирай, докато не съществува).
-4. **F-18** — преименувай `payment.amount_usdc` на `amount_atomic` или върни реални USDC.
-5. **F-21** — документирай `KRISTO_FREE_TIER_LIMIT` в `.env.example` и реши стойността в продукция (0 заедно с работещ демо път, или 1 с честно описание).
-6. **Затвори F1 гейта** — финансирай demo портфейла (≥0.003 USDC + газ) и пусни `python scripts/e2e_nopay_probe.py --pay`. Това е **единственото** нещо, което стои от 25.09 и блокира инженерната вълна по договорка.
+1. **Decide which field is actually being sold** and remove it from the public read model of `/api/dashboard-stats` and `/api/dashboard/data`: the history with `tx_hash`+`sender`, `whales`, the market snapshot.
+   - **Option A (recommended):** the dashboard payload stays an aggregate (count, sum, channels), while the transaction history, the identities and the whale feed go **only** through the paid routes.
+   - **Option B:** the dashboard payload goes behind an admin/session scope.
+   - **Option C:** accept that the dashboard is marketing and not a SKU — but then remove `/api/sales`, `/api/stats` and `/api/v1/whaleflow` from the paid allow-list, so that billing is not decorative.
+2. **F-19 — one price, one source.** Generate all public prices from `config.py`/`REAL_X402_ROUTES` instead of duplicating them in `agents.json`, `/mcp.json`, `ai-plugin.json`, openapi, the npm README, `/.well-known/x402`.
+3. **F-20 — remove the phantom VIP $29** from `agents.json`, `/api/mcp/manifest` and the npm README (or implement it — but do not advertise it before it exists).
+4. **F-18** — rename `payment.amount_usdc` to `amount_atomic` or return real USDC.
+5. **F-21** — document `KRISTO_FREE_TIER_LIMIT` in `.env.example` and decide the value in production (0 together with a working demo path, or 1 with an honest description).
+6. **Close the F1 gate** — fund the demo wallet (≥0.003 USDC + gas) and run `python scripts/e2e_nopay_probe.py --pay`. This is the **only** thing that has been pending since 25.09 and that blocks the agreed engineering wave.
 
-### 5.4 📈 Видимост и трафик
+### 5.4 📈 Visibility and traffic
 
-> Пълният план е в `docs/VISIBILITY_AND_TRAFFIC_STRATEGY.md`. Тук е само кондензатът, подреден по зависимост.
+> The full plan is in `docs/VISIBILITY_AND_TRAFFIC_STRATEGY.md`. Only the condensed version is here, ordered by dependency.
 
-**Вълна V1 — машинна коректност (преди всеки листинг):**
+**Wave V1 — machine correctness (before any listing):**
 
-1. **V-07 — приведи `settlement_status` в съгласие.** Това е най-опасното противоречие: две публични повърхности казват „discovery_only", две — „settled through facilitator". Всеки агрегатор, който чете и двете, получава противоречие.
-2. **V-08 — генерирай `agents.json` и `/mcp.json` от `REAL_X402_ROUTES`** (6 route-а, точни цени). В момента `agents.json` дава 5, `/mcp.json` — плоска цена 0.005.
-3. **V-06 — `llms.txt` да документира и двете релси** (v2 `PAYMENT-SIGNATURE` като основна, legacy като fallback).
-4. **V-10 — махни VIP $29 от `/api/mcp/manifest`.**
-5. **V-03 — поправи sitemap-а:** махни `noindex` `/dashboard` и 302 редиректите; добави `/validation` и `/api/v1/quickstart`; добави `<lastmod>`.
-6. **V-05/V-09 — добави 6-те sample route-а** в openapi и в безплатния списък на `llms.txt`; поправи `whaleflow sample = $0.005` → `0.003` (`discovery.py:440`).
-7. **V-12 — поправи npm README** (цени, free tier, двете релси) и добави `scripts.test`, типове, `publishConfig`. Без това „handles x402 paywalls automatically" е подвеждащо.
-8. **V-13 — направи demo пътя честен** при двата режима на free tier (не „UNEXPECTED status 200").
-9. **V-11 — оправи OPTIONS preflight** на платените рута (402 на preflight чупи browser клиенти).
+1. **V-07 — bring `settlement_status` into agreement.** This is the most dangerous contradiction: two public surfaces say "discovery_only", two say "settled through facilitator". Every aggregator that reads both gets a contradiction.
+2. **V-08 — generate `agents.json` and `/mcp.json` from `REAL_X402_ROUTES`** (6 routes, exact prices). At the moment `agents.json` gives 5, `/mcp.json` — a flat price of 0.005.
+3. **V-06 — `llms.txt` should document both rails** (v2 `PAYMENT-SIGNATURE` as primary, legacy as fallback).
+4. **V-10 — remove VIP $29 from `/api/mcp/manifest`.**
+5. **V-03 — fix the sitemap:** remove the `noindex` `/dashboard` and the 302 redirects; add `/validation` and `/api/v1/quickstart`; add `<lastmod>`.
+6. **V-05/V-09 — add the 6 sample routes** to openapi and to the free list in `llms.txt`; fix `whaleflow sample = $0.005` → `0.003` (`discovery.py:440`).
+7. **V-12 — fix the npm README** (prices, free tier, both rails) and add `scripts.test`, types, `publishConfig`. Without this, "handles x402 paywalls automatically" is misleading.
+8. **V-13 — make the demo path honest** under both free-tier modes (not "UNEXPECTED status 200").
+9. **V-11 — fix OPTIONS preflight** on the paid routes (a 402 on preflight breaks browser clients).
 
-**Вълна V2 — човешка/органична повърхност:**
+**Wave V2 — human/organic surface:**
 
-10. **V-02 — OG/Twitter/canonical/JSON-LD** в публичните шаблони + едно OG изображение 1200×630 (`static/og.png`). Най-евтината промяна с най-голям ефект върху CTR при споделяне.
-11. **V-01 — добави индексируеми HTML страници:** `/pricing`, `/api-reference` (рендериран от openapi), `/how-x402-works`, `/status`, `/changelog`, + **6 per-route страници** (няма какво да се класира за самия продукт). Суровият материал е наличен: `CHALLENGE_DESCRIPTIONS` (`main.py:108+`), route метаданните (`main.py:2074-2135`), 6-те sample схеми (`discovery.py:356-505`), `/validation` фактите (`discovery.py:103-204`), `docs/QUICK_START.md`, `ARCHITECTURE.md`.
-12. **V-04 — свържи `/validation`** от landing-а и го добави в sitemap-а (сега е сирак).
-13. **V-14 — GSC + Bing verification, IndexNow ключ + `scripts/seo/ping_index.py`, sitemap ping.**
-14. **Измеримост:** лек self-hosted analytics **или** разширяване на съществуващия `request_log` с `channel`/`utm_*`; **всеки** публичен линк през `/f/<channel>`.
-15. **V-15 — изчисти мъртвите активи:** `agent_playground.html`, `docs/x402-client-example.js`. **НЕ трий `public_activity.html`** — жив е (вж. бележката в инвентара).
+10. **V-02 — OG/Twitter/canonical/JSON-LD** in the public templates + one OG image 1200×630 (`static/og.png`). The cheapest change with the biggest effect on CTR when sharing.
+11. **V-01 — add indexable HTML pages:** `/pricing`, `/api-reference` (rendered from openapi), `/how-x402-works`, `/status`, `/changelog`, + **6 per-route pages** (there is nothing to rank for the product itself). The raw material is available: `CHALLENGE_DESCRIPTIONS` (`main.py:108+`), the route metadata (`main.py:2074-2135`), the 6 sample schemas (`discovery.py:356-505`), the `/validation` facts (`discovery.py:103-204`), `docs/QUICK_START.md`, `ARCHITECTURE.md`.
+12. **V-04 — link `/validation`** from the landing page and add it to the sitemap (right now it is an orphan).
+13. **V-14 — GSC + Bing verification, an IndexNow key + `scripts/seo/ping_index.py`, sitemap ping.**
+14. **Measurability:** lightweight self-hosted analytics **or** extending the existing `request_log` with `channel`/`utm_*`; **every** public link through `/f/<channel>`.
+15. **V-15 — clean up the dead assets:** `agent_playground.html`, `docs/x402-client-example.js`. **DO NOT delete `public_activity.html`** — it is alive (see the note in the inventory).
 
-**Вълна V3 — дистрибуция (след V1):**
+**Wave V3 — distribution (after V1):**
 
-16. **Провери CDP Bazaar присъствие** (комитът `66a0ce4` е предусловието, но **не е в продукция**) → при липса, Listing Request с готовия текст от `docs/SCAN_LISTING_EN.md`.
-17. **Завърши 6-те листинга:** mcp.so (claim + описание + „Authentication: x402"), Glama servers (оправи причината: `license: F` заради „COMMERCIAL USE NOTICE", добавен след MIT текста; регистрирай като **Hosted endpoint**), PulseMCP (чака отваряне на формата), PayAPI recrawl, nohumans.directory (работи — запази), x402 Trust преоценка.
-18. **Nudge PR #1308 и #13219**; не отваряй нов, докато старият не е затворен.
-19. **Пренареди README:** първите 12 реда = 1 изречение + 1 работещ `curl` + 1 screenshot/GIF + 3 badge-а.
-20. **Човешките канали — само след V1/V2:** Product Hunt (изисква ≥3 social proof), Show HN, dev.to, Reddit (само отговор на реален въпрос), X thread — всички с OG card и `/f/<channel>`.
-21. **Вдигни ембаргото** върху `docs/OUTREACH_WAVE1.md` — 10 готови съобщения стоят заключени зад инженерен гейт, докато пазарът е ~$1.2/месец. Освободи поне техническата част (x402 Slack, CDP Discord), която не изисква финансиран портфейл.
+16. **Check the CDP Bazaar presence** (commit `66a0ce4` is the precondition, but it is **not in production**) → if it is absent, a Listing Request with the ready text from `docs/SCAN_LISTING_EN.md`.
+17. **Complete the 6 listings:** mcp.so (claim + description + "Authentication: x402"), Glama servers (fix the cause: `license: F` because of a "COMMERCIAL USE NOTICE" added after the MIT text; register as a **Hosted endpoint**), PulseMCP (waiting for the form to open), PayAPI recrawl, nohumans.directory (works — keep it), x402 Trust re-evaluation.
+18. **Nudge PR #1308 and #13219**; do not open a new one until the old one is closed.
+19. **Restructure the README:** the first 12 lines = 1 sentence + 1 working `curl` + 1 screenshot/GIF + 3 badges.
+20. **Human channels — only after V1/V2:** Product Hunt (requires ≥3 social proof), Show HN, dev.to, Reddit (only an answer to a real question), X thread — all with an OG card and `/f/<channel>`.
+21. **Lift the embargo** on `docs/OUTREACH_WAVE1.md` — 10 ready messages sit locked behind an engineering gate while the market is ~$1.2/month. Release at least the technical part (x402 Slack, CDP Discord), which does not require a funded wallet.
 
-### 5.5 📚 Документация и хигиена
+### 5.5 📚 Documentation and hygiene
 
-1. **Синхронизирай остарялото:** `PROJECT_CHRONOLOGY.md` (спира 28.09), `PROJECT_STATUS.md` CURRENT STATE (28.09) и OPEN ITEMS, `TASK.md` (30.09) — заменят се с актуалното състояние от §3.
-2. **Поправи публичните твърдения:** `README.md` „11 resources" → 6; махни „Rug-risk checks" (:21); квалифицирай „zero payment incidents" (:111).
-3. **Добави `.github/`:** CI workflow (`pytest`) + badge, issue/PR шаблони, `SECURITY.md`, `CODEOWNERS`, dependabot, social preview.
-4. **Добави липсващите коренови файлове:** `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `docs/README.md` (индекс на 49-те плоски файла).
-5. **Реши съдбата на 29-те untracked записа** — част са реални артефакти (двата одитни документа, `TASK.md`), част са шум (`main_py_diff.txt`, `commit_54a7ba3_full.txt`, `kristo-intelligence/`).
-6. **MP4 файловете** (120 MB + 19.9 MB) — премести в GitHub Release assets, не в git.
+1. **Synchronize the outdated material:** `PROJECT_CHRONOLOGY.md` (stops at 28.09), `PROJECT_STATUS.md` CURRENT STATE (28.09) and OPEN ITEMS, `TASK.md` (30.09) — replace them with the current state from §3.
+2. **Fix the public claims:** `README.md` "11 resources" → 6; remove "Rug-risk checks" (:21); qualify "zero payment incidents" (:111).
+3. **Add `.github/`:** a CI workflow (`pytest`) + badge, issue/PR templates, `SECURITY.md`, `CODEOWNERS`, dependabot, social preview.
+4. **Add the missing root files:** `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `docs/README.md` (an index of the 49 flat files).
+5. **Decide the fate of the 29 untracked entries** — some are real artifacts (the two audit documents, `TASK.md`), some are noise (`main_py_diff.txt`, `commit_54a7ba3_full.txt`, `kristo-intelligence/`).
+6. **The MP4 files** (120 MB + 19.9 MB) — move them to GitHub Release assets, not into git.
 
 ---
 
-## 6. Ред на изпълнение и гейтове
+## 6. Order of execution and gates
 
 ```
-ГЕЙТ 0 — решение на собственика (днес, без код)
-  ├── Публикуваме ли 2-та комита (9089ba5 key-leaks + 66a0ce4 Bazaar trigger)?
-  ├── Потвърждаваме ли стартовата команда в Render (gunicorn vs python main.py)?
-  └── Финансираме ли demo портфейла (F1 гейт, отворен от 25.09)?
+GATE 0 — owner decision (today, without code)
+  ├── Do we publish the 2 commits (9089ba5 key-leaks + 66a0ce4 Bazaar trigger)?
+  ├── Do we confirm the start command in Render (gunicorn vs python main.py)?
+  └── Do we fund the demo wallet (F1 gate, open since 25.09)?
         │
-        ├── ако F1 се финансира → отваря се инженерната вълна по договорка
-        └── ако не → P0 фиксовете пак могат да вървят (те не зависят от F1)
+        ├── if F1 is funded → the agreed engineering wave opens
+        └── if not → the P0 fixes can still proceed (they do not depend on F1)
 
-ВЪЛНА 1 — P0 платежна цялост (най-висок приоритет)
+WAVE 1 — P0 payment integrity (highest priority)
   F-02 → F-03 → F-07 → F-04 → F-05/F-06
-  Гейт: тест „accepted.amount=5000 + value=1 → отказ"; тест „receipt изключение → не 200"
+  Gate: test "accepted.amount=5000 + value=1 → rejection"; test "receipt exception → not 200"
         │
-ВЪЛНА 2 — P1 устойчивост
-  F-10 (liveness) → F-11 (SSE) → F-09 (pool) → F-22/F-31 (кеш+индекси) → F-23/24/25 → F-08/F-12
-  Гейт: /health не пипа DB; /mcp/sse има кап; студен dashboard build под 2 s
+WAVE 2 — P1 resilience
+  F-10 (liveness) → F-11 (SSE) → F-09 (pool) → F-22/F-31 (cache+indexes) → F-23/24/25 → F-08/F-12
+  Gate: /health does not touch the DB; /mcp/sse has a cap; cold dashboard build under 2 s
         │
-ВЪЛНА 3 — продукт (F-01) + машинна коректност (V1)
-  F-01 (решение какво се продава) → V-07 → V-08 → V-06 → V-03 → V-05/V-09 → V-12 → V-11
-  Гейт: всички публични повърхности дават еднакъв брой рута и еднакви цени;
-        няма „discovery_only" срещу „settled" противоречие
+WAVE 3 — product (F-01) + machine correctness (V1)
+  F-01 (decision on what is sold) → V-07 → V-08 → V-06 → V-03 → V-05/V-09 → V-12 → V-11
+  Gate: all public surfaces give the same number of routes and the same prices;
+        no "discovery_only" versus "settled" contradiction
         │
-ВЪЛНА 4 — видимост (V2)
-  V-02 (OG) → V-01 (HTML страници) → V-04 → V-14 (GSC/IndexNow/analytics + /f/)
-  Гейт: OG card валиден; ≥5 нови индексируеми страници; всеки линк с канал
+WAVE 4 — visibility (V2)
+  V-02 (OG) → V-01 (HTML pages) → V-04 → V-14 (GSC/IndexNow/analytics + /f/)
+  Gate: a valid OG card; ≥5 new indexable pages; every link with a channel
         │
-ВЪЛНА 5 — дистрибуция (V3) + хигиена (§5.5)
-  Bazaar → 6 листинга → PR nudge → README → човешки канали
-  Гейт: ≥3 потвърдени листинга (проверени с fetch), ≥1 органична страница в GSC
+WAVE 5 — distribution (V3) + hygiene (§5.5)
+  Bazaar → 6 listings → PR nudge → README → human channels
+  Gate: ≥3 confirmed listings (checked with fetch), ≥1 organic page in GSC
 ```
 
-**Реалистични KPI (честни, при пазар ~$1.2/месец):**
+**Realistic KPIs (honest, with a market of ~$1.2/month):**
 
-| Хоризонт | KPI |
+| Horizon | KPI |
 |---|---|
-| 7 дни | 0 P0 дефекта с тест, който ги хваща; GSC/Bing потвърдени; OG card валиден |
-| 30 дни | ≥3 потвърдени листинга; ≥5 нови индексируеми страници; npm ≥60 сваляния/месец; ≥5 външни посетители/ден с атрибуция |
-| 60 дни | ≥1 органична класификация в топ-50 за дълга заявка; ≥1 външен платен клиент от нов канал; ≥100 npm сваляния |
-| 90 дни | ≥10 външни платци; 100% от плащанията с атрибуция към канал; ≥1 операторски договор |
+| 7 days | 0 P0 defects with a test that catches them; GSC/Bing confirmed; a valid OG card |
+| 30 days | ≥3 confirmed listings; ≥5 new indexable pages; npm ≥60 downloads/month; ≥5 external visitors/day with attribution |
+| 60 days | ≥1 organic ranking in the top 50 for a long query; ≥1 external paying customer from a new channel; ≥100 npm downloads |
+| 90 days | ≥10 external payers; 100% of payments attributed to a channel; ≥1 operator deal |
 
 ---
 
-## 7. Отворени въпроси и рискове
+## 7. Open questions and risks
 
-| # | Въпрос | Защо е важен | Как се затваря |
+| # | Question | Why it matters | How it is closed |
 |---|---|---|---|
-| 1 | **`push` = авто-деплой, а 2 комита не са в продукция** | Единият спира изтичане на ключове; другият е предусловие за Bazaar индекса. Но деплойът носи и всичко останало в `main` | Решение на собственика; при нужда — отделен клон/cherry-pick |
-| 2 | **gunicorn или `python main.py` в продукция?** | Променя капацитета на HTTP слоя и production-readiness; werkzeug dev сървър в продукция е самостоятелен риск | Проверка в Render dashboard |
-| 3 | **`KRISTO_FREE_TIER_LIMIT` в продукция = 0 или 1?** | Влияе на демо пътя, на всички публични твърдения и на F-01 | Проверка в Render Environment (по ИМЕ на променливата) |
-| 4 | **F-01 е продуктово решение** | Не може да се „поправи" технически; или продаваш нещо уникално, или таксуването е декоративно | Решение на собственика (§5.3, вариант А/Б/В) |
-| 5 | **Пазарът е ~$1.2/месец при 2–4 купувача** | Трафик не решава структурен проблем с пазара; 90-дневните KPI трябва да са реалистични | Приемане + фокус върху машинни канали и операторски сделки |
-| 6 | **F1 гейтът блокира инженерната вълна от 25.09** | Всеки фикс „след F1" чака едно човешко действие за ~$0.003 | Финансиране на demo портфейла |
-| 7 | **Хронологията и статусът са с 5 седмици назад** | Всеки нов асистент/сесия чете остарял контекст и повтаря грешки | Синхронизация (§5.5) |
-| 8 | **29 untracked записа, вкл. реални артефакти** | Работата съществува само локално; риск от загуба; замърсява `git status` | Класифициране: комит / изтриване / `.gitignore` |
+| 1 | **`push` = auto-deploy, and 2 commits are not in production** | One stops key leaks; the other is a precondition for the Bazaar index. But the deploy also carries everything else in `main` | Owner decision; if needed — a separate branch/cherry-pick |
+| 2 | **gunicorn or `python main.py` in production?** | It changes the capacity of the HTTP layer and production-readiness; a werkzeug dev server in production is a risk in itself | A check in the Render dashboard |
+| 3 | **`KRISTO_FREE_TIER_LIMIT` in production = 0 or 1?** | It affects the demo path, all public claims and F-01 | A check in Render Environment (by the variable NAME) |
+| 4 | **F-01 is a product decision** | It cannot be "fixed" technically; either you sell something unique, or billing is decorative | Owner decision (§5.3, option A/B/C) |
+| 5 | **The market is ~$1.2/month with 2–4 buyers** | Traffic does not solve a structural market problem; the 90-day KPIs must be realistic | Acceptance + focus on machine channels and operator deals |
+| 6 | **The F1 gate has blocked the engineering wave since 25.09** | Every "after F1" fix waits for one human action worth ~$0.003 | Funding the demo wallet |
+| 7 | **The chronology and the status are 5 weeks behind** | Every new assistant/session reads outdated context and repeats mistakes | Synchronization (§5.5) |
+| 8 | **29 untracked entries, incl. real artifacts** | The work exists only locally; a risk of loss; it pollutes `git status` | Classification: commit / delete / `.gitignore` |
 
 ---
 
-## 8. Непокътнати инварианти (ограничения от собственика)
+## 8. Untouched invariants (owner constraints)
 
-| Защитено | Защо |
+| Protected | Why |
 |---|---|
-| **x402 хедъри и структура на 402 плика** | Работещи и валидирани (envelope-body-mirror); промяна чупи съвместимост с facilitators и с тестовете за паритет |
-| **Цени в `config.py`** | Публично обявени и on-chain проверени |
-| **`payTo` / fee receiver / `BOUND_BASE_FEE_RECEIVER`** | On-chain адрес; промяна чупи доверие и приходи |
-| **`GET /.well-known/x402-trust.txt`** | Външен trust профил (grade B); премахване сваля оценката |
-| **`secrets/` и `.env`** | Никога не са отваряни; не се пипат |
-| **Постовете от 27.10** | Изрично забранени за редакция |
-| **`push` към `main`** | Auto-deploy на Render → всяка промяна е продукционна |
-| **Повторно подаване на Base Builder Grant** | Изрично забранено |
+| **x402 headers and the 402 envelope structure** | Working and validated (envelope-body-mirror); a change breaks compatibility with facilitators and with the parity tests |
+| **Prices in `config.py`** | Publicly announced and verified on-chain |
+| **`payTo` / fee receiver / `BOUND_BASE_FEE_RECEIVER`** | An on-chain address; a change breaks trust and revenue |
+| **`GET /.well-known/x402-trust.txt`** | An external trust profile (grade B); removing it lowers the grade |
+| **`secrets/` and `.env`** | Never opened; not touched |
+| **The posts from 27.10** | Explicitly forbidden to edit |
+| **`push` to `main`** | Auto-deploy on Render → every change is a production change |
+| **Re-submitting the Base Builder Grant** | Explicitly forbidden |
 
-**Допълнително правило от историята:** *две AI сесии не пушат едновременно в едно репо* (`CHRONOLOGY:30-31`).
+**An additional rule from the history:** *two AI sessions do not push to the same repo at the same time* (`CHRONOLOGY:30-31`).
 
 ---
 
-## 9. Приложения
+## 9. Appendices
 
-### 9.1 Карта на документите
+### 9.1 Document map
 
-| Документ | Роля | Състояние |
+| Document | Role | Status |
 |---|---|---|
-| `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` | Технически одит, F-01…F-40, P0/P1/P2 план | Актуален към `66a0ce4`; **F-13/14/15/30 вече са адресирани** в `9089ba5` |
-| `docs/VISIBILITY_AND_TRAFFIC_STRATEGY.md` | Диагностика на каналите, листинги, 30/60/90 | Актуален |
-| `docs/CONTEXT_AND_ROADMAP.md` | **Този документ** — консолидация | Актуален към `9089ba5` |
-| `docs/PROJECT_CHRONOLOGY.md` | Хронология до 28.09 | **Остарял** — спира на 28.09 |
-| `PROJECT_STATUS.md` | Книгата (CURRENT STATE / OPEN ITEMS / HISTORY) | CURRENT STATE = 28.09 → **остарял** |
-| `TASK.md` | Снимка на задачите | **Остарял** (30.09) |
-| `docs/LISTING_CHANNELS_AUDIT.md`, `docs/TRAFFIC_AUDIT.md`, `docs/SCAN_LISTING_DRAFT.md` | Предишна работа по видимост | Полезни, но частично дублирани |
-| `docs/MARKET_WRITEUP.md`, `docs/GUARD_METHODOLOGY.md`, `docs/QUICK_START.md`, `ARCHITECTURE.md` | Суров материал за публични страници | Готови за използване |
+| `docs/PERFORMANCE_AND_ARCHITECTURE_AUDIT.md` | Technical audit, F-01…F-40, P0/P1/P2 plan | Current as of `66a0ce4`; **F-13/14/15/30 are already addressed** in `9089ba5` |
+| `docs/VISIBILITY_AND_TRAFFIC_STRATEGY.md` | Channel diagnostics, listings, 30/60/90 | Current |
+| `docs/CONTEXT_AND_ROADMAP.md` | **This document** — consolidation | Current as of `9089ba5` |
+| `docs/PROJECT_CHRONOLOGY.md` | Chronology up to 28.09 | **Outdated** — stops at 28.09 |
+| `PROJECT_STATUS.md` | The book (CURRENT STATE / OPEN ITEMS / HISTORY) | CURRENT STATE = 28.09 → **outdated** |
+| `TASK.md` | A snapshot of the tasks | **Outdated** (30.09) |
+| `docs/LISTING_CHANNELS_AUDIT.md`, `docs/TRAFFIC_AUDIT.md`, `docs/SCAN_LISTING_DRAFT.md` | Previous visibility work | Useful, but partially duplicated |
+| `docs/MARKET_WRITEUP.md`, `docs/GUARD_METHODOLOGY.md`, `docs/QUICK_START.md`, `ARCHITECTURE.md` | Raw material for public pages | Ready to use |
 
-### 9.2 Меродавни константи (за сверка)
+### 9.2 Authoritative constants (for cross-checking)
 
 `FREE_TIER_LIMIT` = `KRISTO_FREE_TIER_LIMIT` (default **1**) `main.py:134` · `X402_PAID_ENDPOINTS` **6** · `X402_FREE_ENDPOINTS` **27** · `STATS_CACHE_TTL_SECONDS` 60 `main.py:3951` · `BLOCKCHAIN_POLL_INTERVAL` 30 · `KRISTO_DASHBOARD_SCAN_INTERVAL` 60 · `WHALEFLOW_SCAN_INTERVAL` 60 · `AGENT_POLL_INTERVAL` 300 · `KEEPALIVE_INTERVAL_SECONDS` 600 · `SALES_CHUNK_BLOCKS` 5000 · `WHALEFLOW_CHUNK_BLOCKS` 100 · `WHALE_THRESHOLD_USDC` 5 000 000 · `C2_LAG_WAIT_SECONDS_DEFAULT` 2.5 · `FACILITATOR_TIMEOUT` 15 · `BASE_RPC_URL` default `https://mainnet.base.org` `config.py:57`.
 
-### 9.3 Едно изречение
+### 9.3 One sentence
 
-> Проектът има работещ платежен рейл и доказани плащания, но три независими дефекта — **безплатно копие на платения продукт**, **подпис, който не е авторитет**, и **продукт, който купувачът не може да намери** — държат приходите на $0.052, а най-важният фикс (спиране на изтичането на ключове) стои непубликуван в git.
+> The project has a working payment rail and proven payments, but three independent defects — **a free copy of the paid product**, **a signature that is not authoritative**, and **a product the buyer cannot find** — hold revenue at $0.052, while the most important fix (stopping the key leaks) sits unpublished in git.
 
 ---
 
-*Документът е генериран на 2026-11-03 при HEAD `9089ba5`. Проверените факти са валидни за тази ревизия; `origin/main` е `ae216f2`. При следваща сесия първо се сверява `git log -3` и `git status`.*
+*This document was generated on 2026-11-03 at HEAD `9089ba5`. The verified facts are valid for this revision; `origin/main` is `ae216f2`. In the next session, `git log -3` and `git status` are cross-checked first.*

@@ -1,144 +1,149 @@
-# Многоверижен план — какво би струвало и кога си заслужава
+# Multichain plan — what it would cost and when it is worth it
 
-**Създаден:** 16.11.2026, по указание на собственика: «не може да оставаме назад в
-цялата система… искам всички каквото правят, ние да сме една крачка пред тях».
+**Created:** 16.11.2026, on the owner's instruction: "we cannot stay behind in the
+whole system… I want us to be one step ahead of everyone in whatever they do".
 
-**Статус:** план. **Нищо по платежния път не е пипано.**
-
----
-
-## 1. Защо това е на масата
-
-Протоколът x402 става многоверижен и това не е слух — вижда се в работния канал на
-фондацията: XRPL, Hedera, Canton, TRON, Celo, Solana splits, Midnight и Arc добавят
-схеми. Ние сме само на Base (`eip155:8453`).
-
-**Но веригите ги добавят фондации.** Ripple, Hedera, Canton Foundation, Celo Core —
-всяка с екип. Ние сме един worker. Да се състезаваме по брой вериги е състезание,
-което губим по определение.
+**Status:** plan. **Nothing on the payment path has been touched.**
 
 ---
 
-## 2. Какво би струвало — измерено, не преценено
+## 1. Why this is on the table
 
-### 2.1. Структурата ни е готова за втора опция
+The x402 protocol is becoming multichain and this is not a rumour — it is visible in
+the foundation's working channel: XRPL, Hedera, Canton, TRON, Celo, Solana splits,
+Midnight and Arc are adding schemes. We are only on Base (`eip155:8453`).
 
-`accepts` в 402-ката е **списък** (`main.py:2495`), а не един обект. Спецификацията
-позволява няколко записа и клиентът избира. Тоест обявяването на втора верига е
-добавяне на елемент, не преправяне на плика.
+**But the chains are being added by foundations.** Ripple, Hedera, Canton Foundation,
+Celo Core — each with a team. We are one worker. Competing on the number of chains is
+a race we lose by definition.
 
-### 2.2. Кодът обаче е вързан за Base
+---
 
-| константа/низ | в колко файла |
+## 2. What it would cost — measured, not judged
+
+### 2.1. Our structure is ready for a second option
+
+`accepts` in the 402 is a **list** (`main.py:2495`), not a single object. The
+specification allows several entries and the client chooses. That is, announcing a
+second chain is adding an element, not reworking the envelope.
+
+### 2.2. The code, however, is tied to Base
+
+| constant/string | in how many files |
 |---|---|
 | `eip155:8453` | 25 |
 | `8453` | 35 |
 | `BASE_USDC_CONTRACT` | 17 |
 | `BASE_RPC_URL` | 5 |
 
-`BASE_CHAIN_ID` и `BASE_USDC_CONTRACT` са env-променливи, но **в единствено число**.
-Значи втора верига е структурна промяна в платежния път, одита, регистъра и
-таблото — не конфигурация.
+`BASE_CHAIN_ID` and `BASE_USDC_CONTRACT` are env variables, but **in the singular**.
+So a second chain is a structural change to the payment path, the audit, the registry
+and the dashboard — not configuration.
 
-### 2.3. Фасилитаторът е решен, и е евтин
+### 2.3. The facilitator is solved, and it is cheap
 
-PayAI (вече сме в каталога им) поддържа **Solana + 8 EVM вериги**. Цената е на
-сетълмент, не процент от сумата:
+PayAI (we are already in their catalogue) supports **Solana + 8 EVM chains**. The
+price is per settlement, not a percentage of the amount:
 
 ```
-мрежа                     цена/сетълмент
+network                   price/settlement
 Sei (1329)                $0.00038
-Solana (5eykt…)           $0.00093   ← svm_transfer
-Base (8453)               $0.00156   ← само за сравнение; ние сме през CDP
+Solana (5eykt...)         $0.00093   ← svm_transfer
+Base (8453)               $0.00156   ← for comparison only; we are via CDP
 Avalanche                 $0.00218
 Polygon                   $0.00303
 ```
 
-Маржът им е **3000 bps (30%)** върху газа, а курсът е `1 кредит = $0.001`.
+Their margin is **3000 bps (30%)** on top of gas, and the rate is `1 credit =
+$0.001`.
 
-**Първите 1000 кредита са безплатни и принадлежат на приемащия адрес** — без
-регистрация. При $0.00093 на сетълмент това е **~1075 безплатни сетълмента**.
+**The first 1000 credits are free and belong to the receiving address** — without
+registration. At $0.00093 per settlement that is **~1075 free settlements**.
 
-### 2.4. Какво излиза сметката
+### 2.4. What the math comes out to
 
-| маршрут | цена | сетълмент на Solana | остава |
+| route | price | settlement on Solana | left over |
 |---|---|---|---|
 | signal / whaleflow | $0.01 | $0.00093 | $0.00907 (91%) |
 | verify-seller | $0.05 | $0.00093 | $0.04907 (98%) |
 
-Тоест **цената не е пречката.** Работата е пречката.
+That is, **the price is not the obstacle.** The work is the obstacle.
 
 ---
 
-## 3. Планът, на фази
+## 3. The plan, in phases
 
-### Фаза 0 — сега, безплатно
-Този документ. Нищо не се пипа. Две неща са вече ясни и правят следващите фази
-по-евтини: `accepts` е списък, и безплатните кредити се дават на приемащия адрес.
+### Phase 0 — now, free
+This document. Nothing is touched. Two things are already clear and make the next
+phases cheaper: `accepts` is a list, and the free credits are given to the receiving
+address.
 
-### Фаза 1 — когато реален купувач поиска
-**Тригерът е търсене, не амбиция:** купувач пита ли «мога ли да платя в USDC на
-Solana», правим я за ден.
+### Phase 1 — when a real buyer asks
+**The trigger is demand, not ambition:** if a buyer asks "can I pay in USDC on
+Solana", we build it in a day.
 
-1. Нов приемащ портфейл на Solana (ed25519, ключ у нас).
-2. Втори запис в `accepts`: `network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"`,
-   `asset: <USDC mint>`, `payTo: <нашият адрес>`.
-3. Сетълментът за **този запис** минава през PayAI (`/verify` + `/settle`), не през CDP.
-4. Проверка на доказателството по ръчния рейл на Solana (четене на Solana верига).
-5. Регистърът и таблото да броят и Solana плащания.
+1. A new receiving wallet on Solana (ed25519, key held by us).
+2. A second entry in `accepts`: `network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"`,
+   `asset: <USDC mint>`, `payTo: <our address>`.
+3. Settlement for **this entry** goes through PayAI (`/verify` + `/settle`), not
+   through CDP.
+4. Verification of the proof via the manual rail on Solana (reading the Solana
+   chain).
+5. The registry and the dashboard to count Solana payments too.
 
-**Риск:** точка 3 е в платежния път — най-рисковото ни място. Задължително с
-тестове преди деплой и с възможност за изключване с env флаг.
+**Risk:** point 3 is on the payment path — our riskiest place. Mandatory with tests
+before deploy and with the ability to disable it via an env flag.
 
-### Фаза 2 — там, където може да сме наистина напред
-**Не по брой вериги. По продукта, който никой друг не прави многоверижен.**
+### Phase 2 — where we can be genuinely ahead
+**Not on the number of chains. On the product that nobody else makes multichain.**
 
-`/api/v1/verify-seller` е единственото ни нещо, което не е стока: одит на
-приемащ адрес по входящите му плащания. Днес чете само Base. Никой в екосистемата
-не предлага това за повече от една верига.
+`/api/v1/verify-seller` is the only one of our things that is not a commodity: an
+audit of a receiving address based on its incoming payments. Today it reads only
+Base. Nobody in the ecosystem offers this for more than one chain.
 
-Ърнест измери, че в категорията данни на веригата лентата $0.02–$0.06 дава средно
-**$10.97 на маршрут** — срещу $0.02 под $0.005. Тоест там има пари, и там сме
-диференцирани.
+Ernest measured that in the chain-data category the $0.02–$0.06 band yields on
+average **$10.97 per route** — versus $0.02 below $0.005. That is, there is money
+there, and that is where we are differentiated.
 
-**Веригата е вход; одитът е продуктът.** Ако трябва да избираме къде да сме първи,
-това е одитът на втора верига, не плащането по нея.
+**The chain is the entry; the audit is the product.** If we have to choose where to
+be first, it is the audit of a second chain, not the payment on it.
 
 ---
 
-## 4. Къде вече сме напред (и как да останем)
+## 4. Where we are already ahead (and how to stay there)
 
-Три неща, които екосистемата открива **сега**, а ние имаме от днес или по-рано:
+Three things the ecosystem is discovering **now**, and we have had since today or
+earlier:
 
-| какво | кой го открива сега | ние |
+| what | who is discovering it now | us |
 |---|---|---|
-| `settlement_pending` като нетерминален код | фондацията, в седмичния релиз | четем го от §9; **казваме го** в 425-ицата от днес |
-| ръчен рейл за smart портфейли | Losbeto, в продукция | имаме го (`X-Payment-Proof`) и **обявяваме** точно онези портфейли |
-| нередактиран RPC ключ в тяло на грешка | x402-rs#115/#118 | поправено на 10 места днес |
-| «платено, но докладвано като провал» | x402-rs#136 | нашият 425 + изчакването |
+| `settlement_pending` as a non-terminal code | the foundation, in the weekly release | we read it from §9; we **say it** in the 425 as of today |
+| manual rail for smart wallets | Losbeto, in production | we have it (`X-Payment-Proof`) and we **announce** exactly those wallets |
+| unredacted RPC key in an error body | x402-rs#115/#118 | fixed in 10 places today |
+| "paid but reported as a failure" | x402-rs#136 | our 425 + the waiting |
 
-**Начинът да останем напред не е да броим вериги, а да превръщаме оперативните
-уроци в продукт.** Всяко от четирите по-горе стана част от продукта в деня, в
-който го научихме. Това е нещото, което един worker може, а фондация с екип не
-може — те добавят вериги, не обръщат внимание на фунията.
-
----
-
-## 5. Какво НЕ бива да правим
-
-* **Да обявим втора верига, без да можем да я уредим.** Плик, който обещава
-  плащане, което не можем да приемем, е по-лош от липсата му — точно както
-  `queryParams: {}` беше по-лош от липсващ вход (виж §52).
-* **Да пипаме платежния път без нужда.** Той е единственото, което не може да
-  падне, и днес вече го пипахме два пъти по реални дефекти.
-* **Да гоним брой вериги.** Фондациите имат екипи; ние имаме внимание към детайла.
-  Състезаваме се с второто.
+**The way to stay ahead is not to count chains, but to turn operational lessons
+into a product.** Each of the four above became part of the product on the day we
+learned it. This is the thing that one worker can do and a foundation with a team
+cannot — they add chains, they do not pay attention to the funnel.
 
 ---
 
-## 6. Едно изречение
+## 5. What we must NOT do
 
-**Готови сме структурно (`accepts` е списък), фасилитаторът е евтин ($0.00093 на
-Solana, първите ~1075 безплатно), но кодът е вързан за Base в 25–35 файла — затова
-втората верига се прави при търсене, а първото нещо, което си заслужава да е
-многоверижно, е одитът, не плащането.**
+* **Announce a second chain without being able to settle it.** An envelope that
+  promises a payment we cannot accept is worse than its absence — just as
+  `queryParams: {}` was worse than a missing input (see §52).
+* **Touch the payment path without need.** It is the only thing that cannot fall,
+  and today we have already touched it twice over real defects.
+* **Chase the number of chains.** The foundations have teams; we have attention to
+  detail. We compete with the second.
+
+---
+
+## 6. One sentence
+
+**We are structurally ready (`accepts` is a list), the facilitator is cheap
+($0.00093 on Solana, the first ~1075 free), but the code is tied to Base in 25–35
+files — that is why the second chain is built on demand, and the first thing that
+is worth being multichain is the audit, not the payment.**

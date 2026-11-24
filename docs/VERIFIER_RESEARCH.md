@@ -1,52 +1,55 @@
-# ПРОУЧВАНЕ — „проверяващ слой" (№5 от WATCH_LIST)
+# RESEARCH — "verifier layer" (No. 5 from WATCH_LIST)
 
-> Локален документ, 07.10.2026. Без промени по кода — план и данни за решение.
-> Контекст: `WATCH_LIST.md` ред 5 (`Nikolife2016/pulsefeed-x402` issue #3) +
-> `AP2_RADAR.md` THERMOMETERS (Trust-слой = ниша №2: Solvador, „402 Wall",
-> Dr J / code402 + x402-conformance; PulseFeed = нов играч).
+> Local document, 07.10.2026. No code changes — a plan and data for a decision.
+> Context: `WATCH_LIST.md` line 5 (`Nikolife2016/pulsefeed-x402` issue #3) +
+> `AP2_RADAR.md` THERMOMETERS (Trust layer = niche No. 2: Solvador, "402 Wall",
+> Dr J / code402 + x402-conformance; PulseFeed = new player).
 
-## Какво е „проверяващ слой"
+## What a "verifier layer" is
 
-Външна проверка на една x402 транзакция/отговор **преди парите или данните да
-преминат**. Различава се от крипто-верификацията (EIP-712 вече е решена) —
-проверява се **стойността/безопасността**, не подписът.
+External verification of an x402 transaction/response **before the money or the
+data goes through**. It differs from crypto-verification (EIP-712 is already
+solved) — what is checked is the **value/safety**, not the signature.
 
-Две посоки (по PulseFeed README — „Verify before you pay or install"):
+Two directions (per the PulseFeed README — "Verify before you pay or install"):
 
-| Посока | Кой пита | Въпрос |
+| Direction | Who asks | Question |
 |---|---|---|
-| **pre-pay** (купувачът) | агентът преди да плати | безопасен ли е endpoint-ът (liveness, 0–100 trust, scam флагове: swap-нат receiver, catalog цена ≠ challenge цена, honeypot receiver, testnet като production) |
-| **pre-delivery** (продавачът = ние) | нашият сървър преди доставка | вярно ли е това, което доставяме (кръстосана проверка на данните спрямо независим източник) |
+| **pre-pay** (the buyer) | the agent before it pays | is the endpoint safe (liveness, 0–100 trust, scam flags: swapped receiver, catalog price ≠ challenge price, honeypot receiver, testnet as production) |
+| **pre-delivery** (the seller = us) | our server before delivery | is what we are delivering correct (cross-checking the data against an independent source) |
 
 ---
 
-## (а) Какъв източник проверява
+## (a) Which source does the verifying
 
-**Кандидати за независим източник (кръстосана проверка на нашите данни):**
+**Candidates for an independent source (cross-checking our data):**
 
-1. **CoinGecko public API** — безплатен, без ключ; вече интегриран
-   (`services/coingecko.py`, кеш + cooldown). Годен за: цена на ETH/ONDO/
-   KAITO/DEGEN спрямо нашия сигнал.
-2. **DexScreener** — безплатен, без ключ; вече се ползва
-   (`fetch_dexscreener_implied` в `market_data.py`). Годен за: cross-DEX цена.
-3. **Base on-chain (RPC)** — receipt/block вече се четат на settle пътя
-   (`main.py:_try_consume_standard_payment`). Годен за: финалност на плащане.
-4. **Външен guard за входяща посока** — PulseFeed `GET https://pulsefeed.dev/
-   verify?endpoint=<url>` (безплатен, без ключ, CORS) връща pay/avoid вердикт
-   + on-chain proof. Годен за: когато НИЕ сме купувач (Bazaar/F1 тестове).
+1. **CoinGecko public API** — free, no key; already integrated
+   (`services/coingecko.py`, cache + cooldown). Suitable for: the price of ETH/
+   ONDO/KAITO/DEGEN against our signal.
+2. **DexScreener** — free, no key; already in use
+   (`fetch_dexscreener_implied` in `market_data.py`). Suitable for: cross-DEX
+   price.
+3. **Base on-chain (RPC)** — the receipt/block are already read on the settle
+   path (`main.py:_try_consume_standard_payment`). Suitable for: payment
+   finality.
+4. **External guard for the incoming direction** — PulseFeed `GET
+   https://pulsefeed.dev/verify?endpoint=<url>` (free, no key, CORS) returns a
+   pay/avoid verdict + on-chain proof. Suitable for: when WE are the buyer
+   (Bazaar/F1 tests).
 
-**Препоръка:** rule-based кръстосана проверка №1+№2 (± праг спрямо независим
-feed) като първа линия; LLM само за гранични случаи; №4 — при нашите изходящи
-плащания. Сканер-каталози (x402scan, discovery индекса) проверяват
-*декларацията*, не стойността — различна работа.
+**Recommendation:** a rule-based cross-check of No. 1 + No. 2 (± a threshold
+against an independent feed) as the first line; LLM only for edge cases; No. 4 —
+for our outgoing payments. Scanner catalogs (x402scan, discovery indexes) verify
+the *declaration*, not the value — a different job.
 
-## (б) Кой евтин модел казва „да/не" и колко струва на заявка
+## (b) Which cheap model says "yes/no" and what it costs per request
 
-Цени: **OpenRouter `GET /api/v1/models`**, 07.10.2026 (публичен endpoint,
-$/1M tokens). Сметката е за вердикт заявка: ~400 tokens input (инструкция +
-фрагмент от отговора) + ~5 tokens output („да"/„не").
+Prices: **OpenRouter `GET /api/v1/models`**, 07.10.2026 (public endpoint,
+$/1M tokens). The estimate is for a verdict request: ~400 tokens input
+(instruction + response fragment) + ~5 tokens output ("yes"/"no").
 
-| Модел | $/M in | $/M out | **$ на вердикт** |
+| Model | $/M in | $/M out | **$ per verdict** |
 |---|---:|---:|---:|
 | `qwen/qwen3.7-flash` | 0.03 | 0.13 | **~$0.000015** |
 | `openai/gpt-5-nano` | 0.05 | 0.40 | ~$0.000022 |
@@ -56,55 +59,58 @@ $/1M tokens). Сметката е за вердикт заявка: ~400 tokens 
 | `openai/gpt-4o-mini` | 0.15 | 0.60 | ~$0.000063 |
 | `deepseek/deepseek-chat` | 0.257 | 1.029 | ~$0.00011 |
 
-Забележки: GLM-4.5-**Flash** липсва в OpenRouter (наличен е `glm-4.5-air` и
-`glm-4.6` @ 0.43/1.75 — скъп за тази работа). Настоящият `GLM_MODEL` за
-бюлетини не е задължителен тук — вердиктът „да/не" не се нуждае от голям модел.
+Notes: GLM-4.5-**Flash** is missing from OpenRouter (`glm-4.5-air` is available,
+as is `glm-4.6` @ 0.43/1.75 — expensive for this job). The current `GLM_MODEL`
+for bulletins is not mandatory here — a "yes/no" verdict does not need a large
+model.
 
-**Препоръка:** `qwen/qwen3.7-flash` (най-евтин) или `openai/gpt-5-nano`
-(по-познат доставчик). Формат: `max_tokens≈5`, отговор строго `да`/`не`;
-неправилен формат → третира се като „няма вердикт" (не блокира).
+**Recommendation:** `qwen/qwen3.7-flash` (cheapest) or `openai/gpt-5-nano`
+(a more familiar provider). Format: `max_tokens≈5`, the answer strictly `yes`/
+`no`; incorrect format → treated as "no verdict" (does not block).
 
-## (в) Къде влиза в кода (преди доставка)
+## (c) Where it enters the code (before delivery)
 
-Идентифицирана е **една** бариера преди „продуктът напусна сградата":
+**One** barrier before "the product left the building" has been identified:
 
-- **`main.py:_try_consume_standard_payment`** (сетълмент-пътят, ~ред 2845–2988)
-  — след verify + settle и **преди** `g.x402_settlement` да бъде запазен.
-- **`main.py:_emit_payment_response`** (`after_request`, ~ред 2991–3032) —
-  последната точка преди `dashboard_db.mark_payment_delivered(tx)`: това е
-  мястото, където F3 определя, че доставката е станала.
+- **`main.py:_try_consume_standard_payment`** (the settlement path, ~lines
+  2845–2988) — after verify + settle and **before** `g.x402_settlement` is
+  stored.
+- **`main.py:_emit_payment_response`** (`after_request`, ~lines 2991–3032) —
+  the last point before `dashboard_db.mark_payment_delivered(tx)`: this is the
+  place where F3 determines that delivery has happened.
 
-**Предложение за вход (когато се строи):**
-1. **Rule-check (синхронно)** в `_try_consume_standard_payment` — сверка на
-   цената/данните спрямо кешнатия независим feed; при разминаване →
-   `dashboard_db.record_guard_event("value_check_mismatch", …)` + лог.
-2. **LLM-вердикт (асинхронно / на семпли)** — fire-and-forget thread (като
-   `_detect_reorgs`), който записва `да/не` като guard event.
-3. **Fail-open, не fail-closed**: плащането вече е минало — проверката носи
-   видимост, не може да върне пари. Блокиране би ощетило платилия клиент.
+**Proposed entry (when it gets built):**
+1. **Rule-check (synchronous)** in `_try_consume_standard_payment` — checking
+   the price/data against the cached independent feed; on a mismatch →
+   `dashboard_db.record_guard_event("value_check_mismatch", …)` + a log entry.
+2. **LLM verdict (asynchronous / on samples)** — a fire-and-forget thread (like
+   `_detect_reorgs`) that records `yes`/`no` as a guard event.
+3. **Fail-open, not fail-closed**: the payment has already gone through — the
+   check brings visibility, it cannot return money. Blocking would harm the
+   client who already paid.
 
-## (г) Очакван ефект върху цена/скорост
+## (d) Expected effect on price/speed
 
-| Режим | Латентност на платена заявка | Цена |
+| Mode | Latency of a paid request | Cost |
 |---|---|---|
-| Rule-check (sync, кешнат feed) | +0–50 ms | $0 |
-| LLM вердикт **синхронен** | +0.4–1.5 s | $0.00002–0.00006 |
-| LLM вердикт **async/семплиран** | +0 ms на критичния път | $0.00002–0.00006 на проверена заявка |
+| Rule-check (sync, cached feed) | +0–50 ms | $0 |
+| LLM verdict **synchronous** | +0.4–1.5 s | $0.00002–0.00006 |
+| LLM verdict **async/sampled** | +0 ms on the critical path | $0.00002–0.00006 per checked request |
 
-Спрямо нашата цена $0.003–0.005/заявка: дори 100% LLM проверка излиза
-**~0.5–2%** от прихода (1000 платени заявки/месец ≈ $0.02–0.06/месец LLM).
-Латентността обаче е по-съществена: синхронен LLM прави $0.003 стоката с
-по-бавен отговор — затова **async/семплиране**.
+Relative to our price of $0.003–0.005/request: even 100% LLM checking comes out
+at **~0.5–2%** of revenue (1000 paid requests/month ≈ $0.02–0.06/month for
+LLM). Latency, however, matters more: a synchronous LLM makes the $0.003
+product respond more slowly — hence **async/sampling**.
 
-**Ограничение:** yes/no вердикт без обяснение е слаб за нашите числови данни —
-rule-check ±2% спрямо независим feed дава по-силна гаранция от евтин LLM.
-LLM има смисъл за нечислови проверки (напр. дали текстовият аргумент на
-сигнала противоречи на числото).
+**Limitation:** a yes/no verdict without an explanation is weak for our numeric
+data — a rule-check of ±2% against an independent feed gives a stronger
+guarantee than a cheap LLM. An LLM makes sense for non-numeric checks (e.g.
+whether the textual argument of the signal contradicts the number).
 
-## Източници
-- PulseFeed README (`Nikolife2016/pulsefeed-x402`, прочетен 07.10.2026):
-  `check_x402_endpoint`, 0–100 trust score, scam флагове, `GET /verify?endpoint=`
-  (безплатен, без ключ), нощен drift-дифф на MCP регистъра.
-- OpenRouter `GET /api/v1/models` — цени към 07.10.2026.
-- Наш код: `main.py` (2845, 2965, 2991–3032), `services/coingecko.py`,
+## Sources
+- PulseFeed README (`Nikolife2016/pulsefeed-x402`, read 07.10.2026):
+  `check_x402_endpoint`, 0–100 trust score, scam flags, `GET /verify?endpoint=`
+  (free, no key), nightly drift-diff of the MCP registry.
+- OpenRouter `GET /api/v1/models` — prices as of 07.10.2026.
+- Our code: `main.py` (2845, 2965, 2991–3032), `services/coingecko.py`,
   `services/market_data.py`, `AP2_RADAR.md` THERMOMETERS.

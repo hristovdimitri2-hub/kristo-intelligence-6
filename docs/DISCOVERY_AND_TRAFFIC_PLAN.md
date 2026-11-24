@@ -1,302 +1,314 @@
 # DISCOVERY & TRAFFIC PLAN — Kristo Intelligence
 
-**Съставен:** 03.11.2026 · **Основа:** живи проверки (Glama, официален MCP Registry, GitHub API) + Chatbox архива
-**Статус:** чернова за одобрение — **нищо в репото не е променяно от този документ**
+**Compiled:** 03.11.2026 · **Basis:** live checks (Glama, official MCP Registry, GitHub API) + Chatbox archive
+**Status:** draft for approval — **nothing in the repo has been changed by this document**
 
 ---
 
-## §0 Резюме в три точки
+## §0 Summary in three points
 
-1. **Glama не е счупен — объркана е вратата.** Живият ни запис е в **Connectors** (хоствани endpoint-и): ownership verified, **Healthy**, **100% uptime за 47 дни**, последен тест **03.11 11:13**, **TDQS A (4.7/5)** с 3 инструмента, всеки оценен A. Липсва само записът в **Servers** (изходен код) — а той е нужен единствено за баджа и за PR #13219.
-2. **Регистърът е „обърнат".** В официалния MCP Registry `isLatest` сочи **v6.0.0 от 17.09**, а по-новият и по-богат **v1.0.0 от 10.10** е `isLatest: false` — защото 1.0.0 < 6.0.0 по semver. Всичко, което поема от регистъра (PulseMCP и др.), вижда старата версия.
-3. **Реалната дупка е публичното търсене** — точно както собственикът каза на 03.11: „публично търсене — сега ни няма там. Това е най-голямата ни дупка." Директориите ни виждат; **търсачките и LLM-ите — почти не**.
+1. **Glama is not broken — we are knocking on the wrong door.** Our live entry is in **Connectors**
+   (hosted endpoints): ownership verified, **Healthy**, **100% uptime for 47 days**, last test
+   **03.11 11:13**, **TDQS A (4.7/5)** with 3 tools, each rated A. The only thing missing is the entry
+   in **Servers** (source code) — and that is needed solely for the badge and for PR #13219.
+2. **The registry is "inverted".** In the official MCP Registry `isLatest` points to **v6.0.0 from
+   17.09**, while the newer and richer **v1.0.0 from 10.10** is `isLatest: false` — because 1.0.0 <
+   6.0.0 by semver. Everything that consumes from the registry (PulseMCP and others) sees the old
+   version.
+3. **The real hole is public search** — exactly as the owner said on 03.11: "public search — right now
+   we are not there. That is our biggest hole." The directories see us; **search engines and LLMs —
+   almost not**.
 
 ---
 
-## §1 Проверено на живо (03.11.2026)
+## §1 Verified live (03.11.2026)
 
-| Проверка | Резултат | Доказателство |
+| Check | Result | Evidence |
 |---|---|---|
-| Glama **Connectors** — нашият запис | ✅ **LIVE** | `glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` |
-| … собственост | ✅ **Ownership verified** | на страницата |
-| … здраве | ✅ **Healthy**, **100.0% uptime / 47 дни**, последен тест **2026-11-03 11:13** | |
-| … качество | ✅ **TDQS A, 4.7/5.0**, 3 инструмента × **A** | Disambiguation 5/5 · Naming 5/5 · Tool Count 5/5 · Completeness 4/5 |
-| … транспорт | Streamable HTTP · MCP 2025-11-25 · `https://kristo-intelligence-api.onrender.com/mcp` | |
-| … празни полета | ❌ Documentation: *Not available* · Trust center: *Not available* · ChatGPT: `–` · Claude: `–` | |
-| Glama **Servers** — нашият запис | ❌ **ОТСЪСТВА — потвърдено през API**: `GET /v1/servers/hristovdimitri2-hub/kristo-intelligence-6` → **HTTP 404 `not_found`**; търсене „kristo" връща Krimto, gmail-mcp, Safe Terminal, agentcrush — **не нас**. Не е скрит запис: наистина няма такъв | Glama Directory API |
-| Glama **Connectors** — пълният запис | `id: oc4mkbcgg8` · `qualityScore 4.7` · `toolCount 3` · `healthy: true` · `lastTestedAt 2026-11-03T12:14:23Z` · `createdAt 2026-09-17` · attributes: `auth:none`, `status:healthy`, `capability:tools`, `category:developer-tools`, `category:finance` | Glama Directory API |
-| Connector → repo връзка | ❌ **`repository: null`** — connector-ът не е свързан с repo-то; `documentationUrl: null` | Glama Directory API |
-| **Badge на connector-а** | ✅ рендира **„A"**: *„MCP connector rated A … ownership verified, tool definitions rated A, 3 tools"* | `/mcp/connectors/…/badges/score.svg` |
-| **Badge на server-а** | ❌ рендира **„F – A"**: *„claimed by its maintainer, remote-capable, maintenance rated A"* — лиценз **F**, качество **неоценено** | `/mcp/servers/…/badges/score.svg` |
-| README ред 3 | Показва **и двата** badge-а → посетителят вижда червено „F" до чистото „A" | `README.md:3` |
-| Glama размери | Servers **115 008** · Connectors **39 498** | |
-| Официален MCP Registry | ⚠️ **v6.0.0 (17.09) = `isLatest: true`**; v1.0.0 (10.10) = `false` | `registry.modelcontextprotocol.io/v0/servers?search=kristo-intelligence` |
-| PR **#13219** (punkpeye/awesome-mcp-servers) | 🟡 **open**, **20 коментара**, последна активност **01.11**, етикети `has-emoji`, `valid-name`, `has-glama` | GitHub API |
-| PR **#1308** (xpaysh/awesome-x402) | 🟢 **open**, `mergeable_state: clean`, от 24.08, последна активност 28.09 | GitHub API |
-| PR #1081 (същият списък, стар запис) | open — за `kristo-travel-api`, **не е текущият проект** | GitHub API |
-| В репото | ✅ **има** `glama.json`, `glama-connector-claim.json`, `server.json` (**v6.0.0**), `smithery.yaml`, `.mcp.json`, `Dockerfile`, **`scripts/mcp_stdio_bridge.py`** + `tests/test_mcp_stdio_bridge.py` · ❌ **няма** `.github/`, `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`, `render.yaml` | локален прочит |
+| Glama **Connectors** — our entry | ✅ **LIVE** | `glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` |
+| … ownership | ✅ **Ownership verified** | on the page |
+| … health | ✅ **Healthy**, **100.0% uptime / 47 days**, last test **2026-11-03 11:13** | |
+| … quality | ✅ **TDQS A, 4.7/5.0**, 3 tools × **A** | Disambiguation 5/5 · Naming 5/5 · Tool Count 5/5 · Completeness 4/5 |
+| … transport | Streamable HTTP · MCP 2025-11-25 · `https://kristo-intelligence-api.onrender.com/mcp` | |
+| … empty fields | ❌ Documentation: *Not available* · Trust center: *Not available* · ChatGPT: `–` · Claude: `–` | |
+| Glama **Servers** — our entry | ❌ **MISSING — confirmed via the API**: `GET /v1/servers/hristovdimitri2-hub/kristo-intelligence-6` → **HTTP 404 `not_found`**; a search for "kristo" returns Krimto, gmail-mcp, Safe Terminal, agentcrush — **not us**. It is not a hidden entry: there really is no such entry | Glama Directory API |
+| Glama **Connectors** — the full entry | `id: oc4mkbcgg8` · `qualityScore 4.7` · `toolCount 3` · `healthy: true` · `lastTestedAt 2026-11-03T12:14:23Z` · `createdAt 2026-09-17` · attributes: `auth:none`, `status:healthy`, `capability:tools`, `category:developer-tools`, `category:finance` | Glama Directory API |
+| Connector → repo link | ❌ **`repository: null`** — the connector is not linked to the repo; `documentationUrl: null` | Glama Directory API |
+| **Badge of the connector** | ✅ renders **"A"**: *"MCP connector rated A … ownership verified, tool definitions rated A, 3 tools"* | `/mcp/connectors/…/badges/score.svg` |
+| **Badge of the server** | ❌ renders **"F – A"**: *"claimed by its maintainer, remote-capable, maintenance rated A"* — license **F**, quality **not rated** | `/mcp/servers/…/badges/score.svg` |
+| README line 3 | Shows **both** badges → the visitor sees a red "F" next to the clean "A" | `README.md:3` |
+| Glama sizes | Servers **115 008** · Connectors **39 498** | |
+| Official MCP Registry | ⚠️ **v6.0.0 (17.09) = `isLatest: true`**; v1.0.0 (10.10) = `false` | `registry.modelcontextprotocol.io/v0/servers?search=kristo-intelligence` |
+| PR **#13219** (punkpeye/awesome-mcp-servers) | 🟡 **open**, **20 comments**, last activity **01.11**, labels `has-emoji`, `valid-name`, `has-glama` | GitHub API |
+| PR **#1308** (xpaysh/awesome-x402) | 🟢 **open**, `mergeable_state: clean`, since 24.08, last activity 28.09 | GitHub API |
+| PR #1081 (the same list, old entry) | open — for `kristo-travel-api`, **not the current project** | GitHub API |
+| In the repo | ✅ **present** `glama.json`, `glama-connector-claim.json`, `server.json` (**v6.0.0**), `smithery.yaml`, `.mcp.json`, `Dockerfile`, **`scripts/mcp_stdio_bridge.py`** + `tests/test_mcp_stdio_bridge.py` · ❌ **absent** `.github/`, `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`, `render.yaml` | local read |
 
 ---
 
-## §2 Диагноза — какво точно е счупено
+## §2 Diagnosis — what exactly is broken
 
-### 2.1 Glama има ДВЕ различни директории и ние кандидатстваме в грешната
+### 2.1 Glama has TWO different directories and we are applying to the wrong one
 
 | | **Servers** (`/mcp/servers`) | **Connectors** (`/mcp/connectors`) |
 |---|---|---|
-| Какво приема | „open-source servers that we build and run from source" | хоствани endpoint-и: „Only approved connectors reachable over **streamable HTTP** are listed" |
-| Как се влиза | Glama билдва контейнера и го **стартира** — трябва да отговори на **introspection** | подаваш URL, те го health-check-ват |
-| Ние | ❌ отсъстваме | ✅ **живи, verified, rated A** |
-| Нужен за | бадж в README + merge на PR #13219 | **реална видимост пред клиенти** (бутон „Connect") |
+| What it accepts | "open-source servers that we build and run from source" | hosted endpoints: "Only approved connectors reachable over **streamable HTTP** are listed" |
+| How you get in | Glama builds the container and **starts** it — it must respond to **introspection** | you submit a URL, they health-check it |
+| Us | ❌ we are absent | ✅ **live, verified, rated A** |
+| Needed for | badge in the README + merge of PR #13219 | **real visibility in front of customers** (the "Connect" button) |
 
-**Ключът:** нашият `Dockerfile` вдига **gunicorn (HTTP)** — той не може да отговори на introspection в контейнера на Glama. Затова „Runs from source" се проваля. А „Add Server → Hosted endpoint" отказва, защото endpoint-ът **вече е регистриран като connector** → дубликат.
+**The key:** our `Dockerfile` brings up **gunicorn (HTTP)** — it cannot respond to introspection in
+Glama's container. That is why "Runs from source" fails. And "Add Server → Hosted endpoint" refuses,
+because the endpoint **is already registered as a connector** → duplicate.
 
-> **Ние не сме „отхвърлени". Ние чукаме на вратата, която не е наша — и през това време стояхме 6 седмици в тикет.**
+> **We are not "rejected". We are knocking on a door that is not ours — and meanwhile we sat in a ticket for 6 weeks.**
 
-### 2.2 Хронологията от PR #13219 (20 коментара) — как изтече времето
+### 2.2 The timeline from PR #13219 (20 comments) — how the time drained away
 
-| Дата | Кой | Какво |
+| Date | Who | What |
 |---|---|---|
-| 30.08 | PR отворен | 1 файл, 1 ред |
-| 30.08 | бот | „добави Glama quality score" |
-| 07.09 | **punkpeye** | „submit at glama.ai/mcp/servers, claim ownership, and ensure a quality score is set — **once that's done, I'll merge**" |
-| 17.09 | бот | **ново изискване:** Dockerfile („we only need the server to start and respond to introspection requests"). P.S.: „If your server already has a hosted endpoint, you can also list it under /mcp/connectors" |
-| 17.09 | ние | сочим connector-а; поправяме описанието ($0.05 → $0.003–0.005, „no free tier") |
-| 21.09 | punkpeye | триаж-напомняне: бадж `OWNER/REPO` + „Submit at glama.ai/mcp/servers" — **без отговор на въпроса за connector** |
-| 22.09 | ние | „и двете са готови"; после корекция: контейнерната introspection **НЕ** минава (регистриран по грешка като „Runs from source"); тикет **#135407945** |
-| 23.10 | **punkpeye** | „**the quality score is still not evaluated** … without the score being set, the entry can't be merged" |
-| 27.10 → 01.11 | ние | доказахме, че `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` **не съществува** (404 → homepage), а формата го отказва като дубликат |
-| 01.11 15:30 | **Glama Support** | **„не е одобрен — вече съществува MCP сървър за това репо"**; системата създава втори тикет **#151838421** |
-| 03.11 14:37 | ние | пълното доказателство до Frank: 404 от API, badge **F** за лиценза, опции A/B, готовият stdio bridge. Пробата с `Dockerfile.glama` също е отказана („MCP server already exists for this repository"). Мълчание оттогава |
+| 30.08 | PR opened | 1 file, 1 line |
+| 30.08 | bot | "add Glama quality score" |
+| 07.09 | **punkpeye** | "submit at glama.ai/mcp/servers, claim ownership, and ensure a quality score is set — **once that's done, I'll merge**" |
+| 17.09 | bot | **new requirement:** Dockerfile ("we only need the server to start and respond to introspection requests"). P.S.: "If your server already has a hosted endpoint, you can also list it under /mcp/connectors" |
+| 17.09 | us | we point to the connector; we fix the description ($0.05 → $0.003–0.005, "no free tier") |
+| 21.09 | punkpeye | triage reminder: badge `OWNER/REPO` + "Submit at glama.ai/mcp/servers" — **no answer to the question about the connector** |
+| 22.09 | us | "both are ready"; then a correction: the container introspection does **NOT** pass (registered by mistake as "Runs from source"); ticket **#135407945** |
+| 23.10 | **punkpeye** | "**the quality score is still not evaluated** … without the score being set, the entry can't be merged" |
+| 27.10 → 01.11 | us | we proved that `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` **does not exist** (404 → homepage), and the form refuses it as a duplicate |
+| 01.11 15:30 | **Glama Support** | **"not approved — an MCP server already exists for this repository"**; the system creates a second ticket **#151838421** |
+| 03.11 14:37 | us | the full evidence to Frank: 404 from the API, badge **F** for the license, options A/B, the ready stdio bridge. The attempt with `Dockerfile.glama` was also refused ("MCP server already exists for this repository"). Silence since then |
 
-**Един-единствен блокер:** липсващ `Servers` запис, който **само Glama може да създаде** — освен ако не направим контейнера си годен за introspection.
+**A single blocker:** a missing `Servers` entry, which **only Glama can create** — unless we make our
+container capable of introspection.
 
 ---
 
-## §3 Планът за Glama и Frank
+## §3 The plan for Glama and Frank
 
-> **Правило №1: СПИРАМЕ да подаваме.** Всяко ново подаване удря дубликата и харчи доверие. Нула нови submissions до избор на маршрут.
+> **Rule #1: WE STOP SUBMITTING.** Every new submission hits the duplicate and spends trust. Zero new submissions until a route is chosen.
 
-### Маршрут A — „Glama го създава" (бърз, без код) ← **препоръчан за стартиране веднага**
+### Route A — "Glama creates it" (fast, no code) ← **recommended to start immediately**
 
-1. **Един-единствен ъпдейт в тикет #135407945** (не в чат, не в Discord), с пълното доказателство:
-   - Connector URL + статус: *Ownership verified · Healthy · 100% uptime 47 days · TDQS A 4.7/5 · last tested 2026-11-03 11:13*
-   - `https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` → **404** (връща homepage)
-   - търсене „kristo" в `/mcp/servers` → **нула наши резултата**
-   - „Add Server → Hosted endpoint" → **отказва: endpoint-ът вече е connector**
-   - **молбата, формулирана точно:** *type change на съществуващия запис към „Hosted endpoint", свързан с repo `hristovdimitri2-hub/kristo-intelligence-6`* — това създава `/mcp/servers/` записа и задейства quality score
-2. **Кратък коментар в PR #13219** — само за да не изтече 32-дневният inactivity таймер (последен: 01.11; следващ ~17.11), с линк към тикета.
-3. **Discord на Glama** — само напомняне с линк към тикета, **не** паралелен канал с нови искания.
-4. **Запълване на празните полета** през **Admin** таба на connector-а: Documentation URL (repo `docs/` + `/llms.txt`) и Trust center (x402-trust профилът). Това са видими, безплатни подобрения на качеството на записа.
+1. **A single update in ticket #135407945** (not in chat, not in Discord), with the full evidence:
+   - Connector URL + status: *Ownership verified · Healthy · 100% uptime 47 days · TDQS A 4.7/5 · last tested 2026-11-03 11:13*
+   - `https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` → **404** (returns the homepage)
+   - a search for "kristo" in `/mcp/servers` → **zero results for us**
+   - "Add Server → Hosted endpoint" → **refuses: the endpoint is already a connector**
+   - **the request, formulated precisely:** *a type change of the existing entry to "Hosted endpoint", linked to repo `hristovdimitri2-hub/kristo-intelligence-6`* — this creates the `/mcp/servers/` entry and triggers the quality score
+2. **A short comment on PR #13219** — only so that the 32-day inactivity timer does not expire (last: 01.11; next ~17.11), with a link to the ticket.
+3. **Glama's Discord** — only a reminder with a link to the ticket, **not** a parallel channel with new requests.
+4. **Filling the empty fields** through the **Admin** tab of the connector: Documentation URL (repo `docs/` + `/llms.txt`) and Trust center (the x402-trust profile). These are visible, free improvements to the quality of the entry.
 
-### Маршрут B — „ние правим контейнера годен" (в наша власт) ✅ **изпълнен**
+### Route B — "we make the container capable" (within our control) ✅ **completed**
 
-Оказа се, че репото **вече беше предвидило този сценарий**. `scripts/mcp_stdio_bridge.py` (126 реда)
-съществува като **„sleeping asset"** — умишлено НЕвключен в `Dockerfile`/`Procfile`, със собствен тест
-`tests/test_mcp_stdio_bridge.py`, който дори **забранява** случайното му включване.
+It turned out that the repo **had already foreseen this scenario**. `scripts/mcp_stdio_bridge.py` (126 lines)
+exists as a **"sleeping asset"** — deliberately NOT included in `Dockerfile`/`Procfile`, with its own test
+`tests/test_mcp_stdio_bridge.py`, which even **forbids** its accidental inclusion.
 
-Дизайнът му е по-добър от прокси към Render: той подава всяко JSON-RPC съобщение на **истинското
-Flask приложение в самия процес** (през test client), тоест работи **без мрежа** и без зависимост от
-Render. Точно това трябва на контейнера на Glama.
+Its design is better than a proxy to Render: it feeds every JSON-RPC message to the **actual
+Flask application in the same process** (through the test client), that is, it works **without a
+network** and without a dependency on Render. That is exactly what Glama's container needs.
 
-**Какво беше добавено:** `Dockerfile.glama` — вдига **само моста**, не gunicorn; производственият
-`Dockerfile` и `Procfile` остават недокоснати (затова и тестът продължава да минава).
+**What was added:** `Dockerfile.glama` — it brings up **only the bridge**, not gunicorn; the production
+`Dockerfile` and `Procfile` remain untouched (which is why the test still passes).
 
-**Доказателство (като отделен процес, точно както би го пуснал Glama):**
+**Evidence (as a separate process, exactly as Glama would run it):**
 
-| Проверка | Резултат |
+| Check | Result |
 |---|---|
-| 4 съобщения на stdin → кадри на stdout | **3** (notification-ът не се отговаря) ✅ |
-| Валидни JSON редове | **3 / 3** ✅ |
-| `initialize` | `kristo-intelligence`, протокол `2025-06-18`, capabilities `tools` ✅ |
-| `tools/list` | **3 инструмента** с пълни схеми и описания ✅ |
-| Логове на приложението | на **stderr** (182 B), stdout **чист** ✅ |
-| Изходен код | **0** ✅ |
+| 4 messages on stdin → frames on stdout | **3** (the notification is not answered) ✅ |
+| Valid JSON lines | **3 / 3** ✅ |
+| `initialize` | `kristo-intelligence`, protocol `2025-06-18`, capabilities `tools` ✅ |
+| `tools/list` | **3 tools** with full schemas and descriptions ✅ |
+| Application logs | on **stderr** (182 B), stdout **clean** ✅ |
+| Exit code | **0** ✅ |
 
-**Скрит капан №1, намерен при четене:** `.dockerignore` изключва `data/`, а импортирането на
-приложението записва `data/agent_catalog.db`, без самата тя да създава папката. Без
-`mkdir -p /app/data` контейнерът пада с „unable to open database file".
+**Hidden trap #1, found while reading:** `.dockerignore` excludes `data/`, and importing the
+application writes `data/agent_catalog.db`, without it creating the folder itself. Without
+`mkdir -p /app/data` the container crashes with "unable to open database file".
 
-**Проверено и като истински контейнер** (`docker build -f Dockerfile.glama` ✅ + `docker run --rm -i` ✅):
+**Verified as a real container too** (`docker build -f Dockerfile.glama` ✅ + `docker run --rm -i` ✅):
 
-| Проверка | Резултат |
+| Check | Result |
 |---|---|
-| Изходен код на контейнера | **0** ✅ |
-| Протоколни кадъра (initialize, tools/list, ping, платено tools/call) | **4 / 4** ✅ |
-| Валидни JSON редове | **4 / 4** ✅ |
+| Exit code of the container | **0** ✅ |
+| Protocol frames (initialize, tools/list, ping, paid tools/call) | **4 / 4** ✅ |
+| Valid JSON lines | **4 / 4** ✅ |
 | `initialize` | `kristo-intelligence`, `2025-06-18` ✅ |
-| `tools/list` | **3 инструмента** със схеми ✅ |
-| Платен `tools/call` | връща x402 инструкцията (не изпълнява) ✅ |
-| Общо време (старт на образа + 5 заявки) | **6.9 s** ✅ |
-| stdout | само протокол; логовете на stderr ✅ |
+| `tools/list` | **3 tools** with schemas ✅ |
+| Paid `tools/call` | returns the x402 instruction (does not execute) ✅ |
+| Total time (image start + 5 requests) | **6.9 s** ✅ |
+| stdout | protocol only; logs on stderr ✅ |
 
-**Скрит капан №2, намерен само от истински контейнер:** `python scripts/<файл>.py` слага
-`scripts/` на `sys.path`, **не** `/app` — затова `from main import app` вътре в контейнера пада с
-`ModuleNotFoundError: No module named 'main'`. На хост машината не се вижда, ако е подаден
-`PYTHONPATH`. Поправено с `ENV PYTHONPATH=/app`.
+**Hidden trap #2, found only by a real container:** `python scripts/<file>.py` puts
+`scripts/` on `sys.path`, **not** `/app` — which is why `from main import app` inside the container fails with
+`ModuleNotFoundError: No module named 'main'`. On the host machine it is not visible if
+`PYTHONPATH` is passed. Fixed with `ENV PYTHONPATH=/app`.
 
-**Следваща стъпка:** подаване „Runs from source" с този Dockerfile — **но едва след като Glama
-махне остарелия запис за repo-то** (§2.2), иначе пак ще удари „already exists for this repository".
+**Next step:** submitting "Runs from source" with this Dockerfile — **but only after Glama
+removes the outdated entry for the repo** (§2.2), otherwise it will again hit "already exists for this repository".
 
-### Какво да НЕ правим
+### What we should NOT do
 
-- Да не искаме от Frank ръчен merge без score — той вече обясни, че не може.
-- Да не отваряме нов PR в awesome-mcp-servers (има инцидент с #31971, подаден от Cline без команда).
-- Да не пипаме `kristo-travel-api` (#1081/#11557) — това е стар, различен проект; repo-то вече е private.
-- Да не купуваме „featured" слот при Glama, преди да сме решили базовия запис.
-
----
-
-## §4 MCP Registry / PulseMCP — най-евтината поправка в целия план
-
-**Проблемът:** `isLatest` = **v6.0.0 (17.09)**, а v1.0.0 (10.10) е по-нова, но „по-ниска" по semver → регистърът я маркира като не-последна.
-
-**Решението:** публикуване на версия **> 6.0.0** (напр. `6.1.0` или `7.0.0`) със същите богати метаданни: 6 платени endpoint-а с цени, 3 инструмента, `remotes` (`/mcp`, `/mcp/sse`), `icons`, `websiteUrl`, `discovery` блок.
-
-**Ефектът:** всички консуматори на регистъра — **PulseMCP**, агрегатори, MCP клиенти — виждат актуалните данни вместо септемврийските.
-
-**Нужно от собственика:** `mcp-publisher` **device flow** — едно оторизиране в браузър (~1 минута).
-**Стойност:** нула пари, най-широко покритие на усилие.
+- Do not ask Frank for a manual merge without a score — he has already explained that he cannot.
+- Do not open a new PR in awesome-mcp-servers (there is an incident with #31971, submitted by Cline without a command).
+- Do not touch `kristo-travel-api` (#1081/#11557) — that is an old, different project; the repo is now private.
+- Do not buy a "featured" slot at Glama before we have resolved the basic entry.
 
 ---
 
-## §5 Целеви директории — пет семейства
+## §4 MCP Registry / PulseMCP — the cheapest fix in the whole plan
 
-### Семейство 1 — MCP директории
+**The problem:** `isLatest` = **v6.0.0 (17.09)**, while v1.0.0 (10.10) is newer but "lower" by semver → the registry marks it as not-latest.
 
-| Канал | Статус | Действие | Цена |
+**The solution:** publishing a version **> 6.0.0** (e.g. `6.1.0` or `7.0.0`) with the same rich metadata: 6 paid endpoints with prices, 3 tools, `remotes` (`/mcp`, `/mcp/sse`), `icons`, `websiteUrl`, a `discovery` block.
+
+**The effect:** all consumers of the registry — **PulseMCP**, aggregators, MCP clients — see the current data instead of the September data.
+
+**Needed from the owner:** `mcp-publisher` **device flow** — one authorization in a browser (~1 minute).
+**Value:** zero money, the broadest coverage per effort.
+
+---
+
+## §5 Target directories — five families
+
+### Family 1 — MCP directories
+
+| Channel | Status | Action | Price |
 |---|---|---|---|
-| **Glama** | Connector ✅ A · Servers ❌ | Маршрут A/B от §3 | $0 |
-| **Официален MCP Registry** | ⚠️ стара версия е `isLatest` | §4 — публикувай > 6.0.0 | $0 |
-| **PulseMCP** | поема автоматично от регистъра | **оправя се сам** след §4 | $0 |
-| **mcp.so** | ✅ запис, коментар #3441 | claim/верификация; актуализирай цените | $0 |
-| **Smithery** | ❌ мъртъв (proxy спрян 31.10) | не инвестирай; провери за наследник | — |
-| **mcpmarket.com** | не сме | беше отказан заради **$69** | $69 (решение) |
-| **mcprush** | бадж в README | — | $0 |
-| **Docker MCP Catalog** (`hub.docker.com/mcp`) | **непроверен** | провери изисквания — имаме Dockerfile | $0 |
-| **Cline MCP Marketplace / Cursor Directory / OpenTools / mcp.directory** | **непроверени** | проучване + подаване където е свободно | $0 |
+| **Glama** | Connector ✅ A · Servers ❌ | Route A/B from §3 | $0 |
+| **Official MCP Registry** | ⚠️ the old version is `isLatest` | §4 — publish > 6.0.0 | $0 |
+| **PulseMCP** | consumes automatically from the registry | **fixes itself** after §4 | $0 |
+| **mcp.so** | ✅ entry, comment #3441 | claim/verification; update the prices | $0 |
+| **Smithery** | ❌ dead (proxy stopped 31.10) | do not invest; check for a successor | — |
+| **mcpmarket.com** | we are not there | was refused because of **$69** | $69 (decision) |
+| **mcprush** | badge in the README | — | $0 |
+| **Docker MCP Catalog** (`hub.docker.com/mcp`) | **unverified** | check the requirements — we have a Dockerfile | $0 |
+| **Cline MCP Marketplace / Cursor Directory / OpenTools / mcp.directory** | **unverified** | research + submit wherever it is free | $0 |
 
-### Семейство 2 — x402 и агентни платежни каталози (там е платеният трафик)
+### Family 2 — x402 and agent payment catalogs (that is where the paid traffic is)
 
-| Канал | Статус | Действие |
+| Channel | Status | Action |
 |---|---|---|
-| **x402scan** | ✅ регистриран (issue #1270, коментар #1283) | продължи диалога с Merit; виж дали `/sample` рутовете се виждат |
-| **CDP Bazaar** | ✅ **1 индексиран ресурс** | задръж индексирането; активирай платения листинг ($0.25) от опашката |
-| **x402-list.com** | ✅ LIVE, 14/14, **валиден до 05.11** | **поднови преди 05.11** |
-| **x402-trust.com** | ✅ Grade A 81.2 | не купувай $0.005 доклада; поддържай uptime |
-| **PayAPI Market** | ✅ LIVE + verified | каналът с реален човешки контакт (Chet) |
-| **nohumans.directory** | ✅ **3 реални плащания на 30.10** | **PATCH-ни листинга** (`sample_query` / `has_sample`) — единственият канал с доказан външен трафик |
-| **x402.org екосистемна страница / agentcash** | непроверено | проучване |
+| **x402scan** | ✅ registered (issue #1270, comment #1283) | continue the dialogue with Merit; see whether the `/sample` routes are visible |
+| **CDP Bazaar** | ✅ **1 indexed resource** | keep the indexing; activate the paid listing ($0.25) from the queue |
+| **x402-list.com** | ✅ LIVE, 14/14, **valid until 05.11** | **renew before 05.11** |
+| **x402-trust.com** | ✅ Grade A 81.2 | do not buy the $0.005 report; maintain uptime |
+| **PayAPI Market** | ✅ LIVE + verified | the channel with a real human contact (Chet) |
+| **nohumans.directory** | ✅ **3 real payments on 30.10** | **PATCH the listing** (`sample_query` / `has_sample`) — the only channel with proven external traffic |
+| **x402.org ecosystem page / agentcash** | unverified | research |
 
-### Семейство 3 — интеграции в агентни framework-и ← **най-големият дългосрочен лост**
+### Family 3 — integrations into agent frameworks ← **the biggest long-term lever**
 
-Тук не става дума за бадж, а за това нашият API да влезе в **кодовия път**, който агентите вече изпълняват. Заслужава отделен документ, но посоките:
+This is not about a badge, but about getting our API into the **code path** that agents already
+execute. It deserves a separate document, but the directions:
 
 - **Coinbase AgentKit** action provider
 - **GOAT SDK** tools
 - **elizaOS** plugin registry
 - **LangChain / CrewAI** tool registries
-- **Anthropic Claude connectors** + **ChatGPT apps/connectors** — Glama connector-ът ни показва `ChatGPT: –`, `Claude: –` (празни полета → вероятно се запълват от Admin таба)
+- **Anthropic Claude connectors** + **ChatGPT apps/connectors** — our Glama connector shows `ChatGPT: –`, `Claude: –` (empty fields → probably filled from the Admin tab)
 
-Плюс: **Claude/ChatGPT конектор директориите** са мястото, където крайните потребители включват MCP сървъри.
+Plus: the **Claude/ChatGPT connector directories** are the place where end users enable MCP servers.
 
-### Семейство 4 — API каталози и обща dev видимост
+### Family 4 — API catalogs and general dev visibility
 
-API-то е и **OpenAPI 3.0** услуга — значи може да влезе в каталози, които не са MCP:
-**APIs.guru**, **Postman API Network**, **Public APIs**, **RapidAPI** (провери дали приема x402 модел), **Product Hunt** (липсва изцяло в досегашната стратегия), **Hacker News / dev.to / Reddit**.
+The API is also an **OpenAPI 3.0** service — so it can enter catalogs that are not MCP:
+**APIs.guru**, **Postman API Network**, **Public APIs**, **RapidAPI** (check whether it accepts the x402 model), **Product Hunt** (entirely missing from the strategy so far), **Hacker News / dev.to / Reddit**.
 
-### Семейство 5 — Awesome списъци
+### Family 5 — Awesome lists
 
-| Списък | PR | Статус | Действие |
+| List | PR | Status | Action |
 |---|---|---|---|
-| `punkpeye/awesome-mcp-servers` | **#13219** | open, 20 коментара | блокиран на §3 |
-| `xpaysh/awesome-x402` | **#1308** | **open, clean, mergeable** от 24.08 | учтив nudge (последна активност 28.09) |
-| `wong2/awesome-mcp-servers`, `modelcontextprotocol/servers`, `awesome-ai-agents`, `awesome-web3` | — | непроверени | проучване: 1 сървър = 1 PR |
+| `punkpeye/awesome-mcp-servers` | **#13219** | open, 20 comments | blocked on §3 |
+| `xpaysh/awesome-x402` | **#1308** | **open, clean, mergeable** since 24.08 | a polite nudge (last activity 28.09) |
+| `wong2/awesome-mcp-servers`, `modelcontextprotocol/servers`, `awesome-ai-agents`, `awesome-web3` | — | unverified | research: 1 server = 1 PR |
 
 ---
 
-## §6 Техническият слой, който прави намирането възможно
+## §6 The technical layer that makes discovery possible
 
-Директориите ни виждат; **търсачките — не** (проверено: `site:kristo-intelligence-api.onrender.com` → **1 индексирана страница**). Това е и „най-голямата дупка" по думите на собственика. Накратко (детайли в `VISIBILITY_AND_TRAFFIC_STRATEGY.md` и в Блокове 8–9):
+The directories see us; **the search engines — not** (verified: `site:kristo-intelligence-api.onrender.com` → **1 indexed page**). This is also the "biggest hole" in the owner's words. In brief (details in `VISIBILITY_AND_TRAFFIC_STRATEGY.md` and in Blocks 8–9):
 
-1. **Индексируема повърхност** — сега има 3 HTML страници, от които `/validation` е сираче, а `/dashboard` е `noindex`, но е в sitemap с приоритет 0.9.
-2. **`llms.txt` документира само стария `X-Payment-Proof`** — не описва x402 v2 релсата, цените и `/sample` рутовете.
-3. **Нула OG/Twitter/canonical/JSON-LD** в 9 темплейта → споделянията изглеждат като гол линк.
-4. **Sitemap** съдържа 302 пренасочвания и пропуска `/validation`, `/api/v1/quickstart`, `/.well-known/x402`, `/sample/*`.
-5. **Няма GSC/Bing верификация, няма IndexNow, няма аналитика.**
-6. **`/sample` рутовете са невидими** — а точно те са „try before you pay" пътят, който nohumans маркира като задължителен (`has_sample`).
+1. **Indexable surface** — there are now 3 HTML pages, of which `/validation` is an orphan and `/dashboard` is `noindex`, but is in the sitemap with priority 0.9.
+2. **`llms.txt` documents only the old `X-Payment-Proof`** — it does not describe the x402 v2 rail, the prices, and the `/sample` routes.
+3. **Zero OG/Twitter/canonical/JSON-LD** in 9 templates → shares look like a bare link.
+4. **Sitemap** contains 302 redirects and omits `/validation`, `/api/v1/quickstart`, `/.well-known/x402`, `/sample/*`.
+5. **No GSC/Bing verification, no IndexNow, no analytics.**
+6. **The `/sample` routes are invisible** — and they are precisely the "try before you pay" path that nohumans marks as mandatory (`has_sample`).
 
 ---
 
-## §7 Измерване — иначе „трафик" е усещане
+## §7 Measurement — otherwise "traffic" is a feeling
 
-**Фунията, която трябва да мерим:**
+**The funnel we need to measure:**
 
 ```
-директория/търсене → безплатен discovery (llms.txt, /mcp, /sample)
-   → 402 предизвикателство → платено плащане → settled call → индексиране
+directory/search → free discovery (llms.txt, /mcp, /sample)
+   → 402 challenge → paid payment → settled call → indexing
 ```
 
-**Минимален набор (седмично):**
-- брой **discovery** попадения по канал (User-Agent / referrer)
-- брой **402** срещу брой **settled** (конверсия)
-- брой външни платци (различни от нашите кравпъри `0xA19F`, `0x54E1`, `0xe3ba`)
-- позиция/присъствие в 6-те ключови директории (има `scripts/_listing_stats.py` и `listing_monitor.py`)
-- брой индексирани страници в Google/Bing
+**Minimal set (weekly):**
+- number of **discovery** hits per channel (User-Agent / referrer)
+- number of **402** versus number of **settled** (conversion)
+- number of external payers (other than our crawlers `0xA19F`, `0x54E1`, `0xe3ba`)
+- position/presence in the 6 key directories (there is `scripts/_listing_stats.py` and `listing_monitor.py`)
+- number of indexed pages in Google/Bing
 
-**Каденс:** седмичен пулс (вече съществува като практика) + месечен преглед срещу този план.
-
----
-
-## §8 Какво ми трябва от теб
-
-**Репото е документирано изключително добре** (60+ документа в `docs/` + `PROJECT_STATUS.md` 272 KB) — **не ми трябва нищо от кода**, чета си го сам. Липсва ми това, което живее извън репото:
-
-### A. Glama/GitHub артефакти (за да формулирам точния текст към Glama)
-1. **Пълният текст на тикетите #135407945 и #130688574** — какво точно е отговорено последно и има ли назначен човек.
-2. **Двата имейла за отказ дословно** (01.11 и 03.11) — за да се види кой запис/път отхвърлят (`kristo-intelligence-v3` подсказва име на подаване).
-3. **Достъп/screenshot на Admin таба** на connector-а (Documentation, Trust center, ChatGPT/Claude полета).
-4. *(по избор)* **Glama API ключ** (`glm_…`) — за авторитетна проверка на присъствието през `/api/mcp/v1/servers` вместо през търсенето.
-
-### B. Състояние на текущата работа
-5. **Какво е свършил Mimo по Блокове 2–7** след 03.11 11:20 (работното дърво показва `main.py`, `templates/dashboard.html`, `tests/test_dashboard_v2.py` — Блок 2 изглежда в ход).
-6. **Пътят до `TRACKER.md`** (в Cline workspace) — за да не те питам всеки път.
-
-### C. Решения, които само ти можеш да вземеш
-7. Разрешаваш ли **Маршрут B** (нов `scripts/mcp_stdio_bridge.py` + `Dockerfile.glama`)? Това е единственото нещо в плана, което пипа репото.
-8. Публикуваме ли **нова версия в MCP Registry** (> 6.0.0)? (§4)
-9. **npm 1.0.1** — одобрен на 03.11 10:56, но още не е публикуван. Пускаме ли?
-10. **Платени канали** — mcpmarket $69, Bazaar $0.25: да или не?
-11. **GSC / Bing Webmaster** — имаш ли достъп/верификация, или да подготвя стъпките?
-
-### D. Данни за трафика
-12. **Логове с referrer/User-Agent** (Render dashboard или експорт) — без тях „кой ни намира" е догадка.
+**Cadence:** a weekly pulse (already an existing practice) + a monthly review against this plan.
 
 ---
 
-## §9 Ред на изпълнение
+## §8 What I need from you
 
-**Ден 1 (днес):**
-- Тикет #135407945 с пълното доказателство (Маршрут A) — *текстът мога да го подготвя веднага*
-- Запълване на Documentation + Trust center в Admin таба
-- Публикуване на нова версия в MCP Registry (§4) → PulseMCP се оправя сам
+**The repo is documented exceptionally well** (60+ documents in `docs/` + `PROJECT_STATUS.md` 272 KB) — **I need nothing from the code**, I can read it myself. What I am missing is what lives outside the repo:
 
-**Ден 2–3:**
-- Маршрут B паралелно (`mcp_stdio_bridge.py` + `Dockerfile.glama`) — ако е одобрен
-- PATCH на nohumans листинга (`sample_query`)
-- Подновяване на x402-list преди **05.11**
+### A. Glama/GitHub artifacts (so that I can formulate the exact text to Glama)
+1. **The full text of tickets #135407945 and #130688574** — what exactly was answered last and whether a person has been assigned.
+2. **The two rejection emails verbatim** (01.11 and 03.11) — so that we can see which entry/path they are rejecting (`kristo-intelligence-v3` suggests the name of a submission).
+3. **Access/screenshot of the Admin tab** of the connector (Documentation, Trust center, ChatGPT/Claude fields).
+4. *(optional)* **Glama API key** (`glm_…`) — for an authoritative check of the presence through `/api/mcp/v1/servers` instead of through search.
 
-**Седмица 1:**
-- Блокове 8–9 (README/`agents.json`/`llms.txt` + OG карти) — **задължителни преди следващо Glama подаване**
-- Учтив nudge на PR #1308
-- Проучване на Docker MCP Catalog, Cline/Cursor, OpenTools
+### B. State of the current work
+5. **What Mimo has completed on Blocks 2–7** after 03.11 11:20 (the working tree shows `main.py`, `templates/dashboard.html`, `tests/test_dashboard_v2.py` — Block 2 looks to be in progress).
+6. **The path to `TRACKER.md`** (in the Cline workspace) — so that I do not have to ask you every time.
 
-**Седмица 2–3:**
-- Семейство 3 (framework интеграции) — избор на първите 2
-- Измерване: първи седмичен пулс срещу фунията от §7
+### C. Decisions that only you can make
+7. Do you approve **Route B** (new `scripts/mcp_stdio_bridge.py` + `Dockerfile.glama`)? This is the only thing in the plan that touches the repo.
+8. Do we publish a **new version in the MCP Registry** (> 6.0.0)? (§4)
+9. **npm 1.0.1** — approved on 03.11 10:56, but not yet published. Do we release it?
+10. **Paid channels** — mcpmarket $69, Bazaar $0.25: yes or no?
+11. **GSC / Bing Webmaster** — do you have access/verification, or should I prepare the steps?
+
+### D. Traffic data
+12. **Logs with referrer/User-Agent** (Render dashboard or an export) — without them "who finds us" is a guess.
 
 ---
 
-## §10 Инварианти (не се пипат)
+## §9 Order of execution
 
-x402 хедъри и структура на 402 плика · цени (`X402_PRICE_MAP`) · `payTo`/RECEIVER · `/.well-known/x402-trust.txt` · commission · `secrets\` и `.env` (не се отварят) · **никакъв push без отделна врата** (push = автоматичен deploy на Render) · едно подаване = една изрична команда.
+**Day 1 (today):**
+- Ticket #135407945 with the full evidence (Route A) — *I can prepare the text right away*
+- Filling Documentation + Trust center in the Admin tab
+- Publishing a new version in the MCP Registry (§4) → PulseMCP fixes itself
+
+**Day 2–3:**
+- Route B in parallel (`mcp_stdio_bridge.py` + `Dockerfile.glama`) — if it is approved
+- PATCH of the nohumans listing (`sample_query`)
+- Renewal of x402-list before **05.11**
+
+**Week 1:**
+- Blocks 8–9 (README/`agents.json`/`llms.txt` + OG cards) — **mandatory before the next Glama submission**
+- A polite nudge on PR #1308
+- Research on Docker MCP Catalog, Cline/Cursor, OpenTools
+
+**Week 2–3:**
+- Family 3 (framework integrations) — choosing the first 2
+- Measurement: the first weekly pulse against the funnel from §7
+
+---
+
+## §10 Invariants (not to be touched)
+
+x402 headers and the structure of the 402 envelope · prices (`X402_PRICE_MAP`) · `payTo`/RECEIVER · `/.well-known/x402-trust.txt` · commission · `secrets\` and `.env` (not opened) · **no push without a separate gate** (push = automatic deploy on Render) · one submission = one explicit command.

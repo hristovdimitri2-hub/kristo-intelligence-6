@@ -1,66 +1,112 @@
 # Project Status Report
 
-## Обобщение
+## Summary
 
-Проектът е функционален като development/preview приложение и основните Stripe, CRM, Telegram webhook и dashboard пътища са покрити с автоматизирани проверки. Не е коректно да бъде обявен за „100% готов за публичен финансов продукт“ преди production проверките и архитектурните ограничения по-долу да бъдат затворени.
+The project is functional as a development/preview application, and the main Stripe,
+CRM, Telegram webhook and dashboard paths are covered by automated checks. It is not
+correct to declare it "100% ready for a public financial product" before the
+production checks and the architectural limitations below are closed.
 
-## Потвърдени готови възможности
+## Confirmed ready capabilities
 
-### Приложение и runtime
+### Application and runtime
 
-- Flask приложението има работещи `/`, `/health`, `/dashboard` и launch health endpoints.
-- CRM работи с SQLite за локални/тестови случаи и има PostgreSQL store при наличен `DATABASE_URL`.
-- Пълният автоматизиран пакет към този report завършва с `17 passed`.
-- Trading agent-ът е monitor-only и не изпълнява автоматично сделки.
+- The Flask application has working `/`, `/health`, `/dashboard` and launch health
+  endpoints.
+- CRM works with SQLite for local/test cases and has a PostgreSQL store when
+  `DATABASE_URL` is available.
+- The full automated suite as of this report finishes with `17 passed`.
+- The trading agent is monitor-only and does not execute trades automatically.
 
 ### Telegram
 
-- Telegram token-ът се зарежда от Secrets, а webhook регистрацията към публичния Replit URL е потвърдена в startup log.
-- Telegram webhook-ът е защитен с отделен `TELEGRAM_WEBHOOK_SECRET`: Telegram `setWebhook` е регистриран успешно със secret token, а заявки без валидния `X-Telegram-Bot-Api-Secret-Token` се отхвърлят.
-- `/start`, `/help`, `/bulletin`, `/price`, VIP callback и непознат callback вече имат потребителски отговор.
-- При проблем с market/AI външни услуги ботът връща кратък degraded-mode текст, вместо webhook обработката да приключва без отговор.
-- Callback query се acknowledge-ва, за да не остава Telegram loading spinner.
-- Новите regression тестове покриват fallback за външен service failure и текстов отговор за непознат inline бутон.
-- Bot съобщенията се ограничават до Telegram лимита и retry-ват като plain text при Markdown проблем, без да се губят inline бутоните.
+- The Telegram token is loaded from Secrets, and the webhook registration to the
+  public Replit URL is confirmed in the startup log.
+- The Telegram webhook is protected with a separate `TELEGRAM_WEBHOOK_SECRET`:
+  Telegram `setWebhook` is registered successfully with a secret token, and requests
+  without the valid `X-Telegram-Bot-Api-Secret-Token` are rejected.
+- `/start`, `/help`, `/bulletin`, `/price`, VIP callback and an unknown callback now
+  have a user-facing response.
+- When there is a problem with market/AI external services, the bot returns a short
+  degraded-mode text instead of the webhook handling finishing without a response.
+- The callback query is acknowledged so that a Telegram loading spinner does not
+  remain.
+- The new regression tests cover the fallback for an external service failure and a
+  text response for an unknown inline button.
+- Bot messages are trimmed to the Telegram limit and are retried as plain text on a
+  Markdown problem, without losing the inline buttons.
 
-### Sales, VIP и dashboard
+### Sales, VIP and dashboard
 
-- Stripe Checkout логиката създава payment-mode Checkout сесии и webhook обработката изисква подпис.
-- CRM пази lead-и, payment status, план и сума; платените Pro/VIP lead-и се показват като активни платени VIP планове, а не като recurring subscriptions.
-- Новият `/sales/admin` е browser използваем и защитен с login на базата на съществуващия admin token и подписана server-side session.
-- Dashboard session cookies са `Secure`, `HttpOnly` и `SameSite=Lax`; API-то приема header token или валидна browser session.
-- Protected dashboard показва recent Stripe Checkout payments, или CRM paid events когато Stripe listing не е наличен; приходите ясно комбинират CRM и on-chain източниците.
-- Показват се активни VIP планове, генерирани VIP покани, активни Telegram потребители, CRM/Stripe/Telegram/blockchain health и последните 100 заявки.
-- Live log не записва headers, token-и, query параметри или Telegram chat IDs.
+- The Stripe Checkout logic creates payment-mode Checkout sessions, and the webhook
+  handling requires a signature.
+- CRM keeps leads, payment status, plan and amount; paid Pro/VIP leads are shown as
+  active paid VIP plans rather than as recurring subscriptions.
+- The new `/sales/admin` is browser-usable and protected with a login based on the
+  existing admin token and a signed server-side session.
+- Dashboard session cookies are `Secure`, `HttpOnly` and `SameSite=Lax`; the API
+  accepts a header token or a valid browser session.
+- The protected dashboard shows recent Stripe Checkout payments, or CRM paid events
+  when a Stripe listing is not available; revenue clearly combines the CRM and
+  on-chain sources.
+- It shows active VIP plans, generated VIP invites, active Telegram users,
+  CRM/Stripe/Telegram/blockchain health and the last 100 requests.
+- The live log does not record headers, tokens, query parameters or Telegram chat
+  IDs.
 
-## Части, които са частично готови
+## Parts that are partially ready
 
-### Stripe и VIP onboarding
+### Stripe and VIP onboarding
 
-- Автоматизираните тестове валидират signed webhook пътя и идемпотентното VIP поведение.
-- Все още няма извършено реално плащане и няма външно потвърден live Stripe webhook delivery.
-- Telegram VIP invite изисква ботът да е администратор в правилната VIP група и купувачът предварително да е свързал Telegram chat ID. Това трябва да се провери с test checkout без реално таксуване.
+- The automated tests validate the signed webhook path and the idempotent VIP
+  behaviour.
+- No real payment has been made yet and there is no externally confirmed live Stripe
+  webhook delivery.
+- The Telegram VIP invite requires the bot to be an administrator in the correct VIP
+  group and the buyer to have linked their Telegram chat ID in advance. This must be
+  verified with a test checkout without real charging.
 
-### PostgreSQL и устойчивост на данните
+### PostgreSQL and data durability
 
-- PostgreSQL store съществува, но production schema, migration и import трябва да бъдат потвърдени срещу управляваната Replit PostgreSQL база.
-- Част от operational данните са in-memory: on-chain sales history, live request log, bot counters, invite codes, transfer cursor и free-tier counters. Те се нулират при restart и не са подходящи като окончателна production audit trail.
+- The PostgreSQL store exists, but the production schema, migration and import must
+  be confirmed against the managed Replit PostgreSQL database.
+- Part of the operational data is in-memory: on-chain sales history, live request
+  log, bot counters, invite codes, transfer cursor and free-tier counters. They reset
+  on restart and are not suitable as a final production audit trail.
 
-### Dashboard данни
+### Dashboard data
 
-- Stripe payment list чете последователно страници, докато намери искания брой платени Checkout сесии. При недостъпен или празен Stripe listing dashboard-ът показва потвърдените CRM payment events и изрично маркира източника.
-- Dashboard-ът показва текущи платени VIP entitlement записи. Това не е recurring subscription management и не следи изтичане/renewal.
+- The Stripe payment list reads pages sequentially until it finds the requested
+  number of paid Checkout sessions. When the Stripe listing is unavailable or empty,
+  the dashboard shows the confirmed CRM payment events and explicitly marks the
+  source.
+- The dashboard shows current paid VIP entitlement records. This is not recurring
+  subscription management and does not track expiry/renewal.
 
-## Оставащи блокери преди Publish
+## Remaining blockers before Publish
 
-1. **Live Stripe E2E** — направете test Checkout, потвърдете Stripe webhook delivery към production URL и проверете единственото VIP invite поведение.
-2. **Telegram group check** — потвърдете правилен `TELEGRAM_VIP_CHAT_ID`, че ботът е администратор и има право да създава invite links; изпратете `/start`, `/bulletin`, `/price` и натиснете VIP бутона от реален Telegram chat.
-3. **PostgreSQL production readiness** — изпълнете schema/import/health проверката от активната PostgreSQL задача преди да разчитате на CRM и payment данни след restart.
-4. **x402 marketplace** — настоящата x402 логика не е пълен facilitator settlement flow с request-bound payment proof. Не я рекламирайте като завършен marketplace, докато отделната x402 задача не е готова.
-5. **Durable observability** — live log е удобен за текуща операция, но не е постоянен audit log. Добавете persistent event store, error monitoring и alerts, ако приложението ще приема реални плащания.
-6. **Worker topology** — background blockchain, trading и Telegram loops са в web process. При scale-out трябва leader/worker separation, за да не се дублират polling и изпращания.
-7. **External-rate limits** — CoinGecko може да върне 429. Telegram вече деградира с текстов отговор, но production launch се нуждае от cache, backoff и/или подходящ платен data plan.
+1. **Live Stripe E2E** — do a test Checkout, confirm Stripe webhook delivery to the
+   production URL and check the single VIP invite behaviour.
+2. **Telegram group check** — confirm the correct `TELEGRAM_VIP_CHAT_ID`, that the bot
+   is an administrator and has the right to create invite links; send `/start`,
+   `/bulletin`, `/price` and press the VIP button from a real Telegram chat.
+3. **PostgreSQL production readiness** — run the schema/import/health check from the
+   active PostgreSQL task before relying on CRM and payment data after a restart.
+4. **x402 marketplace** — the current x402 logic is not a full facilitator settlement
+   flow with request-bound payment proof. Do not advertise it as a finished
+   marketplace until the separate x402 task is ready.
+5. **Durable observability** — the live log is convenient for current operation, but
+   it is not a permanent audit log. Add a persistent event store, error monitoring and
+   alerts if the application will accept real payments.
+6. **Worker topology** — the background blockchain, trading and Telegram loops are in
+   the web process. On scale-out there must be leader/worker separation so that
+   polling and sending are not duplicated.
+7. **External-rate limits** — CoinGecko may return 429. Telegram now degrades with a
+   text response, but a production launch needs caching, backoff and/or a suitable
+   paid data plan.
 
 ## Publish decision
 
-Preview/development версията е готова за функционална демонстрация и контролирани тестове. Публичен launch с реални продажби следва да се направи едва след успешни точки 1–3, а за x402 marketplace — и след точка 4.
+The preview/development version is ready for a functional demonstration and
+controlled tests. A public launch with real sales should be done only after points
+1–3 succeed, and for the x402 marketplace — also after point 4.

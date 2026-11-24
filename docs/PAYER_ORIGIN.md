@@ -1,59 +1,60 @@
-# PAYER ORIGIN — кой стои зад 0x5f64 и loopA продавача? (04.09)
+# PAYER ORIGIN — who is behind 0x5f64 and the loopA seller? (04.09)
 
-Метод: 60-дневни USDC scan-ове чрез собствен RPC (`get_logs`, chunk 5000,
-контролен тест преди анализ — 127 tx-а в 7d контрольния прозорец) +
-Basescan страници (нужни за ETH/delegation история, която logs не дават).
-Данни: `docs/_origin_data.json`. Всичко read-only.
+Method: 60-day USDC scans via our own RPC (`get_logs`, chunk 5000, control test
+before the analysis — 127 txs in the 7d control window) + Basescan pages (needed for
+the ETH/delegation history that logs do not provide). Data: `docs/_origin_data.json`.
+Everything read-only.
 
-## ВЕРДИКТ: **НЕЗАВИСИМИ** — нула доказателства за връзка зад финансирането
+## VERDICT: **INDEPENDENT** — zero evidence of a link behind the funding
 
-### 1. Buyer `0x5f64…` — агент с бюджет от $2.00
-- Входящи USDC за 60 дни: **точно 1 транзакция, $2.00**
-- Източник: друг wallet (започва `0x680d…`) — еднократно микрофинансиране
-- ETH входящи: **нула**; собствени транзакции: **нула** (Basescan: Sent N/A,
-  First N/A, Funded By N/A) → изцяло **gasless agent** (facilitator подписва
-  и плаща gas; той само подписва x402 заявки)
-- Извод: единствената „реална“ търговска единица на пазара върти 127+ платени
-  calls на бюджет **под $1** (от $2.00 фонд, баланс 0.61)
+### 1. Buyer `0x5f64…` — an agent with a budget of $2.00
+- Incoming USDC over 60 days: **exactly 1 transaction, $2.00**
+- Source: another wallet (starts with `0x680d…`) — a one-off micro-funding
+- Incoming ETH: **zero**; own transactions: **zero** (Basescan: Sent N/A, First
+  N/A, Funded By N/A) → entirely a **gasless agent** (the facilitator signs and
+  pays gas; it only signs x402 requests)
+- Conclusion: the only "real" trading unit on the market runs 127+ paid calls on
+  a budget **under $1** (from a $2.00 fund, balance 0.61)
 
-### 2. loopA `0xcf92…` — retail разработчик с MetaMask, без sweep
-- Код: `0xef0100…` → **EIP-7702 delegation** към **„MetaMask: EIP-7702
-  Delegator“** → личен MetaMask акаунт, делегиран на **2026-03-04** от
-  `0x4c6Dd3BA…9EF91D054` (единствената му собствена транзакция в историята)
-- Баланс: **$66.84 USDC** + 43 dust meme-токена + 0.0013 ETH
-- Входящ поток (60d): **3,518 tx от 363 различни платци, $16.61** — много
-  по-натоварен, отколкото 7-дневната проба показа (117 tx/14 платци)
-- **Sweep: НУМА** — 0 изходящи USDC трансфера за 60 дни; балансът е чисто
-  натрупване на приходи от март. Няма източник на изтичане → няма sweep адрес
+### 2. loopA `0xcf92…` — a retail developer with MetaMask, no sweep
+- Code: `0xef0100…` → **EIP-7702 delegation** to **"MetaMask: EIP-7702
+  Delegator"** → a personal MetaMask account, delegated on **2026-03-04** by
+  `0x4c6Dd3BA…9EF91D054` (its only own transaction in history)
+- Balance: **$66.84 USDC** + 43 dust meme tokens + 0.0013 ETH
+- Incoming flow (60d): **3,518 tx from 363 different payers, $16.61** — far
+  busier than the 7-day sample showed (117 tx/14 payers)
+- **Sweep: NONE** — 0 outgoing USDC transfers over 60 days; the balance is pure
+  accumulation of revenue since March. There is no outflow source → no sweep
+  address
 
-### 3. Директен edge между тях: НУМА
-- loopA → buyer: 0 трансфера за 60 дни (out_txs=0)
-- buyer → loopA: да, **41+ платени calls** — но това е клиентско плащане
-  (данни срещу USDC), не финансиране
-- buyer funding източник (0x680d…) ≠ loopA funder (0x4c6Dd3BA…)
+### 3. Direct edge between them: NONE
+- loopA → buyer: 0 transfers over 60 days (out_txs=0)
+- buyer → loopA: yes, **41+ paid calls** — but that is a customer payment (data
+  for USDC), not funding
+- buyer funding source (0x680d…) ≠ loopA funder (0x4c6Dd3BA…)
 
-### 4. Клъстер: различни funders, без общ източник (проба 3/14)
-| Платец на loopA | Funded By | Профил |
+### 4. Cluster: different funders, no common source (sample 3/14)
+| loopA payer | Funded By | Profile |
 |---|---|---|
-| `0x5f64…` (buyer) | `0x680d…` (еднократно $2) | gasless agent-trader |
-| `0x9897…` (47 tx) | self-funded retail | DeFi потребител: 170 USDC + staking + 111 токена |
-| `0xcd51…` (10 tx, **$0.021/call!**) | `0xf7A13DBB…` (**преди 2 дни**) | нов оператор, свеж wallet |
-| loopA продавачът | `0x4c6Dd3BA…` (184 дни) | retail разработчик с MetaMask |
+| `0x5f64…` (buyer) | `0x680d…` (one-off $2) | gasless agent-trader |
+| `0x9897…` (47 tx) | self-funded retail | DeFi user: 170 USDC + staking + 111 tokens |
+| `0xcd51…` (10 tx, **$0.021/call!**) | `0xf7A13DBB…` (**2 days ago**) | new operator, fresh wallet |
+| the loopA seller | `0x4c6Dd3BA…` (184 days) | retail developer with MetaMask |
 
-Четири различни funders, нула общи източници в пробата. Пазарът на
-действителни платци се състои от отделни, независими, дребни оператори —
-**включително един, дошъл преди 2 дни и платил веднага на високата цена.**
+Four different funders, zero common sources in the sample. The market of actual
+payers consists of separate, independent, small operators — **including one who
+arrived 2 days ago and paid immediately at the high price.**
 
-## Стратегически изводи
-1. **loopA продавачът е физическо лице с MetaMask** — персонален outreach е
-   възможен само през x402scan listing (ако е там) или чрез Chet. Имейл-текстът
-   в LOOPEEMAIL_PACKAGE.md е готов и address-агностичен.
-2. **Свежият платец `0xcd513d2e` е живо доказателство за конверсия:**
-   wallet, финансиран преди 2 дни, платил 10× на високата цена — пазарът
-   добавя нови оператори ТЕКУЩО. Това е най-силният аргумент, че листингът
-   ни ще получи платци без никакво допълнително действие.
-3. Buyer бюджетът ($2.00/60д) потвърждава: **micro-цените са правилни за
-   discovery**, операторските сделки — за приход. Не пипай цените.
-4. loopA НЕ sweep-ва — приходите му се натрупват в wallet-а. Разликата
-   „баланс vs седмичен поток“ НЕ е признак на sweep: контролирай с
-   out_txs=0, не с баланс.
+## Strategic conclusions
+1. **The loopA seller is an individual with MetaMask** — personal outreach is
+   possible only through the x402scan listing (if it is there) or via Chet. The
+   email text in LOOPEEMAIL_PACKAGE.md is ready and address-agnostic.
+2. **The fresh payer `0xcd513d2e` is live proof of conversion:** a wallet funded
+   2 days ago paid 10× at the high price — the market is adding new operators
+   RIGHT NOW. This is the strongest argument that our listing will get payers
+   with no extra action at all.
+3. The buyer budget ($2.00/60d) confirms: **micro-prices are right for
+   discovery**, operator deals — for revenue. Do not touch the prices.
+4. loopA does NOT sweep — its revenue accumulates in the wallet. The difference
+   "balance vs weekly flow" is NOT a sign of a sweep: check with out_txs=0, not
+   with the balance.

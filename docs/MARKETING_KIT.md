@@ -86,13 +86,13 @@ llms.txt for agents: https://kristo-intelligence-api.onrender.com/llms.txt
 ## 5. Telegram groups (BG/EN mix)
 
 ```
-🚀 Kristo Intelligence API — DeFi trading сигнали на Base
+🚀 Kristo Intelligence API — DeFi trading signals on Base
 
-🤖 AI-powered сигнали + real-time пазарни данни
-💰 from $0.003 USDC/call (x402 протокол — без API ключове!)
-⭐ VIP: $29/мес — неограничен достъп
+🤖 AI-powered signals + real-time market data
+💰 from $0.003 USDC/call (x402 protocol — no API keys!)
+⭐ VIP: $29/month — unlimited access
 
-Без регистрация, без API ключове. Всяко неплатено извикване връща ясен 402 с точните данни за плащане.
+No signup, no API keys. Every unpaid call returns a clear 402 with the exact payment details.
 curl https://kristo-intelligence-api.onrender.com/api/stats
 
 Dashboard: https://kristo-intelligence-api.onrender.com/dashboard

@@ -1,85 +1,85 @@
-# NEW PAYER — третото external плащане (09.09)
+# NEW PAYER — the third external payment (09.09)
 
-## Верига: точните факти
+## The chain: the exact facts
 
-| Поле | Стойност |
+| Field | Value |
 |---|---|
-| Сума | **0.003 USDC** (= GET /api/v1/signal) |
-| Кога | **09.09, 10:21:25 UTC** |
+| Amount | **0.003 USDC** (= GET /api/v1/signal) |
+| When | **09.09, 10:21:25 UTC** |
 | Tx | `0xb66077d16909973aa1a2d049…` |
-| **Платец** | **`0xA19F621581DBc851a21D6179868111709a52aCCC`** |
+| **Payer** | **`0xA19F621581DBc851a21D6179868111709a52aCCC`** |
 
-⚠️ **Поправка на адреса:** в задачата беше посочен `0xB2Bd29925C…b371B` — този
-адрес НЕ съвпада с плащането към нашия payTo. On-chain веригата е еднозначна:
-платецът е `0xA19F6215…aCCC` (tx 0xb66077d1…). Ако 0xB2Bd е видян другаде
-(x402scan / друг листинг), това е отделно плащане към ДРУГ payTo — не ни е.
+⚠️ **Address correction:** the task specified `0xB2Bd29925C…b371B` — that address does
+NOT match the payment to our payTo. The on-chain chain is unambiguous: the payer is
+`0xA19F6215…aCCC` (tx 0xb66077d1…). If 0xB2Bd was seen elsewhere (x402scan / another
+listing), that is a separate payment to a DIFFERENT payTo — not ours.
 
-## Монитор вердикт (listing_monitor, 09.09)
+## Monitor verdict (listing_monitor, 09.09)
 
 ```
 *** LAUNCH SIGNAL: external human/unknown payer detected ***
     external payers: 2  | payments: 2  | total 0.006 USDC
     0x4dB7AAFbe797a39Cd6Cc4E7aa64d970F7F6E02B7  1 txs, 0.003 USDC
     0xA19F621581DBc851a21D6179868111709a52aCCC  1 txs, 0.003 USDC
-HEARTBEAT (в набора): chet_payapi_verification — 4 txs, 0.014 USDC за 7d.
-HEARTBEAT (в набора): market_crawler_54e1 — 1 txs, 0.003 USDC за 7d.
+HEARTBEAT (in the set): chet_payapi_verification — 4 txs, 0.014 USDC over 7d.
+HEARTBEAT (in the set): market_crawler_54e1 — 1 txs, 0.003 USDC over 7d.
 ```
 
-Каса сега: **$0.023 / 7 трансфера** (4 canary + 2 external + 1 crawler heartbeat).
+Treasury now: **$0.023 / 7 transfers** (4 canary + 2 external + 1 crawler heartbeat).
 
-## Fingerprint на 0xA19F6215 (30-дневен изходящ USDC скан)
+## Fingerprint of 0xA19F6215 (30-day outgoing USDC scan)
 
-| Метрика | Стойност | Таксономия |
+| Metric | Value | Taxonomy |
 |---|---|---|
-| Различни получатели | **104** | **crawler band** (праг ≥50) — но граничен |
-| Общо tx | 112 | умерен cadence |
-| Обща сума | $1.66 | микро-диапазон |
-| Топ получател | 5 tx / $0.011 | ниска концентрация |
+| Distinct recipients | **104** | **crawler band** (threshold ≥50) — but borderline |
+| Total tx | 112 | moderate cadence |
+| Total amount | $1.66 | micro range |
+| Top recipient | 5 tx / $0.011 | low concentration |
 
-**Профилът е почти идентичен на 0x4dB7** (100 получателя / 145 tx / $1.67):
-умерен multi-API оператор, който пробва цялата екосистема. Разликата 100 vs
-104 получателя преобръща класа (human ↔ crawler) — таксономията е груба на
-тази граница. **Четем го като: втори независим умерен оператор**, не като
-известната инфраструктура (не е Chet, не е sampler 0xC59E, не е crawler 0x6777
-/ 0x54E1).
+**The profile is nearly identical to 0x4dB7** (100 recipients / 145 tx / $1.67): a
+moderate multi-API operator that is trying the whole ecosystem. The difference of 100
+vs 104 recipients flips the class (human ↔ crawler) — the taxonomy is coarse at that
+boundary. **We read it as: a second independent moderate operator**, not as the known
+infrastructure (not Chet, not the sampler 0xC59E, not the crawler 0x6777 / 0x54E1).
 
-## First funding: БЛОКИРАНО (документирано)
+## First funding: BLOCKED (documented)
 
-- Публичният RPC не издържа full-contract USDC get_logs за 90 дни
-  (сканът мина >11 мин без завършване — спряно).
-- Basescan статичен HTML: „Funded By: N/A" (зарежда се през JS).
-- **1-клик проверка за теб:** Basescan → адреса → ред „First Funded / Funded By"
-  в браузъра. Реконструкция е възможна и с Basescan API ключ (безплатен tier).
+- The public RPC cannot sustain full-contract USDC get_logs for 90 days (the scan ran
+  >11 min without completing — stopped).
+- Basescan static HTML: "Funded By: N/A" (loaded via JS).
+- **1-click check for you:** Basescan → the address → the "First Funded / Funded By"
+  row in the browser. Reconstruction is also possible with a Basescan API key (free
+  tier).
 
-## Нашите логове (заявката към плащането)
+## Our logs (the request behind the payment)
 
-- Плащането е записано: верига (7 tx) + persistent request log (SQLite на Render).
-- **Ограничение:** публичният `/api/dashboard/data` връща само последните 25
-  заявки — редът от 10:21 е надълбоко под health-пинга (виж пулса долу).
-  Достъпен е от базата директно (admin/DB четене) или бъдещ филтър по време.
-- Форматът, който клиентът е получил: signal schema (action, confidence,
-  price_usd, reasoning) — верифицирана от 4 канарки.
+- The payment is recorded: chain (7 tx) + persistent request log (SQLite on Render).
+- **Limitation:** the public `/api/dashboard/data` returns only the last 25 requests —
+  the 10:21 row is deep below the health ping (see the pulse below). It is available
+  from the database directly (admin/DB read) or via a future time filter.
+- The format the client received: signal schema (action, confidence, price_usd,
+  reasoning) — verified by 4 canaries.
 
-## Пулсът: 1967 → 2540 заявки днес (5× от вчера) — РАЗБИВКА
+## The pulse: 1967 → 2540 requests today (5× yesterday) — BREAKDOWN
 
-| Източник | Брой | Какво е |
+| Source | Count | What it is |
 |---|---|---|
-| **/health (`Render/1.0`)** | **1549** | **собственият ни keep-alive + Render health checks — НЕ клиенти** (самонаблюдението шуми) |
-| `/api/v1/signal` | 177 | crawler-ите (0x54E1, 0xA19F) + проби |
-| `/.well-known/x402` + `/openapi.json` + `/robots.txt` | 346 | **индексатори** — ефектът от awesome-merge (#10), x402scan, PR #13219: агенти/каталози откриват discovery-то |
-| `/api/bot-status` + `/api/stats` + `/api/sales` | ~104 всеки | платени route проби (crawler-ите плащат и тук) |
-| Канали (/f/…) | 0 | нямаме канал-атрибутиран трафик още |
+| **/health (`Render/1.0`)** | **1549** | **our own keep-alive + Render health checks — NOT clients** (self-monitoring is noisy) |
+| `/api/v1/signal` | 177 | the crawlers (0x54E1, 0xA19F) + probes |
+| `/.well-known/x402` + `/openapi.json` + `/robots.txt` | 346 | **indexers** — the effect of awesome-merge (#10), x402scan, PR #13219: agents/catalogs discover the discovery |
+| `/api/bot-status` + `/api/stats` + `/api/sales` | ~104 each | paid route probes (the crawlers pay here too) |
+| Channels (/f/…) | 0 | we have no channel-attributed traffic yet |
 
-**Извод:** „5× растежът" е 60% self-пинг шум + истински скок на
-индексаторски/агентски проби от листингите (очакван ефект от PR #10/#13219).
-Истинският клиентски сигнал си остава плащането.
+**Conclusion:** the "5× growth" is 60% self-ping noise + a real jump in
+indexer/agent probes from the listings (an expected effect of PR #10/#13219). The real
+client signal remains the payment.
 
-## ВЕРДИКТ
+## VERDICT
 
-**Втори независим умерен multi-API оператор** — профил почти копие на 0x4dB7
-(същата сума, същият маршрут, същата екосистемна дейност). НЕ е повторение на
-0x4dB7 (различен wallet), НЕ е известен crawler — но е в crawler band на
-таксономията, затова гледаме връщането: **второ плащане от 0xA19F6215 =
-operator deal разговор** (същият тригер като за 0x4dB7). Двамата „умерени
-оператори" + 2-те crawler heartbeat-а = API-то вече е в 3 независими
-екосистемни цикъла.
+**A second independent moderate multi-API operator** — a profile almost a copy of
+0x4dB7 (the same amount, the same route, the same ecosystem activity). It is NOT a
+repeat of 0x4dB7 (different wallet), NOT a known crawler — but it is in the crawler
+band of the taxonomy, so we watch the return: **a second payment from 0xA19F6215 = an
+operator deal conversation** (the same trigger as for 0x4dB7). The two "moderate
+operators" + the 2 crawler heartbeats = the API is already in 3 independent ecosystem
+cycles.

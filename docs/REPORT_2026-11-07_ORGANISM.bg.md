@@ -1,198 +1,198 @@
-# ОТЧЕТ — ОРГАНИЗМЪТ
+# REPORT — THE ORGANISM
 ### Kristo Intelligence · 07.11.2026
 
 ---
 
-## Накратко, за две минути
+## In brief, in two minutes
 
-Досега всеки проблем се намираше така: **нещо се чупи → ти го виждаш → питаш
-сесия → сесията започва от нулата → поправя → следващото се чупи.**
+Until now every problem was found like this: **something breaks → you see it → you ask a
+session → the session starts from zero → it fixes it → the next thing breaks.**
 
-Скъпото не е поправянето. **Скъпо е преоткриването.** Всяка сесия започва от
-празна страница и нищо, което системата е научила за себе си, не оцелява.
+The expensive part is not the fixing. **The expensive part is the rediscovering.** Every
+session starts from a blank page and nothing the system has learned about itself survives.
 
-Днес системата получи **собствена представа за здравето си**: шест блока, всеки
-със сърцебиене; дневник, който помни; таблица с правила, която решава; пет
-идемпотентни действия, които **са изключени по подразбиране**; и хаос тестове,
-които доказват, че самолечението работи, преди да му се доверим.
+Today the system received **its own idea of its health**: six blocks, each with a
+heartbeat; a journal that remembers; a table of rules that decides; five idempotent actions
+that are **disabled by default**; and chaos tests that prove self-healing works before we
+trust it.
 
-**Тестовете: 1087.** Всичките зелени.
+**The tests: 1087.** All green.
 
 ---
 
-## 1. Проблемът, който това решава
+## 1. The problem this solves
 
-| Преди | Сега |
+| Before | Now |
 |---|---|
-| Никой не знае дали системата е добре, освен по косвени признаци | Шест блока отговарят с една от четири думи |
-| Знанието от една сесия умира с нея | Дневникът помни всяко събитие и действие |
-| Всеки дефект се намира с човешки одит | Таблицата разпознава познатите, човек гледа само новите |
-| „Здрав" е мнение | „Здрав" е присъда с доказателство |
-| Самолечение — няма | Има, но **изключено**, докато не се докаже |
+| Nobody knows whether the system is well, except by indirect signs | Six blocks answer with one of four words |
+| The knowledge from one session dies with it | The journal remembers every event and action |
+| Every defect is found by human audit | The table recognises the known ones, a human looks only at the new ones |
+| "Healthy" is an opinion | "Healthy" is a verdict with evidence |
+| Self-healing — none | There is, but **disabled** until proven |
 
 ---
 
-## 2. Шестте стъпки
+## 2. The six steps
 
-| # | Стъпка | Файл | Какво прави |
+| # | Step | File | What it does |
 |---|---|---|---|
-| 1 | **Конверсия** | `dashboard_store.py` | записва кой е видял цената, кой е опитал, кой се е отказал |
-| 2 | **Блокове** | `organism.py` | 6 блока × сърцебиене + самопроверка |
-| 3 | **Дневник** | `organism_journal.py` | append-only, ограничен, никога не хвърля |
-| 4 | **Правила** | `organism_rules.py` | 12 правила, режим само-наблюдение |
-| 5 | **Изпълнители** | `organism_executors.py` | 5 идемпотентни действия, **изключени** |
-| 6 | **Хаос** | `organism_chaos.py` | чупи нарочно и проверява възстановяването |
+| 1 | **Conversion** | `dashboard_store.py` | records who saw the price, who tried, who gave up |
+| 2 | **Blocks** | `organism.py` | 6 blocks × heartbeat + self-check |
+| 3 | **Journal** | `organism_journal.py` | append-only, bounded, never throws |
+| 4 | **Rules** | `organism_rules.py` | 12 rules, observation-only mode |
+| 5 | **Executors** | `organism_executors.py` | 5 idempotent actions, **disabled** |
+| 6 | **Chaos** | `organism_chaos.py` | breaks things on purpose and checks recovery |
 
 ---
 
-## 3. Шестте блока и четирите думи
+## 3. The six blocks and the four words
 
-| Блок | Какво следи |
+| Block | What it watches |
 |---|---|
-| `payment_rail` | плащанията и защитите срещу повторение |
-| `chain_read` | четенето на веригата |
-| `data_store` | базата, задържането, snapshot-а |
-| `discovery` | публичното repo и регистрите |
-| `alerting` | Telegram и известяването |
-| `delivery` | таблото и деплоят |
+| `payment_rail` | payments and the protections against repetition |
+| `chain_read` | reading the chain |
+| `data_store` | the database, retention, the snapshot |
+| `discovery` | the public repo and the registries |
+| `alerting` | Telegram and the alerting |
+| `delivery` | the dashboard and the deploy |
 
-| Дума | Значи |
+| Word | Means |
 |---|---|
-| `ok` | работи |
-| `degraded` | работи, но нещо не е наред |
-| `failed` | счупен |
-| **`not_reached`** | **не сме го гледали** |
+| `ok` | it works |
+| `degraded` | it works, but something is wrong |
+| `failed` | broken |
+| **`not_reached`** | **we have not looked at it** |
 
-### Правилото, което държи всичко
+### The rule that holds everything together
 
-**`not_reached` никога не се показва като „нищо не е намерено"** — и никога не
-ражда действие.
+**`not_reached` is never shown as "nothing was found"** — and it never gives birth to an
+action.
 
-Първата част е за читателя: „не сме гледали" не е „всичко е наред".
-Втората е за самото лечение: ако `not_reached` раждаше рестарт, **всяко пускане
-на услугата щеше да рестартира шест здрави цикъла**, защото при прясно стартиране
-всичките шест блока са `not_reached`.
+The first part is for the reader: "we have not looked" is not "everything is fine". The
+second is for the healing itself: if `not_reached` gave birth to a restart, **every start
+of the service would restart six healthy loops**, because on a fresh start all six blocks
+are `not_reached`.
 
-Проверих го: счупих нарочно това едно правило → **9 теста паднаха веднага**.
+I checked it: I deliberately broke this one rule → **9 tests fell immediately**.
 
 ---
 
-## 4. Таблицата с правила — цялата политика на един екран
+## 4. The table of rules — the whole policy on one screen
 
-| Сигнал | Клас | Действие |
+| Signal | Class | Action |
 |---|---|---|
-| RPC отказа | самолекуване | завърти на следващия |
-| сърцебиене спряло | самолекуване | рестартирай цикъла |
-| кешът е много стар | самолекуване | презареди |
-| индексът липсва | самолекуване | създай го |
-| задържането изостава | самолекуване | изчисти |
-| страница дава 5xx | самолекуване | провери пак |
-| **деплоят се провали** | **ескалация** | **ти** |
-| **средата се промени** | **ескалация** | **ти** |
-| **пари са платени, не са записани** | **ескалация** | **ти** |
-| **никой не купува** | **ескалация** | **ти (бизнес)** |
-| **твърдение ≠ измерено** | **ескалация** | **ти** |
-| непознат сигнал | наблюдение | записва се |
+| RPC refused | self-healing | rotate to the next one |
+| heartbeat stopped | self-healing | restart the loop |
+| the cache is very old | self-healing | reload |
+| the index is missing | self-healing | create it |
+| retention lags behind | self-healing | purge |
+| page returns 5xx | self-healing | check again |
+| **the deploy failed** | **escalation** | **you** |
+| **the environment changed** | **escalation** | **you** |
+| **money was paid, not recorded** | **escalation** | **you** |
+| **nobody is buying** | **escalation** | **you (business)** |
+| **claim ≠ measured** | **escalation** | **you** |
+| unknown signal | observation | it is recorded |
 
-**Ескалациите никога не стигат до изпълнител** — дори с включени действия. Това
-се проверява от тест.
+**Escalations never reach an executor** — even with actions enabled. This is checked by a
+test.
 
-### Границата е в код, не в коментар
+### The boundary is in code, not in a comment
 
-Правило **не може** да назове `move_money`, `change_price`, `edit_receiver`,
-`touch_secrets` или `push_to_main`. Тези действия не са просто отсъстващи от
-таблицата — те са **непредставими** в нея: конструкторът хвърля грешка.
+A rule **cannot** name `move_money`, `change_price`, `edit_receiver`, `touch_secrets` or
+`push_to_main`. These actions are not merely absent from the table — they are
+**unrepresentable** in it: the constructor throws an error.
 
 ---
 
-## 5. Петте изпълнителя — и защо са изключени
+## 5. The five executors — and why they are disabled
 
-**ВСИЧКИ СА ИЗКЛЮЧЕНИ.** Системата наблюдава, решава и записва. Не пипа нищо,
-докато човек не сложи `KRISTO_ORGANISM_ACT=1`.
+**ALL OF THEM ARE DISABLED.** The system observes, decides and records. It touches nothing
+until a human sets `KRISTO_ORGANISM_ACT=1`.
 
-| Действие | Защо е безопасно два пъти | Проверено |
+| Action | Why it is safe twice | Verified |
 |---|---|---|
-| `rotate_endpoint` | чист избор — същият вход дава същия изход | ✅ `b` → `b` |
-| `restart_loop` | жива нишка не се пипа | ✅ жив: 0 стартирания |
-| `rebuild_cache` | презареждането е еднакво всеки път | ✅ |
-| `recreate_index` | `IF NOT EXISTS`; **SQЛ-ът се подава буквално** | ✅ отказа `DROP TABLE` |
-| `purge_older_than` | изтритото не се изтрива пак | ✅ 2 → 0 → 0 реда |
+| `rotate_endpoint` | a pure choice — the same input gives the same output | ✅ `b` → `b` |
+| `restart_loop` | a live thread is not touched | ✅ live: 0 starts |
+| `rebuild_cache` | the reload is the same every time | ✅ |
+| `recreate_index` | `IF NOT EXISTS`; **the SQL is passed literally** | ✅ refused `DROP TABLE` |
+| `purge_older_than` | what is deleted is not deleted again | ✅ 2 → 0 → 0 rows |
 
-`recreate_index` заслужава внимание: **изпълнител, който може да сглоби SQЛ, е
-изпълнител, който може да бъде накаран да сглоби грешния.** Затова заявката се
-подава буквално и се проверява, че започва с `CREATE INDEX`.
+`recreate_index` deserves attention: **an executor that can assemble SQL is an executor
+that can be made to assemble the wrong SQL.** That is why the query is passed literally
+and it is checked that it starts with `CREATE INDEX`.
 
-### Петте предпазителя, в този ред
+### The five guards, in this order
 
-1. **Класът трябва да е „самолекуване"** — ескалациите не минават
-2. **Действието трябва да съществува** — `re_warm` не е готов и го казва
-3. **Действията трябва да са разрешени** — изключени по подразбиране
-4. **Таванът на щетите** — макс 6 действия/час на блок
-5. **Проверка след действието** — сигналът трябва да е **ИЗЧЕЗНАЛ**
+1. **The class must be "self-healing"** — escalations do not pass
+2. **The action must exist** — `re_warm` is not ready and says so
+3. **Actions must be allowed** — disabled by default
+4. **The damage ceiling** — max 6 actions/hour per block
+5. **A check after the action** — the signal must have **DISAPPEARED**
 
-Точка 5 е важната: **действието не е свършено, когато е издадено, а когато
-симптомът го няма.** Ако симптомът остане, дневникът го записва като **грешка** —
-защото това е по-лошо от бездействие: спира някого да гледа.
+Point 5 is the important one: **an action is not finished when it is issued, but when the
+symptom is gone.** If the symptom remains, the journal records it as an **error** —
+because that is worse than inaction: it stops someone from looking.
 
 ---
 
-## 6. Хаос тестовете — доказателството
+## 6. The chaos tests — the proof
 
-| Счупено нарочно | Резултат |
+| Broken on purpose | Result |
 |---|---|
-| сърцебиене спряло | **ИЗЛЕКУВАНО** |
-| блокът е зле | усетено, решено |
-| никога не е докладвал | **ПРАВИЛНО НЕ СЕ ДЕЙСТВА** |
-| базата не се чете | **ПРАВИЛНО НЕ СЕ ДЕЙСТВА** |
+| heartbeat stopped | **HEALED** |
+| the block is unwell | sensed, decided |
+| never reported | **CORRECTLY NO ACTION IS TAKEN** |
+| the database is unreadable | **CORRECTLY NO ACTION IS TAKEN** |
 
-**3 минават, 0 се провалят.**
+**3 pass, 0 fail.**
 
-`would_heal` се отчита **отделно** от `HEALED`, нарочно: хаос тест, който никога
-не проверява възстановяване, щеше да минава вечно и да не доказва нищо.
+`would_heal` is reported **separately** from `HEALED`, on purpose: a chaos test that never
+checks recovery would pass forever and prove nothing.
 
 ---
 
-## 7. Какво НЕ е пипано
+## 7. What was NOT touched
 
-Проверено с `git diff`, не с обещание:
+Verified with `git diff`, not with a promise:
 
-| Повърхност | Промяна |
+| Surface | Change |
 |---|---|
-| `X402_PRICE_MAP` | **не** |
-| `payTo` / receiver / комисиона | **не** |
-| `securitySchemes` | **не** |
-| 402 envelope | **не** |
-| `config.py` (цените) | **недокоснат** |
-| `secrets/` / `.env` | **не** |
+| `X402_PRICE_MAP` | **no** |
+| `payTo` / receiver / commission | **no** |
+| `securitySchemes` | **no** |
+| 402 envelope | **no** |
+| `config.py` (the prices) | **untouched** |
+| `secrets/` / `.env` | **no** |
 
 ---
 
-## 8. Честно за ограниченията
+## 8. Honest about the limitations
 
-- **Таблицата не може да поправи непознат дефект.** Тя затваря познатите
-  завинаги, за да остане човешкото внимание за новото.
-- **Самолечението може да скрие гниене.** Монитор, който тихо рестартира вечно,
-  изглежда като здрав. Затова всяко действие се записва и растящият брой лечения
-  е сам по себе си сигнал.
-- **Правило, което никога не е сработвало, е или рядко, или невъзможно** — и само
-  броенето ги различава. Точно затова таблицата първо наблюдава.
+- **The table cannot fix an unknown defect.** It closes the known ones forever, so that
+  human attention remains for the new.
+- **Self-healing can hide rot.** A monitor that quietly restarts forever looks healthy.
+  That is why every action is recorded and the growing number of healings is itself a
+  signal.
+- **A rule that has never fired is either rare or impossible** — and only counting tells
+  them apart. That is exactly why the table observes first.
 
 ---
 
-## 9. Какво остава
+## 9. What remains
 
-**Едно нещо, и то не е код:** деплоят.
+**One thing, and it is not code:** the deploy.
 
-Пет поредни деплоя се провалиха, защото новият контейнер не отваря порт, а
-старият държи услугата. Render:
+Five consecutive deploys failed because the new container does not open a port and the old
+one holds the service. Render:
 
 ```
 ==> No open HTTP ports detected on 0.0.0.0, continuing to scan...
 ==> Port scan timeout reached, no open HTTP ports detected.
 ```
 
-**Услугата работи** — проверено: `/health` отговаря, базата е готова, веригата
-чете, релсата дава 402. Нищо не е счупено за клиентите.
+**The service works** — verified: `/health` responds, the database is ready, the chain
+reads, the rail returns 402. Nothing is broken for clients.
 
-Нужен е **ръчен рестарт** от Render таблото: `kristo-intelligence-api` →
-**Manual Deploy** → **Restart service**. Това убива заседналия процес.
+A **manual restart** is needed from the Render dashboard: `kristo-intelligence-api` →
+**Manual Deploy** → **Restart service**. That kills the stuck process.

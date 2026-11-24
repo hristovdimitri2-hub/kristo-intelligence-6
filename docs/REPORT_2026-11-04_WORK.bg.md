@@ -1,214 +1,216 @@
-# ОТЧЕТ №1 — СВЪРШЕНАТА РАБОТА
+# REPORT №1 — THE WORK COMPLETED
 ### Kristo Intelligence · 04.11.2026
 
 ---
 
-## Накратко, за две минути
+## In brief, in two minutes
 
-Проектът беше **работещ, но нечестен към себе си**. Той продаваше, сетълваше и
-изпълняваше — но на **деветнайсет места** казваше на света нещо, което кодът не
-правеше. Цена $0.05, която никога не е била такава. „Едно безплатно обаждане",
-което производството не дава. „$29 отключва API-то", а нито един рут не
-проверява абонати. Упътване, което учи на **24-секундния** бавен път, докато
-бързият отнема 2 секунди. И един капан с единиците, при който **сървърът щеше да
-приеме надплащане от 1 000 000× вместо да го откаже**.
+The project was **working, but dishonest with itself**. It sold, settled and
+delivered — but in **nineteen places** it told the world something the code did
+not do. A price of $0.05 that was never that. "One free call" that production
+does not give. "$29 unlocks the API", while not a single route checks for
+subscribers. A guide that teaches the **24-second** slow path, while the fast
+one takes 2 seconds. And a units trap in which **the server would have accepted
+an overpayment of 1 000 000× instead of rejecting it**.
 
-Днес нито едно от тези не е вярно.
+Today none of these is true.
 
-**Тестовете: 550 → 688.** Всичките зелени. Нищо по цени, paywall, `payTo` или
-комисиони не е пипано.
-
----
-
-## 1. Какво представлява проектът
-
-Платен API за крипто данни върху **Base**, с плащане по протокола **x402** —
-машина плаща на машина, без акаунт, без карта, без човек. Шест платени маршрута,
-шест безплатни мостри, MCP сървър (за Claude Desktop / Cursor), npm клиент,
-Stripe за човешки абонаменти.
-
-**Състояние преди:** работещ, но с натрупана лъжа в документите, с отворени
-дупки в сигурността и **невидим** — публичното търсене ни намираше с **1 страница**.
+**Tests: 550 → 688.** All green. Nothing about prices, paywall, `payTo` or fees
+has been touched.
 
 ---
 
-## 2. Свършеното, по теми
+## 1. What the project is
 
-### 🔐 Сигурност и пари (най-важното)
+A paid API for crypto data on **Base**, with payment over the **x402** protocol —
+machine pays machine, no account, no card, no human. Six paid routes, six free
+samples, an MCP server (for Claude Desktop / Cursor), an npm client, Stripe for
+human subscriptions.
 
-| Какво беше | Какво е сега |
+**State before:** working, but with accumulated lies in the documents, with open
+security holes and **invisible** — public search found us with **1 page**.
+
+---
+
+## 2. What was done, by topic
+
+### 🔐 Security and money (the most important)
+
+| What it was | What it is now |
 |---|---|
-| **Изтекли ключове** в кода (F-13/14/15/30) | Затворено. 0 истински тайни при пълно сканиране на 24 файла (9 „попадения" бяха публични хешове — проверени на ръка) |
-| **Подплащане**: клиентът можеше да подпише **1 атом** ($0.000001), да напише в ехото „5000", и ние да доставим данни за $0.005 | Затворено. Подписът решава, ехото е само резервно. **Доказано на живо с истинска атака: HTTP 401** |
-| **Надплащане 1 000 000×** (капанът с единиците, F-18): `amount_usdc` е атомарно (`"5000"`), а примерът го подаваше на `parseUnits` → 5 000 000 000 атома = **5000 USDC** за заявка от $0.005. Сървърът сравнява `amount >= price` → **щеше да приеме** | Затворено на **всичките 8 места**, включително `llms.txt`, онбординга, npm README и началната страница. Проверено 6/6 маршрута на живо |
-| **Реорг** никога не отменя кредитирано плащане (F-05) | ⬜ **още отворено** |
-| **Приемане по nonce** без проверка за дълбочина (F-06) | Затворено — всеки друг път във файла минаваше през проверката, само този не |
-| **Безплатен poll пишеше** в таблицата на replay-заключването (F-04) — 4 statement-а под **същия lock**, който чака платещ клиент | Затворено. Пробата е обвързана с **време**, не със заявка: 25 пула → **≤3 записа** (преди 75) |
-| **Газът контролиран от анонимен клиент** (F-07) — можехме да излъчим транзакция, която ревертва, и **ние плащаме** | Затворено. Безплатна `eth_call` симулация **преди** подпис. При реверт не излъчваме. **Може само да ни спре да харчим, никога да спре платец да плати** |
-| **Изискване за дълбочина** при осиновяване на сетълмент | Затворено |
-| **Stripe webhook** — „приема се всеки POST" (X-1) | **Не беше дупка.** Проверих: иска `Stripe-Signature`, връща 400 без него, има два теста |
-| **Цените се разминаваха** в 5+ машинни повърхности (F-19) — рекламирахме най-скъпата (0.005) като „цената", докато два маршрута таксуват 0.003 | Затворено. Всичко се извежда от **картата, която самият paywall чете**. Проверени 24 цени на живо — **нула разминавания** |
-| **„$29 VIP отключва API-то"** (F-20) — не съществуваше в кода | Затворено. Честно маркирано: `api_access_granted: false` |
-| **Обещание, недостижимо математически**: „плащания над $0.1 дават Telegram код", а най-скъпият рут е $0.005 | Затворено. Изрично „**едно** плащане, не натрупано" |
+| **Leaked keys** in the code (F-13/14/15/30) | Closed. 0 real secrets in a full scan of 24 files (9 "hits" were public hashes — verified by hand) |
+| **Underpayment**: a client could sign **1 atom** ($0.000001), write "5000" in the echo, and we would deliver data for $0.005 | Closed. The signature decides, the echo is only a fallback. **Proven live with a real attack: HTTP 401** |
+| **Overpayment of 1 000 000×** (the units trap, F-18): `amount_usdc` is in atoms (`"5000"`), but the example passed it to `parseUnits` → 5 000 000 000 atoms = **5000 USDC** for a $0.005 request. The server compares `amount >= price` → **it would have accepted** | Closed in **all 8 places**, including `llms.txt`, the onboarding, the npm README and the home page. Verified 6/6 routes live |
+| **Reorg** never reverses a credited payment (F-05) | ⬜ **still open** |
+| **Acceptance by nonce** without a depth check (F-06) | Closed — every other path in the file went through the check, only this one did not |
+| **A free poll wrote** into the replay-lock table (F-04) — 4 statements under **the same lock** that a paying client waits on | Closed. Sampling is tied to **time**, not to a request: 25 polls → **≤3 writes** (previously 75) |
+| **Gas controlled by an anonymous client** (F-07) — we could broadcast a transaction that reverts, and **we pay** | Closed. A free `eth_call` simulation **before** signing. On revert we do not broadcast. **It can only stop us from spending, never stop a payer from paying** |
+| **Depth requirement** when adopting a settlement | Closed |
+| **Stripe webhook** — "any POST is accepted" (X-1) | **It was not a hole.** I checked: it requires `Stripe-Signature`, returns 400 without it, there are two tests |
+| **Prices diverged** across 5+ machine surfaces (F-19) — we advertised the most expensive (0.005) as "the price", while two routes charge 0.003 | Closed. Everything is derived from **the map that the paywall itself reads**. 24 prices verified live — **zero divergences** |
+| **"$29 VIP unlocks the API"** (F-20) — did not exist in the code | Closed. Honestly marked: `api_access_granted: false` |
+| **A promise mathematically unreachable**: "payments over $0.1 give a Telegram code", while the most expensive route is $0.005 | Closed. Explicitly "**one** payment, not accumulated" |
 
-### 📢 Видимост — как ни намират
+### 📢 Visibility — how people find us
 
-| Какво беше | Какво е сега |
+| What it was | What it is now |
 |---|---|
-| `llms.txt` учеше AI агентите на **грешния платежен протокол** — само стария ръчен път, и казваше „~2 секунди" за път, който чака **24** | Двата пътя описани, **стандартният пръв**, с кодовете 200/401/402/425 |
-| **Трите индексируеми страници** нямаха нито един мета таг | og + twitter + canonical + **валиден JSON-LD** на всичките |
-| **Sitemap-ът казваше на Google да индексира страници, които казват „не ме индексирай"** — три `noindex` страници вътре, а реалната `/validation` **липсваше** | Трите махнати, `/validation` + `/pricing` + `/terms` добавени → **11 URL-а** |
-| **Машинните спецификации лъжеха**: `agents.json` — 5 от 6 рута; `mcp.json` — 3 от 6; `ai-plugin.json` — **нито един** | Всичките 6, и `agents.json` вече **се генерира** от единния източник — не може да се разминее |
-| **Началната страница нямаше изход за човек** — всичките ѝ бутони сервираха машинни файлове, а `/launch` (където е плащането) не беше линкнат | 12 връзки (бяха 7). Всяка човешка страница вече има началната като входяща |
-| `whaleflow/sample` съобщаваше цена **с 67% по-висока** от реалната — първото, което купувач чете | Текстът се **генерира** от ценовата карта |
-| `/validation` твърдеше „550/550, последно пускане 30.10" при 569 теста | Една константа, пазена от тест |
-| `docs/MYSTERY_AGENT_REPORT.md` — документът ни за честност — казваше на всеки x402 клиент „**not yet honoured**" („не можеш да ни платиш") | Банер „SUPERSEDED" с таблица „тогава → сега". Историята е запазена |
-| **Google Search Console** — нямахме | ✅ Потвърден, sitemap подаден |
-| **Bing Webmaster** — нямахме | ✅ Свързан (дойде наготово от Google) |
-| **IndexNow** — каналът, който не иска вход, беше готов в кода и **никой не го беше пускал** | ✅ Подадени 11 адреса към Bing, Yandex, Seznam |
+| `llms.txt` taught AI agents **the wrong payment protocol** — only the old manual path, and said "~2 seconds" for a path that waits **24** | Both paths described, **the standard one first**, with the codes 200/401/402/425 |
+| **The three indexable pages** had not a single meta tag | og + twitter + canonical + **valid JSON-LD** on all of them |
+| **The sitemap told Google to index pages that say "do not index me"** — three `noindex` pages inside, while the real `/validation` **was missing** | The three removed, `/validation` + `/pricing` + `/terms` added → **11 URLs** |
+| **The machine specifications lied**: `agents.json` — 5 of 6 routes; `mcp.json` — 3 of 6; `ai-plugin.json` — **not a single one** | All 6, and `agents.json` is now **generated** from the single source — it cannot diverge |
+| **The home page had no way out for a human** — all its buttons served machine files, and `/launch` (where the payment is) was not linked | 12 links (there were 7). Every human page now has the home page as an inbound link |
+| `whaleflow/sample` reported a price **67% higher** than the real one — the first thing a buyer reads | The text is **generated** from the price map |
+| `/validation` claimed "550/550, last run 30.10" while there were 569 tests | A single constant, guarded by a test |
+| `docs/MYSTERY_AGENT_REPORT.md` — our honesty document — told every x402 client "**not yet honoured**" ("you cannot pay us") | A "SUPERSEDED" banner with a "then → now" table. The history is preserved |
+| **Google Search Console** — we had none | ✅ Confirmed, sitemap submitted |
+| **Bing Webmaster** — we had none | ✅ Connected (it came over ready-made from Google) |
+| **IndexNow** — the channel that needs no login was ready in the code and **nobody had ever run it** | ✅ 11 addresses submitted to Bing, Yandex, Seznam |
 
-### 🛒 Продуктът
+### 🛒 The product
 
-| Какво беше | Какво е сега |
+| What it was | What it is now |
 |---|---|
-| **MCP сървърът продаваше 3 от 6 продукта** — флагманът (сигналите) **не можеше да се купи** през Claude Desktop / Cursor | **6 от 6**, с цени от същия източник, който paywall-ът чете |
-| **Три различни версии** за себе си: OpenAPI казваше 6.0.0, MCP ръкостискането 1.0.0, регистърът 6.2.0 | **Една константа**, пазена от тест — пет числа, които вече не могат да се разминават |
-| **npm клиентът** поддържаше **само** 24-секундния бавен път и изпращаше разработчиците при **чужд пакет** | Говори **бързия** път (~2 секунди), обратно съвместим, чака при 425 без да плати втори път |
-| Липсваха `.github/`, `CHANGELOG`, `CONTRIBUTING`, `SECURITY`, `render.yaml` | Частично (виж „остава") |
+| **The MCP server sold 3 of 6 products** — the flagship (the signals) **could not be bought** through Claude Desktop / Cursor | **6 of 6**, with prices from the same source the paywall reads |
+| **Three different versions** for itself: OpenAPI said 6.0.0, the MCP handshake 1.0.0, the registry 6.2.0 | **One constant**, guarded by a test — five numbers that can no longer diverge |
+| **The npm client** supported **only** the 24-second slow path and sent developers to **someone else's package** | It speaks the **fast** path (~2 seconds), backwards compatible, waits on 425 without paying a second time |
+| `.github/`, `CHANGELOG`, `CONTRIBUTING`, `SECURITY`, `render.yaml` were missing | Partially (see "what remains") |
 
-### 📊 Дишбордът — днес
+### 📊 The dashboard — today
 
-Собственикът каза: **„много от данните не мога да разбера точно за какво става"**.
-Беше прав. Числата бяха там и **нито едно не отговаряше на въпрос с думи**.
+The owner said: **"for much of the data I cannot understand exactly what it is about"**.
+He was right. The numbers were there and **not one of them answered a question in words**.
 
-Сега най-горе стои:
-- **Последна продажба** — сума + „преди 10 ч" + точният час
-- **Днес срещу вчера** · **тази седмица срещу миналата**
-- **Общо**: 50 продажби · $0.164 · 10 платеца · 63 дни
-- **Най-силен ден** · **най-натоварен час**
-- **Продажби по дни** — 28 дни с **българския ден от седмицата**
-- **Човек или бот** — AI агент / търсачка / програмен клиент / външен монитор
-- **Как работи системата** — обяснено на самата страница
-- **Таблицата с колоните върнати**: Време · Сума · **Клиент** (с цвят) · **Услуга** · **Платец** · **Tx** → отваря се с **един клик**, без токен
+Now at the very top stands:
+- **Last sale** — amount + "10 h ago" + the exact time
+- **Today versus yesterday** · **this week versus last**
+- **Total**: 50 sales · $0.164 · 10 payers · 63 days
+- **Strongest day** · **busiest hour**
+- **Sales by day** — 28 days with **the Bulgarian day of the week**
+- **Human or bot** — AI agent / search engine / programmatic client / external monitor
+- **How the system works** — explained on the page itself
+- **The table with the columns returned**: Time · Amount · **Client** (with colour) · **Service** · **Payer** · **Tx** → opens with **one click**, no token
 
-**И три дефекта, намерени само защото човек прочете страницата:**
-1. Таблото обявяваше микро-заявка на **$0.10**, а живият 402 искаше **$0.003** — **33 пъти**
-2. `HeadlessChrome` се броеше като **„Браузър (човек)"** — автоматизация минаваше за човешки читател
-3. `CarbonMonitor` от **чужд домейн** се броеше за **наш** трафик
+**And three defects found only because a human read the page:**
+1. The dashboard announced a micro-request at **$0.10**, while the live 402 asked for **$0.003** — **33 times**
+2. `HeadlessChrome` was counted as **"Browser (human)"** — automation passed for a human reader
+3. `CarbonMonitor` from **someone else's domain** was counted as **our** traffic
 
 ---
 
-## 3. Най-важното, което намерихме днес
+## 3. The most important thing we found today
 
-### 🔴 Дупка в F-01, която тестът не виждаше
+### 🔴 A hole in F-01 that the test did not see
 
-Безплатното табло раздаваше **10 пълни адреса на платци + 10 transaction hash-а** —
-точно тройката `{платец, хеш, сума}`, от която се прави доказателство за плащане.
-Проверено на **живия сайт**.
+The free dashboard was handing out **10 full payer addresses + 10 transaction hashes** —
+exactly the triple `{payer, hash, amount}` from which a proof of payment is made.
+Verified on the **live site**.
 
-**И най-лошото:** правилото съществуваше **от 10 октомври**. Тестът твърдеше „в
-безплатния отговор не бива да има `sender`". Но работеше с **празна** база — при
-нула платци ключът просто не се появява. **Седмици „зелено" върху течащи данни.**
+**And the worst part:** the rule had existed **since 10 October**. The test claimed
+"the free response must not contain `sender`". But it ran against an **empty**
+database — with zero payers the key simply does not appear. **Weeks of "green" over
+live data.**
 
-Сега: **0 хеша** на живо, и тестът **зарежда истински продажби и проверява сам
-себе си** — ако данните изчезнат, пада шумно.
+Now: **0 hashes** live, and the test **loads real sales and checks itself** — if the
+data disappears, it fails loudly.
 
-### 🔴 Собствената ми грешка, хваната от собственото ми изречение
+### 🔴 My own mistake, caught by my own sentence
 
-Написах в commit съобщението, че новите колони носят `data-v` (стойността за
-сортиране), **без да проверя** — и не носеха. Такава клетка не гърми: сортира се
-като празен низ и колоната **тихо спира да работи**. Поправих **кода**, не
-изречението, и добавих тест за **всяка** клетка.
+I wrote in the commit message that the new columns carry `data-v` (the sort value),
+**without checking** — and they did not. Such a cell does not throw: it sorts as an
+empty string and the column **quietly stops working**. I fixed **the code**, not the
+sentence, and added a test for **every** cell.
 
 ---
 
-## 4. Какво остава
+## 4. What remains
 
-### ✅ Затворени след първата версия на този отчет (04.11, вечерта)
+### ✅ Closed after the first version of this report (04.11, in the evening)
 
-| ID | Какво беше | Какво е сега |
+| ID | What it was | What it is now |
 |---|---|---|
-| **F-26** | `/api/launch/health` връщаше **без вход**: `lead_count`, целия pipeline по етапи, `crm_backend`, и `payment_provider` — което е `"stripe"` **или `"mock"`**, тоест казваше на всеки **дали въобще таксуваме някого** | Публично: `ok`, `status`, `crm_ready`, `public_url`, `timestamp`. Оперативните числа искат админ token. **Проверено на живо: ops ключове `[]`, `ok: true`, `status: live`** |
-| **F-27** | `/api/connectors` показваше `payer wallet=0x…` — свързва релейъра с услугата и казва **от кой портфейл харчим газ** | Публично пише **`payer wallet loaded`**. Адресът се връща при админ **или** при операторския изглед. `receiver` остава публичен — той е `payTo` във всеки 402. **Проверено на живо: 9 конектора, 8 активни, `payer wallet=0x` → False** |
+| **F-26** | `/api/launch/health` returned **without a login**: `lead_count`, the whole pipeline by stages, `crm_backend`, and `payment_provider` — which is `"stripe"` **or `"mock"`**, that is, it told everyone **whether we charge anyone at all** | Public: `ok`, `status`, `crm_ready`, `public_url`, `timestamp`. The operational numbers require an admin token. **Verified live: ops keys `[]`, `ok: true`, `status: live`** |
+| **F-27** | `/api/connectors` showed `payer wallet=0x…` — it links the relayer to the service and says **from which wallet we spend gas** | Publicly it says **`payer wallet loaded`**. The address is returned for an admin **or** for the operator view. `receiver` stays public — it is the `payTo` in every 402. **Verified live: 9 connectors, 8 active, `payer wallet=0x` → False** |
 
-**И двата останаха публични — нарочно.** Първият е deploy проверката (викат я
-`render_status_check.py`, `production_verify.py` и тест), вторият е **истинско
-публично доказателство**, че релсите са живи. Скрито е **само оперативното**.
+**Both remained public — deliberately.** The first is the deploy check (called by
+`render_status_check.py`, `production_verify.py` and a test), the second is **real
+public proof** that the rails are alive. **Only the operational** part is hidden.
 
-**Мутационно доказано:** форсирах и двата gate-а отворени → полетата **се появиха**
-(`lead_count: 5`, адресът на портфейла). Тоест **gate-ът е това, което ги затваря**,
-а не случайност.
+**Proven by mutation:** I forced both gates open → the fields **appeared**
+(`lead_count: 5`, the wallet address). That is, **the gate is what closes them**,
+not coincidence.
 
-### 🔴 P0 — още отворени (3 от 7)
+### 🔴 P0 — still open (3 of 7)
 
-| ID | Какво | Тежест |
+| ID | What | Severity |
 |---|---|---|
-| **F-03** | Fail-open при нечетим receipt — **платеното се доставя** | Висока |
-| **F-05** | Реорг никога не отменя кредитирано плащане | Висока |
-| **F-01** | Платените данни, частично заменими при $0 | Остатъчно |
+| **F-03** | Fail-open on an unreadable receipt — **the paid item is delivered** | High |
+| **F-05** | Reorg never reverses a credited payment | High |
+| **F-01** | Paid data, partially replaceable at $0 | Residual |
 
-### 🟠 P1 — важно (повечето отворени)
+### 🟠 P1 — important (most still open)
 
-Един RPC доставчик без fallback (F-08) · една DB връзка под глобален lock (F-09) ·
-`/health` зависи от DB → рестарт на единствения worker (F-10) · безплатен
-`/mcp/sse` държи нишка 15 s (F-11) · агрегатът на stats прави 5 сканирания (F-22) ·
-бюджетите надхвърлят `--timeout 120` (F-23) · Stripe 80 s × 3 опита (F-24) ·
-`_stripe_payment_snapshot_loop` без `try/except` (F-25) · **липсва `render.yaml`**
-(F-28, собственик) · admin токен пада към `SESSION_SECRET` (F-29) · липсват индекси (F-31)
+A single RPC provider with no fallback (F-08) · a single DB connection under a global
+lock (F-09) · `/health` depends on the DB → restart of the only worker (F-10) · a free
+`/mcp/sse` holds a thread for 15 s (F-11) · the stats aggregate does 5 scans (F-22) ·
+the budgets exceed `--timeout 120` (F-23) · Stripe 80 s × 3 attempts (F-24) ·
+`_stripe_payment_snapshot_loop` without `try/except` (F-25) · **`render.yaml` is missing**
+(F-28, owner) · admin token falls back to `SESSION_SECRET` (F-29) · indexes are missing (F-31)
 
 ### 🟡 P2
 
-`X-Payment-Proof` е преизползваем bearer токен (F-16) · двойна доставка при
-конкурентност (F-17) · `FREE_TIER_LIMIT` 1 срещу 0 (F-21) · мъртъв код за отстъпка
-(F-37) · второ работно дърво (F-40)
+`X-Payment-Proof` is a reusable bearer token (F-16) · double delivery under
+concurrency (F-17) · `FREE_TIER_LIMIT` 1 versus 0 (F-21) · dead discount code
+(F-37) · a second worktree (F-40)
 
-### ⏸️ Виси на други
+### ⏸️ Waiting on others
 
-| Какво | Кой държи ключа |
+| What | Who holds the key |
 |---|---|
-| Glama още кешира `toolCount: 3` (а живият сервира **6**) | Glama |
-| PR #13219 (awesome-mcp-servers) | punkpeye — блокиран на Glama числото |
+| Glama still caches `toolCount: 3` (while the live one serves **6**) | Glama |
+| PR #13219 (awesome-mcp-servers) | punkpeye — blocked on the Glama number |
 | PR #1308 (awesome-x402) | xpaysh — `mergeable_state: clean` |
-| mcp.so верификация | mcp.so (comment #3441) |
-| Smithery | **мъртъв** — proxy спрян 31.10, каналът се отписва |
+| mcp.so verification | mcp.so (comment #3441) |
+| Smithery | **dead** — proxy stopped on 31.10, the channel is being unsubscribed |
 
-### ⏸️ Виси на теб
+### ⏸️ Waiting on you
 
-| # | Въпрос |
+| # | Question |
 |---|---|
-| 1 | **`KRISTO_FREE_TIER_LIMIT` в производство — 0 или 1?** Влияе на всички публични твърдения |
-| 2 | Да изтрием ли второто работно дърво (`.kilo/worktrees/believed-dancer`)? Безопасно е |
-| 3 | Да цитираме ли x402-trust баджа (оценка **A**) на `/validation`? |
-| 4 | Платени канали: mcpmarket $69 · CDP Bazaar $0.25 (досега **$0** похарчени) |
-| 5 | `render.yaml` — да го добавим ли? |
-| 6 | ~~Да оправим ли F-26 и F-27~~ — **направено** (ти каза „да") |
+| 1 | **`KRISTO_FREE_TIER_LIMIT` in production — 0 or 1?** Affects all public claims |
+| 2 | Shall we delete the second worktree (`.kilo/worktrees/believed-dancer`)? It is safe |
+| 3 | Shall we cite the x402-trust badge (grade **A**) on `/validation`? |
+| 4 | Paid channels: mcpmarket $69 · CDP Bazaar $0.25 (so far **$0** spent) |
+| 5 | `render.yaml` — shall we add it? |
+| 6 | ~~Shall we fix F-26 and F-27~~ — **done** (you said "yes") |
 
 ---
 
-## 5. Числата
+## 5. The numbers
 
 | | |
 |---|---|
-| Тестове | **550 → 791** (0 паднали) |
-| Жива проверка | `/validation` **791/791** |
-| Комити тази сесия | **17**, всички качени (`9089ba5` … `4e760cc`) |
-| Намерени и поправени дефекта | **21+** |
-| Намерени от **собственика** (само с четене) | **5** |
-| Пипано по цени · paywall · `payTo` · комисиони | **нищо** |
+| Tests | **550 → 791** (0 failed) |
+| Live check | `/validation` **791/791** |
+| Commits this session | **17**, all pushed (`9089ba5` … `4e760cc`) |
+| Defects found and fixed | **21+** |
+| Found by **the owner** (by reading alone) | **5** |
+| Touched in prices · paywall · `payTo` · fees | **nothing** |
 
 ---
 
-## 6. Уроците, които си заслужава да останат
+## 6. The lessons worth keeping
 
-1. **`200 OK` не значи, че съдържанието е вярно.** Проверявахме, че мострата
-   отговаря 200 — а вътре пишеше цена с 67% над реалната.
-2. **Тест, написан да съвпада с кода, заключва бъга.** Три теста твърдяха
-   `== "unchanged since launch"`, което **никога** не е било вярно.
-3. **Гард, който минава по грешната причина, е по-лош от никакъв.** Тестът за
-   `sender` минаваше на празна база седмици.
-4. **Когато одитът покаже нещо драматично, първо се проверява одитът.** Първата ми
-   проверка „robots.txt сервира бинарни данни" беше **моя** грешка с gzip.
-5. **По-малката грешка е безопасната.** Подценена цена = честен отказ с непокътнати
-   пари. Надценена = преведени пари, които **не се връщат**.
-6. **Изречение, което е надживяло факта зад себе си, е дефект.** Това е болестта на
-   това репо, и тя не се хваща от тестове, а от човек, който чете.
+1. **`200 OK` does not mean the content is true.** We checked that the sample
+   answered 200 — while inside it said a price 67% above the real one.
+2. **A test written to match the code locks the bug in.** Three tests claimed
+   `== "unchanged since launch"`, which was **never** true.
+3. **A guard that passes for the wrong reason is worse than none.** The test for
+   `sender` passed on an empty database for weeks.
+4. **When an audit shows something dramatic, the audit is checked first.** My first
+   check "robots.txt serves binary data" was **my** gzip mistake.
+5. **The smaller mistake is the safe one.** An underpriced item = an honest refusal
+   with the money intact. An overpriced one = money transferred that **does not come
+   back**.
+6. **A sentence that has outlived the fact behind it is a defect.** This is the
+   disease of this repo, and it is not caught by tests, but by a human who reads.

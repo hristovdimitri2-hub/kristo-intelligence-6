@@ -10,7 +10,7 @@ Every defect this project has had was found by a human-run audit, diagnosed in a
 human-run session, and fixed by a human-run commit. The system *watched* — the
 sentinel sent Telegram on health, revenue and GitHub changes — but it carried no
 model of its own health, so **each session re-discovered what the last one already
-knew.** The owner's words: *"решаваме един проблем, излиза друг."*
+knew.** The owner's words: *"we solve one problem, another one comes out."*
 
 The cost is not the fixing. It is the re-discovery.
 

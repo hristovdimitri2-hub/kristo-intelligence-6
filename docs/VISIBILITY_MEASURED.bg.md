@@ -1,109 +1,110 @@
-# ВИДИМОСТ, ИЗМЕРЕНА — 2026-11-10
+# VISIBILITY, MEASURED — 2026-11-10
 
-Отговор на въпроса на собственика: *„дали агенти търсят точно това и дали ние сме
-по-видими от 518-те други MCP записа и 32 698 HTTP записа около нас“*.
+An answer to the owner's question: *"whether agents are looking for exactly this and
+whether we are more visible than the 518 other MCP entries and 32 698 HTTP entries
+around us"*.
 
-Всичко тук е измерено отвън, четейки публични каталози. Нищо не е платено, нищо не
-е публикувано, нищо в кода не е променяно. Суровите изходи са в
-`_forensics/*.out.txt`.
+Everything here is measured from the outside, by reading public catalogs. Nothing was
+paid for, nothing was published, nothing in the code was changed. The raw outputs are
+in `_forensics/*.out.txt`.
 
 ---
 
-## 1. Двете половини на каталога се държат коренно различно
+## 1. The two halves of the catalog behave fundamentally differently
 
 `GET https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?type=…`
 
-| | MCP половина | HTTP половина |
+| | MCP half | HTTP half |
 |---|---|---|
-| реда | **518** | **32 700** |
-| платени повиквания / 30 дни | (не се публикува общо) | **918 645** |
-| медиана повиквания на ред | **1** | 2 |
-| медиана уникални платци | **1** | 2 |
-| редове с ≥2 уникални платци | **17 от 518 (3%)** | ~51% от извадка |
-| максимум платци на един ред | **4** | **667** |
-| редове с нула повиквания | 7 — **точно нашите седем** | 70 (0,2%) |
+| rows | **518** | **32 700** |
+| paid calls / 30 days | (no total published) | **918 645** |
+| median calls per row | **1** | 2 |
+| median unique payers | **1** | 2 |
+| rows with ≥2 unique payers | **17 of 518 (3%)** | ~51% of the sample |
+| maximum payers on a single row | **4** | **667** |
+| rows with zero calls | 7 — **exactly our seven** | 70 (0.2%) |
 
-**Медиана 1 повикване / 1 платец е самият листинг-сетълмент** — плащането, което
-създава реда. Тоест 511 от 518 реда в MCP половината са били платени точно веднъж:
-от собственика си, за да се появи. Пазар там няма.
+**A median of 1 call / 1 payer is the listing settlement itself** — the payment that
+creates the row. That is, 511 of the 518 rows in the MCP half were paid exactly once:
+by their own owner, in order to appear. There is no market there.
 
-Затова формулировката „по-видими ли сме от 518-те“ е безпредметна: в MCP половината
-първото място означава **4 платци**. Ние сме на 512–518, но разликата между 518-о и
-1-во място на тази повърхност е между нула и четирима души.
+That is why the phrasing "are we more visible than the 518" is pointless: in the MCP
+half, first place means **4 payers**. We are at 512–518, but the difference between
+518th and 1st place on that surface is between zero and four people.
 
-HTTP половината е друга държава: 918 645 платени повиквания за 30 дни.
-Там сме ние, с 7 HTTP реда: 1 платец всеки (отново собственият листинг-сетълмент).
+The HTTP half is a different country: 918 645 paid calls over 30 days. There we are,
+with 7 HTTP rows: 1 payer each (again the owner's own listing settlement).
 
-## 2. Какво всъщност се купува (пълен цензус, 32 699 реда)
+## 2. What is actually bought (full census, 32 699 rows)
 
-| категория | редове | платени повиквания | дял |
+| category | rows | paid calls | share |
 |---|---|---|---|
-| преводи / портфейли / onchain send | 5 436 | 250 525 | 27,27% |
-| обогатяване / data API-та | 2 910 | 194 574 | 21,18% |
-| web търсене / scraping | 4 119 | 156 221 | 17,01% |
-| inference / LLM | 1 669 | 133 102 | 14,49% |
-| друго | 12 732 | 115 055 | 12,52% |
-| blockchain RPC / chain data | 2 409 | 22 319 | 2,43% |
-| време / карти / гео | 1 601 | 21 530 | 2,34% |
-| социални / sentiment | 327 | 8 067 | 0,88% |
-| изображения / медия / глас | 1 017 | 7 875 | 0,86% |
-| **крипто-интелигентност (нашата ниша)** | **111** | **6 211** | **0,68%** |
-| имейл / съобщения | 368 | 3 166 | 0,34% |
+| transfers / wallets / onchain send | 5 436 | 250 525 | 27.27% |
+| enrichment / data APIs | 2 910 | 194 574 | 21.18% |
+| web search / scraping | 4 119 | 156 221 | 17.01% |
+| inference / LLM | 1 669 | 133 102 | 14.49% |
+| other | 12 732 | 115 055 | 12.52% |
+| blockchain RPC / chain data | 2 409 | 22 319 | 2.43% |
+| time / maps / geo | 1 601 | 21 530 | 2.34% |
+| social / sentiment | 327 | 8 067 | 0.88% |
+| images / media / voice | 1 017 | 7 875 | 0.86% |
+| **crypto intelligence (our niche)** | **111** | **6 211** | **0.68%** |
+| email / messaging | 368 | 3 166 | 0.34% |
 
-В нашата ниша 6 211 повиквания, от които **5 641 (91%) са на един ред**
-(`x402.sniperx.fun/.../smarttrader`, 2 платци). Останалите 110 реда си поделят
-~570 повиквания на месец.
+In our niche, 6 211 calls, of which **5 641 (91%) are on a single row**
+(`x402.sniperx.fun/.../smarttrader`, 2 payers). The remaining 110 rows share
+~570 calls per month.
 
-Най-продаваните: Token Verdict 128 968 повиквания/306 платци; blockrun chat
+The best sellers: Token Verdict 128 968 calls/306 payers; blockrun chat
 completions 84 780/301; Exa search 33 534/142; checkout 21 510/313.
-Цените на редовете, които реално продават (≥1000 повиквания): **$0,001–$0,070,
-медиана $0,005**. Нашите: $0,003–$0,10 (единственият над тавана е
-`verify_seller_receiver` на $0,10).
+The prices of the rows that actually sell (≥1000 calls): **$0.001–$0.070,
+median $0.005**. Ours: $0.003–$0.10 (the only one above the ceiling is
+`verify_seller_receiver` at $0.10).
 
-## 3. Търсенето съществува — и не ни намира
+## 3. The demand exists — and it does not find us
 
-`GET /discovery/search?query=…` е живо **хибридно (семантично + текстово) търсене**
-(`searchMethod: "hybrid"`, таван `limit` = 20).
+`GET /discovery/search?query=…` is a live **hybrid (semantic + textual) search**
+(`searchMethod: "hybrid"`, `limit` ceiling = 20).
 
-27 заявки с думите на купувача. Намерили сме се в **10 (37%)** — и всичките 10 са
-заявки с 2–4 конкурентни реда или собственото ни име. За всяка заявка с реална
-конкуренция сме **отсъстващи**:
+27 queries with the buyer's words. We were found in **10 (37%)** — and all 10 are
+queries with 2–4 competing rows or our own name. For every query with real
+competition we are **absent**:
 
-| заявка на купувача | реда | ние |
+| buyer's query | rows | we |
 |---|---|---|
-| whale / whale flow / whale alerts | 16 / 11 / 12 | **отсъстваме** |
-| crypto market stats / market data / market overview | 14 / 10 / 11 | **отсъстваме** |
-| token price and volume | 7 | **отсъстваме** |
-| trading signal / crypto trading signals / buy sell signal | 11 / 11 / 6 | **отсъстваме** |
-| verify seller / is this seller legit | 9 / 5 | **отсъстваме** |
-| bot health check | 9 | **отсъстваме** |
-| nft sales data | 5 | **отсъстваме** |
+| whale / whale flow / whale alerts | 16 / 11 / 12 | **absent** |
+| crypto market stats / market data / market overview | 14 / 10 / 11 | **absent** |
+| token price and volume | 7 | **absent** |
+| trading signal / crypto trading signals / buy sell signal | 11 / 11 / 6 | **absent** |
+| verify seller / is this seller legit | 9 / 5 | **absent** |
+| bot health check | 9 | **absent** |
+| nft sales data | 5 | **absent** |
 | onchain sales | 2 | **#1** |
 | trading bot status | 2 | **#1** |
 | arbitrage opportunities | 13 | **#3** |
 
-Където сме #1, сме #1 защото почти никой друг не използва точно нашата дума.
+Where we are #1, we are #1 because almost nobody else uses exactly our word.
 
-Изключваме и обяснението „просто сме нови“. Фрази, които съществуват **само в
-нашите собствени публикувани описания**, също не ни намират:
-`treasury-sized flows` → 5 реда, ние отсъстваме (#1 е `api.agentstools.dev/treasury/cash`);
-`labelled counterparties` → 10 реда, отсъстваме (#1 е
-`api.nansen.ai/.../address/counterparties`); `refreshed under 5 minutes` → **0 реда**.
+We also rule out the explanation "we are simply new". Phrases that exist **only in
+our own published descriptions** also do not find us:
+`treasury-sized flows` → 5 rows, we are absent (#1 is `api.agentstools.dev/treasury/cash`);
+`labelled counterparties` → 10 rows, absent (#1 is
+`api.nansen.ai/.../address/counterparties`); `refreshed under 5 minutes` → **0 rows**.
 
-Контрола: фраза от описанието на конкурент намира него
+The control: a phrase from a competitor's description finds them
 (`What can go wrong with a memecoin` → #1 `agent.pocket.network/v1/pump-check`).
-Значи описанията **се** индексират — просто не тежат колкото URL-а.
+So descriptions **are** indexed — they simply do not weigh as much as the URL.
 
-## 4. Откритието: полето, което решава, е URL-ът, не прозата
+## 4. The discovery: the field that decides is the URL, not the prose
 
-Всичките **16 реда над нас за думата „whale“** имат `whale` в хоста или пътя:
+All **16 rows above us for the word "whale"** have `whale` in the host or the path:
 `mcp.dropenginehq.com/api/analyze-whale-activity`,
 `bess-x402.onrender.com/v1/crypto/whale-transfers`,
 `whale.lonestaroracle.xyz/whales`, `whale.hugen.tokyo/whale/movements`,
 `402.com.tr/api/x402/whale-flow`, `apexfaucet.xyz/api/x402/whale-ticker`…
 
-Ние сме кръстили своя път **`/api/v1/whaleflow`** — една дума. „whale“ не е токен в
-нея. А живите ни пътища днес (проверени):
+We named our path **`/api/v1/whaleflow`** — one word. "whale" is not a token in
+it. And our live paths today (verified):
 
 ```
 /api/v1/whaleflow              402      /api/v1/whale-flow              404
@@ -115,423 +116,423 @@ completions 84 780/301; Exa search 33 534/142; checkout 21 510/313.
 /api/bot-status                402      /api/v1/bot-health              404
 ```
 
-Ние сме на #1 за: `kristo`, `Kristo Intelligence`, хоста, `whaleflow`,
-`get_whale_flow`, комбинацията от таговете си. Тоест намират ни **само онези, които
-вече знаят името ни** — което не е откриване, а адресна книга.
+We are #1 for: `kristo`, `Kristo Intelligence`, the host, `whaleflow`,
+`get_whale_flow`, the combination of our tags. That is, we are found **only by those
+who already know our name** — which is not discovery but an address book.
 
-## 5. Агентите плащат на агент да им препоръча API
+## 5. Agents pay an agent to recommend an API to them
 
-В челото на HTTP половината: `api.agents-trust.com/recommend` —
-*„API recommendation and x402 discovery for your task. Required query: need. Which
-API should I call?“* — **16 144 платени повиквания, 62 уникални платци** за 30 дни,
-цена $0,01. Това е буквалният отговор на „търсят ли агенти точно това“: да,
-агентите плащат на агент да им каже кой API да извикат. Дали ни препоръчва —
-не е проверено (платено е; вж. лостовете).
+At the top of the HTTP half: `api.agents-trust.com/recommend` —
+*"API recommendation and x402 discovery for your task. Required query: need. Which
+API should I call?"* — **16 144 paid calls, 62 unique payers** over 30 days,
+price $0.01. This is the literal answer to "are agents looking for exactly this": yes,
+agents pay an agent to tell them which API to call. Whether it recommends us —
+has not been checked (it is paid; see the levers).
 
-## 6. Директориите извън x402
+## 6. The directories outside x402
 
-| място | състояние | детайл |
+| place | state | detail |
 |---|---|---|
-| Официален MCP регистър | **присъстваме** | `io.github.hristovdimitri2-hub/kristo-intelligence`, описание „DeFi trading signals and market intelligence for Base with x402 pay-per-call access.“ |
-| ↳ търсене „whale“ | **не ни намира** | 42 записа / 17 уникални, ние не сме сред тях — описанието ни не съдържа „whale“ |
-| ↳ „whale flow“ / „market data“ / „trading signal“ | 0 записа в целия регистър | регистърът е малък и буквален |
-| Cline marketplace | **не присъстваме** | 199 сървъра, ние не сме сред тях |
-| mcp.so | **имаме страница** | `https://mcp.so/server/kristo-intelligence` (34 срещания на slug-а, 16 на `onrender`) |
-| ↳ търсене „kristo“ в mcp.so | **не ни намира** | връща AgentCrush, kristofferv98 — не нас |
-| Smithery | **непроверимо** | URL-ът от `DISTRIBUTION_STATUS.md` дава 404; схемата на сайта е сменена, трябва браузър/акаунт |
-| Glama | живо | страницата отговаря 200 |
+| Official MCP registry | **we are present** | `io.github.hristovdimitri2-hub/kristo-intelligence`, description "DeFi trading signals and market intelligence for Base with x402 pay-per-call access." |
+| ↳ search "whale" | **does not find us** | 42 entries / 17 unique, we are not among them — our description does not contain "whale" |
+| ↳ "whale flow" / "market data" / "trading signal" | 0 entries in the entire registry | the registry is small and literal |
+| Cline marketplace | **we are absent** | 199 servers, we are not among them |
+| mcp.so | **we have a page** | `https://mcp.so/server/kristo-intelligence` (34 occurrences of the slug, 16 of `onrender`) |
+| ↳ search "kristo" in mcp.so | **does not find us** | returns AgentCrush, kristofferv98 — not us |
+| Smithery | **unverifiable** | the URL from `DISTRIBUTION_STATUS.md` gives 404; the site's scheme has changed, a browser/account is needed |
+| Glama | live | the page answers 200 |
 
-## 7. Лостове, подредени по измерена сила
+## 7. Levers, ordered by measured strength
 
-1. **URL-лексика (най-силен, измерен).** Дай на седемте endpoint-а пътища с думите
-   на купувача, разделени: `/api/v1/whale-flow`, `/api/v1/crypto-market-stats`,
+1. **URL lexicon (strongest, measured).** Give the seven endpoints paths with the
+   buyer's words, separated: `/api/v1/whale-flow`, `/api/v1/crypto-market-stats`,
    `/api/v1/trading-signals`, `/api/v1/arbitrage-opportunities`,
    `/api/v1/onchain-sales`, `/api/v1/bot-health`, `/api/v1/seller-check`.
-   Същите цени, същият `payTo`, същите данни — само името на пътя се променя.
-   За да влязат в каталога: 7 сетълмента × $0,003 = **$0,021**.
-   Проверка: същият проб с `do_buyers_words_find_us.py` след това.
-2. **Описанието в официалния MCP регистър (безплатно).** „DeFi trading signals and
-   market intelligence“ не съдържа нито „whale“, нито „on-chain sales“, нито
-   „seller verification“ — затова търсене „whale“ дава 17 други и не нас.
-3. **Повърхност (измерен модел).** Който печели в нашата ниша, държи **флот от тесни
-   редове**: `api.signalfuse.co/v1/signal/BTC|ETH|SOL|DOGE|OP` (11+ реда),
-   `api-xpay.com` с осем тривиални endpoint-а (`/time`, `/uuid`, `/random`, `/ip`,
-   `/ping`…) по ~5 500 повиквания и 200+ платци всеки. Ние имаме 7 широки реда.
-4. **Платеният откривател.** $0,01 за да питаме `agents-trust/recommend` с
-   „I need whale flow on Base — which x402 API should I call?“ и да видим дали ни
-   препоръчва. 62 платци/месец означава, че това е канал с измерено търсене.
-5. **Радарът на собственика** като прихващане на търсене: дневникът му показва, че
-   търсенето в публични нишки е (а) data endpoint-и за търгуващи агенти и
-   (б) preflight/верификация на endpoint-и. (б) е буквално `verify_seller_receiver`.
+   The same prices, the same `payTo`, the same data — only the name of the path
+   changes. For them to enter the catalog: 7 settlements × $0.003 = **$0.021**.
+   Verification: the same probe with `do_buyers_words_find_us.py` afterwards.
+2. **The description in the official MCP registry (free).** "DeFi trading signals and
+   market intelligence" contains neither "whale", nor "on-chain sales", nor
+   "seller verification" — that is why a search for "whale" gives 17 others and not us.
+3. **Surface (measured pattern).** Whoever wins in our niche holds a **fleet of narrow
+   rows**: `api.signalfuse.co/v1/signal/BTC|ETH|SOL|DOGE|OP` (11+ rows),
+   `api-xpay.com` with eight trivial endpoints (`/time`, `/uuid`, `/random`, `/ip`,
+   `/ping`…) at ~5 500 calls and 200+ payers each. We have 7 broad rows.
+4. **The paid discoverer.** $0.01 to ask `agents-trust/recommend` with
+   "I need whale flow on Base — which x402 API should I call?" and see whether it
+   recommends us. 62 payers/month means that this is a channel with measured demand.
+5. **The owner's radar** as demand interception: its log shows that
+   the demand in public threads is (a) data endpoints for trading agents and
+   (b) preflight/verification of endpoints. (b) is literally `verify_seller_receiver`.
 
-## 8. Какво НЕ е решението
+## 8. What is NOT the solution
 
-- Още листинги. Вече сме в CDP (7 MCP + 7 HTTP), PayAI, mcp.so, Glama, официалния
-  регистър. Добавянето на още един каталог не създава търсене.
-- Пренаписване на прозата. Описанията се индексират, но губят от URL-а; фрази от
-  собственото ни описание не ни намират.
-- Чакане. Нишата е 0,68% от оборота, а най-добрият в нея има 15 платци за месец.
+- More listings. We are already in CDP (7 MCP + 7 HTTP), PayAI, mcp.so, Glama, the official
+  registry. Adding one more catalog does not create demand.
+- Rewriting the prose. Descriptions are indexed, but they lose to the URL; phrases from
+  our own description do not find us.
+- Waiting. The niche is 0.68% of turnover, and the best in it has 15 payers per month.
 
-## 9. Честната граница
+## 9. The honest boundary
 
-Дори перфектното изпълнение на точки 1–3 води до **едноцифрени платци**, защото
-толкова имат съседите ни. Мярката остава **различни външни платци на седмица**
-(сега 0 от 2026-11-02). Каталогът е входният билет; търсенето се печели с лексика и
-повърхност, а не с присъствие.
+Even perfect execution of points 1–3 leads to **single-digit payers**, because
+that is how many our neighbors have. The measure remains **distinct external payers per week**
+(now 0 as of 2026-11-02). The catalog is the entry ticket; demand is won with lexicon and
+surface, not with presence.
 
-## 10. Измерено след лост 1 (URL-лексика), 2026-11-10
+## 10. Measured after lever 1 (URL lexicon), 2026-11-10
 
-Лост 1 е изпълнен: пет пътя-псевдоними към същите данни, същите цени, същият
-`payTo`. Платени са **четири** сетълмента = **$0,016**; `/api/v1/seller-check` е
-умишлено неплатен (цена $0,10 — 33× останалите).
+Lever 1 has been executed: five alias paths to the same data, the same prices, the same
+`payTo`. **Four** settlements were paid = **$0.016**; `/api/v1/seller-check` is
+deliberately unpaid (price $0.10 — 33× the rest).
 
-Същият проб, същите заявки, `limit=20`:
+The same probe, the same queries, `limit=20`:
 
-| заявка | преди | след |
+| query | before | after |
 |---|---|---|
-| whale flow | отсъства | **#11** |
-| whale flow base | отсъства | **#13** |
-| track large usdc transfers | отсъства | **#11** |
-| whale alerts | отсъства | **#13** |
+| whale flow | absent | **#11** |
+| whale flow base | absent | **#13** |
+| track large usdc transfers | absent | **#11** |
+| whale alerts | absent | **#13** |
 | onchain sales | #1 | **#1 + #2** |
-| sales analytics crypto | отсъства | **#4 + #5** |
+| sales analytics crypto | absent | **#4 + #5** |
 | arbitrage opportunities | #3 | **#3 + #14** |
 | arbitrage base dex | #3, #11 | **#3, #8, #11** |
-| find arbitrage | отсъства | **#7 + #15** |
-| trading signal | отсъства | **#12** |
-| crypto trading signals | отсъства | **#12** |
-| buy sell signal | отсъства | **#7** |
-| verify seller | отсъства | отсъства — `seller-check` не е платен |
+| find arbitrage | absent | **#7 + #15** |
+| trading signal | absent | **#12** |
+| crypto trading signals | absent | **#12** |
+| buy sell signal | absent | **#7** |
+| verify seller | absent | absent — `seller-check` is not paid |
 
-**Позициите се държат от псевдонимите, не от каноничните пътища.** Проверено
-изрично — кое от нашите URL-и носи всяка нова позиция:
+**The positions are held by the aliases, not by the canonical paths.** Verified
+explicitly — which of our URLs carries each new position:
 
-| заявка | кой наш URL печели |
+| query | which of our URLs wins |
 |---|---|
 | whale flow / base / large usdc transfers / whale alerts | `/api/v1/whale-alerts` |
 | trading signal / crypto trading signals | `/api/v1/trading-signals` |
-| arbitrage opportunities / arbitrage base dex / find arbitrage | `/api/v1/arbitrage-opportunities` (вече **#1**) |
+| arbitrage opportunities / arbitrage base dex / find arbitrage | `/api/v1/arbitrage-opportunities` (already **#1**) |
 | onchain sales | `/api/v1/onchain-sales` (**#1**) + `/api/sales` (#2) |
 
-Тоест спечели **името на пътя**, а не прозата в описанието — точно както
-измерихме в т. 4. Два часа по-късно същият проб дава още по-добри позиции
+That is, **the name of the path** won, not the prose in the description — exactly as we
+measured in §4. Two hours later the same probe gives even better positions
 (`whale flow` #8, `whale flow base` #6, `track large usdc transfers` #3,
 `whale alerts` #5, `arbitrage opportunities` #1, `find arbitrage` #1,
-`trading signal` #7, `crypto trading signals` #2) — рангът при 11–16 реда е шумен.
+`trading signal` #7, `crypto trading signals` #2) — the ranking at 11–16 rows is noisy.
 
-**Две поправки на по-рано записани вярвания:**
+**Two corrections to previously recorded beliefs:**
 
-1. `https://api.agents-trust.com/inspect` **не е надежден тест за индексиране.**
-   Връща `404 ENDPOINT_NOT_INDEXED` и за четирите платени псевдонима, докато
-   същите URL-и държат #1 в търсенето на CDP. Собственият му обхождащ робот е
-   отделен от индекса на CDP — като оракул за „в каталога ли сме“ не става.
-2. Пълното обхождане на `type=http` е **напълно надеждно, ако се поиска правилно.**
-   Записах по-рано, че е крехко, защото при две от три пускания мрежата падна и
-   резултатът изглеждаше „само 7 наши реда“. Причината не беше каталогът, а моят
-   метод: `limit=20` прави 1637 заявки и някоя пада. `limit=1000` се приема
-   (над 1000 дава HTTP 400), така че целият пазар от **32 737 реда се изчита с 33
-   заявки** — без нито един нечетен offset, без дубликати, `pagination.total`
-   съвпада точно. Грешката беше в мен, не в данните.
+1. `https://api.agents-trust.com/inspect` **is not a reliable test for indexing.**
+   It returns `404 ENDPOINT_NOT_INDEXED` for all four paid aliases, while
+   the same URLs hold #1 in CDP search. Its own crawler is
+   separate from the CDP index — as an oracle for "are we in the catalog" it does not work.
+2. The full crawl of `type=http` is **completely reliable if requested correctly.**
+   I recorded earlier that it is fragile, because on two out of three runs the network failed and
+   the result looked like "only 7 of our rows". The reason was not the catalog, but my
+   method: `limit=20` makes 1637 requests and some fail. `limit=1000` is accepted
+   (above 1000 it gives HTTP 400), so the entire market of **32 737 rows is read with 33
+   requests** — without a single odd offset, without duplicates, `pagination.total`
+   matches exactly. The error was mine, not the data's.
 
-Изводът за т. 8 се потвърждава: лексиката работи, присъствието — не. Но позиция в
-списък от 11–16 реда при съсед, който има 2 платци, все още не е разпространение.
+The conclusion for §8 is confirmed: the lexicon works, the presence does not. But a position in a
+list of 11–16 rows next to a neighbor who has 2 payers is still not distribution.
 
-## 11. Лост 2: `/api/v1/seller-check` — платено и измерено
+## 11. Lever 2: `/api/v1/seller-check` — paid and measured
 
-Собственикът одобри $0,10 (еднократно), въпреки че е 33× останалите: това е
-единствената ниша, в която съседите имат **реални** платци. Платено и потвърдено
-на веригата; балансът на демо ключа стана **$1,443515**.
+The owner approved $0.10 (one-time), even though it is 33× the rest: this is
+the only niche in which the neighbors have **real** payers. Paid and confirmed
+on chain; the balance of the demo key became **$1.443515**.
 
-Редът влезе в каталога. Позицията обаче е **последна**:
+The row entered the catalog. The position, however, is **last**:
 
-| заявка | редове | наша позиция |
+| query | rows | our position |
 |---|---|---|
 | seller check | 17 | **#17** |
 | seller-check | 15 | **#15** |
 | seller verification | 14 | **#14** |
-| verify seller | 9 | отсъства (под cutoff-а) |
-| is this seller legit | 5 | отсъства (под cutoff-а) |
+| verify seller | 9 | absent (below the cutoff) |
+| is this seller legit | 5 | absent (below the cutoff) |
 
-Това е измерването, което си заслужава да се запише: **`tokencheck.402api.dev/v1/seller-check`
-има буквално същите думи в пътя си и е #1.** Разликата не е лексиката — тя е
-вече доказана. Разликата са сигналите за ползване: съседът има 2 платци и 2
-повиквания, ние имаме 1 (собствения листинг). **Плащането купува вход, не ранг;
-рангът се купува с платци.** Затова и 11–16-те реда от т. 10 са таван, докато
-няма външни платци.
+This is the measurement worth recording: **`tokencheck.402api.dev/v1/seller-check`
+has literally the same words in its path and is #1.** The difference is not the lexicon — that is
+already proven. The difference is the usage signals: the neighbor has 2 payers and 2
+calls, we have 1 (our own listing). **A payment buys entry, not rank;
+rank is bought with payers.** That is also why the 11–16 rows from §10 are a ceiling, while
+there are no external payers.
 
-Едно странично наблюдение от самото плащане: платеното повикване върна **HTTP 400
-`receiver_required`** — защото `/api/v1/seller-check` наследява каноничния
-`/api/v1/verify-seller`, който иска `?receiver=`. Това е честният guard на
-продукта, не дефект в плащането (парите се сетълнаха, nonce-ът е на веригата), но
-означава, че агент, който ни открие в каталога и ни извика без параметър, плаща
-$0,10 и получава грешка. Ако някой някога плати този ред, първото нещо за
-поправяне е това.
+One side observation from the payment itself: the paid call returned **HTTP 400
+`receiver_required`** — because `/api/v1/seller-check` inherits the canonical
+`/api/v1/verify-seller`, which requires `?receiver=`. This is the honest guard of the
+product, not a defect in the payment (the money settled, the nonce is on chain), but it
+means that an agent that discovers us in the catalog and calls us without a parameter pays
+$0.10 and gets an error. If anyone ever pays that row, the first thing to fix is
+this.
 
-## 12. Как се печелят платци — измерено върху целия пазар (32 737 реда)
+## 12. How payers are won — measured on the entire market (32 737 rows)
 
-Пълно изчитане на `type=http` с `limit=1000`: 32 737 реда, 3 251 хоста, без
-нечетени offset-и. Това е най-важното измерване в документа, защото отговаря на
-въпроса, който наистина спира бизнеса.
+A full read of `type=http` with `limit=1000`: 32 737 rows, 3 251 hosts, without
+unread offsets. This is the most important measurement in the document, because it answers the
+question that really stops the business.
 
-**Разпределението е брутално.** Медианата е **1 платец на ред**. 60,7% от редовете
-имат точно един. Само **249 реда (0,761%)** имат ≥20 платци; 100 реда имат ≥50;
-64 реда ≥100; максимумът е 678. Топ 50 реда по платци стоят на **осем хоста**.
+**The distribution is brutal.** The median is **1 payer per row**. 60.7% of the rows
+have exactly one. Only **249 rows (0.761%)** have ≥20 payers; 100 rows have ≥50;
+64 rows ≥100; the maximum is 678. The top 50 rows by payers sit on **eight hosts**.
 
-**Това, което печели платци, е обратното на това, което правим ние:**
+**What wins payers is the opposite of what we do:**
 
-| признак | топ 50 реда | останалият пазар |
+| trait | top 50 rows | the rest of the market |
 |---|---|---|
-| има `serviceName` | **30%** | 64% |
-| ≥3 тага | **26%** | 58% |
-| описание ≥200 знака | **6%** | 55% |
-| описание <40 знака | **18%** | 2,3% |
-| `bazaar.category` | **0%** | 5,5% |
+| has `serviceName` | **30%** | 64% |
+| ≥3 tags | **26%** | 58% |
+| description ≥200 characters | **6%** | 55% |
+| description <40 characters | **18%** | 2.3% |
+| `bazaar.category` | **0%** | 5.5% |
 
-Победителите са едноредови примитиви — „Health check ping“ (219 платци),
-„Current server time in UTC“ (212), „Generate a random UUID v4“ (211). Ние имаме
-дълги, богати, тематични описания — точно обратното на печелившото.
+The winners are single-line primitives — "Health check ping" (219 payers),
+"Current server time in UTC" (212), "Generate a random UUID v4" (211). We have
+long, rich, thematic descriptions — exactly the opposite of what wins.
 
-**Три хипотези, които се оказаха неверни:**
+**Three hypotheses that turned out to be false:**
 
-1. **Публикуването на machine-readable документи не е предимство.** Проверено на
-   живо и валидирано по съдържание: топ хостовете 91/100, средният клас 93/100.
-   Това е вход, не диференциатор.
-2. **Рангът в търсенето не корелира с платците.** Симетричен тест: 12,5% от
-   топ хостовете се показват при 25 генерични заявки, срещу 22,2% от контролна
-   група с <20 платци. Търсенето се печели от фабрики за масови листинги, не от
-   лидерите по платци.
-3. **Цената е почти без значение.** Spearman(цена, платци) ≈ −0,22…−0,24.
-   Регистрирането на стотици хостове също губи: един оператор държи 296 хоста и
-   максимумът му е 7 платци.
+1. **Publishing machine-readable documents is not an advantage.** Verified
+   live and validated by content: top hosts 91/100, the middle class 93/100.
+   This is entry, not a differentiator.
+2. **Search rank does not correlate with payers.** A symmetric test: 12.5% of
+   top hosts appear for 25 generic queries, versus 22.2% of a control
+   group with <20 payers. Search is won by mass-listing factories, not by
+   the leaders by payers.
+3. **Price is almost irrelevant.** Spearman(price, payers) ≈ −0.22…−0.24.
+   Registering hundreds of hosts also loses: a single operator holds 296 hosts and
+   his maximum is 7 payers.
 
-**Единственото явно знаме с голям ефект: `curated: true`.** 65 реда го носят —
-**30,8% от тях имат ≥20 платци срещу 0,76% на пазара, ≈40× лифт**. Курираните
-хостове са разпознаваеми марки (nansen, messari, exa, zerion, coingecko,
-coinmarketcap, tavily). Не е нито необходимо, нито достатъчно (редът с 678 платци
-не е куриран), но е единственият **явен** признак, който мерим.
+**The only clear flag with a large effect: `curated: true`.** 65 rows carry it —
+**30.8% of them have ≥20 payers versus 0.76% of the market, ≈40× lift**. The curated
+hosts are recognizable brands (nansen, messari, exa, zerion, coingecko,
+coinmarketcap, tavily). It is neither necessary nor sufficient (the row with 678 payers
+is not curated), but it is the only **explicit** trait we measure.
 
-**Позицията в каталога е най-силната корелация, но посоката е недоказана.**
-57,8% от редовете с ≥20 платци са в първите 200; 83,5% в първите 1000; нито един
-не е след 19 419. Проверено, че потокът не е сортиран по платци или активност. Не
-може да се изключи обаче, че позицията **следва** платците, вместо да ги създава —
-най-вероятното обяснение е възраст: първите редове са листнати най-рано и са
-натрупали еднократни платци с месеци. Затова не приемам позицията за лост.
+**Position in the catalog is the strongest correlation, but the direction is unproven.**
+57.8% of the rows with ≥20 payers are in the first 200; 83.5% in the first 1000; not a single one
+is after 19 419. Verified that the feed is not sorted by payers or activity. It cannot
+be ruled out, however, that position **follows** payers instead of creating them —
+the most likely explanation is age: the first rows were listed earliest and have
+accumulated one-time payers over months. That is why I do not accept position as a lever.
 
-**Плащанията са еднократни.** Медианата `повиквания/платец` е **1,00**, а при
-топ 10 реда е 1,00–1,03. „Много платци“ не е задържане, а много различни портфейли
-с по едно плащане. Никой не се връща.
+**Payments are one-time.** The median `calls/payer` is **1.00**, and for the
+top 10 rows it is 1.00–1.03. "Many payers" is not retention, but many different wallets
+with one payment each. Nobody comes back.
 
-**Какво следва за нас.** Лостове 1 и 2 (URL лексика, ранг в търсенето) работят
-измеримо — но рангът в търсенето не корелира с платците. Значи подобрихме нещо
-реално и то не е най-важното. Единственият доказан лост е **курирането от CDP**, а
-то иска ≥99% uptime за 30 дни — което ни отвежда право в проблема с паметта.
-Подробните ни описания са пречка, не предимство: печелившите са под 40 знака.
+**What follows for us.** Levers 1 and 2 (URL lexicon, search rank) work
+measurably — but search rank does not correlate with payers. So we improved something real
+and it is not the most important thing. The only proven lever is **curation by CDP**, and
+it requires ≥99% uptime for 30 days — which takes us straight into the memory problem.
+Our detailed descriptions are an obstacle, not an advantage: the winners are under 40 characters.
 
-## 13. Кой всъщност ни е плащал — прочетено от веригата (2026-11-10)
+## 13. Who has actually paid us — read from the chain (2026-11-10)
 
-Досега се пишеше „0 външни платци“. Това беше вярно само за последната седмица.
-Пълното четене на входящите USDC преводи към получателя (96 превода, прозорецът
-покрива от 02.09 насам) дава **15 различни подателя**:
+Until now "0 external payers" was written. That was true only for the last week.
+The full read of incoming USDC transfers to the receiver (96 transfers, the window
+covers from 02.09 onward) gives **15 distinct senders**:
 
-| какво | адреси | сума |
+| what | addresses | amount |
 |---|---|---|
-| нашият демо ключ | 1 (`0xe50c…`) | **$0,794** |
-| разпознати машини (crawler/canary, по `KNOWN_PAYERS`) | 5 | $0,074 |
-| **„човешки клиенти“ по собствената ни документация** | 2 (`0x4db7`, `0x902dcf34`) | $0,008 |
-| некласифицирани | 7 | $0,044 |
-| **общо извън нашия ключ** | **14** | **$0,126** |
+| our demo key | 1 (`0xe50c…`) | **$0.794** |
+| recognized machines (crawler/canary, by `KNOWN_PAYERS`) | 5 | $0.074 |
+| **"human customers" by our own documentation** | 2 (`0x4db7`, `0x902dcf34`) | $0.008 |
+| unclassified | 7 | $0.044 |
+| **total outside our key** | **14** | **$0.126** |
 
-Най-скорошното външно плащане е **2026-11-02** (`0x9a1066fe`, $0,003).
-Двата човешки клиента са платили на 06.09 и 12.09.
+The most recent external payment is **2026-11-02** (`0x9a1066fe`, $0.003).
+The two human customers paid on 06.09 and 12.09.
 
-**Каналът не е CDP.** Всяка наша страница в CDP показва `payers=1`, а последните
-повиквания са нашите собствени (9–10 ноември). Плащането от 2 ноември не е в
-CDP — значи е минало през **друг релс** (най-вероятно PayAI). Това е важният
-извод: **всичките ни външни плащания са дошли извън каталога, който
-оптимизирахме.** Работата по лост 1 и 2 подобри позицията ни в CDP, но CDP никога
-не ни е носил платец.
+**The channel is not CDP.** Every one of our pages in CDP shows `payers=1`, while the latest
+calls are our own (9–10 November). The payment from 2 November is not in
+CDP — so it went through **another rail** (most likely PayAI). This is the important
+conclusion: **all of our external payments have come from outside the catalog that
+we optimized.** The work on levers 1 and 2 improved our position in CDP, but CDP never
+brought us a payer.
 
-**Честната граница:** „външен агент“ включва машини, а машините плащат по много
-услуги — затова самият проект ги води отделен клас и не ги брои за клиенти.
-Некласифицираните 7 още не са отпечатани (прагът е 50 различни получателя), така
-че не знам дали са нови клиенти или нови crawler-и. Да ги нарека клиенти без
-отпечатък би било точно грешката, която този документ описва.
+**The honest boundary:** "external agent" includes machines, and machines pay for many
+services — that is why the project itself tracks them as a separate class and does not count them as customers.
+The 7 unclassified ones are not yet fingerprinted (the threshold is 50 distinct receivers), so
+I do not know whether they are new customers or new crawlers. To call them customers without a
+fingerprint would be exactly the mistake that this document describes.
 
-## 14. Проверка на собствените твърдения от §12–13 (2026-11-10)
+## 14. Verification of our own claims from §12–13 (2026-11-10)
 
-Прочетох **официалната документация на CDP** (`docs.cdp.coinbase.com/x402/seller/
-get-discovered`) вместо да разчитам на изводите си. Двете твърдения в §12–13,
-които определяха приоритетите, се оказаха неверни.
+I read the **official CDP documentation** (`docs.cdp.coinbase.com/x402/seller/
+get-discovered`) instead of relying on my own conclusions. The two claims in §12–13
+that determined priorities turned out to be false.
 
-### 14.1. Паметта НЕ е блокерът — наличността е ~99,95%, не ~98,3%
+### 14.1. Memory is NOT the blocker — availability is ~99.95%, not ~98.3%
 
-§12 казваше: „единственият доказан лост е курирането, а то иска ≥99% uptime за
-30 дни — което ни отвежда право в проблема с паметта“. Това беше **оценка**
-(убийства на час × предполагаема дължина на рестарта), а не измерване. Измерих
-същото нещо от данните, които вече имаме — пробите, които Render прави, се
-записват в лога от gunicorn:
+§12 said: "the only proven lever is curation, and it requires ≥99% uptime for
+30 days — which takes us straight into the memory problem". That was an **estimate**
+(kills per hour × an assumed restart length), not a measurement. I measured
+the same thing from the data we already have — the probes that Render makes are
+recorded in the gunicorn log:
 
 ```
 10.233.16.27 - - [10/Nov/2026:15:32:22 +0000] "GET /health HTTP/1.1" 200 445 "-" "Render/1.0"
 ```
 
-| какво | измерено |
+| what | measured |
 |---|---|
-| интервал на пробите (тих час, 71 проби) | медиана **5,0 s**, p90 6,0 s, max 6,0 s |
-| отговори, различни от 200, около 5-те OOM убийства | **0** |
-| прозорци без нито една пропусната проба | **3 от 5** |
-| пропуснато време, общо за 70 минути | **~43 s** → ~8,6 s на инцидент |
-| при 5 инцидента/ден | 43 s/ден = 0,05% от денонощието |
-| **наличност (прокси по проби)** | **≈ 99,95%** |
+| probe interval (quiet hour, 71 probes) | median **5.0 s**, p90 6.0 s, max 6.0 s |
+| responses other than 200 around the 5 OOM kills | **0** |
+| windows without a single missed probe | **3 of 5** |
+| missed time, total over 70 minutes | **~43 s** → ~8.6 s per incident |
+| at 5 incidents/day | 43 s/day = 0.05% of the day |
+| **availability (proxy by probes)** | **≈ 99.95%** |
 
-Прагът за приоритетно подреждане е >99,5%. Ние сме над него. **Въпросът за
-паметта остава реален (5 убийства на ден), но вече не е на критичния път.**
+The threshold for priority placement is >99.5%. We are above it. **The question of
+memory remains real (5 kills per day), but it is no longer on the critical path.**
 
-*Честна граница:* това е `/health`, а CDP вероятно мери самото платено URL. И
-двете са един и същ процес, така че падането е общо — но това е **прокси**, не
-числото на CDP. Първата версия на тази проверка мереше „секунди между два
-произволни реда в лога“ и даде 66% недостъпност. Това е грешен въпрос: тих
-процес основателно не пише нищо с минути. Метрика, която обявява услугата за
-мъртва две трети от денонощието, докато тя отговаря с 200, не е консервативна,
-а е различна метрика.
+*Honest boundary:* this is `/health`, while CDP probably measures the paid URL itself. And
+the two are the same process, so the downtime is shared — but this is a **proxy**, not
+CDP's number. The first version of this check measured "seconds between two
+arbitrary lines in the log" and gave 66% unavailability. That is the wrong question: a quiet
+process justifiably writes nothing for minutes. A metric that declares the service
+dead for two thirds of the day while it answers with 200 is not conservative,
+it is a different metric.
 
-### 14.2. Два дефекта в листинга, и двата документирани
+### 14.2. Two defects in the listing, and both documented
 
-**Иконата беше в неподдържан формат.** Документацията, дословно: „Supported
-formats are JPG, JPEG, PNG, WebP, and GIF. SVG is not supported.“ Ние
-публикувахме `/static/icons/kristo.svg` — единственият формат, който каталогът
-отказва. Имахме и тест, който **пазеше точно това** (`test_icon_url_asset_serves_svg`).
-Тестът може да заключи грешка точно толкова добре, колкото и поправка.
-Сега `iconUrl` е PNG 512×512, генериран от `scripts/make_brand_icon.py` (за да не
-е двоичен файл, който никой не може да пресъздаде), а SVG-то си остава favicon
-на сайта — браузърът не е Bazaar.
+**The icon was in an unsupported format.** The documentation, verbatim: "Supported
+formats are JPG, JPEG, PNG, WebP, and GIF. SVG is not supported." We
+published `/static/icons/kristo.svg` — the only format that the catalog
+rejects. We also had a test that **guarded exactly this** (`test_icon_url_asset_serves_svg`).
+A test can lock in a bug just as well as a fix.
+Now `iconUrl` is a 512×512 PNG, generated by `scripts/make_brand_icon.py` (so that it is not
+a binary file that nobody can reproduce), while the SVG remains the favicon
+of the site — the browser is not Bazaar.
 
-**Нито един от 12-те платени пътя не казваше КОГА да се използва.** Това е
-изрично изискване за метаданните при куриране и е вход за ранкинга: „Write a
-natural-language description of what the endpoint does and *when to call it*.“
-Измерих пазара: от **33 392** реда **9,3%** имат такава фраза. Ние бяхме в
-останалите 90,7% — 17 от 19 реда. Сега 12 от 12.
+**Not a single one of the 12 paid paths said WHEN to use it.** This is an
+explicit metadata requirement for curation and is an input for ranking: "Write a
+natural-language description of what the endpoint does and *when to call it*."
+I measured the market: of **33 392** rows, **9.3%** have such a phrase. We were in
+the remaining 90.7% — 17 of 19 rows. Now 12 of 12.
 
-**Таванът от 500 знака не е за ранкинг, а за парите.** Над него фасилитаторът
-отхвърля `verify` И `settle`: губи се самото плащане, не само позицията. Нашите
-12 описания сега са 176–389 знака.
+**The 500-character ceiling is not for ranking, but for the money.** Above it the facilitator
+rejects `verify` AND `settle`: the payment itself is lost, not just the position. Our
+12 descriptions are now 176–389 characters.
 
-Три нови guards пазят това (`tests/test_listing_says_when_to_use.py`), и
-проверих, че наистина хващат дефекта: срещу 10-те стари описания първият пада
-10/10, а срещу двете, които вече имаха фраза, минава.
+Three new guards protect this (`tests/test_listing_says_when_to_use.py`), and
+I verified that they really catch the defect: against the 10 old descriptions the first one fails
+10/10, while against the two that already had the phrase, it passes.
 
-### 14.3. Поправка на §12: „печелившите са под 40 знака“ е корелация, не механизъм
+### 14.3. Correction to §12: "the winners are under 40 characters" is a correlation, not a mechanism
 
-§12 заключаваше, че подробните ни описания са пречка. Данните наистина показват,
-че топ редовете имат кратки описания — но документацията казва обратното:
-описание, което казва какво прави endpoint-ът и кога да се извика, **вдига**
-качеството на метаданните, а „голи имена и placeholder текст“ дават нула.
-Най-простото обяснение на късите описания при топ редовете е възрастта на
-листинга, не качеството. Не променям продукта по корелация, когато има
-документирано правило.
+§12 concluded that our detailed descriptions are an obstacle. The data do indeed show
+that the top rows have short descriptions — but the documentation says the opposite:
+a description that says what the endpoint does and when to call it **raises**
+the quality of the metadata, while "bare names and placeholder text" give zero.
+The simplest explanation for short descriptions among the top rows is the age of the
+listing, not quality. I do not change the product based on a correlation when there is a
+documented rule.
 
-### 14.4. Какво значи това за целта
+### 14.4. What this means for the goal
 
-Вече покриваме и петте документирани изисквания за куриране:
+We now cover all five documented requirements for curation:
 
-| изискване | състояние |
+| requirement | state |
 |---|---|
-| живи x402 плащания на mainnet | ✅ 14 външни подателя, $0,126 |
-| наличност ≥99% за 30 дни | ✅ измерено ≈99,95% |
-| минава health probe | ✅ 0 не-200 отговора |
-| минава `validate` | ✅ 12/12, `outcome=accepted` |
-| agent-ready метаданни | ✅ поправено днес (§14.2) |
+| live x402 payments on mainnet | ✅ 14 external senders, $0.126 |
+| availability ≥99% for 30 days | ✅ measured ≈99.95% |
+| passes health probe | ✅ 0 non-200 responses |
+| passes `validate` | ✅ 12/12, `outcome=accepted` |
+| agent-ready metadata | ✅ fixed today (§14.2) |
 
-Курирането обаче остава **редакционно**: „Meeting these qualifies an endpoint for
+Curation, however, remains **editorial**: "Meeting these qualifies an endpoint for
 review — listing remains editorial, based on service quality, category coverage,
-and ecosystem fit.“ Няма форма за кандидатстване. Значи каналът не е още
-автоматизация, а аргумент пред CDP и попадане в категория, която искат да
-покрият. Това е и отговорът на въпроса „как се печелят първите външни платци“:
-не чрез още оптимизация на търсенето, а чрез куриране, а курирането се дава.
+and ecosystem fit." There is no application form. So the channel is not yet
+automation, but an argument before CDP and landing in a category they want to
+cover. This is also the answer to the question "how are the first external payers won":
+not through more search optimization, but through curation, and curation is granted.
 
-**Какво още не е доказано:** че курирането ще донесе платци. 65 курирани реда,
-30,8% от тях с ≥20 платци срещу 0,76% на пазара (≈40×) — но извадката е 65 реда
-и посоката (курирани → платци или платци → курирани) не е установена.
+**What is still not proven:** that curation will bring payers. 65 curated rows,
+30.8% of them with ≥20 payers versus 0.76% of the market (≈40×) — but the sample is 65 rows
+and the direction (curated → payers or payers → curated) is not established.
 
-**Следващи стъпки.** (1) Едно платено повикване през CDP фасилитатора, за да се
-опресни записът в каталога с новите метаданни — описанието, което Bazaar
-записва, идва от `paymentPayload.extensions.bazaar` при settle, не от безплатен
-crawl. (2) Искане за куриране с доказателствата от таблицата по-горе.
+**Next steps.** (1) One paid call through the CDP facilitator, to
+refresh the catalog entry with the new metadata — the description that Bazaar
+records comes from `paymentPayload.extensions.bazaar` at settle, not from a free
+crawl. (2) A request for curation with the evidence from the table above.
 
-### 14.5. Платеното опресняване — направено, и какво отговори фасилитаторът
+### 14.5. The paid refresh — done, and what the facilitator answered
 
-Направих едно платено повикване към `/api/v1/whaleflow` ($0,003) след deploy-а,
-защото без него новите метаданни съществуват само в нашия 402, а не в записа на
-каталога. Първо dry run (сума, `payTo`, подписващ, възстановяване на подписа —
-всичко съвпада), после плащане:
+I made one paid call to `/api/v1/whaleflow` ($0.003) after the deploy,
+because without it the new metadata exists only in our 402, not in the catalog
+entry. First a dry run (amount, `payTo`, signer, signature recovery —
+everything matches), then payment:
 
-| какво | стойност |
+| what | value |
 |---|---|
 | HTTP | **200** |
 | tx | `0xa2864c7269e000bdf29884cc0a29d55783942875040e6db4b3d3df128ad94083` |
-| платец | `0xE50c…` (нашият демо ключ) |
+| payer | `0xE50c…` (our demo key) |
 | `EXTENSION-RESPONSES` | **`{"bazaar": {"status": "processing"}}`** |
-| портфейл преди → след | 1 443 515 → 1 440 515 atomic ($1,443515 → $1,440515) |
-| получател преди → след | 920 000 → 923 000 atomic |
+| wallet before → after | 1 443 515 → 1 440 515 atomic ($1.443515 → $1.440515) |
+| receiver before → after | 920 000 → 923 000 atomic |
 
-**Това е първото живо четене на `EXTENSION-RESPONSES`.** Документацията го
-описва като начина да разбереш дали декларацията е приета: `success` (валидирана
-и каталогизирана), `processing` (приета, каталогизира се асинхронно), `rejected`
-(отказана — виж `rejectedReason`). Получихме **`processing`**, тоест
-декларацията ни **не се отхвърля** — минава схемата и проверката на съдържанието
-при подаване. (Ако беше `rejected`, това щеше да е конкретен дефект с конкретна
-причина; не е.)
+**This is the first live reading of `EXTENSION-RESPONSES`.** The documentation describes it
+as the way to find out whether the claim was accepted: `success` (validated
+and cataloged), `processing` (accepted, cataloged asynchronously), `rejected`
+(rejected — see `rejectedReason`). We got **`processing`**, that is, our
+claim **is not being rejected** — it passes the schema and the content check
+on submission. (If it had been `rejected`, that would have been a concrete defect with a concrete
+reason; it is not.)
 
-Индексирането отнема до 15 минути по документация, така че „подадено“ не е
-„записано“ — записът се проверява отделно след прозореца.
+Indexing takes up to 15 minutes per the documentation, so "submitted" is not
+"recorded" — the entry is checked separately after the window.
 
-**Проверено след прозореца: каталогът взе новите метаданни.**
+**Checked after the window: the catalog took the new metadata.**
 
-| ред | описание в каталога | беше |
+| row | description in the catalog | was |
 |---|---|---|
-| `/api/v1/whaleflow` (платен днес) | **278 знака, с фразата „Worth reading when…“** | 192 |
-| останалите 18 реда | старите текстове (83, 95, 110, 123, 154, 158, 162, 190, 239, 258, 297) | — |
+| `/api/v1/whaleflow` (paid today) | **278 characters, with the phrase "Worth reading when…"** | 192 |
+| the remaining 18 rows | the old texts (83, 95, 110, 123, 154, 158, 162, 190, 239, 258, 297) | — |
 
-Това е важното: **опресняването е на ред и се задейства от settle, точно както
-казва документацията** — един платен ред се промени, осемнайсет не се, при един и
-същ deploy. Значи метаданните не се разпространяват от crawl, а от плащане.
+This is the important thing: **the refresh is per row and is triggered by settle, exactly as
+the documentation says** — one paid row changed, eighteen did not, with one and the
+same deploy. So the metadata is not propagated by crawl, but by payment.
 
-Цената да се опреснят и останалите 9 HTTP реда, които още нямат фразата, е
-**$0,039** (6 × $0,005 + 3 × $0,003). `/api/v1/verify-seller` и
-`/api/v1/seller-check` ($0,10 всеки) вече имат фраза и печелят само едно
-изречение — тях ги оставям. Отделно, **всеки ред трябва да има поне едно
-плащане на 30 дни, иначе излиза от каталога и от търсенето** — това е постоянен
-разход (≈$0,036/месец за 12 реда), а не еднократен.
+The cost to refresh the remaining 9 HTTP rows that do not yet have the phrase is
+**$0.039** (6 × $0.005 + 3 × $0.003). `/api/v1/verify-seller` and
+`/api/v1/seller-check` ($0.10 each) already have the phrase and would win only one
+sentence — I am leaving them. Separately, **every row must have at least one
+payment per 30 days, otherwise it drops out of the catalog and out of search** — this is a constant
+expense (≈$0.036/month for 12 rows), not a one-time one.
 
-## 15. Защо CDP показва `payers=1` — поправено два пъти в един ден (2026-11-10, късно)
+## 15. Why CDP shows `payers=1` — corrected twice in one day (2026-11-10, late)
 
-§13 остави въпрос: външните плащания съществуват на веригата, а CDP показва
-`payers=1` на всеки наш ред. Първото обяснение, което написах тук, беше, че
-PayAI сетълва вместо CDP и затова CDP не вижда парите ни. **То не издържа.**
-Оставям и грешката, и поправката, защото начинът, по който се счупи, е по-полезен
-от самия извод.
+§13 left a question: the external payments exist on chain, while CDP shows
+`payers=1` on every row of ours. The first explanation I wrote here was that
+PayAI settles instead of CDP and that is why CDP does not see our money. **It does not hold.**
+I am keeping both the error and the correction, because the way it broke is more useful
+than the conclusion itself.
 
-### 15.1. Първата версия, и защо беше грешна
+### 15.1. The first version, and why it was wrong
 
-Разчитах един ред от лога — най-новото външно плащане (04.11 02:46 UTC):
+I relied on one line from the log — the most recent external payment (04.11 02:46 UTC):
 
 ```
 standard x402 settled via payai: tx=0x2ca6e79f46943070f8d903f028c14fbf72e47bea…
 ```
 
-и от него заключих: веригата по подразбиране в `services/connectors.py` е
-`[payai, cdp]`, PayAI е пръв, значи CDP никога не вижда нищо наше, оттам идва
-`payers=1`, и затова курирането е структурно недостижимо.
+and from it I concluded: the default chain in `services/connectors.py` is
+`[payai, cdp]`, PayAI is first, so CDP never sees anything of ours, hence
+`payers=1`, and therefore curation is structurally unattainable.
 
-**Един ред не е измерване.** Проверих всички сетълменти, които имаме в логовете
-си, и **всеки един от 09.11 насам казва `settled via cdp`** — десет събития
+**One line is not a measurement.** I checked all the settlements we have in our logs,
+and **every single one since 09.11 says `settled via cdp`** — ten events
 (09.11: 14:14, 15:11, 16:29, 16:30 …; 10.11: 08:12:53, 08:12:57, 08:13:00,
-08:13:04 …), нула `settled via payai`. Редът от 04.11 е единственото изключение в
-цялата ни история и е отпреди промените по пътя на верификацията.
+08:13:04 …), zero `settled via payai`. The line from 04.11 is the only exception in
+our entire history and it predates the changes along the verification path.
 
-### 15.2. Какво всъщност прави приложението
+### 15.2. What the application actually does
 
-Пълната последователност на едно платено повикване, 10.11 08:12:52–53 UTC:
+The full sequence of one paid call, 10.11 08:12:52–53 UTC:
 
 ```
 x402 rail step challenge_core             0.000s
@@ -548,119 +549,119 @@ standard x402 settled via cdp: tx=0xafc230574538924888e313c2e26f3e39a4676d170378
 standard x402 payment settled: payer=0xE50c5212… amount=$0.0030
 ```
 
-Три неща, които не знаехме:
+Three things we did not know:
 
-1. **Верификацията е локална.** `_local_recover_signer` + „canonical EIP-712, no
-   facilitator needed for verification“ — при verify изобщо не се говори с
-   фасилитатор. Затова „веригата `[payai, cdp]`“ не описва сетълмента.
-2. **Self-broadcast е счупен от месеци.** Газ портфейлът
-   `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd` има **0,00000000 ETH** (проверено
-   и на веригата), затова собственото ни излъчване винаги пада и потокът
-   продължава надолу.
-3. **CDP е релсът, който реално сетълва** — и то успешно, за ~1 секунда.
+1. **Verification is local.** `_local_recover_signer` + "canonical EIP-712, no
+   facilitator needed for verification" — during verify there is no talking to the
+   facilitator at all. That is why "the chain `[payai, cdp]`" does not describe the settlement.
+2. **Self-broadcast has been broken for months.** The gas wallet
+   `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd` has **0.00000000 ETH** (verified
+   on chain too), so our own broadcast always fails and the flow
+   continues downward.
+3. **CDP is the rail that actually settles** — and successfully, in ~1 second.
 
-### 15.3. Поправеният извод
+### 15.3. The corrected conclusion
 
-**CDP вижда парите ни. Просто единственият платец, който някога е виждал, сме
-ние.** Всеки от 19-те ни реда в merchant изгледа на CDP чете
-`l30DaysUniquePayers = 1`, `l30DaysTotalCalls` 1–5, а `lastCalledAt` съвпада до
-секундата с нашите собствени канарчета (`payer=0xE50c5212e8211639C49276dA190E248B83935763`
-= демо ключът). Агрегат: **34 повиквания / 19 уникални платеца за 30 дни**, като
-„уникалните“ са сбор от по 1 на ред, не отделни хора. Редове с ≥2 платеца:
-**нула**.
+**CDP sees our money. It is just that the only payer it has ever seen is
+us.** Every one of our 19 rows in the CDP merchant view reads
+`l30DaysUniquePayers = 1`, `l30DaysTotalCalls` 1–5, and `lastCalledAt` matches to the
+second with our own canaries (`payer=0xE50c5212e8211639C49276dA190E248B83935763`
+= the demo key). Aggregate: **34 calls / 19 unique payers over 30 days**, where
+the "unique" ones are a sum of 1 per row, not separate people. Rows with ≥2 payers:
+**zero**.
 
-Затова `payers=1` не е присъда върху релса. Тя е точният запис на факта, че
-**никой външен платец никога не е плащал през CDP** — а не че CDP не е виждало
-нашите плащания. Двете твърдения звучат сходно и водят до противоположни
-решения.
+So `payers=1` is not a verdict on the rail. It is the exact record of the fact that
+**no external payer has ever paid through CDP** — and not that CDP has not seen
+our payments. The two statements sound similar and lead to opposite
+decisions.
 
-### 15.4. Какво отпада и какво остава
+### 15.4. What falls away and what remains
 
-**Отпада:** нуждата да „активираме CDP релса“. Тя вече е активна и сетълва —
-`FACILITATOR_CDP_API_KEY_*` очевидно са налични в средата, защото JWT се строи с
-истински `kid=organizations/3dc43ce6-0…/apiKeys/ad07bd0b…` и `PEM=True`. Не е
-нужно решение на собственика; не пипам средата.
+**Falls away:** the need to "activate the CDP rail". It is already active and settling —
+`FACILITATOR_CDP_API_KEY_*` are obviously available in the environment, because the JWT is built with
+a real `kid=organizations/3dc43ce6-0…/apiKeys/ad07bd0b…` and `PEM=True`. No
+owner decision is needed; I am not touching the environment.
 
-**Остава, и е по-сериозно:** сетълментът ни зависи изцяло от една външна услуга,
-защото резервният път (self-broadcast) е изключен от празен газ портфейл.
-При отпадане на CDP в прозореца на 14 ноември няма втори работещ път. Зареждането
-на малко ETH по този адрес връща независимия път, но това е харчене и иска твоето
-решение.
+**Remains, and is more serious:** our settlement depends entirely on one external service,
+because the fallback path (self-broadcast) is disabled by an empty gas wallet.
+If CDP drops out in the window of 14 November, there is no second working path. Loading
+a little ETH to that address restores the independent path, but that is spending and requires your
+decision.
 
-**Остава и основното:** единственият лост с голям измерен ефект (§12) е
-курирането, а то се дава редакционно. Какво CDP вижда днес е демо ключът — тоест
-от гледна точка на платформата изглеждаме като продавач, който сам си купува.
+**Remains, and it is the main thing:** the only lever with a large measured effect (§12) is
+curation, and it is granted editorially. What CDP sees today is the demo key — that is,
+from the platform's point of view we look like a seller who buys from himself.
 
-## 16. Два независими измервателя (2026-11-10)
+## 16. Two independent measurers (2026-11-10)
 
-Регистрирахме се и на **x402dash** (`POST https://api.x402dash.com/v1/register`),
-където до днес 1 895 доставчика и **нито един не беше наш** (`/v1/providers?q=kristo`
-→ 0). Първите 4 endpoint-а са приети, HTTP 201, `verified: true` (останалите 8
-чакат лимита 5/час):
+We also registered with **x402dash** (`POST https://api.x402dash.com/v1/register`),
+where until today there were 1 895 providers and **not a single one was ours** (`/v1/providers?q=kristo`
+→ 0). The first 4 endpoints were accepted, HTTP 201, `verified: true` (the remaining 8
+are waiting for the 5/hour limit):
 
-| endpoint | резултат |
+| endpoint | result |
 |---|---|
 | `/api/v1/whale-alerts` | registered, verified |
 | `/api/v1/trading-signals` | registered |
 | `/api/v1/arbitrage-opportunities` | registered |
 | `/api/v1/onchain-sales` | registered |
 
-**x402-list.com ни е индексирал от 29.10** и дава независими числа, които
-коригират §14.1:
+**x402-list.com has indexed us since 29.10** and gives independent numbers that
+correct §14.1:
 
-| тяхното измерване | стойност |
+| their measurement | value |
 |---|---|
-| compliance | **A, 14/14 проверки, нула провалени** |
+| compliance | **A, 14/14 checks, zero failed** |
 | `payment_ready` | true |
-| `verified` | **false** (техният FORTE слой плаща реален x402 call — само 13 от 1 271 услуги) |
-| `reliability_uptime_30d` | **98,6%** |
+| `verified` | **false** (their FORTE layer pays for a real x402 call — only 13 of 1 271 services) |
+| `reliability_uptime_30d` | **98.6%** |
 
-Ден по ден: **11-09 и 11-10 са 100%**, а целият дефицит е в **11-07 (92,13%) и
-11-08 (89,39%)** — дните на инцидентите със SQLite/таблото, преди поправките.
-Тяхната проверка е на всеки ~16 минути (67–90 на ден), така че 8-секундните
-рестарти при OOM практически не се хващат; двата лоши дни са били по ~2 часа
-реален престой.
+Day by day: **11-09 and 11-10 are 100%**, while the entire deficit is in **11-07 (92.13%) and
+11-08 (89.39%)** — the days of the SQLite/dashboard incidents, before the fixes.
+Their check is every ~16 minutes (67–90 per day), so the 8-second
+restarts during OOM are practically not caught; the two bad days were ~2 hours of real
+downtime each.
 
-**Корекция на §14.1:** там написах „≈99,95%, паметта не е блокер“. Това беше
-измерване върху един ден и 70 минути. Трета страна мери **98,6% за 30 дни**.
-Истината е по средата и по-полезна: **днес и вчера сме на 100%, а под 99% ни
-държат два конкретни дни, които са преди поправките.** Въпросът с паметта не е
-затворен — той е „в момента здрав, исторически под прага“, и 30-дневното число
-ще се вдигне само ако 07–08.11 остареят без нов инцидент.
+**Correction to §14.1:** there I wrote "≈99.95%, memory is not a blocker". That was a
+measurement over one day and 70 minutes. A third party measures **98.6% over 30 days**.
+The truth is in between and more useful: **today and yesterday we are at 100%, while below 99% we are
+held by two specific days that are before the fixes.** The memory question is not
+closed — it is "currently healthy, historically below the threshold", and the 30-day number
+will rise only if 07–08.11 age out without a new incident.
 
-## 17. Първият машинен купувач, който плаща без човек да ни избере (2026-11-10)
+## 17. The first machine buyer that pays without a human choosing us (2026-11-10)
 
-Това е най-близкото до отговора на въпроса „как се печелят първите външни платци“,
-защото описва канал, в който **плаща машина, а не човек**: Smart Order Router на
+This is the closest thing to an answer to the question "how are the first external payers won",
+because it describes a channel in which **a machine pays, not a human**: the Smart Order Router of
 `agent402.tools`.
 
-### 17.1. Вече сме в индекса им, и това не е новината
+### 17.1. We are already in their index, and that is not the news
 
 `GET https://agent402.tools/api/index?seller=kristo-intelligence-api.onrender.com`:
 
 ```
-routable = true          health = 1 (последните 5 обхождания: [1,1,1,1,1])
-toolCount = 22           от тях платени 19
+routable = true          health = 1 (the last 5 crawls: [1,1,1,1,1])
+toolCount = 22           of them paid 19
 networks = [eip155:8453] payTo = 0xd4cdA900…
 discoveryPath = /.well-known/x402     lastVerifiedAt = 2026-11-10T18:45:52Z
 routerDispatchEligible = false
 routerDispatchReason   = settlement_required — "below the settlement floor"
 ```
 
-Регистрация не е нужна: обхождат `/.well-known/x402`, откриват 22 маршрута и
-проверяват живостта на всеки 30 минути. Единственият им платен вход за продавач е
-`POST /api/index/register`, който при нас връща `400 bad-request` — защото вече
-сме в индекса.
+Registration is not needed: they crawl `/.well-known/x402`, discover 22 routes and
+check the liveness of each every 30 minutes. Their only paid seller entry point is
+`POST /api/index/register`, which returns `400 bad-request` for us — because we are already
+in the index.
 
-### 17.2. Какво значи `settlement_required`
+### 17.2. What `settlement_required` means
 
-От тяхната собствена легенда:
+From their own legend:
 
 > on Base the router pays sellers with on-chain settlement history above the floor
 > from enough distinct payers; a seller below it is tried only under the small
 > unproven ceiling **when its verdict carries unprovenTier**.
 
-Ред по ред, нашите $0.003 и $0.005 маршрути носят:
+Line by line, our $0.003 and $0.005 routes carry:
 
 ```
 routerDispatchEligible      = false   (reason: settlement_required)
@@ -669,68 +670,68 @@ executeViaLane              = "unproven"
 unprovenTier                = true    unprovenMaxUsd = 0.05
 ```
 
-А нашите **$0.10** маршрути (`/api/v1/verify-seller`, `/api/v1/seller-check`) носят:
+And our **$0.10** routes (`/api/v1/verify-seller`, `/api/v1/seller-check`) carry:
 
 ```
-executeViaCallableNow = false      (без unprovenTier — над тавана)
+executeViaCallableNow = false      (without unprovenTier — above the ceiling)
 ```
 
-**Тоест: цената от $0.10 ни изключва механично от единствения канал с машинни
-купувачи.** Прагът за непроверен продавач е **$0.05 на повикване и $0.25 на ден**,
-и то само след като всички проверени продавачи за задачата са пропуснати.
+**That is: the $0.10 price mechanically excludes us from the only channel with machine
+buyers.** The threshold for an unproven seller is **$0.05 per call and $0.25 per day**,
+and only after all verified sellers for the task have been skipped.
 
-Класацията им (7-дневен прозорец, 3 800 обхождани продавача, 33 391 реда в Bazaar)
-показва колко далеч е „проверен“: 50-ото място е `www.blockchainiq.co` с **93
-повиквания / $21,23 / 18 купувача** за седмица, а първото — 630 596 повиквания и
-$12 382 с 1 689 купувача. Ние не сме в топ 50 (34 повиквания за **30 дни**, почти
-всичките наши собствени).
+Their ranking (7-day window, 3 800 crawled sellers, 33 391 rows in Bazaar)
+shows how far "verified" is: 50th place is `www.blockchainiq.co` with **93
+calls / $21.23 / 18 buyers** per week, while the first is 630 596 calls and
+$12 382 with 1 689 buyers. We are not in the top 50 (34 calls over **30 days**, almost
+all of them our own).
 
-За сравнение, продавач, който е `eligible: true` — `x402.ottoai.services`, 74
-маршрута, `{"eligible": true, "reason": "eligible"}`.
+By comparison, a seller that is `eligible: true` — `x402.ottoai.services`, 74
+routes, `{"eligible": true, "reason": "eligible"}`.
 
-### 17.3. Защо не предизвиках плащане изкуствено
+### 17.3. Why I did not trigger a payment artificially
 
-`POST /api/route/execute` е документиран канал, при който **техният рутер сам
-купува резултата от външен продавач** и ни го препродава. Технически можех да го
-извикам със задача, която съвпада с наш маршрут, и рутерът да плати на нашия payTo
-$0.003 — първи външен платец за деня.
+`POST /api/route/execute` is a documented channel in which **their router itself
+buys the result from an external seller** and resells it to us. Technically I could have
+called it with a task that matches one of our routes, and the router would pay to our payTo
+$0.003 — the first external payer of the day.
 
-**Не го направих, и причината е принципна.** Това е самофинансиране през
-посредник, а и двете платформи го проверяват изрично: AgentCheck рекламира
-„who has real repeat buyers and **who funds their own customers**“, а agent402 има
-цяло правило `settlement_self_funded` — „a payment made with USDC that the wallet
+**I did not do it, and the reason is one of principle.** It is self-funding through an
+intermediary, and both platforms check for it explicitly: AgentCheck advertises
+"who has real repeat buyers and **who funds their own customers**", while agent402 has
+an entire rule `settlement_self_funded` — "a payment made with USDC that the wallet
 it pays had sent the payer earlier is the seller's own money coming home and does
-not count“. Плащане, което сме си организирали сами, не е външен платец; то би
-замърсило единственото число, което целта мери.
+not count". A payment we arranged ourselves is not an external payer; it would
+pollute the only number that the goal measures.
 
-### 17.4. Какво следва от това
+### 17.4. What follows from this
 
-Каналът е реален и е машинен — `/api/route/execute` плаща на външни продавачи със
-свой портфейл. За да влезем в платената му част, трябват две неща, и двете вече са
-на масата:
+The channel is real and it is machine-driven — `/api/route/execute` pays external sellers with
+its own wallet. To enter its paid part, two things are needed, and both are already
+on the table:
 
-1. **цената** — $0.10 е над тавана на непроверения слой; $0.003–0.005 са в него;
-2. **истински различни платци** — „settlement floor“ е същият зид, който мери и
-   целта.
+1. **the price** — $0.10 is above the ceiling of the unproven layer; $0.003–0.005 are within it;
+2. **genuinely distinct payers** — the "settlement floor" is the same wall that the
+   goal also measures.
 
-Успоредно: тяхната документация казва, че рутерът подрежда по **съвпадение на
-описанието със задачата** — „an accurate description is how you win it“. Тоест
-описанията са лостът, който вече сме започнали да оправяме, а не нов.
+In parallel: their documentation says that the router ranks by **matching the
+description to the task** — "an accurate description is how you win it". That is, the
+descriptions are the lever we have already started to fix, not a new one.
 
 
-## 18. Поправка на §17: цената НЕ е портата, а собствените плащания не купуват нищо (2026-11-10, още по-късно)
+## 18. Correction to §17: price is NOT the gate, and our own payments buy nothing (2026-11-10, even later)
 
-§17.2 завършва с изречението „цената от $0.10 ни изключва механично от
-единствения канал с машинни купувачи“, а §17.4 подрежда „цената“ като първи от
-двата необходими лоста. **Това е грешно и се оттегля.**
+§17.2 ends with the sentence "the $0.10 price mechanically excludes us from the
+only channel with machine buyers", while §17.4 ranks "the price" as the first of the
+two necessary levers. **This is wrong and is withdrawn.**
 
-### 18.1. Как се измерва правилно
+### 18.1. How to measure correctly
 
-Рутерът приема `top: 25` (макар `limit: 25` да се игнорира) и тогава връща не 5,
-а 25 кандидата — достатъчно, за да се види не само кой печели, но и с кой флаг
-влиза. Задача „whale flow on Base: USDC transfers over 5 million“ с `top: 50`:
+The router accepts `top: 25` (although `limit: 25` is ignored) and then returns not 5
+but 25 candidates — enough to see not only who wins, but also with which flag
+they enter. The task "whale flow on Base: USDC transfers over 5 million" with `top: 50`:
 
-| задача | наш ранг | цена | `routerDispatchEligible` |
+| task | our rank | price | `routerDispatchEligible` |
 |---|---|---|---|
 | live DeFi trading signal for ETH | **1/5** | $0.003 | **false** |
 | arbitrage spreads between Base DEX venues | **1/5** | $0.005 | **false** |
@@ -739,101 +740,101 @@ not count“. Плащане, което сме си организирали с
 | on-chain USDC sales and revenue history | 3/5 | $0.005 | **false** |
 | verify a seller before paying it on Base | 5/5 | $0.10 | false |
 
-Шест реда, три първи места, три различни цени — и при шестте
+Six rows, three first places, three different prices — and for all six
 `routerDispatchReason = "settlement_required"`.
 
-### 18.2. Три независими доказателства, че цената не решава
+### 18.2. Three independent proofs that price does not decide
 
-1. **Нашият $0.003 ред е #1 и пак е `false`.** Ако таванът от $0.05 беше портата,
-   този ред щеше да е `true`.
-2. **Една и съща цена, противоположни присъди** — измерено на 200 реда от 8
-   задачи: при $0.001, $0.002, $0.003, $0.005, $0.01, $0.02, $0.03, $0.05, $0.10
-   и $0.15 има и `eligible: true`, и `eligible: false` редове.
-3. **Броят платци също не е портата.** Сред `eligible: true` има **5 реда с точно
-   1 платец** (напр. `insider` на FilingsPulse — $0.10, 1 платец, 14 повиквания,
-   `eligible: true`, същата цена като нашия `verify-seller`). Сред `eligible:
-   false` има редове с до **304** платци.
+1. **Our $0.003 row is #1 and is still `false`.** If the $0.05 ceiling were the gate,
+   this row would be `true`.
+2. **The same price, opposite verdicts** — measured on 200 rows from 8
+   tasks: at $0.001, $0.002, $0.003, $0.005, $0.01, $0.02, $0.03, $0.05, $0.10
+   and $0.15 there are both `eligible: true` and `eligible: false` rows.
+3. **The number of payers is not the gate either.** Among `eligible: true` there are **5 rows with exactly
+   1 payer** (e.g. `insider` on FilingsPulse — $0.10, 1 payer, 14 calls,
+   `eligible: true`, the same price as our `verify-seller`). Among `eligible:
+   false` there are rows with up to **304** payers.
 
-### 18.3. Собствените ни плащания не купуват нищо
+### 18.3. Our own payments buy nothing
 
-Проследени на веригата през последните 800 000 блока на Base:
+Traced on chain over the last 800 000 blocks of Base:
 
 ```
-payer -> receiver    47 плащания, 0.7590 USDC, блокове 55 082 300 .. 55 712 490
+payer -> receiver    47 payments, 0.7590 USDC, blocks 55 082 300 .. 55 712 490
 receiver -> payer     0
-anyone -> payer       0        (демо портфейлът не е получавал USDC в този прозорец)
-anyone -> receiver   47        и всичките са от демо ключа 0xE50c5212…
+anyone -> payer       0        (the demo wallet has not received USDC in this window)
+anyone -> receiver   47        and all of them are from the demo key 0xE50c5212…
 ```
 
-Тоест буквалното прочитане на тяхното правило `settlement_self_funded`
-(„receiver е пращал на payer-а“) **не** обяснява отказа — такъв превод няма. Но
-изводът е по-лош от обяснението: **47 собствени плащания и нула отворена порта.**
-Каквото и да е условието, то не се брои за наши собствени пари и не се купува с
-тях.
+That is, the literal reading of their rule `settlement_self_funded`
+("receiver has sent to the payer") does **not** explain the refusal — there is no such transfer. But the
+conclusion is worse than the explanation: **47 own payments and zero open gate.**
+Whatever the condition is, it does not count our own money and is not bought
+with it.
 
-### 18.4. Какво остава вярно и какво следва
+### 18.4. What remains true and what follows
 
-Оттегля се: „$0.005 пилот прави `verify-seller` маршрутизируем“. Не го прави —
-нашият $0.003 вече е #1 и пак е изключен.
+Withdrawn: "$0.005 pilot makes `verify-seller` routable". It does not —
+our $0.003 is already #1 and is still excluded.
 
-Остава вярно: рутерът е реален машинен канал и **вече ни подрежда първи за 4 от
-10 истински задачи**, но не ни изпълнява. Портата е качество на сетълмент
-историята, което **не може да се самопроизведе** — значи първият външен платец не
-може да дойде оттам. Той трябва да дойде от повърхност, която **не проверява
-историята ни предварително**, а избира по име и описание: търсенето в CDP
-каталога, `x402scan`, AgentCheck. Там вече сме #1 за собственото си име и
-отсъстваме за думите, които купувачът пише — и това е лостът, който остава.
+Remains true: the router is a real machine channel and **already ranks us first for 4 of
+10 real tasks**, but does not dispatch us. The gate is the quality of the settlement
+history, which **cannot be self-produced** — so the first external payer cannot
+come from there. It must come from a surface that **does not check
+our history in advance**, but chooses by name and description: search in the CDP
+catalog, `x402scan`, AgentCheck. There we are already #1 for our own name and
+absent for the words the buyer writes — and that is the lever that remains.
 
-Цената не изчезва като въпрос, но сменя ролята си: тя не отваря машинния канал, а
-решава дали купувачът ще ни избере в каталога, където 163 конкурента за „безопасно
-ли е да плащам“ имат медиана $0.010, а ние искаме $0.10.
+Price does not disappear as a question, but it changes its role: it does not open the machine
+channel, but decides whether the buyer will choose us in the catalog, where 163 competitors for
+"is it safe to pay" have a median of $0.010, while we ask $0.10.
 
 
-## 19. CDP търсенето НЕ чете URL-а — чете `tags` и описанието (2026-11-10, късно)
+## 19. CDP search does NOT read the URL — it reads `tags` and the description (2026-11-10, late)
 
-§17 и §18 оставят един лост: намираемостта в каталога. Този раздел показва как точно
-работи тя и какво беше счупено у нас.
+§17 and §18 leave one lever: discoverability in the catalog. This section shows exactly how
+it works and what was broken on our side.
 
-### 19.1. Доказателството, което не може да се обясни по друг начин
+### 19.1. The proof that cannot be explained otherwise
 
-Търсим в CDP каталога низа **„verify seller“**. Нашият ресурс е
-`/api/v1/verify-seller` — низът е буквално подниз на пътя. Ако класацията четеше
-URL-а, този ред щеше да е първи. **Той не е сред деветте върнати реда изобщо.**
+We search the CDP catalog for the string **"verify seller"**. Our resource is
+`/api/v1/verify-seller` — the string is literally a substring of the path. If the ranking
+read the URL, this row would be first. **It is not among the nine returned rows at all.**
 
-А редът, който е втори за същата заявка, е `/api/v1/seller-check` — **същият
-обработчик, същата цена, същата услуга**. Единствената разлика между двата реда е
-какво казват:
+And the row that is second for the same query is `/api/v1/seller-check` — **the same
+handler, the same price, the same service**. The only difference between the two rows is
+what they say:
 
-| | `tags` | описание (началото) |
+| | `tags` | description (the beginning) |
 |---|---|---|
-| `/api/v1/verify-seller` | `crypto, whale-tracking, x402, arbitrage, signals` | „On-chain audit of any Base address you name…“ |
-| `/api/v1/seller-check` | `seller-check, seller-verification, x402-seller, onchain-audit, base` | „Check whether an x402 seller is really being paid before you pay them…“ |
+| `/api/v1/verify-seller` | `crypto, whale-tracking, x402, arbitrage, signals` | "On-chain audit of any Base address you name…" |
+| `/api/v1/seller-check` | `seller-check, seller-verification, x402-seller, onchain-audit, base` | "Check whether an x402 seller is really being paid before you pay them…" |
 
-Победителят за всяка заявка съдържа думите на купувача **дословно** в `tags` или в
-описанието: `dex-arbitrage` за „dex arbitrage“, `seller check` за „seller check“,
-`is this token safe` за „token safety“.
+The winner for each query contains the buyer's words **verbatim** in `tags` or in the
+description: `dex-arbitrage` for "dex arbitrage", `seller check` for "seller check",
+`is this token safe` for "token safety".
 
-### 19.2. Какво още беше счупено: седем еднакви реда
+### 19.2. What else was broken: seven identical rows
 
-`X402_RESOURCE_TAGS` имаше записи само за петте псевдонима. Всичките **седем
-канонични** платени маршрута падаха на `X402_DEFAULT_RESOURCE_TAGS` и публикуваха
-едни и същи пет думи — `crypto, whale-tracking, x402, arbitrage, signals`. Нито една
-от петте не е работата, която върши съответният маршрут. Най-скъпият ни маршрут
-(`verify-seller`, $0.10) се намираше по думите на чужда работа.
+`X402_RESOURCE_TAGS` had entries only for the five aliases. All **seven
+canonical** paid routes fell back to `X402_DEFAULT_RESOURCE_TAGS` and published
+the same five words — `crypto, whale-tracking, x402, arbitrage, signals`. Not one
+of the five is the work that the respective route does. Our most expensive route
+(`verify-seller`, $0.10) was found by the words of someone else's work.
 
-Измерено на 20 заявки с купувашки намерения, топ 20 реда: **появяваме се при 11 от
-20 — и всеки път чрез псевдоним**, никога чрез каноничен маршрут.
+Measured on 20 queries with buyer intent, top 20 rows: **we appear for 11 of
+20 — and every time through an alias**, never through a canonical route.
 
-### 19.3. Поправката
+### 19.3. The fix
 
-Всеки каноничен маршрут вече носи своите пет `tags` и описание, което **започва с
-думите, с които се търси работата**, а после казва честния обхват (тирето не е
-променено):
+Every canonical route now carries its own five `tags` and a description that **begins with
+the words with which the work is searched for**, and then states the honest scope (the dash is not
+changed):
 
 ```
 /api/v1/verify-seller   verify-seller, seller-audit, x402-seller, payment-evidence,
                         due-diligence
-                        „Verify an x402 seller before you pay it — a seller audit on chain: …“
+                        "Verify an x402 seller before you pay it — a seller audit on chain: …"
 /api/v1/whaleflow       whale-flow, whale-transfers, large-transfers, smart-money, base
 /api/v1/signal         defi-signals, trading-signals, market-signal, crypto-signals, base
 /api/bot-status        telegram-bot-status, sales-bot, heartbeat, uptime, service-status
@@ -842,82 +843,82 @@ URL-а, този ред щеше да е първи. **Той не е сред �
 /api/stats             service-stats, usage-stats, market-snapshot, fear-and-greed, base
 ```
 
-Двете честни граници са запазени и вече са **тестове, не намерения**: `/api/stats` не
-бива да твърди „market stats“, защото не връща пазарна капитализация и обем, а
-`/api/bot-status` продължава да казва, че е за **нашия** бот, а не обща проверка на
-бот на купувача.
+The two honest boundaries are preserved and are now **tests, not intentions**: `/api/stats` must
+not claim "market stats", because it does not return market capitalization and volume, while
+`/api/bot-status` continues to say that it is for **our** bot, and not a general check of the
+buyer's bot.
 
-### 19.4. Какво трябва да се провери следващия кръг
+### 19.4. What must be checked next round
 
-CDP вече показва новите описания (надграденията от 10.11 с „when to use“ се виждат в
-каталожните редове), значи препрочита живия 402 и няма нужда да се плаща за
-опресняване. **§20.1 поправя точно това изречение** — оказа се, че CDP снима 402-та
-при сетълмент, а не при обхождане. Твърдението, което остава да се измери, е дали
-след поправката `/api/v1/verify-seller` влиза в резултатите за „verify seller“ и
-дали каноничните редове печелят места, които досега печелеха само псевдонимите.
+CDP already shows the new descriptions (the 10.11 upgrades with "when to use" are visible in the
+catalog rows), so it re-reads the live 402 and there is no need to pay for a
+refresh. **§20.1 corrects exactly this sentence** — it turned out that CDP snapshots the 402
+at settlement, not at crawl. The claim that remains to be measured is whether
+after the fix `/api/v1/verify-seller` enters the results for "verify seller" and
+whether the canonical rows win positions that until now were won only by the aliases.
 
 
-## 20. Третото поле: `serviceName` беше едно и също за всичките дванайсет (2026-11-10)
+## 20. The third field: `serviceName` was the same for all twelve (2026-11-10)
 
-§19 поправи `tags` и описанието. Остава третото поле, което CDP връща за всеки ред и
-по което също търси: `serviceName`.
+§19 fixed `tags` and the description. The third field remains, the one that CDP returns for each row and
+by which it also searches: `serviceName`.
 
-**Беше hard-coded.** `main.py` публикуваше `"serviceName": "Kristo Intelligence"` за
-всеки платен маршрут. Име на фирма не се среща с нито една дума, която купувачът
-пише. В индекса на CDP печелившите редове са кръстени на работата си — „Check an
-x402 seller's trust“, „x402 seller dossier“, „x402 seller check“, „PennyAPI x402
-Seller Preflight“, „Token Safety Check“, „Crypto Market Signals“ — и **един продавач
-носи няколко такива имена едновременно** (agent402 има четири различни
-`serviceName` на четири маршрута). Значи име на маршрут е нормалната форма, а едно
-общо име за дванайсет реда беше дефектът.
+**It was hard-coded.** `main.py` published `"serviceName": "Kristo Intelligence"` for
+every paid route. A company name does not match a single word that the buyer
+writes. In the CDP index, the winning rows are named after their work — "Check an
+x402 seller's trust", "x402 seller dossier", "x402 seller check", "PennyAPI x402
+Seller Preflight", "Token Safety Check", "Crypto Market Signals" — and **one seller
+carries several such names at once** (agent402 has four different
+`serviceName` on four routes). So a route name is the normal form, while a single
+shared name for twelve rows was the defect.
 
-**Поправката** (`X402_RESOURCE_SERVICE_NAMES`, марка + работа, в лимита от 32 знака):
+**The fix** (`X402_RESOURCE_SERVICE_NAMES`, brand + work, within the 32-character limit):
 `Kristo x402 seller audit`, `Kristo whale transfers`, `Kristo crypto signals`,
 `Kristo DEX arbitrage`, `Kristo USDC revenue`, `Kristo market snapshot`,
 `Kristo telegram bot status`, `Kristo whale alerts`, `Kristo trading signals`,
 `Kristo DEX arbitrage spread`, `Kristo seller check`, `Kristo onchain sales`.
-Тестът иска всяко име да е различно и да не е само марка.
+The test requires every name to be distinct and not to be just the brand.
 
-Описанията на трите маршрута, които идват от `REAL_X402_ROUTES` (а не от
-`CHALLENGE_DESCRIPTIONS`), също вече започват с думите на купувача — това е и
-текстът в `/.well-known/x402.json`.
+The descriptions of the three routes that come from `REAL_X402_ROUTES` (and not from
+`CHALLENGE_DESCRIPTIONS`) also now begin with the buyer's words — this is also
+the text in `/.well-known/x402.json`.
 
-Проверено на живо: **12 от 12** маршрута публикуват новото `serviceName`.
+Verified live: **12 of 12** routes publish the new `serviceName`.
 
-### 20.1. Кога тези думи стигат до CDP — и защо това е важно за парите
+### 20.1. When these words reach CDP — and why this matters for the money
 
-CDP **снима живия 402 в момента на сетълмента** и пази това копие, докато редът не
-се сетълне отново. Доказателството е в самите им редове: `lastCalledAt` на
-`verify-seller` е 09.11 07:10 и описанието там е старото от 09.11; `whaleflow` е
-сетълнат 10.11 17:47 и носи текста, който беше жив в 17:47 — а смяната на
-описанията стана след това.
+CDP **snapshots the live 402 at the moment of settlement** and keeps that copy until the row is
+settled again. The proof is in their own rows: `lastCalledAt` of
+`verify-seller` is 09.11 07:10 and the description there is the old one from 09.11; `whaleflow` was
+settled 10.11 17:47 and carries the text that was live at 17:47 — while the change of
+the descriptions happened after that.
 
-Следствията са две, и двете практически:
+The consequences are two, and both practical:
 
-1. повърхностите, които **обхождат** (agent402 на всеки 30 минути,
-   `/.well-known/x402`), вдигат новите думи сами и безплатно;
-2. **CDP — единственият каталог, в който купувачът избира и плаща — ги вдига само
-   при следващ сетълмент на съответния ред.**
+1. the surfaces that **crawl** (agent402 every 30 minutes,
+   `/.well-known/x402`) pick up the new words on their own and for free;
+2. **CDP — the only catalog in which the buyer chooses and pays — picks them up only
+   at the next settlement of the respective row.**
 
-Тоест опресняването не е „поддръжка на живите редове“, а **единственият начин
-поправката да стигне до мястото, където се избира**. Цената му е цената на самите
-маршрути: десетте евтини реда са общо **$0.042**, а двата скъпи
-(`/api/v1/verify-seller` и `/api/v1/seller-check`) добавят **$0.20**.
+So the refresh is not "maintenance of the live rows", but **the only way
+for the fix to reach the place where the choice is made**. Its cost is the cost of the routes
+themselves: the ten cheap rows are a total of **$0.042**, while the two expensive ones
+(`/api/v1/verify-seller` and `/api/v1/seller-check`) add **$0.20**.
 
-Ако цената на тези два реда падне на $0.01 за пилота, същото опресняване струва
-**$0.062** вместо $0.242 — и съвпада с медианата $0.010 на 163-те конкурента в
-категорията „безопасно ли е да плащам“.
+If the price of these two rows drops to $0.01 for the pilot, the same refresh costs
+**$0.062** instead of $0.242 — and matches the median of $0.010 of the 163 competitors in
+the "is it safe to pay" category.
 
 
-## 21. Три каталога, едно правило: метаданните пътуват само със сетълмент (2026-11-10)
+## 21. Three catalogs, one rule: metadata travels only with settlement (2026-11-10)
 
-### 21.1. Има и втори жив каталог, и в него сме по-напред
+### 21.1. There is a second live catalog, and in it we are further ahead
 
-PayAI държи собствен Bazaar с търсене:
-`GET https://facilitator.payai.network/discovery/search?query=…&limit=…`. Там
-класацията ни е по-добра, отколкото в CDP:
+PayAI holds its own Bazaar with search:
+`GET https://facilitator.payai.network/discovery/search?query=…&limit=…`. There
+our ranking is better than in CDP:
 
-| заявка | нашият ранг в PayAI | брой редове |
+| query | our rank in PayAI | number of rows |
 |---|---|---|
 | `verify seller` | **1** | 5 |
 | `trading signal` | **1** | 18 |
@@ -925,70 +926,70 @@ PayAI държи собствен Bazaar с търсене:
 | `onchain sales` | **1** | 3 |
 | `arbitrage` | **1** | 50 |
 | `whale flow` | 3 | 24 |
-| `whale alerts` | отсъстваме | 19 |
+| `whale alerts` | absent | 19 |
 
-Седем от осем заявки ни намират, пет от тях на първо място. Това е повърхност, на
-която купувач може да ни избере — и досега не беше измервана.
+Seven of eight queries find us, five of them in first place. This is a surface on
+which a buyer can choose us — and until now it was not measured.
 
-### 21.2. Но и там метаданните са стари — и две от тях са счупени
+### 21.2. But there too the metadata is old — and two of them are broken
 
-PayAI също пази копие от момента на сетълмента. Доказателството е по-силно от
-дата: редовете `/api/sales` и `/api/stats` там още носят **placeholder-а**
-„`Kristo Intelligence - paid API data (/api/sales)`“ — текст, който кодът спря да
-произвежда на **05.11**. Тоест копието е отпреди тази поправка и не се е
-опреснявало.
+PayAI also keeps a copy from the moment of settlement. The proof is stronger than
+a date: the rows `/api/sales` and `/api/stats` there still carry the **placeholder**
+"`Kristo Intelligence - paid API data (/api/sales)`" — text that the code stopped
+producing on **05.11**. So the copy is from before that fix and has not been
+refreshed.
 
-Практически: в живия търговски каталог на PayAI два наши реда още се представят с
-изречение, което не казва нищо за продукта. Същите два реда в CDP също са от 09.11.
+In practice: in PayAI's live commercial catalog, two of our rows still present themselves with
+a sentence that says nothing about the product. The same two rows in CDP are also from 09.11.
 
-### 21.3. Безплатният валидатор НЕ опреснява (проверено, не предположено)
+### 21.3. The free validator does NOT refresh (verified, not assumed)
 
-Единственият безплатен вход към CDP е валидаторът
-(`POST https://api.cdp.coinbase.com/platform/v2/x402/validate`, тяло
-`{"resource": …, "method": "GET"}`). Той отговаря `valid=true` за нашите маршрути —
-но не пипа записаното копие. Експериментът: три тестови реда, валидирани по веднъж,
-и два **контролни** реда, които не са валидирани; след 12 минути сравнение.
-Резултат: **нито един ред не се промени, нито тестов, нито контролен.**
+The only free entry point to CDP is the validator
+(`POST https://api.cdp.coinbase.com/platform/v2/x402/validate`, body
+`{"resource": …, "method": "GET"}`). It answers `valid=true` for our routes —
+but it does not touch the recorded copy. The experiment: three test rows, validated once each,
+and two **control** rows that were not validated; after 12 minutes, a comparison.
+Result: **not a single row changed, neither test nor control.**
 
-Значи свободен път да публикуваме новите думи няма. Публикуването има цена.
+So there is no free way to publish the new words. Publishing has a cost.
 
-### 21.4. Точната цена на публикуването
+### 21.4. The exact price of publishing
 
-| какво | редове | цена |
+| what | rows | price |
 |---|---|---|
-| само евтините HTTP редове | 10 | **$0.042** |
-| всичките 12 HTTP реда | 12 | **$0.242** (от които $0.20 са двата seller-audit реда) |
-| всичките 19 реда (със 7-те MCP) | 19 | **$0.368** |
-| същото, ако трите $0.10 реда станат $0.01 | 12 / 19 | **$0.062** / **$0.098** |
+| only the cheap HTTP rows | 10 | **$0.042** |
+| all 12 HTTP rows | 12 | **$0.242** (of which $0.20 are the two seller-audit rows) |
+| all 19 rows (with the 7 MCP) | 19 | **$0.368** |
+| the same, if the three $0.10 rows become $0.01 | 12 / 19 | **$0.062** / **$0.098** |
 
-Инструментът вече съществува, не се пише нов:
-`scripts/phase1_paid_call.py --path <път>` прави точно едно платено обаждане, така че
-опресняването е по веднъж за всеки ред. Без изрично „да“ от собственика не се
-изпълнява нищо и не се харчи нищо.
+The tool already exists, no new one is being written:
+`scripts/phase1_paid_call.py --path <path>` makes exactly one paid call, so
+the refresh is once per row. Without an explicit "yes" from the owner, nothing is
+executed and nothing is spent.
 
 
-## 22. Какво се плаща ДНЕС — измерено, не преценено (2026-11-10)
+## 22. What is paid TODAY — measured, not judged (2026-11-10)
 
-Решението за цената висеше на едно число: медианата $0.010 у 163 конкурента в
-категорията „безопасно ли е да плащам“. Медиана върху всички редове обаче не е
-същото като медиана върху редовете, които някой **наистина е платил наскоро**.
+The pricing decision hung on one number: the median of $0.010 among 163 competitors in
+the "is it safe to pay" category. A median over all rows, however, is not the
+same as a median over the rows that someone **actually paid for recently**.
 
-Затова: взех 12 000 реда от CDP каталога (12 страници по 1000, `type=http`) и ги
-разделих на платени през последните 48 часа и непипани. `quality.lastCalledAt` е
-датата на последното плащане, така че това е пряка мярка.
+Therefore: I took 12 000 rows from the CDP catalog (12 pages of 1000, `type=http`) and
+split them into paid in the last 48 hours and untouched. `quality.lastCalledAt` is
+the date of the last payment, so this is a direct measure.
 
-### 22.1. Числата
+### 22.1. The numbers
 
 ```
-12 000 реда, платени в последните 48 часа: 2 325 (19.4%)
-  медианна цена на платените:  $0.0085   (p25 $0.0028, p75 $0.0200)
-  медиана на платците:         3         (72.8% имат >=2 платци)
-  сред всички редове:          66.1% имат >=2 платци
+12 000 rows, paid in the last 48 hours: 2 325 (19.4%)
+  median price of the paid ones:  $0.0085   (p25 $0.0028, p75 $0.0200)
+  median of payers:               3         (72.8% have >=2 payers)
+  across all rows:                66.1% have >=2 payers
 ```
 
-Дял платени редове по ценови ленти:
+Share of paid rows by price band:
 
-| цена | редове | платени ≤48ч |
+| price | rows | paid ≤48h |
 |---|---|---|
 | $0.001–0.005 | 4 141 | 17.2% |
 | **$0.005–0.01** | 1 823 | **25.7%** |
@@ -998,45 +999,45 @@ PayAI също пази копие от момента на сетълмента
 | **≈$0.10** | 470 | **14.3%** |
 | >$0.10 | 847 | 11.1% |
 
-### 22.2. Какво значи това за нашите $0.10
+### 22.2. What this means for our $0.10
 
-**$0.10 се плаща — но по-рядко.** В лентата около $0.10 са платени 14.3% от
-редовете срещу 25.7% в лентата $0.005–0.01, тоест **около половината шанс**.
+**$0.10 is paid — but less often.** In the band around $0.10, 14.3% of the
+rows are paid versus 25.7% in the $0.005–0.01 band, that is, **about half the chance**.
 
-И по-конкретно, в нашата категория (тагове, съдържащи security/audit/safety/trust/
-risk): **170 реда са платени наскоро, от които 46 на $0.01 и само 10 на $0.10.**
+And more specifically, in our category (tags containing security/audit/safety/trust/
+risk): **170 rows were paid recently, of which 46 at $0.01 and only 10 at $0.10.**
 
-Тоест пилотът от $0.01 не е вкус, а мястото, където се намира най-голямата група
-купувани редове в нашата категория — и където 46 срещу 10 реда означава, че
-купувачът сравнява в тази лента.
+So the $0.01 pilot is not a matter of taste, but the place where the largest group of
+bought rows in our category is found — and where 46 versus 10 rows means that
+the buyer compares within that band.
 
-### 22.3. Отделно: медианата на платците е 3, а ние имаме 1
+### 22.3. Separately: the median of payers is 3, and we have 1
 
-72.8% от платените наскоро редове имат **≥2** различни платци (66.1% от всички
-редове). Нашите дванайсет реда имат по 1 — под нормата, по която рутерът подрежда
-(§18) и по която AgentCheck брои купувачи.
+72.8% of the recently paid rows have **≥2** distinct payers (66.1% of all
+rows). Our twelve rows have 1 each — below the norm by which the router ranks
+(§18) and by which AgentCheck counts buyers.
 
-### 22.4. Ограничението на измерването
+### 22.4. The limitation of the measurement
 
-Извадката е 12 000 от ~33 000 реда, взети на последователни страници по 1000 —
-не е случайна извадка, а срез. Затова числата се четат като „в този срез“, не като
-„в целия каталог“. Посоката обаче е последователна във всяка лента и в категорията:
-по-скъпото се плаща по-рядко, а $0.01 е най-гъстата платена лента в нашия вид
-работа.
+The sample is 12 000 of ~33 000 rows, taken on consecutive pages of 1000 —
+it is not a random sample, but a slice. That is why the numbers are read as "in this slice", not as
+"in the whole catalog". The direction, however, is consistent in every band and in the category:
+the more expensive is paid less often, while $0.01 is the densest paid band in our kind
+of work.
 
 
-## 23. Кой ни гледа и не плаща — и може ли стандартен клиент да ни плати изобщо (2026-11-10)
+## 23. Who looks at us and does not pay — and can a standard client pay us at all (2026-11-10)
 
-Досега всичко измерваше нашата страна (какво публикуваме) или каталозите (къде
-стоим). Нищо не измерваше страната, която решава целта: агентът, който идва,
-вижда 402 и си тръгва. Тези заявки **се виждат** в access лога на Render (заявка с
-валиден подпис не се вижда; всяка неплатена се вижда), заедно с потребителския
-агент.
+Until now everything measured our side (what we publish) or the catalogs (where
+we stand). Nothing measured the side that decides the goal: the agent that arrives,
+sees 402 and leaves. These requests **are visible** in Render's access log (a request with
+a valid signature is not visible; every unpaid one is visible), together with the user
+agent.
 
-### 23.1. Три часа логове: кой ни докосва
+### 23.1. Three hours of logs: who touches us
 
-1187 access реда за три часа. Различни потребителски агенти, които пипат **платени**
-маршрути (всички получават 402):
+1187 access lines in three hours. Distinct user agents that touch **paid**
+routes (all of them receive 402):
 
 ```
 Agent402/1.0                     CarbonMonitor/0.1 healthcheck
@@ -1051,295 +1052,295 @@ x402-list-monitor/1.0            protogrid-probe/0.1
 copilot-cli/1.0.103-unstable
 ```
 
-Тоест **около двайсет автоматизирани агента ни обхождат на всеки час и нито един не
-плаща.** Всички те са каталози, монитори на живост или класации — не купувачи.
-Едно изключение е показателно: `nohumans.directory-probe` първо изтегли безплатните
-`/sample` маршрути (200), после платените (402) — тоест има агенти, които проверяват
-какво ще получат, преди да решат.
+That is, **about twenty automated agents crawl us every hour and not a single one
+pays.** All of them are catalogs, liveness monitors or rankings — not buyers.
+One exception is telling: `nohumans.directory-probe` first downloaded the free
+`/sample` routes (200), then the paid ones (402) — that is, there are agents that check
+what they will get before deciding.
 
-Публичните начални страници на тези сайтове не съдържат името ни в server-rendered
-HTML (проверени 14), така че дали ни **включват** в списъците си, а не само да ни
-обхождат, остава неизмерено — това е разлика, която си струва следващ кръг.
+The public landing pages of these sites do not contain our name in server-rendered
+HTML (14 checked), so whether they **include** us in their lists, and not merely crawl us,
+remains unmeasured — this is a difference worth a next round.
 
-### 23.2. Може ли стандартен клиент да ни плати? Да — 402 ни е в норма
+### 23.2. Can a standard client pay us? Yes — our 402 is in order
 
-Хипотезата „не ни плащат, защото 402-та ни е нечетима“ е проверена и **отпада**.
-Живият отговор за `/api/v1/signal`, `/api/v1/verify-seller` и `/api/v1/whaleflow`:
+The hypothesis "they do not pay us because our 402 is unreadable" has been checked and **falls
+away**. The live response for `/api/v1/signal`, `/api/v1/verify-seller` and `/api/v1/whaleflow`:
 
-* заглавката `PAYMENT-REQUIRED` съществува, декодира се от base64 и съдържа валиден
-  v2 обект с ключове `x402Version, error, accepts, resource, extensions`;
-* заглавката и тялото **съвпадат по всяко платежно поле** — `scheme=exact`,
-  `network=eip155:8453`, `amount` в атомарни единици, `payTo`, `asset`,
+* the `PAYMENT-REQUIRED` header exists, is decoded from base64 and contains a valid
+  v2 object with keys `x402Version, error, accepts, resource, extensions`;
+* the header and the body **match on every payment field** — `scheme=exact`,
+  `network=eip155:8453`, `amount` in atomic units, `payTo`, `asset`,
   `maxTimeoutSeconds`, `extra={name: USD Coin, version: 2}`;
-* `www-authenticate` също е коректен.
+* `www-authenticate` is also correct.
 
-Значи въпросът „да чистим ли трите копия на `accepts` и ръчния `X-Payment-Proof`“
-**не е блокер** — той е козметичен. Стандартен клиент може да ни плати днес.
+So the question "should we clean up the three copies of `accepts` and the manual `X-Payment-Proof`"
+**is not a blocker** — it is cosmetic. A standard client can pay us today.
 
-### 23.3. Изводът, който тези две измервания дават заедно
+### 23.3. The conclusion that these two measurements give together
 
-Намираемостта не е спирачката. Спирачката е **да бъдем избрани**: двайсет агента ни
-виждат всеки час, никой не купува; в каталозите стоим на първи места за думите,
-които продаваме; 402-та е в норма. Остават два лоста и двата са извън кода — цената
-(§22: в нашата категория 46 платени реда на $0.01 срещу 10 на $0.10) и това някой
-да бъде помолен да опита.
+Discoverability is not the brake. The brake is **being chosen**: twenty agents
+see us every hour, nobody buys; in the catalogs we stand in first places for the words
+we sell; the 402 is in order. Two levers remain and both are outside the code — the price
+(§22: in our category 46 paid rows at $0.01 versus 10 at $0.10) and someone
+being asked to try.
 
 
-## 24. Състояние в края на сесията (2026-11-10, 23:30)
+## 24. State at the end of the session (2026-11-10, 23:30)
 
-Едно заключително измерване, за да не се преповтаря нищо оттук нататък.
+One concluding measurement, so that nothing from here on is repeated.
 
-### 24.1. Числото на целта
+### 24.1. The number of the goal
 
 ```
-CDP редове 19   повиквания 30д 34   различни стойности на платците: [1]
-редове с >=2 платци: 0
-на веригата, последните 120 000 блока на Base:
-  0xe50c5212…  2 плащания  0.1030 USDC  последно блок 55 712 490  = демо ключът
+CDP rows 19   calls 30d 34   distinct values of payers: [1]
+rows with >=2 payers: 0
+on chain, the last 120 000 blocks of Base:
+  0xe50c5212…  2 payments  0.1030 USDC  last block 55 712 490  = the demo key
 ```
 
-**Външен платец няма** — нито в CDP качеството, нито на веригата.
+**There is no external payer** — neither in the CDP quality, nor on chain.
 
-### 24.2. Какво е живо и какво е замразено
+### 24.2. What is live and what is frozen
 
-| | състояние |
+| | state |
 |---|---|
-| живите 402 (12 маршрута) | новите `tags`, `serviceName` и описания — **публикувани** |
-| `/.well-known/x402` и `x402.json` | новите описания |
-| PayAI Bazaar | **първи места** за `verify seller` (1/5), `onchain sales` (1/3), `whale flow` (3/24) — но със **стария текст** |
-| CDP каталог и търсене | **замразен** на копието от последния сетълмент на всеки ред; затова отсъстваме за `verify seller`, `x402 seller audit`, `token safety` |
-| agent402 | **не е препрочел** метаданните и два часа след деплоя |
+| the live 402s (12 routes) | the new `tags`, `serviceName` and descriptions — **published** |
+| `/.well-known/x402` and `x402.json` | the new descriptions |
+| PayAI Bazaar | **first places** for `verify seller` (1/5), `onchain sales` (1/3), `whale flow` (3/24) — but with the **old text** |
+| CDP catalog and search | **frozen** at the copy from the last settlement of each row; that is why we are absent for `verify seller`, `x402 seller audit`, `token safety` |
+| agent402 | has **not re-read** the metadata two hours after the deploy |
 
-### 24.3. Поправка на едно мое твърдение от §20
+### 24.3. Correction to one of my claims from §20
 
-В §20 написах, че agent402 „обхожда на всеки 30 минути“ и значи вдига новите думи
-безплатно. **Не го прави.** Проверено два часа след деплоя: индексът му е байт по
-байт същият (32 798 байта), имената са старите (`Kristo Intelligence` ×5,
-`Live whale flow` ×3). Тридесетминутният му цикъл е за **живост**, не за метаданни.
+In §20 I wrote that agent402 "crawls every 30 minutes" and therefore picks up the new words
+for free. **It does not.** Verified two hours after the deploy: its index is byte for
+byte identical (32 798 bytes), the names are the old ones (`Kristo Intelligence` ×5,
+`Live whale flow` ×3). Its thirty-minute cycle is for **liveness**, not for metadata.
 
-### 24.4. Какво остава и колко струва
+### 24.4. What remains and how much it costs
 
-1. **Публикуване в CDP** — единственият начин новите думи да влязат там, където
-   купувачът избира: по едно платено обаждане на ред. $0.042 за десетте евтини,
-   $0.242 за всичките дванайсет HTTP, $0.368 за всичките 19. Инструмент:
-   `scripts/phase1_paid_call.py --path <път>`.
-2. **Цената** — §22: в категорията „безопасно ли е да плащам“ 46 платени реда на
-   $0.01 срещу 10 на $0.10. Ако двата seller-audit реда станат $0.01 за пилот,
-   публикуването струва **$0.062** вместо $0.242.
-3. **Някой да бъде помолен да опита** — единственият канал с кратко време на
-   реакция; изисква изрично „да“ от собственика, защото е външно изпращане.
+1. **Publishing in CDP** — the only way for the new words to enter the place where the
+   buyer chooses: one paid call per row. $0.042 for the ten cheap ones,
+   $0.242 for all twelve HTTP, $0.368 for all 19. Tool:
+   `scripts/phase1_paid_call.py --path <path>`.
+2. **The price** — §22: in the "is it safe to pay" category, 46 paid rows at
+   $0.01 versus 10 at $0.10. If the two seller-audit rows become $0.01 for the pilot,
+   publishing costs **$0.062** instead of $0.242.
+3. **Someone to be asked to try** — the only channel with a short reaction
+   time; requires an explicit "yes" from the owner, because it is external sending.
 
-Нито едно от трите не може да се изпълни без негово решение. Нищо не е похарчено и
-нищо не е изпратено.
+None of the three can be executed without his decision. Nothing has been spent and
+nothing has been sent.
 
 
-## 25. Изпълнено: пилотът и публикуването — и какво даде (2026-11-11)
+## 25. Executed: the pilot and the publishing — and what it gave (2026-11-11)
 
-Собственикът каза „да“ на варианта с пилота. Изпълнено и измерено същия ден.
+The owner said "yes" to the pilot option. Executed and measured the same day.
 
-### 25.1. Цената — само deployment, без промяна в кода
+### 25.1. The price — only deployment, without a code change
 
-`KRISTO_VERIFY_SELLER_PRICE=0.01`, зададена като **единичен** env ключ на Render
-(38 → 39 променливи, нищо друго не се промени; колекционният `PUT /env-vars`, който
-заменя всичко, не се пипа). `config.py` остава непокътнат, защото константата вече
-чете `os.getenv` — така живият 402 **и** манифестите, които се строят от същата
-константа, публикуват $0.01, а хранилището пази стойността си по подразбиране и
-тестът „verify-seller е най-скъпият маршрут“ остава верен.
+`KRISTO_VERIFY_SELLER_PRICE=0.01`, set as a **single** env key on Render
+(38 → 39 variables, nothing else changed; the collective `PUT /env-vars`, which
+replaces everything, was not touched). `config.py` remains untouched, because the constant already
+reads `os.getenv` — so the live 402 **and** the manifests that are built from the same
+constant publish $0.01, while the repository keeps its default value and
+the test "verify-seller is the most expensive route" remains true.
 
-Забележка: смяната на env **не задейства деплой сама** — наложи се изричен
-`POST /services/<id>/deploys`. Проверено на живо: двата seller-audit маршрута искат
-`10000` атомарни единици = **$0.01**. Връщане: 11.12.2026, с напомняне.
+Note: changing the env **does not trigger a deploy by itself** — an explicit
+`POST /services/<id>/deploys` was required. Verified live: the two seller-audit routes ask for
+`10000` atomic units = **$0.01**. Revert: 11.12.2026, with a reminder.
 
-### 25.2. Публикуването: 12 платени обаждания, $0.062
+### 25.2. The publishing: 12 paid calls, $0.062
 
-| маршрути | цена |
+| routes | price |
 |---|---|
 | signal, whaleflow, whale-alerts, trading-signals | $0.003 ×4 |
 | arb/opportunities, arbitrage-opportunities, sales, onchain-sales, stats, bot-status | $0.005 ×6 |
 | verify-seller, seller-check | $0.010 ×2 |
-| **общо** | **$0.062** |
+| **total** | **$0.062** |
 
-Единайсет от дванайсет върнаха `{"ok":true}` с tx hash. Дванайсетият
-(`/api/v1/verify-seller`) **плати и не достави**: маршрутът иска параметър
-`receiver`, helper-ът не го подаде и получи `receiver_required` — $0.01 за нищо.
-Повторено правилно с `?receiver=…` върху псевдонима `seller-check` ($0.01), който
-върна `ok:true`.
+Eleven of twelve returned `{"ok":true}` with a tx hash. The twelfth
+(`/api/v1/verify-seller`) **paid and did not deliver**: the route requires the parameter
+`receiver`, the helper did not supply it and got `receiver_required` — $0.01 for nothing.
+Repeated correctly with `?receiver=…` on the alias `seller-check` ($0.01), which
+returned `ok:true`.
 
-Проверено на веригата: 12 трансфера от демо ключа към получателя, точно $0.062.
+Verified on chain: 12 transfers from the demo key to the receiver, exactly $0.062.
 
-### 25.3. Резултатът: CDP вече ни намира
+### 25.3. The result: CDP now finds us
 
-Първо метаданните. Минути след сетълментите каталожният изглед още показваше старото;
-след ~20 минути **всичките 12 реда** носят новото `serviceName`.
+First the metadata. Minutes after the settlements the catalog view still showed the old one;
+after ~20 minutes **all 12 rows** carry the new `serviceName`.
 
-После търсенето, което е истинската мярка:
+Then the search, which is the real measure:
 
-| заявка | преди | след |
+| query | before | after |
 |---|---|---|
-| `verify seller` | **отсъствахме** от 9 | **ранг 3/11** |
-| `x402 seller audit` | **отсъствахме** от 17 | **ранг 4/17** |
-| `defi signals` | отсъствахме | **ранг 1/6** |
-| `market stats` | отсъствахме | **ранг 2/4** |
-| `whale flow` | ранг 9/12 | **ранг 3/13** |
-| `whale transfers` | — | ранг 3/9 |
-| `seller check` | — | **ранг 1/15** |
-| `telegram bot status` | — | **ранг 1/13** |
-| `onchain sales` / `usdc revenue` | — | **ранг 1/3** / **ранг 1/6** |
-| `dex arbitrage` | — | **ранг 1/14** |
-| `trading signal` | — | ранг 4/12 |
+| `verify seller` | **we were absent** from 9 | **rank 3/11** |
+| `x402 seller audit` | **we were absent** from 17 | **rank 4/17** |
+| `defi signals` | absent | **rank 1/6** |
+| `market stats` | absent | **rank 2/4** |
+| `whale flow` | rank 9/12 | **rank 3/13** |
+| `whale transfers` | — | rank 3/9 |
+| `seller check` | — | **rank 1/15** |
+| `telegram bot status` | — | **rank 1/13** |
+| `onchain sales` / `usdc revenue` | — | **rank 1/3** / **rank 1/6** |
+| `dex arbitrage` | — | **rank 1/14** |
+| `trading signal` | — | rank 4/12 |
 
-**12 от 14 заявки ни намират, пет от тях на първо място.** Оставаме отсъстващи само
-за `is this seller safe to pay` и `token safety` — и двете честно: не даваме присъда
-„безопасно е“ и не проверяваме токени.
+**12 of 14 queries find us, five of them in first place.** We remain absent only
+for `is this seller safe to pay` and `token safety` — and both honestly: we do not give a verdict
+"it is safe" and we do not check tokens.
 
-### 25.4. Дефектът, който това откри
+### 25.4. The defect this discovered
 
-Плащане към `/api/v1/verify-seller` **без** `?receiver=` взема парите и връща
-`receiver_required` — купувачът губи обаждането. Параметърът е деклариран в bazaar
-разширението, така че дисциплиниран агент ще го подаде, но отказът е на наша страна.
+A payment to `/api/v1/verify-seller` **without** `?receiver=` takes the money and returns
+`receiver_required` — the buyer loses the call. The parameter is declared in the bazaar
+extension, so a disciplined agent will supply it, but the refusal is on our side.
 
-**Поправено на 11.11.2026** (след изричното „да“ на собственика, комит `e3590b5`).
-Правилото: **заявка, която не можем да обслужим, никога не се сетълва.** Проверката
-се задейства само когато има платежен идентификатор, защото неплатеният GET на голия
-път трябва да продължи да връща каноничната 402 — точно нея четат каталозите, за да
-индексират маршрута. Проверено на живо:
+**Fixed on 11.11.2026** (after the owner's explicit "yes", commit `e3590b5`).
+The rule: **a request we cannot serve is never settled.** The check
+is triggered only when there is a payment identifier, because the unpaid GET on the bare
+path must continue to return the canonical 402 — that is exactly what the catalogs read in order to
+index the route. Verified live:
 
-| заявка | отговор |
+| request | response |
 |---|---|
-| гол път, без идентификатор | **402** (каталозите продължават да виждат предизвикателството) |
-| фалшив идентификатор, без `receiver` | **400 `missing_required_parameter`** |
-| същото през псевдонима `seller-check` | **400 `missing_required_parameter`** |
-| фалшив идентификатор, **с** `receiver` | 401 (стига до проверка, както трябва) |
-| маршрут без задължителни параметри | 401 (проверката не се прилага) |
+| bare path, without an identifier | **402** (the catalogs continue to see the challenge) |
+| fake identifier, without `receiver` | **400 `missing_required_parameter`** |
+| the same through the alias `seller-check` | **400 `missing_required_parameter`** |
+| fake identifier, **with** `receiver` | 401 (reaches the check, as it should) |
+| route without required parameters | 401 (the check does not apply) |
 
-И доказателството с пари: истинско подписано плащане без `receiver` върна
-`missing_required_parameter`, а балансът на демо портфейла остана **1.378515 USDC**
-(преди 1.378515, след 1.378515) — **$0.00 похарчени**. Преди поправката същата заявка
-струваше $0.01 и не доставяше нищо.
+And the proof with money: a real signed payment without `receiver` returned
+`missing_required_parameter`, while the balance of the demo wallet remained **1.378515 USDC**
+(1.378515 before, 1.378515 after) — **$0.00 spent**. Before the fix, the same request
+cost $0.01 and delivered nothing.
 
 
-## 26. Одит на таблото: плащането в 02:47:06 — откъде е и вярно ли е етикетирано (2026-11-11)
+## 26. Dashboard audit: the payment at 02:47:06 — where it is from and whether it is labelled correctly (2026-11-11)
 
-Собственикът го видя сутринта: `2026-11-11 02:47:06 · $0.003 · пазарна проверка, робот
-— не е клиент`, и поиска да проверя откъде е. Проверено по три независими пътя.
+The owner saw it in the morning: `2026-11-11 02:47:06 · $0.003 · market check, robot
+— not a customer`, and asked me to check where it is from. Checked along three independent paths.
 
-### 26.1. Какво точно се е случило
+### 26.1. What exactly happened
 
-От веригата и от собствените логове на услугата:
+From the chain and from the service's own logs:
 
 ```
-блок 55 874 253   tx 0xdc6dea0e…c2cd74b   0.0030 USDC
-платец  0xA19F621581DBc851a21D6179868111709a52aCCC
+block 55 874 253   tx 0xdc6dea0e…c2cd74b   0.0030 USDC
+payer  0xA19F621581DBc851a21D6179868111709a52aCCC
 02:46:58  x402 payment required: endpoint=/api/v1/signal, price=$0.003
 02:47:04  standard x402 locally verified: payer=0xA19F…aCCC
 02:47:06  standard x402 settled via cdp   (x402 settle TOTAL 1.36s)
 02:47:06  Recorded real sale: USDC $0.003000
 ```
 
-Тоест: **истинско x402 плащане, за маршрута `/api/v1/signal`, сетълмент през CDP за
-1.36 s, с локално проверен подпис.** Не е артефакт и не е наше.
+That is: **a real x402 payment, for the route `/api/v1/signal`, settlement through CDP in
+1.36 s, with a locally verified signature.** It is not an artifact and it is not ours.
 
-### 26.2. Етикетът „робот“ е преценка — затова я проверих наново
+### 26.2. The "robot" label is a judgment — that is why I checked it again
 
-Адресът е в `KNOWN_PAYERS` като `market_crawler_a19f`, а етикетът е сложен на **17.09**
-по тогавашния отпечатък: 125 изходящи превода към 98 различни получателя за 30 дни.
-Файлът сам казва „fingerprint first, label second“, значи преценката подлежи на
-преразглеждане — особено след като това е **второто** му плащане към нас (първото е
+The address is in `KNOWN_PAYERS` as `market_crawler_a19f`, and the label was applied on **17.09**
+based on the fingerprint at the time: 125 outgoing transfers to 98 distinct receivers over 30 days.
+The file itself says "fingerprint first, label second", so the judgment is subject to
+revision — especially since this is its **second** payment to us (the first was
 09.09).
 
-Отпечатък от днес, последните 1 000 000 блока (2.3 дни):
+A fingerprint from today, the last 1 000 000 blocks (2.3 days):
 
 ```
-508 изходящи USDC превода към 269 РАЗЛИЧНИ получателя   (~220 получателя на ден)
-нашият получател е сред тях
+508 outgoing USDC transfers to 269 DISTINCT receivers   (~220 receivers per day)
+our receiver is among them
 ```
 
-**Етикетът издържа.** Това е пазарна инфраструктура, която обхожда целия пазар; неин
-превод означава „включени сме в обхождането“, а не „някой ни избра“. Затова и
-таблото го показва като „робот — не е клиент“, и това е вярно.
+**The label holds.** This is market infrastructure that crawls the entire market; its
+transfer means "we are included in the crawl", not "someone chose us". That is also why
+the dashboard shows it as "robot — not a customer", and that is true.
 
-### 26.3. Числата на таблото са коректни
+### 26.3. The dashboard numbers are correct
 
-Прочетени от собствения му API, не от екранна снимка:
+Read from its own API, not from a screenshot:
 
 ```
 {"date": "2026-11-11", "requests": 11671, "sales_count": 13, "sales_volume_usd": 0.065}
 ```
 
-13 продажби = **12 от нашия refresh ($0.062) + 1 от робота ($0.003)**. Сборът излиза
-точно и класификацията не губи нищо: нашият демо ключ е отделен клас (`own_key`),
-роботът е `sampler`, а „истински клиент“ остава празно.
+13 sales = **12 from our refresh ($0.062) + 1 from the robot ($0.003)**. The sum comes out
+exactly and the classification loses nothing: our demo key is a separate class (`own_key`),
+the robot is `sampler`, while "real customer" remains empty.
 
-### 26.4. Честната бележка
+### 26.4. The honest note
 
-По **буквалния текст** на целта („измерено с различен платец … на веригата“) това
-плащане я удовлетворява: платецът е различен от демо ключа и е реален външен агент.
-По **смисъла** ѝ — „който ни избира“ — не я удовлетворява: същият адрес плаща на 269
-различни получателя за два дни. Двете четения са на масата и изборът е на собственика;
-аз не го вземам вместо него.
+By the **literal text** of the goal ("measured with a different payer … on chain") this
+payment satisfies it: the payer is different from the demo key and is a real external agent.
+By its **meaning** — "one who chooses us" — it does not satisfy it: the same address pays to 269
+distinct receivers in two days. Both readings are on the table and the choice is the owner's;
+I do not make it instead of him.
 
-Бележка за CDP: блокът `quality` още не е отразил днешните сетълменти (все още
-`l30DaysUniquePayers = 1`, `lastCalledAt = 09.11`), макар метаданните на реда да са се
-опреснили. Значи метаданните и качеството се обновяват по различен график.
+A note on CDP: the `quality` block has not yet reflected today's settlements (still
+`l30DaysUniquePayers = 1`, `lastCalledAt = 09.11`), although the metadata of the row has
+refreshed. So the metadata and the quality are updated on a different schedule.
 
-Нов каталог в логовете: `x402rank-probe/1.0 (+https://x402rank.com/methodology)`.
+A new catalog in the logs: `x402rank-probe/1.0 (+https://x402rank.com/methodology)`.
 
-## 27. x402scan.com — показва ли ни платени или безплатни (11.11.2026)
+## 27. x402scan.com — does it show us as paid or free (11.11.2026)
 
-Питането на собственика: ако x402scan ни показва като безплатни, това ни прави
-„безплатни“ в каталог с хиляди платени и е реална причина да не ни плащат.
+The owner's question: if x402scan shows us as free, that makes us
+"free" in a catalog with thousands of paid ones and is a real reason not to pay us.
 
-**Отговор: показва ни платени.** Измерено с публичните tRPC заявки, които
-самото приложение използва (`_forensics/what_x402scan_shows_about_us.py`,
-само четене, без плащане):
+**Answer: it shows us as paid.** Measured with the public tRPC requests that
+the application itself uses (`_forensics/what_x402scan_shows_about_us.py`,
+read-only, without payment):
 
-* Нашият сървър е `https://kristo-intelligence-api.onrender.com`,
-  id `0c176841-4de1-4087-906d-e5d41f414ace`, 15 реда.
-* **7 реда носят цена** (`< $0.01` за $0.003/$0.005 — тяхната `formatCurrency`
-  свива всичко под цент) и съхранен 402 отговор с `accepts` към нашия `payTo`.
-  Всичките 7 отговарят 402 на живия хост; всичките 8 безплатни реда отговарят 200.
-* Останалите 8 реда са документите ни (`/openapi.json`, `/llms.txt`, `/health`,
+* Our server is `https://kristo-intelligence-api.onrender.com`,
+  id `0c176841-4de1-4087-906d-e5d41f414ace`, 15 rows.
+* **7 rows carry a price** (`< $0.01` for $0.003/$0.005 — their `formatCurrency`
+  collapses everything below a cent) and a stored 402 response with `accepts` to our `payTo`.
+  All 7 answer 402 on the live host; all 8 free rows answer 200.
+* The remaining 8 rows are our documents (`/openapi.json`, `/llms.txt`, `/health`,
   `/dashboard`, `/.well-known/x402`, `/.well-known/x402.json`, `/api/mcp/manifest`,
-  `/api/v1/agents`) и носят бадж **Public**, не „Free“. Те са наистина безплатни.
-* Секцията „Activity“ на нашата страница показва **84 транзакции, $0.904,
-  8 уникални купувача за 30 дни** (за всичко време: 97 / $0.923 / 14, последна
+  `/api/v1/agents`) and carry the **Public** badge, not "Free". They are genuinely free.
+* The "Activity" section of our page shows **84 transactions, $0.904,
+  8 unique buyers over 30 days** (for all time: 97 / $0.923 / 14, last
   2026-11-11T06:04:32Z).
 
-Тоест хипотезата не се потвърждава. Каталогът е 221 987 реда, от които
-198 120 с `accepts` (198 076 живи).
+So the hypothesis is not confirmed. The catalog is 221 987 rows, of which
+198 120 have `accepts` (198 076 live).
 
-Три истински дефекта обаче излязоха от същата проверка, и един от тях е вече
-поправен:
+Three real defects, however, came out of the same check, and one of them is already
+fixed:
 
-1. **`/api/v1/verify-seller` липсваше в x402scan.** Тяхното собствено откритие
-   чете нашия `openapi.json` (15 endpoint-а, `authMode=paid`, `price=0.010 USD`)
-   и казваше 14 регистрирани / **1 нерегистриран** — точно пилотният маршрут.
-   Редовете ни бяха замразени на 2026-11-04T17:37; техният facilitator sync е
-   спрян (`FACILITATOR_SYNC_PAUSED = true`), така че не се опреснява сам.
-   **Поправено**: пуснах публичната мутация `public.resources.registerFromOrigin`
-   (същата заявка, която прави бутонът „Refresh“ на страницата) с
-   `origin=https://kristo-intelligence-api.onrender.com`. Отговори
+1. **`/api/v1/verify-seller` was missing from x402scan.** Their own discovery
+   reads our `openapi.json` (15 endpoints, `authMode=paid`, `price=0.010 USD`)
+   and said 14 registered / **1 unregistered** — exactly the pilot route.
+   Our rows were frozen at 2026-11-04T17:37; their facilitator sync is
+   paused (`FACILITATOR_SYNC_PAUSED = true`), so it does not refresh by itself.
+   **Fixed**: I ran the public mutation `public.resources.registerFromOrigin`
+   (the same request that the "Refresh" button on the page makes) with
+   `origin=https://kristo-intelligence-api.onrender.com`. It answered
    `success:true, registered:7, publicCount:8, failed:0, skipped:0, deprecated:0,
-   total:15`; редът `/api/v1/verify-seller` вече носи `amt=10000`,
-   `price=0.010 USD`, а `updatedAt` на origin-а стана 2026-11-11T18:11:18Z.
-   Нищо не е депрекирано.
-2. **Мъртво второ копие на нас**: x402scan държи отделен сървър
-   `https://kristo-intelligence.vercel.app` (id `73148ccf-…`), **16 реда, 12 от
-   тях платени** ($0.05–$0.10, `success=true`, последно обхождане 05.08.2026),
-   към хост, който връща `404 DEPLOYMENT_NOT_FOUND`, и **0 транзакции**. Всеки
-   агент, който попадне там, вижда разрушен магазин. Няма публичен начин да го
-   махнем ние.
-3. **Предупреждение за MPP съответствие.** Регистрацията върна `warningDetails`
-   за всичките 7 платени реда: `MPP_NO_PAYMENT_CHALLENGES`, тежест `error`,
-   „WWW-Authenticate header contains no Payment challenges“. Нашият 402 праща
-   `WWW-Authenticate: x402 realm="kristo-intelligence", …` — стария x402
-   scheme, не MPP `Payment` challenge. x402 клиент не е засегнат; MPP-native
-   клиент (mppx, Tempo) не вижда платима оферта. Това е истинска дупка, но не
-   блокер — баджът остава „Paid“, защото се вади от `accepts[0].amount`, а не от
-   предупрежденията.
+   total:15`; the row `/api/v1/verify-seller` now carries `amt=10000`,
+   `price=0.010 USD`, while `updatedAt` of the origin became 2026-11-11T18:11:18Z.
+   Nothing was deprecated.
+2. **A dead second copy of us**: x402scan holds a separate server
+   `https://kristo-intelligence.vercel.app` (id `73148ccf-…`), **16 rows, 12 of
+   them paid** ($0.05–$0.10, `success=true`, last crawl 05.08.2026),
+   pointing at a host that returns `404 DEPLOYMENT_NOT_FOUND`, and **0 transactions**. Every
+   agent that lands there sees a ruined shop. There is no public way for us to
+   remove it.
+3. **An MPP compliance warning.** The registration returned `warningDetails`
+   for all 7 paid rows: `MPP_NO_PAYMENT_CHALLENGES`, severity `error`,
+   "WWW-Authenticate header contains no Payment challenges". Our 402 sends
+   `WWW-Authenticate: x402 realm="kristo-intelligence", …` — the old x402
+   scheme, not the MPP `Payment` challenge. An x402 client is not affected; an MPP-native
+   client (mppx, Tempo) does not see a payable offer. This is a real hole, but not a
+   blocker — the badge remains "Paid", because it is derived from `accepts[0].amount`, not from
+   the warnings.
 
-Освен това: нашите цени се рендират като `< $0.01`, тоест каталогът никога не
-показва реалните $0.003/$0.005.
+In addition: our prices are rendered as `< $0.01`, so the catalog never
+shows the real $0.003/$0.005.
 
-Забележка: числото „689 платени“, което се въртеше, е за самия x402scan като
-продавач, не е размерът на каталога.
+A note: the number "689 paid" that was circulating is for x402scan itself as a
+seller, not the size of the catalog.

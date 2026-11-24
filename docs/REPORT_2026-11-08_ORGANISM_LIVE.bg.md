@@ -1,127 +1,130 @@
-# Организмът — жив в производство
+# The Organism — Alive in Production
 
-**Дата:** 08.11.2026
-**Билд:** `2f30a4e` · 1129 теста, всички зелени
-**Статус:** всичките шест стъпки работят на живо
+**Date:** 08.11.2026
+**Build:** `2f30a4e` · 1129 tests, all green
+**Status:** all six steps are running live
 
 ---
 
-## 1. Накратко
+## 1. In Brief
 
-Организмът от `STRATEGY_ORGANISM.md` е завършен, тестван и **работи в производство**.
-Проверено на живия адрес, не на моята машина:
+The organism from `STRATEGY_ORGANISM.md` is finished, tested and **working in
+production**. Verified on the live address, not on my machine:
 
-| Блок | Присъда | Доказателство |
+| Block | Verdict | Evidence |
 |---|---|---|
-| `chain_read` | **ok** | прочетен баланс на получателя: 0.1640 USDC |
-| `data_store` | **ok** | инкрементален скан мина |
-| `discovery` | **ok** | GitHub достъпен: 2 звезди, 0 отворени |
+| `chain_read` | **ok** | read the recipient's balance: 0.1640 USDC |
+| `data_store` | **ok** | incremental scan passed |
+| `discovery` | **ok** | GitHub reachable: 2 stars, 0 open |
 | `alerting` | **ok** | `blockchain.ready=True` |
-| `delivery` | **ok** | таблото е построено |
-| `payment_rail` | **not_reached** | още няма опит за плащане — честно |
+| `delivery` | **ok** | the dashboard is built |
+| `payment_rail` | **not_reached** | there is no payment attempt yet — honestly |
 
-Шестият блок е `not_reached` и **това е правилният отговор**. „Не сме погледнали"
-никога не се показва като „нищо не е намерено" — това е правилото, върху което е
-построен целият организъм.
-
----
-
-## 2. Шестте стъпки
-
-1. **Инструмент за конверсия** — фунията вече записва `authorised` и `abandoned`.
-   Живи числа: 7 предизвикателства днес, 7 изоставени, 8 906 общо.
-2. **Шест блока** — всеки със собствено сърцебиене, евтина самопроверка и присъда
-   от речника `ok/degraded/failed/not_reached`.
-3. **Дневник** — append-only, ограничен, никога не хвърля изключение.
-4. **Правила** — детерминистична таблица, **в режим само-наблюдение** (потвърдено:
-   `observe_only: True`). Не пипа нищо.
-5. **Изпълнители** — пет идемпотентни глагола зад таван на щетите. **Изключени**
-   (`KRISTO_ORGANISM_ACT` не е зададен), тоест организмът наблюдава, решава и
-   записва — и не предприема нищо.
-6. **Хаос тестове** — 3 минаха, 1 се възстанови сам, 2 правилно **не** бяха
-   атакувани, 0 паднали.
+The sixth block is `not_reached` and **that is the correct answer**. "We did not
+look" is never shown as "nothing was found" — that is the rule the whole organism
+is built on.
 
 ---
 
-## 3. Какво се счупи днес и защо
+## 2. The Six Steps
 
-Денят мина в три отделни повреди, всяка — намерена с доказателство, не с догадка.
+1. **Conversion tool** — the funnel now records `authorised` and `abandoned`.
+   Live numbers: 7 challenges today, 7 abandoned, 8,906 total.
+2. **Six blocks** — each with its own heartbeat, a cheap self-check and a verdict
+   from the `ok/degraded/failed/not_reached` vocabulary.
+3. **Journal** — append-only, bounded, never throws an exception.
+4. **Rules** — a deterministic table, **in self-observation mode** (confirmed:
+   `observe_only: True`). It touches nothing.
+5. **Executors** — five idempotent verbs behind a damage ceiling. **Disabled**
+   (`KRISTO_ORGANISM_ACT` is not set), so the organism observes, decides and
+   records — and undertakes nothing.
+6. **Chaos tests** — 3 passed, 1 recovered on its own, 2 were correctly **not**
+   attacked, 0 failed.
 
-### 3.1 Деплоите се проваляха по 15 минути
+---
 
-**Причината беше health check-ът на Render, не нашият код.** Render получаваше
-HTTP 200 от `/health` стотици пъти и пак отказваше деплоя. Доказателството:
-139 заявки, всичките 200, нула грешки — и въпреки това „timed out waiting for a
+## 3. What Broke Today and Why
+
+The day went by in three separate failures, each found with evidence, not a
+guess.
+
+### 3.1 Deploys Were Failing for 15 Minutes
+
+**The cause was Render's health check, not our code.** Render received HTTP 200
+from `/health` hundreds of times and still refused the deploy. The evidence:
+139 requests, all 200, zero errors — and even so "timed out waiting for a
 successful response code".
 
-**Поправката:** изключих health check-а. Деплоят мина за **1.1 минути** вместо 15.
+**The fix:** I disabled the health check. The deploy went through in **1.1
+minutes** instead of 15.
 
-*Две мои поправки преди това бяха грешни и влошиха нещата:* вдигането на
-изчакванията превърна бърз провал в **зависване**, което заклещи услугата и
-счупи външните монитори (mcptry, Glama). Върнах ги. Записано е в commit-ите, за
-да не се повтори.
+*Two of my earlier fixes were wrong and made things worse:* raising the timeouts
+turned a fast failure into a **hang**, which locked up the service and broke the
+external monitors (mcptry, Glama). I reverted them. It is recorded in the
+commits, so it does not happen again.
 
-### 3.2 Таблото умираше с 500
+### 3.2 The Dashboard Was Dying with 500
 
-**Причината:** таблото сглобяваше данните си през **същата една връзка с базата**,
-която ползват още 19 нишки. Един бавен панел караше всички да чакат; който
-чакнеше твърде дълго, се отказваше. Таблото не можеше да се сглоби → кешът
-оставеше празен → всяка заявка пак се проваляше.
+**The cause:** the dashboard was assembling its data through **the same single
+database connection** that another 19 threads use. One slow panel made everyone
+wait; whoever waited too long gave up. The dashboard could not be assembled →
+the cache stayed empty → every request failed again.
 
-**Поправката:** таблото вече има **собствена връзка**. Сглобяването падна от
-зависване до **40 милисекунди**.
+**The fix:** the dashboard now has **its own connection**. Assembly dropped from
+a hang to **40 milliseconds**.
 
-### 3.3 Услугата отговаряше, но не записваше нищо
+### 3.3 The Service Was Responding but Recording Nothing
 
-**Най-коварната.** Услугата отговаряше на заявки, даваше правилните 402, а
-`/health` казваше `ok` — **и не записваше нито една заявка с часове.**
+**The most insidious one.** The service answered requests, returned the correct
+402, and `/health` said `ok` — **and it recorded not a single request for
+hours.**
 
-Причината се оказа верига от три неща:
+The cause turned out to be a chain of three things:
 
-1. **Връзката умираше по SSL** (`unexpected eof while reading`) — сървърът я
-   затваря при бездействие, а никой не забелязваше.
-2. **Затварянето ѝ ставаше, докато ключалката е взета** — а на мъртъв сокет
-   `close()` виси. Затова ключалката оставаше заключена завинаги.
-3. **Кит-скенерът** (`whaleflow-scan`) държеше същата връзка **по 45 секунди**
-   непрекъснато, докато обхождаше веригата.
+1. **The connection was dying over SSL** (`unexpected eof while reading`) — the
+   server closes it on idle, and nobody noticed.
+2. **Its closing happened while the lock was held** — and on a dead socket
+   `close()` hangs. That is why the lock stayed locked forever.
+3. **The whale scanner** (`whaleflow-scan`) held the same connection **for 45
+   seconds** continuously, while it was walking the chain.
 
-Третото се намери само защото първо направих провала **видим**. Преди това
-записът се проваляше в голо `except Exception: pass` — без нито един ред в лога.
-Логът най-накрая каза името:
+The third thing was found only because I first made the failure **visible**.
+Before that, the recording failed inside a bare `except Exception: pass` — with
+not a single line in the log. The log finally said the name:
 
 ```
 shared Postgres link busy for 2s; holder=whaleflow-scan held=45s
 ```
 
-**Поправката:** кит-скенерът получи собствена връзка; изолираните връзки вече не
-повтарят схемата на базата (тя е само 0.1 CPU и три едновременни DDL паса се
-блокират взаимно).
+**The fix:** the whale scanner got its own connection; isolated connections no
+longer repeat the database schema (it is only 0.1 CPU and three simultaneous DDL
+passes block one another).
 
-**Резултат:** `today` скочи от замръзналите 46 на **235**.
-
----
-
-## 4. Правилото, което спаси деня
-
-Три отделни пъти днес едно и също правило намери причината:
-
-> **„Не можах да погледна" не е същото като „погледнах и няма нищо".**
-
-То е в основата на организма (блоковете), в таблото (панелите), и беше
-**нарушено** тъкмо там, където попречи най-много: записът на заявки се проваляше
-мълчаливо. Затова поправката не беше „оправи записа", а **„направи провала
-видим"** — и едва тогава причината стана очевидна.
+**Result:** `today` jumped from the frozen 46 to **235**.
 
 ---
 
-## 5. Какво НЕ е пипано
+## 4. The Rule That Saved the Day
 
-Цени, `payTo`, адрес на получателя, комисиона, структура на 402 envelopes,
-`secrets/`, `config.py`. Всяко качване е проверявано срещу този списък.
+Three separate times today the same rule found the cause:
 
-## 6. Отворено
+> **"I could not look" is not the same as "I looked and there is nothing".**
 
-- `payment_rail` е `not_reached`, докато не дойде първото плащане.
-- Изпълнителите са изключени by design — включват се с `KRISTO_ORGANISM_ACT`,
-  след като таблицата с правилата натрупа реални наблюдения.
-- Латентността на таблото е ~4 секунди при студен кеш; топъл е под секунда.
+It is at the foundation of the organism (the blocks), in the dashboard (the
+panels), and it was **violated** exactly where it hurt the most: the recording of
+requests was failing silently. That is why the fix was not "fix the recording"
+but **"make the failure visible"** — and only then did the cause become obvious.
+
+---
+
+## 5. What Was NOT Touched
+
+Prices, `payTo`, recipient address, commission, structure of 402 envelopes,
+`secrets/`, `config.py`. Every upload was checked against this list.
+
+## 6. Open
+
+- `payment_rail` is `not_reached` until the first payment arrives.
+- The executors are disabled by design — they are enabled with
+  `KRISTO_ORGANISM_ACT`, after the rules table accumulates real observations.
+- Dashboard latency is ~4 seconds on a cold cache; warm it is under a second.

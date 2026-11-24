@@ -1,43 +1,43 @@
-# CHET DATA PACKAGE — извлечено 04.09 (втора проверка), read-only
+# CHET DATA PACKAGE — extracted 04.09 (second check), read-only
 
-Източник: `GET /agent/get?id=kristo-intelligence-defi-signals-api` +
-`/agent/search?q=<term>` ×8. Диф срещу `docs/monitor_state.json`
-(baseline, записан при първо пускане на монитора същия ден).
+Source: `GET /agent/get?id=kristo-intelligence-defi-signals-api` +
+`/agent/search?q=<term>` ×8. Diff against `docs/monitor_state.json`
+(baseline, recorded at the first run of the monitor the same day).
 
-## A) STATUS таблица
+## A) STATUS table
 
-| Поле | Baseline (04.09 утро) | Сега (04.09, втора проверка) | Промяна |
+| Field | Baseline (04.09 morning) | Now (04.09, second check) | Change |
 |---|---|---|---|
 | **Reliability band** | unscored (score=null, computed_at=null) | **unscored** (score=null, computed_at=null) | — |
-| **Заглавие** | Kristo Intelligence — DeFi Signals API | Kristo Intelligence — DeFi Signals API | същата |
-| q=defi | #1 (от 3) | #1 (от 3) | = |
-| q=whale | #1 (от 1) | #1 (от 1) | = |
-| q=signals | #3 (от 7) | #3 (от 7) | = |
-| q=rug | #2 (от 2) | #2 (от 2) | = |
+| **Title** | Kristo Intelligence — DeFi Signals API | Kristo Intelligence — DeFi Signals API | same |
+| q=defi | #1 (of 3) | #1 (of 3) | = |
+| q=whale | #1 (of 1) | #1 (of 1) | = |
+| q=signals | #3 (of 7) | #3 (of 7) | = |
+| q=rug | #2 (of 2) | #2 (of 2) | = |
 | q=eth | ABSENT (2) | ABSENT (2) | = |
 | q=ondo | ABSENT (1) | ABSENT (1) | = |
 | q=kaito | ABSENT (0) | ABSENT (0) | = |
 | q=degen | ABSENT (0) | ABSENT (0) | = |
 
-Формат-проверка: отговорите са в очаквания формат (reliability обект + списъци
-с резултати); няма нужда от raw-dump.
+Format check: the responses are in the expected format (reliability object + lists
+with results); no need for a raw dump.
 
 ## B) VERDICT
 
-**NOTHING TO SEND — band още unscored, титла не е сменена.**
+**NOTHING TO SEND — band still unscored, title not changed.**
 
-Граматиката на нишката важи: без разписка, данни или число — не се праща нищо.
-Следващият валиден ход: повтори `python scripts/listing_monitor.py` след
-сигнал от Chet (или най-рано следващата седмица — той каза, че compute-ът
-е ръчен, „ когато нов верифициран листинг трябва band").
+The thread's grammar holds: without a receipt, data, or a number — nothing is sent.
+The next valid move: repeat `python scripts/listing_monitor.py` after
+a signal from Chet (or at the earliest next week — he said that the compute
+is manual, "when a new verified listing needs a band").
 
-## C) ФИНАЛЕН ИМЕЙЛ — готов за копи-пейст (04.09, вечер)
+## C) FINAL EMAIL — ready for copy-paste (04.09, evening)
 
-Статус: статията е публична (repo-то вече е public — проверено, линкът връща
-HTTP 200 без аутентикация). Band още unscored, титлата непроменена — но
-двата реда са достатъчни сами по себе си: доставяме поръчания документ.
+Status: the article is public (the repo is already public — verified, the link returns
+HTTP 200 without authentication). Band still unscored, the title unchanged — but
+the two lines are sufficient on their own: we deliver the ordered document.
 
-**ИМЕЙЛ ЗА КОПИ-ПЕЙСТ (цялото съдържание на имейла):**
+**EMAIL FOR COPY-PASTE (the entire email content):**
 
 ```
 Subject: the write-up, as promised
@@ -48,14 +48,14 @@ https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/MARK
 — Dimitri
 ```
 
-*(При изпращане: ако междувременно band-ът е кацнал — виж горната STATUS
-таблица или пусни `python scripts/listing_monitor.py` — добави един ред
-„reliability band: [score/band, computed_at]". Като момента на писане:
-band=unscored, титлата е същата, ранговете идентични с baseline.)*
+*(When sending: if in the meantime the band has landed — see the STATUS
+table above or run `python scripts/listing_monitor.py` — add one line
+"reliability band: [score/band, computed_at]". As of the moment of writing:
+band=unscored, the title is the same, the ranks identical to baseline.)*
 
-## D) Специална проверка (defi): неизпълнима в момента
-Титлата НЕ е сменена → „defi" продължава да идва от името (#1) и description-а
-("DeFi signals" + substring-мачър: доказано индексира описанието — whale #1
-без "whale" в името; CMS „de**fi**ciencies" е #2 за q=defi). Условието за
-D-линията (нова титла live + defi ABSENT) не е настъпило. Fallback редът е
-записан в RECON_FINDINGS.md и се активира автоматично от следващия мониторинг.
+## D) Special check (defi): not executable at the moment
+The title is NOT changed → "defi" still comes from the name (#1) and the description
+("DeFi signals" + substring matcher: proven to index the description — whale #1
+without "whale" in the name; CMS "de**fi**ciencies" is #2 for q=defi). The condition for
+the D-line (new title live + defi ABSENT) has not occurred. The fallback line is
+recorded in RECON_FINDINGS.md and activates automatically from the next monitoring.

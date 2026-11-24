@@ -1,164 +1,166 @@
-# ОДИТ: Канали за листинг (07.09, само четене)
+# AUDIT: Listing channels (07.09, read-only)
 
-Одит с четене на документи + живи проверки (GitHub API, Glama, GitHub web).
-Нула промени по кода. payTo/endpoint недокоснати. 164/164 PASS.
+Document-reading audit + live checks (GitHub API, Glama, GitHub web).
+Zero code changes. payTo/endpoint untouched. 164/164 PASS.
 
-## 0. Актуализация 22.09 — Glama (по-нова от одита по-долу)
+## 0. Update 22.09 — Glama (newer than the audit below)
 
-| Билет | Статус (22.09) | Какво чака |
+| Ticket | Status (22.09) | What it awaits |
 |---|---|---|
-| 🎫 **#130688574** (първоначален Glama) | Листингът е **жив** — connectors **Hosted, rated A**; servers **claimed + released, rated A**, 3 tools + remotes публикувани | — (затворен по същество) |
-| 🎫 **#135407945** (22.09) | **Frank се включи сам** след build грешките. Наша диагноза, приета в тикета: сървърът е регистриран под **„Runs from source"** по грешка → правилният тип е **„Hosted endpoint"** (нашият `/mcp` на Render). Поискан **type change/reset** | Отговор от Glama (type change или reset) |
-| **PR #13219** (punkpeye/awesome-mcp-servers) | Значката добавена в искания формат (`OWNER/REPO` веднага след линка); бот-етикет `missing-glama` → **`has-glama`** | Merge от Frank |
+| 🎫 **#130688574** (initial Glama) | The listing is **live** — connectors **Hosted, rated A**; servers **claimed + released, rated A**, 3 tools + remotes published | — (closed in substance) |
+| 🎫 **#135407945** (22.09) | **Frank joined in himself** after the build errors. Our diagnosis, accepted in the ticket: the server is registered under **"Runs from source"** by mistake → the correct type is **"Hosted endpoint"** (our `/mcp` on Render). A **type change/reset** was requested | A reply from Glama (type change or reset) |
+| **PR #13219** (punkpeye/awesome-mcp-servers) | The badge added in the requested format (`OWNER/REPO` immediately after the link); bot label `missing-glama` → **`has-glama`** | Merge from Frank |
 
-**Важно:** значката **rated A**, tools и release са живи от **21.09** и **не се губят** при смяна на типа — type change само спира счупения build път (HTTP `/mcp` не минава stdio introspection теста на техния контейнер).
+**Important:** the **rated A** badge, tools and release are live as of **21.09** and are
+**not lost** when the type changes — a type change only stops the broken build path
+(HTTP `/mcp` does not pass the stdio introspection test of their container).
 
-## 1. Инвентар: PR-и — точни номера и статуси (GitHub API, 07.09)
+## 1. Inventory: PRs — exact numbers and statuses (GitHub API, 07.09)
 
-| PR | Къде | Статус (точно) | Отворен | Затворен | Защо/от кого |
+| PR | Where | Status (exact) | Opened | Closed | Why/by whom |
 |---|---|---|---|---|---|
-| **#11557** „Add Kristo Intelligence — DeFi intelligence MCP server" | punkpeye/awesome-mcp-servers | **ЗАТВОРЕН, не merged** | 05.08 | **07.09** | punkpeye: „Closing this PR due to inactivity. The last author activity was 32 days ago… (the server needs to be submitted to Glama, claimed, and have a quality score evaluated)" |
-| **#12799** „Add Kristo Intelligence v6 — DeFi trading signals API" | punkpeye/awesome-mcp-servers | **ЗАТВОРЕН, не merged** | 24.08 | **29.08** | punkpeye: „this PR adds multiple servers. Please submit one server per PR" |
-| **#13219** „Add Kristo Intelligence v6 — DeFi trading signals API" | punkpeye/awesome-mcp-servers | **ОТВОРЕН** ✅ | 30.08 | — | Чист PR: 1 файл, 1 ред, Finance & Fintech, алфабетично. Бот етикети: has-emoji, has-glama, valid-name. Няма maintainer review |
-| **#1308** „Add Kristo Intelligence v6 — DeFi Trading Signals API" | xpaysh/awesome-x402 | **ОТВОРЕН** ✅ | 24.08 | — | Без ревю (1 участник, 0 коментара). Добавя v6 в „AI Agent Integration" |
-| **#1081** „Add Kristo Intelligence — x402 DeFi Intelligence API" | xpaysh/awesome-x402 | **ОТВОРЕН** ✅ | 31.07 | — | Записът за kristo-travel-api (бонус находка — не беше в нашите документи) |
+| **#11557** "Add Kristo Intelligence — DeFi intelligence MCP server" | punkpeye/awesome-mcp-servers | **CLOSED, not merged** | 05.08 | **07.09** | punkpeye: "Closing this PR due to inactivity. The last author activity was 32 days ago… (the server needs to be submitted to Glama, claimed, and have a quality score evaluated)" |
+| **#12799** "Add Kristo Intelligence v6 — DeFi trading signals API" | punkpeye/awesome-mcp-servers | **CLOSED, not merged** | 24.08 | **29.08** | punkpeye: "this PR adds multiple servers. Please submit one server per PR" |
+| **#13219** "Add Kristo Intelligence v6 — DeFi trading signals API" | punkpeye/awesome-mcp-servers | **OPEN** ✅ | 30.08 | — | A clean PR: 1 file, 1 line, Finance & Fintech, alphabetical. Bot labels: has-emoji, has-glama, valid-name. No maintainer review |
+| **#1308** "Add Kristo Intelligence v6 — DeFi Trading Signals API" | xpaysh/awesome-x402 | **OPEN** ✅ | 24.08 | — | No review (1 participant, 0 comments). Adds v6 to "AI Agent Integration" |
+| **#1081** "Add Kristo Intelligence — x402 DeFi Intelligence API" | xpaysh/awesome-x402 | **OPEN** ✅ | 31.07 | — | The entry for kristo-travel-api (a bonus find — it was not in our documents) |
 
-### Корекции на стари твърдения от нашите документи
-- „PR #12799 Open" (DISTRIBUTION_STATUS/VISIBILITY_PLAN) — **НЕВЯРНО**: #12799 е
-  затворен на 29.08. Заменен от #13219 (който документите изобщо не споменават!).
-- „PR #1308 Open" — **ВЯРНО**.
-- Твърдението в стария PR #11557: „15 tools… 0.10 USDC/call… Listed on
-  official MCP registry (registry.modelcontextprotocol.io)" — **непотвърдено и
-  несъвместимо с днешния продукт** (v6: 3 MCP инструмента, цени от $0.003).
+### Corrections to old claims from our documents
+- "PR #12799 Open" (DISTRIBUTION_STATUS/VISIBILITY_PLAN) — **FALSE**: #12799 was
+  closed on 29.08. Replaced by #13219 (which the documents do not mention at all!).
+- "PR #1308 Open" — **TRUE**.
+- The claim in the old PR #11557: "15 tools… 0.10 USDC/call… Listed on
+  official MCP registry (registry.modelcontextprotocol.io)" — **unconfirmed and
+  incompatible with today's product** (v6: 3 MCP tools, prices from $0.003).
 
-## 2. PR #11557 — разбор (защо ботът споменава kristo-travel-api)
+## 2. PR #11557 — analysis (why the bot mentions kristo-travel-api)
 
-- **Съдържание:** заявка за запис „Kristo Intelligence" в секция Finance &
-  Fintech. Ботът (github-actions) го е етикетирал has-emoji / has-glama /
-  valid-name и е написал: „Thank you for adding the Glama badge! Please make
+- **Content:** a request to add "Kristo Intelligence" to the Finance &
+  Fintech section. The bot (github-actions) labelled it has-emoji / has-glama /
+  valid-name and wrote: "Thank you for adding the Glama badge! Please make
   sure the server has been evaluated by Glama and has a quality score."
-- **Кой repo/линк сочи тялото на PR-а:**
-  GitHub → `hristovdimitri2-hub/kristo-travel-api` (НЕ -6!),
-  MCP URL → `https://kristo-intelligence.vercel.app/mcp` (Vercel, не Render).
-- **Защо bot/maintainer споменава kristo-travel-api:** защото тялото на PR-а
-  сочи именно repo-то kristo-travel-api. Пояснението на автора в #12799:
-  „the branch was based on our fork main, which carried the kristo-travel-api
-  entry" — форк-ът е носил двата записа и първият PR ги е смесил.
-- **Контекст на kristo-travel-api repo-то:** това е СТАРАТА „Kristo
-  Intelligence" кодова база (Next.js + FastAPI, 51 commits), чието README
-  сочи **същия Render URL** (kristo-intelligence-api.onrender.com) и показва
-  **друг wallet адрес** (`0xd4cdA980…Cfd88f` — не нашия payTo
-  `0xd4cdA900…c6fd08f`) и стари цени (0.01 USDC). = Риск от объркване на
-  марката и от разминаване с реалния payTo.
-- **Затворен е на 07.09** с изричните изисквания на поддържащия:
-  **(1) подаване в Glama, (2) claim, (3) оценен quality score** — само тогава
-  един PR с Glama значка може да бъде merge-нат.
+- **Which repo/link the PR body points to:**
+  GitHub → `hristovdimitri2-hub/kristo-travel-api` (NOT -6!),
+  MCP URL → `https://kristo-intelligence.vercel.app/mcp` (Vercel, not Render).
+- **Why the bot/maintainer mentions kristo-travel-api:** because the PR body
+  points to exactly the kristo-travel-api repo. The author's explanation in #12799:
+  "the branch was based on our fork main, which carried the kristo-travel-api
+  entry" — the fork carried both entries and the first PR mixed them up.
+- **Context of the kristo-travel-api repo:** this is the OLD "Kristo
+  Intelligence" codebase (Next.js + FastAPI, 51 commits), whose README
+  points to **the same Render URL** (kristo-intelligence-api.onrender.com) and shows
+  **a different wallet address** (`0xd4cdA980…Cfd88f` — not our payTo
+  `0xd4cdA900…c6fd08f`) and old prices (0.01 USDC). = A risk of brand confusion and
+  of divergence from the real payTo.
+- **It was closed on 07.09** with the maintainer's explicit requirements:
+  **(1) submission to Glama, (2) claim, (3) an evaluated quality score** — only then
+  can a PR with a Glama badge be merged.
 
-## 3. Инвентар: repos под hristovdimitri2-hub (публични: 14)
+## 3. Inventory: repos under hristovdimitri2-hub (public: 14)
 
-⚠ През GitHub API личат САМО публичните repos — private, ако има такива, не
-се виждат оттук (локалният remote е https://github.com/hristovdimitri2-hub/
+⚠ Through the GitHub API ONLY the public repos are visible — private ones, if any, are
+not visible from here (the local remote is https://github.com/hristovdimitri2-hub/
 kristo-intelligence-6.git).
 
-| Repo | Вид | Последен push | Статус |
+| Repo | Kind | Last push | Status |
 |---|---|---|---|
-| **kristo-intelligence-6** | оригинал, API-то (Render) | **06.09 (днес)** | 🟢 **АКТИВНОТО** — всичко води нас |
-| thd-ice | оригинал | 31.08 | неутрален (страничен) |
-| awesome-mcp-servers | **форк** (за PR-ите) | 30.08 | 🟡 работен форк — носи клоновете add-kristo-intelligence-v6 |
-| nexus | оригинал | 30.08 | неутрален (NEXUS източник) |
-| foresight-oracle | оригинал | 30.08 | неутрален |
-| autonomous-agent-x402-usdc-example | оригинал (demo) | 25.08 | неутрален; homepage сочи Render API |
-| awesome-x402 | **форк** (за PR #1308) | 24.08 | 🟡 работен форк |
-| **kristo-travel-api** | оригинал (старата база) | 18.08 | 🔴 неактивен, но публичен; README сочи СЪЩИЯ Render API + чужд wallet адрес → объркващо; стои в затворения #11557 |
-| kristo | оригинал | 16.08 | стар/спящ |
-| kristo-inteligents | оригинал | 16.08 | стар/спящ |
-| base44-projekti | оригинал | 15.08 | стар/спящ |
-| corten-landing, Setas, My-protect-1 | оригинал | фев–март | спящи |
-| — | никое не е archived | — | — |
+| **kristo-intelligence-6** | original, the API (Render) | **06.09 (today)** | 🟢 **THE ACTIVE ONE** — everything leads to us |
+| thd-ice | original | 31.08 | neutral (side project) |
+| awesome-mcp-servers | **fork** (for the PRs) | 30.08 | 🟡 working fork — carries the add-kristo-intelligence-v6 branches |
+| nexus | original | 30.08 | neutral (NEXUS source) |
+| foresight-oracle | original | 30.08 | neutral |
+| autonomous-agent-x402-usdc-example | original (demo) | 25.08 | neutral; homepage points to the Render API |
+| awesome-x402 | **fork** (for PR #1308) | 24.08 | 🟡 working fork |
+| **kristo-travel-api** | original (the old base) | 18.08 | 🔴 inactive, but public; the README points to THE SAME Render API + a foreign wallet address → confusing; it sits in the closed #11557 |
+| kristo | original | 16.08 | old/dormant |
+| kristo-inteligents | original | 16.08 | old/dormant |
+| base44-projekti | original | 15.08 | old/dormant |
+| corten-landing, Setas, My-protect-1 | original | Feb–March | dormant |
+| — | none is archived | — | — |
 
-**Извод:** единствено `kristo-intelligence-6` е жив и обвързан с продукция.
-`kristo-travel-api` е единственият проблемен — публичен, свързан с един
-затворен PR, и сочи нашия Render URL с ГРЕШЕН wallet адрес в README.
+**Conclusion:** only `kristo-intelligence-6` is alive and tied to production.
+`kristo-travel-api` is the only problematic one — public, linked to one
+closed PR, and it points to our Render URL with a WRONG wallet address in the README.
 
-## 4. Glama: какво значи „claim" и къде сме ние (билет #130688574)
+## 4. Glama: what "claim" means and where we stand (ticket #130688574)
 
-### Как работи Glama (проверено на живо 07.09)
-- Директорията има **83 219 сървъра**; записите идват от автоматично
-  индексиране на GitHub + ръчно „Add Server".
-- **Claim = потвърждаване на собственост върху листинг.** „Claimed" е официален
-  атрибут (филтър) — 3 986 сървъра са claimed. Прави се с влизане в Glama
-  **с GitHub акаунта** (OAuth) — така Glama свързва акаунта с repo-то.
-  Claim-ът отключва управление на листинга (редакция, статус) и е ПРЕДПОВИД
-  за quality score значката.
-- **Quality score** = оценка A/B/C по три оси (license / quality / maintenance),
-  изчислена от Glama след преглед. Значката в README (която ботът на
-  awesome-mcp-servers иска) сочи точно този score → затова редът е:
-  **подаване → одобрение → claim → score → значка → PR merge.**
+### How Glama works (verified live on 07.09)
+- The directory has **83 219 servers**; entries come from automatic
+  indexing of GitHub + manual "Add Server".
+- **Claim = confirming ownership of a listing.** "Claimed" is an official
+  attribute (filter) — 3 986 servers are claimed. It is done by logging into Glama
+  **with the GitHub account** (OAuth) — that is how Glama links the account to the repo.
+  The claim unlocks management of the listing (editing, status) and is a PREREQUISITE
+  for the quality score badge.
+- **Quality score** = an A/B/C rating on three axes (license / quality / maintenance),
+  computed by Glama after review. The badge in the README (which the bot of
+  awesome-mcp-servers asks for) points to exactly this score → hence the order is:
+  **submission → approval → claim → score → badge → PR merge.**
 
-### Нашето състояние в Glama (проверено)
-- Търсене „kristo" в glama.ai/mcp/servers → **0 резултата от нас** (има само
-  други „kristo" сървъри). Слъговете `hristovdimitri2-hub/kristo-intelligence-6`
-  и `hristovdimitri2-hub/kristo-travel-api` → 404. **Ние НЕ сме листнати.**
-- **Билет #130688574** = нашето подаване („Add Server") за човешки преглед.
-  Вече има един отказ: „README няма достатъчно информация". Подготвен отговор
-  е в `docs/GLAMA_REPLY.md` (разширен README + линкове; правилото: нула wallet
-  адреса в имейла; праща се САМО след жива проверка на POST /mcp).
-- **Какво остава след одобрението на #130688574:** листингът се появява в
-  директорията → влизаме с GitHub в glama.ai → **claimваме** листинга →
-  чакаме/проверяваме quality score (A/B/C) → взимаме URL-а на значката от
-  Glama → чак тогава значката в README на -6 е „истинска".
+### Our state in Glama (verified)
+- A search for "kristo" in glama.ai/mcp/servers → **0 results from us** (there are only
+  other "kristo" servers). The slugs `hristovdimitri2-hub/kristo-intelligence-6`
+  and `hristovdimitri2-hub/kristo-travel-api` → 404. **We are NOT listed.**
+- **Ticket #130688574** = our submission ("Add Server") for human review.
+  There is already one rejection: "the README does not contain enough information". A prepared
+  reply is in `docs/GLAMA_REPLY.md` (an expanded README + links; the rule: zero wallet
+  addresses in the email; it is sent ONLY after a live check of POST /mcp).
+- **What remains after the approval of #130688574:** the listing appears in
+  the directory → we log in with GitHub at glama.ai → we **claim** the listing →
+  we wait for/check the quality score (A/B/C) → we take the badge URL from
+  Glama → only then is the badge in the README of -6 "real".
 
-## 5. Сводна таблица: канал → статус → какво чака → чие действие
+## 5. Summary table: channel → status → what it awaits → whose action
 
-| Канал | Статус (07.09) | Какво чака | Чие действие |
+| Channel | Status (07.09) | What it awaits | Whose action |
 |---|---|---|---|
-| **PayAPI Market** | Листнат; band „unscored/baseline" | Chet's compute да пусне оценка (band/score) | ⏳ Chet/market — не е наше |
-| **Glama** (билет #130688574) | Подадено; 1 отказ (README); отговор подготвен | Човешки преглед; при „ОК" → claim + score | **Собственик**: (1) жива проверка POST /mcp, (2) прати GLAMA_REPLY.md, (3) после claim с GitHub в glama.ai |
-| **awesome-mcp-servers** | #11557 затворен; #12799 затворен; **#13219 ОТВОРЕН** | Glama листинг + claimed + quality score → значка в README → ъпдейт на PR | **Собственик** (Glama стъпките) → после **ние**: ъпдейт на #13219 |
-| **awesome-x402** | #1308 ОТВОРЕН (v6); #1081 ОТВОРЕН (travel) | Ревю от maintainer (xpaysh); нисък приоритет — 286 звезди | ⏳ maintainer; ние — само ако поискат промяна |
-| **MCP Registry (official)** | Заявен „през PayAPI" (твърдението в #11557 не е потвърдено) | PayAPI одобрение → автоматична публикация | ⏳ Chet/market |
-| **PulseMCP / Smithery** | 🛑 PulseMCP: приема СПРЯНО от 03.09 (проверено 07.09 на живо); Smithery: публикувано ✅ | PulseMCP: да се върнат; опция за бъдеще — Official MCP Registry (без изпълнение) | **Собственик** — следи за връщането; Registry решава по-късно |
+| **PayAPI Market** | Listed; band "unscored/baseline" | Chet's compute to run an evaluation (band/score) | ⏳ Chet/market — not ours |
+| **Glama** (ticket #130688574) | Submitted; 1 rejection (README); reply prepared | Human review; if "OK" → claim + score | **Owner**: (1) live check of POST /mcp, (2) send GLAMA_REPLY.md, (3) then claim with GitHub at glama.ai |
+| **awesome-mcp-servers** | #11557 closed; #12799 closed; **#13219 OPEN** | Glama listing + claimed + quality score → badge in the README → PR update | **Owner** (the Glama steps) → then **we**: update #13219 |
+| **awesome-x402** | #1308 OPEN (v6); #1081 OPEN (travel) | Review by the maintainer (xpaysh); low priority — 286 stars | ⏳ maintainer; we — only if they request a change |
+| **MCP Registry (official)** | Requested "through PayAPI" (the claim in #11557 is unconfirmed) | PayAPI approval → automatic publication | ⏳ Chet/market |
+| **PulseMCP / Smithery** | 🛑 PulseMCP: submissions STOPPED since 03.09 (verified live on 07.09); Smithery: published ✅ | PulseMCP: to reopen; a future option — Official MCP Registry (no execution) | **Owner** — watch for the reopening; the Registry is decided later |
 
-## 6. Чернова-план (без изпълнение): чист PR към awesome-mcp-servers
+## 6. Draft plan (no execution): a clean PR to awesome-mcp-servers
 
-**Важно уточнение: НЯМА нужда от „ново" PR — #13219 вече Е чистият PR**
-(1 файл, 1 ред, отворен на 30.08, без забележки от maintainer). Планът е
-да го **довършим**, не да отваряме четвърти. Внимание: последната активност
-на #13219 е 30.08 → при 32-дневно правило (както при #11557) рискът от
-авто-затваряне е около **01.10**. Дейност преди тази дата.
+**Important clarification: there is NO need for a "new" PR — #13219 already IS the clean PR**
+(1 file, 1 line, opened on 30.08, with no remarks from the maintainer). The plan is
+to **finish** it, not to open a fourth one. Note: the last activity
+on #13219 is 30.08 → under the 32-day rule (as with #11557) the risk of
+auto-closing is around **01.10**. Activity before that date.
 
-**Предпоставки (подредени):**
-1. Билет #130688574 одобрен → листингът на живо в glama.ai.
-2. Claim с GitHub акаунта на hristovdimitri2-hub.
-3. Quality score оценен (A/B/C) → взимаме официалния URL на значката от
-   страницата на сървъра в Glama.
-4. README на -6: значката Glama + актуални факти (3 MCP инструмента, цени от
-   $0.003, Base mainnet, Streamable HTTP на /mcp). Без wallet адреси.
+**Prerequisites (in order):**
+1. Ticket #130688574 approved → the listing live at glama.ai.
+2. Claim with the GitHub account of hristovdimitri2-hub.
+3. Quality score evaluated (A/B/C) → we take the official badge URL from
+   the server page in Glama.
+4. README of -6: the Glama badge + current facts (3 MCP tools, prices from
+   $0.003, Base mainnet, Streamable HTTP at /mcp). No wallet addresses.
 
-**Съдържание на PR-а (готова рецепта):**
-- Клон: нов от **upstream/main** на punkpeye (никога от форк main — това
-  удави #12799).
-- **1 файл, 1 ред** в README.md, секция Finance & Fintech, алфабетично
-  (след HuggingAGI/mcp-baostock-server, преди hypeprinter007-stack/
-  anchor-x402-mcp — позицията вече е проверена в #13219).
-- Ред примерно: `- [Kristo Intelligence](https://github.com/hristovdimitri2-hub/kristo-intelligence-6) - [ badges ] DeFi trading signals API for AI agents on Base — x402 pay-per-call (from $0.003), no signup, real on-chain sales` (точният формат — по примера на соседните редове).
-- **Включва:** Glama значка (само след реален score!), линк към repo.
-- **Изключва:** wallet адрес, твърдения за „official MCP registry" (не са
-  потвърдени), Vercel линкове, стари цени (0.10 USDC), „15 tools".
-- Описание на PR-а: 3–4 реда (какво/защо/транспорт/плащане) + линк към
-  Glama листинга; нула wallet адреса и в описанието.
-- След отваряне: отговор в рамките на 48 ч на всяко maintainer питане
-  (анти-„inactivity close").
+**PR content (a ready recipe):**
+- Branch: a new one from **upstream/main** of punkpeye (never from a fork main — that
+  drowned #12799).
+- **1 file, 1 line** in README.md, section Finance & Fintech, alphabetical
+  (after HuggingAGI/mcp-baostock-server, before hypeprinter007-stack/
+  anchor-x402-mcp — the position has already been verified in #13219).
+- A sample line: `- [Kristo Intelligence](https://github.com/hristovdimitri2-hub/kristo-intelligence-6) - [ badges ] DeFi trading signals API for AI agents on Base — x402 pay-per-call (from $0.003), no signup, real on-chain sales` (the exact format — following the example of the neighbouring lines).
+- **Includes:** the Glama badge (only after a real score!), a link to the repo.
+- **Excludes:** a wallet address, claims about the "official MCP registry" (they are
+  unconfirmed), Vercel links, old prices (0.10 USDC), "15 tools".
+- PR description: 3–4 lines (what/why/transport/payment) + a link to
+  the Glama listing; zero wallet addresses in the description as well.
+- After opening: a reply within 48 h to every maintainer question
+  (anti-"inactivity close").
 
-**Паралелно (препоръка):** за kristo-travel-api — НЕ възраждаме #11557, докато
-repo-то не е или изчистено (README: верен wallet/линкове или изрично
-„separate legacy project"), или направено private. Едно repo с чужд (грешен)
-wallet адрес, сосящ нашия API, е риск за доверието още преди да сме
-listнати. Решение е на собственика.
+**In parallel (recommendation):** for kristo-travel-api — we do NOT revive #11557 until
+the repo is either cleaned up (README: correct wallet/links or an explicit
+"separate legacy project"), or made private. One repo with a foreign (wrong)
+wallet address, pointing to our API, is a trust risk even before we are
+listed. The decision is the owner's.
 
-> ✅ **ИЗПЪЛНЕНО (07.09):** `kristo-travel-api` е направено **private** през
-> GitHub API с owner акаунта (потвърдено: анонимен GET → 404; 0 stars/forks/
-> watchers — никой не е засегнат). Регистрирано в PROJECT_STATUS.md.
-> Последица: PR #11557 остава затворен безпредметен; open PR awesome-x402
-> #1081 (travel-api запис) сочи сега скрито repo — maintainer-ът вероятно ще
-> го затвори сам, или собственикът го затваря изрично (решение предстои).
+> ✅ **DONE (07.09):** `kristo-travel-api` was made **private** through the
+> GitHub API with the owner account (confirmed: an anonymous GET → 404; 0 stars/forks/
+> watchers — no one was affected). Recorded in PROJECT_STATUS.md.
+> Consequence: PR #11557 remains closed and pointless; open PR awesome-x402
+> #1081 (the travel-api entry) now points to a hidden repo — the maintainer will probably
+> close it himself, or the owner closes it explicitly (a decision is pending).

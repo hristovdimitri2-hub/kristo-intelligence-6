@@ -1,80 +1,82 @@
-# TRAFFIC AUDIT — кой ни гледа (11.09, read-only)
+# TRAFFIC AUDIT — who is watching us (11.09, read-only)
 
-Източник: persistent request log (SQLite на Render) през `/api/dashboard/data`.
-Денят: 2026-09-11 · днес: 13 792 заявки (cumulative /health: 42 097 — шумът
-нашият).
+Source: persistent request log (SQLite on Render) via `/api/dashboard/data`.
+The day: 2026-09-11 · today: 13 792 requests (cumulative /health: 42 097 — the
+noise is ours).
 
-## Кой ни гледа — пътове (агрегирано от лог-а)
+## Who is watching us — paths (aggregated from the log)
 
-| Път | Брой (период на лог-а) | Тип |
+| Path | Count (log window) | Type |
 |---|---|---|
-| `/health` | 42 097 | ⚙️ наш keep-alive (`Render/1.0`) + Render checks — самошум |
-| `/api/v1/signal` | 2 028 | агентски/крроверски проби на платен маршрут |
-| `/.well-known/x402` | 570 | x402 индексатори (discovery) |
-| `/openapi.json` | 564 | индексатори/каталози |
-| `/api/bot-status` | 451 | платени проби |
-| `/api/sales` | 440 | платени проби |
-| `/api/stats` | 438 | платени проби |
-| `/robots.txt` | 392 | търсачки/индексатори |
-| `/api/mcp/manifest` | 322 | MCP клиенти/каталози |
-| `/mcp` | 65 | MCP ръчни клиенти (Streamable HTTP) |
+| `/health` | 42 097 | ⚙️ our keep-alive (`Render/1.0`) + Render checks — self-noise |
+| `/api/v1/signal` | 2 028 | agent/crawler probes of a paid route |
+| `/.well-known/x402` | 570 | x402 indexers (discovery) |
+| `/openapi.json` | 564 | indexers/catalogs |
+| `/api/bot-status` | 451 | paid probes |
+| `/api/sales` | 440 | paid probes |
+| `/api/stats` | 438 | paid probes |
+| `/robots.txt` | 392 | search engines/indexers |
+| `/api/mcp/manifest` | 322 | MCP clients/catalogs |
+| `/mcp` | 65 | MCP manual clients (Streamable HTTP) |
 
-## User-Agent топ (пълнодневна SQL агрегация — 11.09, лог-прозорец)
+## Top User-Agents (full-day SQL aggregation — 11.09, log window)
 
-| UA | Брой | Тип |
+| UA | Count | Type |
 |---|---|---|
-| `python-requests/2.34.2` | 4 | скриптове/агенти (неопределен тип) |
-| `ClaudeBot/1.0 (+claudebot@anthropic.com)` | 2 | 🟢 **Anthropic ClaudeBot — платформен индексатор** (първи ход от голям играч!) |
-| `Go-http-client/1.1` | 1 | индексатор/агент (Go клиент) |
-| `CarbonMonitor/0.1 healthcheck (+carbon-cashmere.de)` | 1 | монитор (глупав healthcheck върху платен route) |
-| `Render/1.0` | 43 (отделени) | ⚙️ вътрешен шум |
+| `python-requests/2.34.2` | 4 | scripts/agents (undetermined type) |
+| `ClaudeBot/1.0 (+claudebot@anthropic.com)` | 2 | 🟢 **Anthropic ClaudeBot — platform indexer** (first move by a big player!) |
+| `Go-http-client/1.1` | 1 | indexer/agent (Go client) |
+| `CarbonMonitor/0.1 healthcheck (+carbon-cashmere.de)` | 1 | monitor (dumb healthcheck on a paid route) |
+| `Render/1.0` | 43 (separated) | ⚙️ internal noise |
 
-*(серията покрива от последния deploy — ефемерният диск нулира лог-а; видя
-долу инцидент-бележката в PROJECT_STATUS. Топ-UA таблицата се пълни автоматично
-при всяка проверка.)*
+*(the series covers the period since the last deploy — the ephemeral disk resets
+the log; see the incident note in PROJECT_STATUS below. The top-UA table is
+filled in automatically on every check.)*
 
-## Фънъл („хванати за ръка“ — измерено на живо, 11.09)
+## Funnel ("caught holding hands" — measured live, 11.09)
 
-| Маршрут | Днес: 402 challenges → платени | Конверсия |
+| Route | Today: 402 challenges → paid | Conversion |
 |---|---|---|
-| `/api/v1/signal` | **1 → 0** | 0% (лог-ът е от последния deploy) |
+| `/api/v1/signal` | **1 → 0** | 0% (the log is from the last deploy) |
 | `/api/stats`, `/api/sales`, `/api/bot-status`, `/api/arb/*` | 0 → 0 | — |
 
-## Часови пикове (днес)
+## Hourly peaks (today)
 
-| Час (UTC) | Заявки | от които шум |
+| Hour (UTC) | Requests | of which noise |
 |---|---|---|
 | 14:xx | 51 | 43 (keep-alive) |
-| чисти | **8** | — |
+| clean | **8** | — |
 
-## Каса (проверка)
+## Cash desk (check)
 
-- Нови плащания от 0x4dB7 / 0xA19F днес: **НЯМА** (external_unique_payers
-  си остава 2; OPERATOR REPEAT детекторът не светна — и двамата са first-touch).
-- On-chain каса: **$0.023 / 7 трансфера** (2 external, 4 canary, 1 crawler).
+- New payments from 0x4dB7 / 0xA19F today: **NONE** (external_unique_payers
+  remains 2; the OPERATOR REPEAT detector did not light up — both are first-touch).
+- On-chain cash desk: **$0.023 / 7 transfers** (2 external, 4 canary, 1 crawler).
 
-## Едно изречение
+## One sentence
 
-**Днес 100% от трафика е индексатори, монитори и собствен keep-alive шум —
-но ClaudeBot/1.0 (Anthropic) вече сканира discovery-то, което е най-близкият
-до купувач сигнал от листингите; реалните купувачи (0x4dB7, 0xA19F) са от
-06.09/09.09 и чакат повторение (OPERATOR REPEAT тригерът е въоръжен).**
+**Today 100% of the traffic is indexers, monitors and our own keep-alive noise —
+but ClaudeBot/1.0 (Anthropic) is already scanning the discovery, which is the
+closest-to-a-buyer signal from the listings; the real buyers (0x4dB7, 0xA19F) are
+from 06.09/09.09 and are waiting for a repeat (the OPERATOR REPEAT trigger is
+armed).**
 
-## Каса (проверка)
+## Cash desk (check)
 
-- Нови плащания от 0x4dB7 / 0xA19F днес: **НЯМА** (external_unique_payers
-  си остава 2; OPERATOR REPEAT детекторът не светна — и двамата са first-touch).
-- On-chain каса: **$0.023 / 7 трансфера** (2 external, 4 canary, 1 crawler).
+- New payments from 0x4dB7 / 0xA19F today: **NONE** (external_unique_payers
+  remains 2; the OPERATOR REPEAT detector did not light up — both are first-touch).
+- On-chain cash desk: **$0.023 / 7 transfers** (2 external, 4 canary, 1 crawler).
 
-## Едно изречение
+## One sentence
 
-**Днес 100% от трафика е индексатори, монитори и собствен keep-alive шум —
-нищо не прилича на бъдещ купувач; реалните купувачи (0x4dB7, 0xA19F) са от
-06.09/09.09 и чакат повторение (OPERATOR REPEAT тригерът е въоръжен).**
+**Today 100% of the traffic is indexers, monitors and our own keep-alive noise —
+nothing looks like a future buyer; the real buyers (0x4dB7, 0xA19F) are from
+06.09/09.09 and are waiting for a repeat (the OPERATOR REPEAT trigger is
+armed).**
 
-## Липсваща дълбочина (честно)
+## Missing depth (honestly)
 
-Пер-UA пълнодневна разбивка (топ 10 по целия ден) и почасови пикове изискват
-GROUP BY агрегация в persistent log-а — тя е част от „Хванати за ръка"
-(фънъл инструментът); след deploy документът се допълва с реалната топ-10 UA
-таблица и часовите пикове.
+Per-UA full-day breakdown (top 10 for the whole day) and hourly peaks require a
+GROUP BY aggregation in the persistent log — it is part of "Caught Holding Hands"
+(the funnel tool); after deploy the document is supplemented with the real top-10
+UA table and the hourly peaks.

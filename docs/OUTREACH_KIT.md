@@ -1,14 +1,15 @@
-# OUTREACH KIT — свързване с платформената екосистема (29.08.2026)
+# OUTREACH KIT — connecting with the platform ecosystem (29.08.2026)
 
-Всичко по-долу е готово за изпращане. Копирай, попълни [ИМЕ], пращай от
-<contact-email>. Редът е по приоритет.
+Everything below is ready to send. Copy it, fill in [NAME], send it from
+<contact-email>. The order is by priority.
 
 ---
 
-## 1. BlockRun — "List a data source" (НАЙ-ВАЖНОТО)
+## 1. BlockRun — "List a data source" (THE MOST IMPORTANT ONE)
 
-**До:** контакта от blockrun.ai → "List a data source" (onboard-ват niche APIs седмично)
-**Тема:** `Data source listing: DeFi signals API on Base (x402 v2, live)`
+**To:** the contact from blockrun.ai → "List a data source" (they onboard
+niche APIs weekly)
+**Subject:** `Data source listing: DeFi signals API on Base (x402 v2, live)`
 
 > Hi BlockRun team,
 >
@@ -34,9 +35,9 @@
 
 ---
 
-## 2. AgentCash router (дистрибуция през втората тръба)
+## 2. AgentCash router (distribution through the second pipe)
 
-**Тема:** `x402 server for your router: DeFi data on Base (v2-ready)`
+**Subject:** `x402 server for your router: DeFi data on Base (v2-ready)`
 
 > Hi agentcash team,
 >
@@ -53,22 +54,22 @@
 
 ---
 
-## 3. PayAPI.market — resubmission (10 минути, направи го СИ)
+## 3. PayAPI.market — resubmission (10 minutes, do it YOURSELF)
 
-1. Отиди на payapi.market → "List your API" (или resubmit от акаунта)
+1. Go to payapi.market → "List your API" (or resubmit from the account)
 2. URL: `https://kristo-intelligence-api.onrender.com`
 3. Receiver: `0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844`
-4. Бележка към тях: *"Resubmission: strict-402 is live (every unpaid call
+4. Note to them: *"Resubmission: strict-402 is live (every unpaid call
    returns the challenge) and challenges now follow the x402 v2 canonical
    format (CAIP-2, atomic units). Prior submission failed on the legacy
    format — fixed in commits 2b4d5ad..d6eeb12."*
 
 ---
 
-## 4. MCP Registry (официалният регистър на Anthropic)
+## 4. MCP Registry (Anthropic's official registry)
 
-Регистрирай MCP сървъра на https://github.com/modelcontextprotocol/registry
-(или през Claude → Settings → Connectors за директна употреба):
+Register the MCP server at https://github.com/modelcontextprotocol/registry
+(or via Claude → Settings → Connectors for direct use):
 - Name: `kristo-intelligence`
 - Transport: SSE, URL: `https://kristo-intelligence-api.onrender.com/mcp/sse`
 - Manifest: `https://kristo-intelligence-api.onrender.com/api/mcp/manifest`
@@ -76,19 +77,20 @@
 
 ---
 
-## 5. Петте персонални съобщения (dev общности — пращай 1/ден, персонализирай [X])
+## 5. The five personal messages (dev communities — send 1/day, personalize [X])
 
-**a) GitHub (dev с Base trading бот):**
+**a) GitHub (dev with a Base trading bot):**
 > Saw [X] — solid. I run a live DeFi signals API on Base (whale USDC flows,
 > cross-DEX arb spreads, rug checks) — pay-per-call x402, from $0.003. One
 > curl and you're in: https://kristo-intelligence-api.onrender.com/.well-known/x402
 
-**b) Telegram crypto-dev канал:**
-> Всеки, който строи бот за Base? Пуснах платено API: whale движения, arb
-> спредове (обновяване на 60s), rug проверки. x402 плащане, от $0.003/заявка.
-> Live: kristo-intelligence-api.onrender.com — ето discovery-то, пробвай с 1 curl.
+**b) Telegram crypto-dev channel:**
+> Anyone building a bot for Base? I launched a paid API: whale movements, arb
+> spreads (refreshed every 60s), rug checks. x402 payment, from
+> $0.003/request. Live: kristo-intelligence-api.onrender.com — here's the
+> discovery, try it with 1 curl.
 
-**c) X/Twitter (агент builders):**
+**c) X/Twitter (agent builders):**
 > Agents pay for LLM tokens. Why not for market data? DeFi signals on Base,
 > x402-native, from $0.003/call, no signup. Discovery is one GET:
 > https://kristo-intelligence-api.onrender.com/.well-known/x402
@@ -98,7 +100,7 @@
 > tracking, live arb spreads, rug scanners. Free discovery, paid data,
 > from $0.003/call. Feedback welcome — especially from bot devs.
 
-**e) Отговор на съответен въпрос в x402 Discord/форум (намери нишка за
+**e) Reply to a relevant question in the x402 Discord/forum (find a thread about
 "where to get market data for agents"):**
 > Shameless plug: I run exactly that — DeFi signals API on Base via x402.
 > Self-describing 402s, so any x402 client can consume it without reading
@@ -106,60 +108,93 @@
 
 ---
 
-## 6. PayAPI blurb за Chet Parker (@ParkerChet) — по негова покана (03.09)
+## 6. PayAPI blurb for Chet Parker (@ParkerChet) — at his invitation (03.09)
 
-Chet потвърди (email 14:15 UTC, 03.09): няма платено слот/newsletter; има (а) live каталог + agent search, (б) listing страницата, (в) окупационни X постове от @ParkerChet при ново verified нещо. Blurb „on file" е пожелателен — **tight: какво връща GET /api/v1/signal, цена, Base USDC**. Готов за paste в reply:
+Chet confirmed (email 14:15 UTC, 03.09): there is no paid slot/newsletter;
+there is (a) a live catalog + agent search, (b) the listing page, (c)
+occasional X posts from @ParkerChet when something new is verified. A blurb
+"on file" is desirable — **tight: what GET /api/v1/signal returns, price,
+Base USDC**. Ready to paste in a reply:
 
 > **Kristo Intelligence — DeFi Signals API** (verified, PayAPI Market)
 >
-> GET /api/v1/signal returns the latest output of a live trading agent on Base: for each of ETH, ONDO, KAITO and DEGEN it gives an action (accumulate / monitor / small-allocation style), a 0–1 confidence score, the current USD price, and a one-line reasoning — sorted by confidence, refreshed continuously against live market data. No signup: standard x402 402 challenge, pay per call.
+> GET /api/v1/signal returns the latest output of a live trading agent on
+> Base: for each of ETH, ONDO, KAITO and DEGEN it gives an action
+> (accumulate / monitor / small-allocation style), a 0–1 confidence score,
+> the current USD price, and a one-line reasoning — sorted by confidence,
+> refreshed continuously against live market data. No signup: standard x402
+> 402 challenge, pay per call.
 >
-> Price: $0.003 per call, settled in Base USDC. Verified by two independent paid canaries on this route; discovery at /.well-known/x402.
+> Price: $0.003 per call, settled in Base USDC. Verified by two independent
+> paid canaries on this route; discovery at /.well-known/x402.
 
-Кратка версия (ако иска още по-тясна, 1 изречение):
+Short version (if he wants an even tighter one, 1 sentence):
 
-> GET /api/v1/signal — live trading-agent calls (action + confidence + price + reasoning) for ETH/ONDO/KAITO/DEGEN on Base, $0.003/call in Base USDC via x402, no signup: https://payapi.market/api/kristo-intelligence-defi-signals-api
+> GET /api/v1/signal — live trading-agent calls (action + confidence + price
+> + reasoning) for ETH/ONDO/KAITO/DEGEN on Base, $0.003/call in Base USDC
+> via x402, no signup:
+> https://payapi.market/api/kristo-intelligence-defi-signals-api
 
-Правило от Chet: постне Kristo в X само ако маршрутът е полезен — не моли за пост, остави blurb-а да говори.
+Rule from Chet: Kristo posts on X only if the route is useful — don't ask
+for a post, let the blurb speak.
 
 ---
 
-## 7. Outreach Дни 3–5 — конкретни текстове (03.09)
+## 7. Outreach Days 3–5 — concrete texts (03.09)
 
-**Ден 3 — собствен X пост (НЕ чакаме Chet; merit-ът е наш):**
+**Day 3 — own X post (we are NOT waiting for Chet; the merit is ours):**
 > Agents pay for LLM tokens. Why not for market data?
 >
-> Kristo Intelligence: live DeFi signals API on Base — trading-agent calls (action + confidence + price + reasoning for ETH/ONDO/KAITO/DEGEN), cross-DEX arb spreads, whale USDC tracking. x402-native, from $0.003/call, no signup.
+> Kristo Intelligence: live DeFi signals API on Base — trading-agent calls
+> (action + confidence + price + reasoning for ETH/ONDO/KAITO/DEGEN),
+> cross-DEX arb spreads, whale USDC tracking. x402-native, from $0.003/call,
+> no signup.
 >
 > One GET to see everything: https://kristo-intelligence-api.onrender.com/.well-known/x402
 > Verified: 4 paid canaries settled on-chain via @ParkerChet's PayAPI Market.
 
-**Ден 4 — Telegram crypto-dev канал (шаблон b, персонализиран):**
-> Всеки, който строи бот за Base? Пуснах платено API: trading сигнали (ETH/ONDO/KAITO/DEGEN с reasoning + confidence), arb спредове (60s), rug проверки. x402 плащане, от $0.003/заявка — без регистрация, агентът си плаща сам с USDC.
-> Live: kristo-intelligence-api.onrender.com — discovery с 1 curl: /.well-known/x402
+**Day 4 — Telegram crypto-dev channel (template b, personalized):**
+> Anyone building a bot for Base? I launched a paid API: trading signals
+> (ETH/ONDO/KAITO/DEGEN with reasoning + confidence), arb spreads (60s), rug
+> checks. x402 payment, from $0.003/request — no registration, the agent
+> pays on its own with USDC.
+> Live: kristo-intelligence-api.onrender.com — discovery with 1 curl: /.well-known/x402
 
-**Ден 5 (07.09) — BlockRun follow-up до @1bcmax (ако мълчи):**
-> Hi Max — following up on the listing question from the other day. No rush on my side: if a data-source listing isn't a priority for BlockRun right now, just say so and I'll close the topic cleanly. If it is, the fastest path is the same endpoints we discussed (whale/arb/rug/signals, x402 v2 verified, 4 on-chain settlement proofs). Either answer works — I'd just rather not leave it hanging.
+**Day 5 (07.09) — BlockRun follow-up to @1bcmax (if he stays silent):**
+> Hi Max — following up on the listing question from the other day. No rush
+> on my side: if a data-source listing isn't a priority for BlockRun right
+> now, just say so and I'll close the topic cleanly. If it is, the fastest
+> path is the same endpoints we discussed (whale/arb/rug/signals, x402 v2
+> verified, 4 on-chain settlement proofs). Either answer works — I'd just
+> rather not leave it hanging.
 
-(Ако и това мълчи — затворена тема, усилието отива в MCP директориите.)
+(If this one stays silent too — closed topic, the effort goes into the MCP
+directories.)
 
-**X версия — data-story (актуализирана 04.09; статията е в repo-то):**
+**X version — data-story (updated 04.09; the article is in the repo):**
 > I audited the on-chain economy of a machine-payments API marketplace.
 >
-> Every paid call settles publicly — so I mapped who pays whom, how ranking works, and when the platform's crawlers run.
+> Every paid call settles publicly — so I mapped who pays whom, how ranking
+> works, and when the platform's crawlers run.
 >
-> Findings: top listing = $0.29/week; most "payers" are sampling infrastructure, not customers; exactly ONE real agent-trader (buys data at $0.002/call, routes swaps through a DEX router). Whole observed market: ~$1.2/month.
+> Findings: top listing = $0.29/week; most "payers" are sampling
+> infrastructure, not customers; exactly ONE real agent-trader (buys data at
+> $0.002/call, routes swaps through a DEX router). Whole observed market:
+> ~$1.2/month.
 >
 > Full audit (no wallet addresses, numbers dated):
 > github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/MARKET_WRITEUP.md
 >
-> (I build one of the listings — DeFi signals, x402/USDC on Base. Demo agent: one command, watch an agent pay.)
+> (I build one of the listings — DeFi signals, x402/USDC on Base. Demo
+> agent: one command, watch an agent pay.)
 
-*(Опционално — основният канал е линкът към Chet. Същата дисциплина: нула wallet адреси, неутрално към платформата.)*
+*(Optional — the main channel is the link to Chet. The same discipline:
+zero wallet addresses, neutral toward the platform.)*
 
 ---
 
-## Правила на кампанията
-- 1 съобщение/ден, персонализирано — спам-маскиране убива репутацията в малка екосистема
-- Всеки отговор → отговори в рамките на час
-- Всяко "не" → попитай "какво би те накарало да го листнеш?" — това е продуктово проучване
+## Campaign rules
+- 1 message/day, personalized — spam-masking kills reputation in a small
+  ecosystem
+- Every reply → answer within an hour
+- Every "no" → ask "what would make you list it?" — that's product research

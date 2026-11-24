@@ -1,21 +1,23 @@
-# 30-дневен launch plan
+# 30-day launch plan
 
-## Цел
-Да се изгради пълна, работеща продажбена система около `Kristo Intelligence`, без да се нарушава техническата основа на проекта.
+## Goal
+To build a complete, working sales system around `Kristo Intelligence`, without
+violating the technical foundation of the project.
 
-## Фаза 1 — оферта и позициониране (1–7 дни)
+## Phase 1 — offer and positioning (1–7 days)
 
-### Задачи
-- да се фиксира една ясна оферта;
-- да се определи целевата аудитория;
-- да се изработи pricing structure;
-- да се създаде landing page с CTA;
-- да се създаде klar offer headline.
+### Tasks
+- fix one clear offer;
+- define the target audience;
+- create a pricing structure;
+- create a landing page with a CTA;
+- create a clear offer headline.
 
-### Рекомендация за позициониране
-**Kristo Intelligence** = AI market intelligence + Telegram VIP access + premium crypto signal layer.
+### Positioning recommendation
+**Kristo Intelligence** = AI market intelligence + Telegram VIP access + premium crypto
+signal layer.
 
-### Продуктови нива
+### Product tiers
 1. Starter
    - basic signal digest
    - basic market bulletin
@@ -29,9 +31,9 @@
    - x402/USDC access
    - market data endpoints
 
-## Фаза 2 — sales funnel (7–14 дни)
+## Phase 2 — sales funnel (7–14 days)
 
-### Задачи
+### Tasks
 - landing page
 - CTA buttons
 - checkout flow
@@ -42,18 +44,18 @@
 ### Funnel design
 Ad → landing page → CTA → checkout → welcome → onboarding → retention
 
-## Фаза 3 — интеграции (14–21 дни)
+## Phase 3 — integrations (14–21 days)
 
-### Дейности
+### Activities
 - CRM layer
 - payment integration
 - Telegram welcome automation
 - analytics UTM tracking
 - conversion event logs
 
-## Фаза 4 — live testing и optimize (21–30 дни)
+## Phase 4 — live testing and optimize (21–30 days)
 
-### Дейности
+### Activities
 - test campaign creatives
 - split audiences
 - track CTR, CPC, conversion rate
@@ -67,5 +69,6 @@ Ad → landing page → CTA → checkout → welcome → onboarding → retentio
 - CAC under acceptable threshold
 - subscription retention > 30 days after launch
 
-## Съществено правило
-Не стартирай много оферти едновременно. Становище: стартирай една оферта, едно аудитория, един канал, едно CTA.
+## Essential rule
+Do not launch many offers at the same time. Position: launch one offer, one audience,
+one channel, one CTA.

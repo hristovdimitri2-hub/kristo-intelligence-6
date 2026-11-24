@@ -7,23 +7,25 @@
 
 ## 🔍 FINDINGS TABLE
 
-| № | Заглавие | Файл | Risk | Какво се случва | Какво предлагаш |
+| № | Title | File | Risk | What happens | What you propose |
 |---|----------|------|------|-----------------|-----------------|
-| 1 | rejected_signals[] не е дълготраен лог | main.py:4081-4119 | **MEDIUM** | Отхвърлени сигнали са видими в response, но липсват от guard_events при рестарт | Запиши rejected_signals[] в dashboard_db.record_guard_event() |
-| 2 | CoinGecko fallback кеш не се инвалидира | services/coingecko.py:145-174 | **MEDIUM** | При Base44→public fallback кешът остава със стара цена; verifier отхвърля нови сигнали | Clear кеш при fallback или включи API source в cache_key |
-| 3 | demo_sponsored_pay client НЕ проверява nonce | scripts/demo_sponsored_pay.py:320-370 | **HIGH** | Сървър може да врнеся другото уреждение (adoption); клиент го приема | Добави verификация: `assert settle["nonce"] == signed_nonce` |
-| 4 | X-Forwarded-For fallback неточна | main.py:1380-1386 | **LOW** | All-private XFF взема последния entry (най-стария proxy) | Вземи първи entry за all-private или fail-closed |
-| 5 | Base44 fallback не логира | services/coingecko.py:145-151 | **LOW** | debug level = невидимо; operator не знае че API е сменен | Промени на WARNING |
-| 6 | Sentinel no atomic write | services/sentinel.py:60-65 | **MEDIUM** | Race condition при state write → корумпиран JSON | Използай temp file + os.replace() |
-| 7 | arb_radar деление защитено | services/arb_radar.py:180 | **—** | Теоретично ZeroDivisionError, но guard е достатъчна | **✅ ЧИСТО** |
+| 1 | rejected_signals[] is not a durable log | main.py:4081-4119 | **MEDIUM** | Rejected signals are visible in the response, but are missing from guard_events after a restart | Write rejected_signals[] into dashboard_db.record_guard_event() |
+| 2 | CoinGecko fallback cache is not invalidated | services/coingecko.py:145-174 | **MEDIUM** | On a Base44→public fallback the cache keeps the old price; the verifier rejects new signals | Clear the cache on fallback or include the API source in cache_key |
+| 3 | demo_sponsored_pay client does NOT verify the nonce | scripts/demo_sponsored_pay.py:320-370 | **HIGH** | The server can return a different settlement (adoption); the client accepts it | Add verification: `assert settle["nonce"] == signed_nonce` |
+| 4 | X-Forwarded-For fallback is imprecise | main.py:1380-1386 | **LOW** | All-private XFF takes the last entry (the oldest proxy) | Take the first entry for all-private or fail-closed |
+| 5 | Base44 fallback does not log | services/coingecko.py:145-151 | **LOW** | debug level = invisible; the operator does not know the API was switched | Change to WARNING |
+| 6 | Sentinel no atomic write | services/sentinel.py:60-65 | **MEDIUM** | Race condition on state write → corrupted JSON | Use a temp file + os.replace() |
+| 7 | arb_radar division is guarded | services/arb_radar.py:180 | **—** | Theoretically a ZeroDivisionError, but the guard is sufficient | **✅ CLEAN** |
 
 ---
 
-## 🔴 FINDING #1: rejected_signals[] не е дълготраен лог
+## 🔴 FINDING #1: rejected_signals[] is not a durable log
 
 **main.py:4081-4119** (_verify_signal_values)
 
-Verifier връща `rejected_signals[]` (в response ✓), но **не логира в guard_events** (в БД) → при рестарт данните са izgore → operator не вижда дали agent редовно лъже.
+The verifier returns `rejected_signals[]` (in the response ✓), but **does not log to
+guard_events** (in the DB) → after a restart the data is gone → the operator cannot
+see whether the agent lies regularly.
 
 **Fix:**
 ```python
@@ -43,20 +45,22 @@ for entry in rejected_signals or []:
 
 ---
 
-## 🟠 FINDING #2: CoinGecko fallback кеш не се инвалидира
+## 🟠 FINDING #2: CoinGecko fallback cache is not invalidated
 
 **services/coingecko.py:145-174** (_get)
 
-Cache key не включва Base44 status → при fallback връща стара Base44 цена → verifier отхвърля.
+The cache key does not include the Base44 status → on fallback it returns the old Base44
+price → the verifier rejects.
 
-**Сценарий:** Base44 $2000 в кеш → Base44 пада → fallback → live $1950 → verifier сравня $2000 vs $1950 → rejected!
+**Scenario:** Base44 $2000 in cache → Base44 goes down → fallback → live $1950 → the
+verifier compares $2000 vs $1950 → rejected!
 
 **Fix:**
 ```python
 use_base44 = self._base44_available
 cache_key = tuple(sorted(sym.lower() for sym in tokens)) + (use_base44,)
 
-# ИЛИ при fallback:
+# OR on fallback:
 if not resp.ok and self._base44_available:
     self._base44_available = False
     with cls._cache_lock:
@@ -65,11 +69,12 @@ if not resp.ok and self._base44_available:
 
 ---
 
-## 🔴 FINDING #3: Client НЕ верифицира returned nonce
+## 🔴 FINDING #3: Client does NOT verify the returned nonce
 
 **scripts/demo_sponsored_pay.py:320-370** (main)
 
-Client подписва EIP-3009 с nonce, но не проверява че PAYMENT-RESPONSE го върна → adoption attack (друго уреждение).
+The client signs EIP-3009 with a nonce, but does not check that PAYMENT-RESPONSE
+returned it → adoption attack (a different settlement).
 
 **Fix:**
 ```python
@@ -81,13 +86,14 @@ if settle.get("nonce") != signed_nonce_hex:
 
 ---
 
-## 🟠 FINDING #4: XFF fallback неточна
+## 🟠 FINDING #4: XFF fallback is imprecise
 
 **main.py:1380-1386** (_get_client_ip)
 
-All-private XFF взема **последния entry** (първия proxy) вместо първия → може спуфа.
+All-private XFF takes **the last entry** (the first proxy) instead of the first one → it
+can be spoofed.
 
-**Fix:** `return entries[0]` за all-private или `return peer` (fail-closed).
+**Fix:** `return entries[0]` for all-private, or `return peer` (fail-closed).
 
 ---
 
@@ -95,9 +101,9 @@ All-private XFF взема **последния entry** (първия proxy) в�
 
 **services/sentinel.py:60-65** (_persist)
 
-Race condition при state file write → корумпиран JSON.
+Race condition on the state file write → corrupted JSON.
 
-**Fix:** Используй `temp_file + os.replace()` за атомна писане.
+**Fix:** Use `temp_file + os.replace()` for an atomic write.
 
 ---
 

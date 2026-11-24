@@ -1,234 +1,312 @@
 # VISIBILITY & TRAFFIC STRATEGY — kristo-intelligence-6
 
-**Дата на анализа:** 2026-11-03 · **Час:** 12:20–12:40 (Europe/Sofia) · **HEAD:** `66a0ce4` (2026-11-02)
-**Обект:** `https://kristo-intelligence-api.onrender.com` · `https://github.com/hristovdimitri2-hub/kristo-intelligence-6`
-**Тип на документа:** диагностика + план за дистрибуция. **Само за четене** — не е променен нито един файл по кода, x402 хедърите, цените, `payTo`, защитените конфигурации или `secrets/`. Няма `git add/commit/push`. Всяка стъпка по-долу е **предложение за изпълнение**, а не извършена промяна.
+**Analysis date:** 2026-11-03 · **Time:** 12:20–12:40 (Europe/Sofia) · **HEAD:** `66a0ce4` (2026-11-02)
+**Target:** `https://kristo-intelligence-api.onrender.com` · `https://github.com/hristovdimitri2-hub/kristo-intelligence-6`
+**Document type:** diagnosis + distribution plan. **Read-only** — not a single file of code, x402 headers,
+prices, `payTo`, protected configs or `secrets/` was changed. No `git add/commit/push`. Every step below is a
+**proposed action**, not a change that has been made.
 
-> **Защо това е отделен документ от техническия одит:** одитът отговори „стабилен ли е софтуерът". Този документ отговаря „вижда ли се и продава ли". Заключението е, че проблемът **не е в липсата на канали** — а в това, че каналите са много, но почти никой не е доведен до край, никой не е измерим и машинно-четимите спецификации, които агрегаторите всъщност четат, съдържат грешни данни.
+> **Why this is a separate document from the technical audit:** the audit answered "is the software stable".
+> This document answers "is it visible and does it sell". The conclusion is that the problem **is not a lack of
+> channels** — it is that there are many channels, almost none is carried to completion, none is measurable, and
+> the machine-readable specs that aggregators actually read contain wrong data.
 
 ---
 
-## 0. Резюме за ръководството (прочети само това, ако имаш 2 минути)
+## 0. Executive summary (read only this if you have 2 minutes)
 
-**Платформата е технически стабилна и вече е „намерена" — но само от машини, които не купуват.**
+**The platform is technically stable and already "found" — but only by machines that do not buy.**
 
-Твърденията „нулева видимост" и „не сме в каталозите" са **частично неверни**. Проверено на живо на 03.11:
+The claims "zero visibility" and "we are not in the catalogs" are **partially false**. Verified live on 03.11:
 
-| Факт | Доказателство |
+| Fact | Evidence |
 |---|---|
-| Има реален, индексиран уеб присъствие | DuckDuckGo `site:` връща **1 страница** (началната), с извлечено точно meta описание |
-| Има листинг в mcp.so | `mcp.so/servers/kristo-intelligence` е жив (но „Authentication: not confirmed" и остарели метаданни) |
-| Има запис в официалния MCP Registry | 2 записа, `isLatest` = версия 6.0.0 |
-| Има публикуван npm пакет | `kristo-x402-client@1.0.0`, **37 сваляния** за последните 30 дни (пик 119 в деня на публикуване) |
-| BuiltWith е индексирал MCP инструментите ни | 3 отделни tool страници (`get_market_stats`, `get_onchain_sales`, …) |
-| Има 1 потвърден merge в awesome списък | `awesome-remote-mcp-servers` PR #10 |
-| Има **реален** платен трафик от външен източник | `nohumans.directory` → 3 × $0.005 от `nohumans-scout` на 30.10 |
+| There is a real, indexed web presence | DuckDuckGo `site:` returns **1 page** (the landing page), with an accurately extracted meta description |
+| There is a listing on mcp.so | `mcp.so/servers/kristo-intelligence` is live (but "Authentication: not confirmed" and stale metadata) |
+| There is an entry in the official MCP Registry | 2 entries, `isLatest` = version 6.0.0 |
+| There is a published npm package | `kristo-x402-client@1.0.0`, **37 downloads** over the last 30 days (peak 119 on the day of publication) |
+| BuiltWith has indexed our MCP tools | 3 separate tool pages (`get_market_stats`, `get_onchain_sales`, …) |
+| There is 1 confirmed merge into an awesome list | `awesome-remote-mcp-servers` PR #10 |
+| There is **real** paid traffic from an external source | `nohumans.directory` → 3 × $0.005 from `nohumans-scout` on 30.10 |
 
-**Истинската диагноза:** софтуерът е невидим за **купувачите**, защото:
+**The real diagnosis:** the software is invisible to **buyers**, because:
 
-1. **Платеният продукт е безплатен** на два други влеза — три от шестте SKU-та се получават без $0 (виж техническия одит, F-01/F-02). Всеки, който ни намери, няма причина да плати.
-2. **Машинно-четимите спецификации лъжат** — `.well-known/x402` обявява 6 endpoint-а, `agents.json` — 5 (липсва `/api/v1/whaleflow`), README — „11 resources", кодът — 6. Агрегатор, който ни crawler-не, получава противоречиви данни и/или отпада при валидация.
-3. **Няма нито един измерим канал** — нула third-party analytics в целия код; `/f/<channel>` съществува, но **нула** публикувани линка го използват. След ~350 комита никой не може да каже кой канал е довел купувач.
-4. **Търговският път е блокиран от перфекционизъм** — 10 готови outreach съобщения стоят под ембарго заради „PR #13219 merged AND F1 gate", а F1 е просто funded demo wallet. Най-силният актив (готов текст) не е използван месеци.
-5. **Най-добрият канал е подценен** — единственият потвърден външен платен трафик идва от **agent-facing директория**, а усилието е хвърлено в човешки канали (Reddit/HN/Product Hunt), които никога не са използвани.
-6. **Няма Open Graph / Twitter Card / canonical / JSON-LD в нито един от 9-те шаблона** — всяко споделяне в X/Discord/Reddit/Telegram се визуализира като гол URL. Това убива CTR още преди да е започнал.
-7. **Пазарът е микроскопичен** (self-measured: лидерът в PayAPI прави ~$1.2/месец; 2–4 купувача). Трафик сам по себе си не решава нищо — трябва **точното малко** трафик: агенти и оператори, които плащат.
+1. **The paid product is free** at two other entry points — three of the six SKUs are obtained for $0 (see the
+   technical audit, F-01/F-02). Anyone who finds us has no reason to pay.
+2. **The machine-readable specs lie** — `.well-known/x402` advertises 6 endpoints, `agents.json` — 5 (the
+   `/api/v1/whaleflow` is missing), the README — "11 resources", the code — 6. An aggregator that crawls us
+   gets contradictory data and/or drops out at validation.
+3. **There is not a single measurable channel** — zero third-party analytics in the entire codebase;
+   `/f/<channel>` exists, but **zero** published links use it. After ~350 commits nobody can say which channel
+   brought a buyer.
+4. **The commercial path is blocked by perfectionism** — 10 ready outreach messages sit under embargo because of
+   "PR #13219 merged AND F1 gate", and F1 is just a funded demo wallet. The strongest asset (ready copy) has
+   not been used for months.
+5. **The best channel is underrated** — the only confirmed external paid traffic comes from an **agent-facing
+   directory**, while the effort is thrown into human channels (Reddit/HN/Product Hunt) that have never been
+   used.
+6. **There is no Open Graph / Twitter Card / canonical / JSON-LD in any of the 9 templates** — every share on
+   X/Discord/Reddit/Telegram renders as a bare URL. This kills CTR before it has even started.
+7. **The market is microscopic** (self-measured: the leader in PayAPI makes ~$1.2/month; 2–4 buyers). Traffic
+   by itself solves nothing — you need **the exact small amount** of traffic: agents and operators who pay.
 
-**Реалистична цел за 90 дни:** не „масов трафик", а **10 външни платци**, **3 потвърдени листинга в директории, които агентите четат**, **1 органична страница в топ-50 за дълга заявка** и **пълен attribution** за всеки долар. Това е постижимо с ~20–30 часа работа и почти нула бюджет.
+**A realistic goal for 90 days:** not "mass traffic", but **10 external payers**, **3 confirmed listings in
+directories that agents read**, **1 organic page in the top 50 for a long-tail query** and **full attribution**
+for every dollar. This is achievable with ~20–30 hours of work and almost zero budget.
 
 ---
 
-## 1. Методология и обхват на проверката
+## 1. Methodology and scope of the verification
 
-### 1.1 Какво е проверено на живо (03.11.2026)
+### 1.1 What was verified live (03.11.2026)
 
-| Проверка | Инструмент | Резултат |
+| Check | Tool | Result |
 |---|---|---|
-| GitHub метаданни | `api.github.com/repos/...` | 2 stars, 0 forks, 0 issues, 10 topics, MIT, homepage зададен, **без** Pages/Wiki/Discussions/Releases, 351 комита, създаден 19.08.2026 |
-| `robots.txt` | HTTP GET | `Allow: /`, `Disallow: /api/admin/`, `Sitemap:` — **ок** |
-| `sitemap.xml` | HTTP GET | 11 URL-а, **без `lastmod`**, включва `/dashboard`, `/nexus`, `/launch` |
-| `llms.txt` | HTTP GET | Жив; **документира само legacy `X-Payment-Proof` релса** |
-| `/` (landing) | HTTP GET | Има `<title>`, `<meta description>`, `<h1>`; **няма OG/Twitter/canonical/JSON-LD** |
-| 6 `/sample` route-а | HTTP GET | Връщат реален JSON schema пример (`/api/v1/signal/sample` = 200, ~600 B) |
-| `.well-known/x402` | HTTP GET | 6 resources; споменава и `X-PAYMENT` (v2), и `X-Payment-Proof` |
-| `agents.json` | HTTP GET | **5 endpoints** (без whaleflow); `free_tier_limit: 0`; `monthly_vip_usdc: 29.0` |
-| `README.md` | локален файл | „11 resources on x402scan" (:112), „zero payment incidents" (:111), „Rug-risk checks" (:21) — **неверни/недоказани** |
-| `templates/*.html` | grep | **0 съвпадения** за `og:`, `twitter:`, `canonical`, `application/ld+json` |
-| npm downloads | `api.npmjs.org` | **37** за 30 дни (04.10–02.11); пик **119** на 25.08; после 0–5/ден |
-| npm registry | `registry.npmjs.org` | Пакетът съществува; README вътре казва „$0.05", „1 free call", „$29 VIP" — **всичките остарели** |
-| MCP Registry | `registry.modelcontextprotocol.io` | 2 записа; `isLatest` = 6.0.0; **активен** |
-| mcp.so | HTTP GET | Листинг жив; „Authentication: not confirmed"; описание „whale-wallet signals" (старо позициониране) |
-| CDP Bazaar | `api.cdp.coinbase.com/.../resources` | Първа страница: **46 resource записа, 12 доставчика**; **няма** kristo/onrender/нашия `payTo` |
-| Търсачка | DuckDuckGo `site:` | **1 резултат** (само началната страница); „No more results found" |
-| BuiltWith | DDG резултат | 3 MCP tool страници с наши инструменти → **crawler-ите ни намират** |
-| Smithery | HTTP GET | Листинг **404**; Smithery proxy е спрян 31.10.2026 |
-| Glama API | HTTP GET | `401` — изисква API ключ; не може да се провери программно без ключ |
+| GitHub metadata | `api.github.com/repos/...` | 2 stars, 0 forks, 0 issues, 10 topics, MIT, homepage set, **no** Pages/Wiki/Discussions/Releases, 351 commits, created 19.08.2026 |
+| `robots.txt` | HTTP GET | `Allow: /`, `Disallow: /api/admin/`, `Sitemap:` — **ok** |
+| `sitemap.xml` | HTTP GET | 11 URLs, **no `lastmod`**, includes `/dashboard`, `/nexus`, `/launch` |
+| `llms.txt` | HTTP GET | Live; **documents only the legacy `X-Payment-Proof` rail** |
+| `/` (landing) | HTTP GET | Has `<title>`, `<meta description>`, `<h1>`; **no OG/Twitter/canonical/JSON-LD** |
+| 6 `/sample` routes | HTTP GET | Return a real JSON schema example (`/api/v1/signal/sample` = 200, ~600 B) |
+| `.well-known/x402` | HTTP GET | 6 resources; mentions both `X-PAYMENT` (v2) and `X-Payment-Proof` |
+| `agents.json` | HTTP GET | **5 endpoints** (without whaleflow); `free_tier_limit: 0`; `monthly_vip_usdc: 29.0` |
+| `README.md` | local file | "11 resources on x402scan" (:112), "zero payment incidents" (:111), "Rug-risk checks" (:21) — **false/unproven** |
+| `templates/*.html` | grep | **0 matches** for `og:`, `twitter:`, `canonical`, `application/ld+json` |
+| npm downloads | `api.npmjs.org` | **37** over 30 days (04.10–02.11); peak **119** on 25.08; then 0–5/day |
+| npm registry | `registry.npmjs.org` | The package exists; the README inside says "$0.05", "1 free call", "$29 VIP" — **all stale** |
+| MCP Registry | `registry.modelcontextprotocol.io` | 2 entries; `isLatest` = 6.0.0; **active** |
+| mcp.so | HTTP GET | Listing live; "Authentication: not confirmed"; description "whale-wallet signals" (old positioning) |
+| CDP Bazaar | `api.cdp.coinbase.com/.../resources` | First page: **46 resource entries, 12 providers**; **no** kristo/onrender/our `payTo` |
+| Search engine | DuckDuckGo `site:` | **1 result** (only the landing page); "No more results found" |
+| BuiltWith | DDG result | 3 MCP tool pages with our tools → **crawlers do find us** |
+| Smithery | HTTP GET | Listing **404**; the Smithery proxy is stopped 31.10.2026 |
+| Glama API | HTTP GET | `401` — requires an API key; cannot be checked programmatically without a key |
 
-### 1.2 Какво НЕ е проверено (и защо)
+### 1.2 What was NOT verified (and why)
 
-- **Google Search Console / Bing Webmaster** — няма достъп; индексацията е измерена само индиректно през DuckDuckGo (различен индекс от Google).
-- **Пълният CDP Bazaar каталог** — API-то връща пагиниран списък; проверена е само първата страница (~100 KB, 46 записа). Липсата в нея **не доказва** липса в целия каталог.
-- **Glama сървърния запис** — документацията казва „изтрит", живият badge казва „claimed, rated A". Двусмислено; изисква API ключ за категорична проверка.
-- **Реални продажби и трафик в production** — няма достъп до Render логове, база или метрики. Всички числа за трафик идват от `docs/TRAFFIC_AUDIT.md` (11.09) и от кода.
-- **Платено тестване на x402 пътя** — не е извършено (изисква портфейл с реални USDC); анализът е статичен + документален.
+- **Google Search Console / Bing Webmaster** — no access; indexing was measured only indirectly through
+  DuckDuckGo (a different index from Google).
+- **The full CDP Bazaar catalog** — the API returns a paginated list; only the first page was checked
+  (~100 KB, 46 entries). Its absence there **does not prove** absence in the whole catalog.
+- **The Glama server entry** — the documentation says "deleted", the live badge says "claimed, rated A".
+  Ambiguous; it requires an API key for a definitive check.
+- **Real sales and traffic in production** — no access to Render logs, database or metrics. All traffic numbers
+  come from `docs/TRAFFIC_AUDIT.md` (11.09) and from the code.
+- **Paid testing of the x402 path** — not performed (it requires a wallet with real USDC); the analysis is
+  static + documentary.
 
-> **Правило за четене:** в документа са маркирани `[ПРОВЕРЕНО]` (аз го проверих на живо/в кода), `[ДОКУМЕНТИРАНО]` (идва от документ в репото, без независима проверка) и `[НЕПРОВЕРЕНО]` (не можах да потвърдя).
+> **Reading rule:** the document marks `[VERIFIED]` (I checked it live/in the code), `[DOCUMENTED]` (it comes
+> from a document in the repo, without independent verification) and `[UNVERIFIED]` (I could not confirm it).
 
 ---
 
-## 2. Диагностика: защо платформата е невидима
+## 2. Diagnosis: why the platform is invisible
 
-### 2.1 Търсачки — има техническа готовност, но почти нулево съдържание за индексиране
+### 2.1 Search engines — technical readiness exists, but almost zero content to index
 
-**Какво работи `[ПРОВЕРЕНО]`:**
-- `robots.txt` е коректен и дори подсказва sitemap.
-- `sitemap.xml` е валиден и се сервира с правилен Content-Type.
-- Началната страница има `<title>`, `<meta name="description">` и `<h1>` — тоест **не е** „празна" страница.
-- Има 6 безплатни `/sample` route-а, които връщат реален примерен JSON — потенциално индексируемо съдържание.
-- BuiltWith е успял да обходи MCP endpoint-а и е създал tool страници → **crawlability-то на сървъра не е проблемът**.
+**What works `[VERIFIED]`:**
+- `robots.txt` is correct and even hints at the sitemap.
+- `sitemap.xml` is valid and is served with the correct Content-Type.
+- The landing page has `<title>`, `<meta name="description">` and `<h1>` — that is, it is **not** an "empty"
+  page.
+- There are 6 free `/sample` routes that return a real sample JSON — potentially indexable content.
+- BuiltWith has managed to crawl the MCP endpoint and has created tool pages → **the server's crawlability is
+  not the problem**.
 
-**Какво липсва `[ПРОВЕРЕНО]`:**
-1. **Нула Open Graph / Twitter Card / canonical / JSON-LD** във всички 9 шаблона (`grep` = 0 съвпадения). Всяко споделяне в X, Discord, Reddit, Telegram, LinkedIn показва гол URL без заглавие, описание и изображение. Това е най-евтината и най-влиятелна SEO/социална поправка.
-2. **Няма нито една HTML страница със съдържание.** Целият продукт е JSON + един landing. Няма `/pricing`, `/docs`, `/api-reference`, `/how-it-works`, `/blog`, `/status`, `/use-cases`, `/compare`. Търсачката има какво да индексира само на 1 URL.
-3. **Платените route-и връщат 402 на crawler** — това е правилно за paywall, но означава, че 6-те „продуктови" страници са **неиндексируеми по дефиниция**. Целият SEO потенциал трябва да дойде от безплатните повърхности (landing, `/dashboard`, `/agents`, `/launch`, `/llms.txt`, `/openapi.json`), а те са или вътрешни, или на български.
-4. **Поддомейн на `onrender.com`** вместо собствен домейн — слаба бранд репутация, споделен домейн с безплатни/спам сайтове, никакъв brand search, никакъв имейл домейн за outreach.
-5. **Sitemap без `lastmod`** и с приоритет 0.9 за `/dashboard` (оперативно табло, не маркетинг страница) — размива crawl budget.
-6. **Смесен език:** `/dashboard` е с българско заглавие („Оперативно табло"), `/launch` е изцяло българска VIP страница за трейдъри — **друг продукт, друг ICP** — а началната е на английски за агенти. Crawler-ът вижда три несвързани оферти на един домейн.
-7. **Няма GSC/Bing verification** — `MARKETING_KIT.md:127-128` ги води „⬜ manual"; нула meta verification тагове, нула `google-site-verification` файл.
+**What is missing `[VERIFIED]`:**
+1. **Zero Open Graph / Twitter Card / canonical / JSON-LD** in all 9 templates (`grep` = 0 matches). Every
+   share on X, Discord, Reddit, Telegram, LinkedIn shows a bare URL with no title, description or image. This
+   is the cheapest and most impactful SEO/social fix.
+2. **There is not a single HTML page with content.** The whole product is JSON + one landing. There is no
+   `/pricing`, `/docs`, `/api-reference`, `/how-it-works`, `/blog`, `/status`, `/use-cases`, `/compare`. The
+   search engine has only 1 URL to index.
+3. **The paid routes return 402 to a crawler** — that is correct for a paywall, but it means the 6 "product"
+   pages are **unindexable by definition**. The whole SEO potential has to come from the free surfaces
+   (landing, `/dashboard`, `/agents`, `/launch`, `/llms.txt`, `/openapi.json`), and they are either internal or
+   in Bulgarian.
+4. **A subdomain of `onrender.com` instead of a domain of your own** — weak brand reputation, a domain shared
+   with free/spam sites, no brand search, no email domain for outreach.
+5. **Sitemap without `lastmod`** and with priority 0.9 for `/dashboard` (an operational dashboard, not a
+   marketing page) — it dilutes crawl budget.
+6. **Mixed language:** `/dashboard` has a Bulgarian title ("Operations dashboard"), `/launch` is an entirely
+   Bulgarian VIP page for traders — **another product, another ICP** — while the landing is in English for
+   agents. The crawler sees three unrelated offers on one domain.
+7. **No GSC/Bing verification** — `MARKETING_KIT.md:127-128` lists them as "⬜ manual"; zero meta verification
+   tags, zero `google-site-verification` file.
 
-**Ефект:** `site:kristo-intelligence-api.onrender.com` дава **1 резултат** `[ПРОВЕРЕНО]`. Тоест от 11 URL-а в sitemap-а е индексиран 1. Дори да приемем, че Google е по-благосклонен от DuckDuckGo, липсата на съдържание и на вътрешни връзки прави реалистичната индексация едноцифрена.
+**Effect:** `site:kristo-intelligence-api.onrender.com` returns **1 result** `[VERIFIED]`. That is, of the 11
+URLs in the sitemap, 1 is indexed. Even assuming Google is more favourable than DuckDuckGo, the lack of content
+and of internal links makes realistic indexing single-digit.
 
-### 2.2 Агрегатори и x402 екосистема — листвани сме там, където не се купува
+### 2.2 Aggregators and the x402 ecosystem — we are listed where nobody buys
 
-| Канал | Състояние | Доказателство |
+| Channel | State | Evidence |
 |---|---|---|
-| **CDP Bazaar** (Coinbase — основният x402 индекс) | **Непотвърдено присъствие** | `[ПРОВЕРЕНО]` първа страница на `/platform/v2/x402/discovery/resources` = 46 записа, 12 доставчика; нашият `payTo` липсва. `[ДОКУМЕНТИРАНО]` 15.09: индексът е имал 16 035 записа и **0 наши** (`AP2_RADAR.md:89`). Listing trigger комит е едва от 02.11 (`66a0ce4`) |
-| **x402scan** | **Непотвърдено** | `[ДОКУМЕНТИРАНО]` „11 resources, 0 errors" (`DISTRIBUTION_STATUS.md:11,62`), но `AP2_RADAR.md:90` (15.09) казва „origin page exists, **0 resources shown**". Регистрацията иска SIWX подпис (`AP2_RADAR.md:93`) |
-| **PayAPI Market** | **ЖИВ** | `[ДОКУМЕНТИРАНО]` blurb приет 03.09 19:29 UTC; band=established 69.7; **но** „PayAPI няма automatic recrawl" (`PROJECT_STATUS.md:599`) → класирането е замразено върху стар текст |
-| **mcp.so** | **ЖИВ, но слаб** | `[ПРОВЕРЕНО]` страницата съществува; „Authentication: not confirmed"; описанието е старо („whale-wallet signals") |
-| **MCP Registry** | **ЖИВ** | `[ПРОВЕРЕНО]` 2 записа, `isLatest` 6.0.0 — но това е индекс, не витрина; купувачи не го разглеждат |
-| **Glama (connector)** | **ЖИВ** | `[ДОКУМЕНТИРАНО]` claimed, TDQS 4.7, 3 tools, lastTested 22.09 |
-| **Glama (servers dir)** | **ДВУСМИСЛЕНО** | `[ДОКУМЕНТИРАНО]` записът е „изтрит" при „FIXED" на 23.09 (`PROJECT_STATUS.md:496-501`); `[ПРОВЕРЕНО]` badge-ът на живо твърди „claimed, rated A" |
-| **Smithery** | **МЪРТЪВ** | `[ПРОВЕРЕНО]` листинг URL → **HTTP 404**; Smithery proxy е спрян 31.10.2026 |
-| **PulseMCP** | **ЛИПСВА** | `[ДОКУМЕНТИРАНО]` „submissions temporarily paused" от 03.09 (`PROJECT_STATUS.md:2438`); 17.09 проверка „НЕ сме там"; `[НЕПРОВЕРЕНО]` 03.11 → Cloudflare 403 |
-| **nohumans.directory** | **ЖИВ И РАБОТИ** | `[ДОКУМЕНТИРАНО]` 3× verified; **реален платен трафик 3 × 0.005 USDC на 30.10** (`discovery.py:340-342`) |
-| **x402 Trust** | **ЖИВ** | `[ДОКУМЕНТИРАНО]` profile `/endpoint/139372`, **grade B, „proceed"** |
-| **mcprush** | **ПРЕДПОЛАГАЕМО** | `[ПРОВЕРЕНО]` badge в `README.md:4`; `[ДОКУМЕНТИРАНО]` няма submission запис в репото |
+| **CDP Bazaar** (Coinbase — the main x402 index) | **Unconfirmed presence** | `[VERIFIED]` first page of `/platform/v2/x402/discovery/resources` = 46 entries, 12 providers; our `payTo` is missing. `[DOCUMENTED]` 15.09: the index had 16 035 entries and **0 of ours** (`AP2_RADAR.md:89`). The listing trigger commit is only from 02.11 (`66a0ce4`) |
+| **x402scan** | **Unconfirmed** | `[DOCUMENTED]` "11 resources, 0 errors" (`DISTRIBUTION_STATUS.md:11,62`), but `AP2_RADAR.md:90` (15.09) says "origin page exists, **0 resources shown**". Registration requires a SIWX signature (`AP2_RADAR.md:93`) |
+| **PayAPI Market** | **LIVE** | `[DOCUMENTED]` blurb accepted 03.09 19:29 UTC; band=established 69.7; **but** "PayAPI has no automatic recrawl" (`PROJECT_STATUS.md:599`) → the ranking is frozen on old copy |
+| **mcp.so** | **LIVE, but weak** | `[VERIFIED]` the page exists; "Authentication: not confirmed"; the description is old ("whale-wallet signals") |
+| **MCP Registry** | **LIVE** | `[VERIFIED]` 2 entries, `isLatest` 6.0.0 — but this is an index, not a storefront; buyers do not browse it |
+| **Glama (connector)** | **LIVE** | `[DOCUMENTED]` claimed, TDQS 4.7, 3 tools, lastTested 22.09 |
+| **Glama (servers dir)** | **AMBIGUOUS** | `[DOCUMENTED]` the entry is "deleted" at "FIXED" on 23.09 (`PROJECT_STATUS.md:496-501`); `[VERIFIED]` the live badge claims "claimed, rated A" |
+| **Smithery** | **DEAD** | `[VERIFIED]` listing URL → **HTTP 404**; the Smithery proxy is stopped 31.10.2026 |
+| **PulseMCP** | **MISSING** | `[DOCUMENTED]` "submissions temporarily paused" since 03.09 (`PROJECT_STATUS.md:2438`); 17.09 check "we are NOT there"; `[UNVERIFIED]` 03.11 → Cloudflare 403 |
+| **nohumans.directory** | **LIVE AND WORKING** | `[DOCUMENTED]` 3× verified; **real paid traffic 3 × 0.005 USDC on 30.10** (`discovery.py:340-342`) |
+| **x402 Trust** | **LIVE** | `[DOCUMENTED]` profile `/endpoint/139372`, **grade B, "proceed"** |
+| **mcprush** | **PRESUMED** | `[VERIFIED]` badge in `README.md:4`; `[DOCUMENTED]` no submission record in the repo |
 
-**Изводът за агрегаторите:** присъстваме в 6+ каталога, но **нито един от тях не е мястото, където агент взема решение за покупка**. Агрегаторите, които реално водят до плащане (CDP Bazaar → x402scan; nohumans.directory), са точно тези, които са непотвърдени или току-що задействани.
+**The conclusion about aggregators:** we are present in 6+ catalogs, but **not one of them is the place where
+an agent makes a purchase decision**. The aggregators that actually lead to payment (CDP Bazaar → x402scan;
+nohumans.directory) are exactly the ones that are unconfirmed or only just triggered.
 
-### 2.3 MCP директории — 3 инструмента, но разминаващи се имена
+### 2.3 MCP directories — 3 tools, but diverging names
 
-- `[ПРОВЕРЕНО]` MCP сървърът е реален: 3 инструмента (`get_market_stats`, `get_onchain_sales`, `get_bot_status`) в `app/blueprints/discovery.py:522/541/561`, изложени през `/mcp` (streamable HTTP) и `/mcp/sse`.
-- `[ДОКУМЕНТИРАНО]` Вторият каталог в `discovery.py:1061-1110` нарича същия инструмент **`get_sales_history`** вместо `get_onchain_sales` — разминаване, което обърква и агент, и каталог.
-- `[ПРОВЕРЕНО]` `/mcp/sse` **не е в sitemap.xml** и не е споменат в `llms.txt`; `/mcp` също.
-- `[ПРОВЕРЕНО]` `server.json` е коректен по схемата на MCP Registry (`io.github.hristovdimitri2-hub/kristo-intelligence`, v6.0.0, два remotes) — това е най-силният машинно-четим актив, който имаме.
+- `[VERIFIED]` the MCP server is real: 3 tools (`get_market_stats`, `get_onchain_sales`, `get_bot_status`) in
+  `app/blueprints/discovery.py:522/541/561`, exposed through `/mcp` (streamable HTTP) and `/mcp/sse`.
+- `[DOCUMENTED]` The second catalog in `discovery.py:1061-1110` calls the same tool **`get_sales_history`**
+  instead of `get_onchain_sales` — a divergence that confuses both an agent and a catalog.
+- `[VERIFIED]` `/mcp/sse` **is not in sitemap.xml** and is not mentioned in `llms.txt`; `/mcp` either.
+- `[VERIFIED]` `server.json` is correct per the MCP Registry schema
+  (`io.github.hristovdimitri2-hub/kristo-intelligence`, v6.0.0, two remotes) — this is the strongest
+  machine-readable asset we have.
 
-### 2.4 Разработчици — почти никаква следа от човешка активност
+### 2.4 Developers — almost no trace of human activity
 
-`[ПРОВЕРЕНО]` 2 stars, 0 forks, 0 open issues, 0 releases, 0 discussions, 0 PR-и в repo-то. **Няма `.github/` директория** → няма CI badge, няма issue/PR шаблони, няма social preview, няма dependabot, няма SECURITY.md/CHANGELOG.md/CONTRIBUTING.md. Няма `CHANGELOG`, няма release с бележки.
+`[VERIFIED]` 2 stars, 0 forks, 0 open issues, 0 releases, 0 discussions, 0 PRs in the repo. **There is no
+`.github/` directory** → no CI badge, no issue/PR templates, no social preview, no dependabot, no
+SECURITY.md/CHANGELOG.md/CONTRIBUTING.md. There is no `CHANGELOG`, no release with notes.
 
-`[ПРОВЕРЕНО]` npm пакетът има **37 сваляния/месец** и **119 в деня на публикуване** — тоест почти целият обем е от самото публикуване и от собствени проверки, не от органичен интерес. Пакетът **не е рекламиран никъде** освен в README и landing страницата; README-то вътре в пакета съдържа остарели цени ($0.05 вместо $0.003–0.005, „1 free call" при production free tier 0) — всеки, който го инсталира, получава грешна информация.
+`[VERIFIED]` the npm package has **37 downloads/month** and **119 on the day of publication** — that is,
+almost the entire volume is from the publication itself and from our own checks, not from organic interest.
+The package **is not advertised anywhere** except in the README and the landing page; the README inside the
+package contains stale prices ($0.05 instead of $0.003–0.005, "1 free call" when the production free tier is
+0) — anyone who installs it gets wrong information.
 
-`[ПРОВЕРЕНО]` README-то на repo-то е 136 реда и започва с два badge-а и дълъг списък — няма screenshot/GIF на демото в първите 10 реда, няма „one-command" блок преди средата.
+`[VERIFIED]` the repo README is 136 lines and starts with two badges and a long list — there is no
+screenshot/GIF of the demo in the first 10 lines, no "one-command" block before the middle.
 
-### 2.5 Липса на атрибуция — няма как да се разбере кой канал работи
+### 2.5 Lack of attribution — there is no way to tell which channel works
 
-`[ДОКУМЕНТИРАНО]`:
-- `/f/<channel>` атрибуционен hop съществува от 03.09 (`main.py:2242-2252`), но **grep в цялото репо: нула публикувани линка го използват**. Каналната атрибуция е празна по конструкция.
-- **Нула third-party analytics**: grep за `umami|plausible|googletagmanager|gtag(|analytics.js|matomo|posthog|mixpanel|segment` в всички `*.py` и `*.html` → **0 съвпадения**.
-- UTM полета има само в legacy VIP/Stripe CRM таблицата (`main.py:4259-4261, 5234-5236`; `integrations/crm_store.py:27-29`), не в x402 API-то.
-- Единствените реални измерения: persistent `request_log` в Postgres (`main.py:2208-2216`), `/api/dashboard/data` requests секция (`main.py:5454-5470`) и on-chain истина (`payment_guards`, `onchain_sales`, `external_payers`).
-- `docs/TRAFFIC_AUDIT.md` (11.09): 13 792 заявки/ден, но `/health` = 42 097 е **собствен keep-alive шум**; „402 challenges → paid: **1 → 0**"; „Днес 100% от трафика е индексатори, монитори и собствен keep-alive шум" (`:58-61`). Два хита от `ClaudeBot/1.0`.
+`[DOCUMENTED]`:
+- The `/f/<channel>` attribution hop has existed since 03.09 (`main.py:2242-2252`), but **grep across the whole
+  repo: zero published links use it**. Channel attribution is empty by construction.
+- **Zero third-party analytics**: grep for
+  `umami|plausible|googletagmanager|gtag(|analytics.js|matomo|posthog|mixpanel|segment` in all `*.py` and
+  `*.html` → **0 matches**.
+- UTM fields exist only in the legacy VIP/Stripe CRM table (`main.py:4259-4261, 5234-5236`;
+  `integrations/crm_store.py:27-29`), not in the x402 API.
+- The only real measurements: persistent `request_log` in Postgres (`main.py:2208-2216`), the
+  `/api/dashboard/data` requests section (`main.py:5454-5470`) and on-chain truth (`payment_guards`,
+  `onchain_sales`, `external_payers`).
+- `docs/TRAFFIC_AUDIT.md` (11.09): 13 792 requests/day, but `/health` = 42 097 is **our own keep-alive
+  noise**; "402 challenges → paid: **1 → 0**"; "Today 100% of the traffic is indexers, monitoring and our own
+  keep-alive noise" (`:58-61`). Two hits from `ClaudeBot/1.0`.
 
-### 2.6 Човешките канали са блокирани от перфекционизъм
+### 2.6 The human channels are blocked by perfectionism
 
-`[ДОКУМЕНТИРАНО]` `docs/OUTREACH_WAVE1.md:3-4` държи 10 готови съобщения под ембарго заради „PR #13219 merged AND F1 gate closed". F1 е „funded demo wallet" — едно човешко решение за няколко долара. Резултат: Reddit, HN, Product Hunt, dev.to, Discord постовете са написани и **никога не публикувани**, докато пазарът е ~$1.2/месец.
+`[DOCUMENTED]` `docs/OUTREACH_WAVE1.md:3-4` holds 10 ready messages under embargo because of "PR #13219
+merged AND F1 gate closed". F1 is a "funded demo wallet" — one human decision for a few dollars. Result: the
+Reddit, HN, Product Hunt, dev.to, Discord posts are written and **never published**, while the market is
+~$1.2/month.
 
-### 2.7 Пазарът е микроскопичен — това променя цялата стратегия
+### 2.7 The market is microscopic — this changes the whole strategy
 
-`[ДОКУМЕНТИРАНО]` `PROJECT_STATUS.md:50-54`: „Реалните причини плащанията да 'спрат' са микроскопичен пазар (2–4 купувача) + нулев outreach — не технически отказ". `PROJECT_STATUS.md:2596`: „лидерът на PayAPI прави ~$1.2/МЕСЕЦ … всички сме на нула". `docs/MARKET_WRITEUP.md:40-52` дава методологията за това измерване.
+`[DOCUMENTED]` `PROJECT_STATUS.md:50-54`: "The real reasons payments 'stop' are a microscopic market (2–4
+buyers) + zero outreach — not a technical failure". `PROJECT_STATUS.md:2596`: "the PayAPI leader makes
+~$1.2/MONTH … we are all at zero". `docs/MARKET_WRITEUP.md:40-52` gives the methodology for this measurement.
 
-**Следствие:** стратегия за „масов трафик" е грешна рамка. Правилната цел е **да бъдем намерени от малкото агенти/оператори, които купуват**, и да имаме проверима следа за всеки долар. Затова приоритетът е машинно-четими повърхности + attribution, не viral кампании.
+**Consequence:** a "mass traffic" strategy is the wrong frame. The right goal is **to be found by the few
+agents/operators who buy**, and to have a verifiable trace for every dollar. That is why the priority is
+machine-readable surfaces + attribution, not viral campaigns.
 
 ---
 
-## 3. Стратегия за дистрибуция и листване
+## 3. Distribution and listing strategy
 
-### 3.1 Принципи (за да не се повтори миналото)
+### 3.1 Principles (so that the past does not repeat itself)
 
-1. **Един канал = една завършена задача.** Не отваряй втори PR, докато първият не е затворен/обединен.
-2. **Никакъв листинг без машинно-четима коректност.** Първо оправи `agents.json`, `llms.txt`, `.well-known/x402`, `server.json` — после подай.
-3. **Всеки публичен линк минава през `/f/<channel>`.** Иначе каналът е невидим завинаги.
-4. **Никакъв листинг без вътрешен чек:** валидатор, който потвърждава, че endpoint-ът връща 402 с правилен challenge.
-5. **Не повтаряй отхвърлена молба без да си отстранил причината.** #11557 е умрял заради липса на Glama quality score; #13219 е отворен **преди** score-а да съществува и умря по същото правило.
-6. **Не записвай успех, преди да си го проверил.** „Smithery PUBLISHED 30.09" е днес 404. „#12799 Open" е било затворено на 29.08. Документите вече са задължение, не актив.
+1. **One channel = one completed task.** Do not open a second PR until the first is closed/merged.
+2. **No listing without machine-readable correctness.** First fix `agents.json`, `llms.txt`,
+   `.well-known/x402`, `server.json` — then submit.
+3. **Every public link goes through `/f/<channel>`.** Otherwise the channel is invisible forever.
+4. **No listing without an internal check:** a validator that confirms the endpoint returns 402 with a correct
+   challenge.
+5. **Do not repeat a rejected request without removing the cause.** #11557 died because of a missing Glama
+   quality score; #13219 was opened **before** the score existed and died by the same rule.
+6. **Do not record success before you have verified it.** "Smithery PUBLISHED 30.09" is a 404 today. "#12799
+   Open" was closed on 29.08. The documents are already a liability, not an asset.
 
-### 3.2 Приоритизирани канали (Tier 1 = прави пари / индексира)
+### 3.2 Prioritized channels (Tier 1 = makes money / indexes)
 
-#### TIER 1 — High priority. Правят пари или индексират за агенти.
+#### TIER 1 — High priority. They make money or they index for agents.
 
-| # | Канал | Какво точно да се направи | Очакван ефект | Усилие | Риск |
+| # | Channel | What exactly to do | Expected effect | Effort | Risk |
 |---|---|---|---|---|---|
-| 1 | **CDP Bazaar → x402scan** | 1) Потвърди, че `/api/stats` връща валиден v2 challenge с `extensions` echo (комитът от 02.11 го задейства). 2) Изчакай crawl (index-ът е pull-based). 3) Ако до 7 дни няма запис — отвори Listing Request #1270 с готовия текст от `SCAN_LISTING_EN.md`. 4) Провери присъствие с скрипт (Приложение B.1) | **Най-висок.** Това е индексът, който x402scan и повечето x402 агенти четат | 2–3 ч + 7 дни изчакване | Нисък |
-| 2 | **nohumans.directory** | Вече работи. Задръж листинга, добави `/f/nohumans` към URL-а в профила и провери дали scout-ът пак плаща. Не пипай нищо друго | Потвърден платен трафик | 30 мин | Нисък |
-| 3 | **Glama connector** | Жив е. Добави `/f/glama` в connector URL-а/описанието, ако полето го позволява; поддържай `lastTested` свеж | Индексиран MCP клиент | 20 мин | Нисък |
-| 4 | **Glama servers dir** | 1) Оправи причината: лицензът е „F", защото след MIT текста има добавено „COMMERCIAL USE NOTICE" след `---` (`PROJECT_STATUS.md:576-579`) → махни го от `LICENSE` (или го сложи в отделен файл). 2) Увери се, че е регистриран като **Hosted endpoint**, не „Runs from source". 3) Подай наново с пълно README. 4) Не отваряй нов тикет, докато старият (#135407945) не е затворен | Възстановяване на #1 позиция за „defi" | 3–4 ч | Среден (зависи от Glama) |
-| 5 | **mcp.so** | 1) Claim-ни листинга (бутонът „Claim" е на страницата). 2) Обнови описанието от „whale-wallet signals" на актуалното позициониране (6 route-а, x402, no signup). 3) Попълни „Authentication: x402 pay-per-call" вместо „not confirmed" | Коригира най-видимия MCP листинг | 30 мин | Нисък |
-| 6 | **x402 Trust** | Жив, grade B. Подай отново за преоценка **след** като оправиш metadata разминаванията (виж §4) — grade-ът се влияе от тях | По-висок доверителен клас | 1 ч | Нисък |
-| 7 | **PayAPI Market** | 1) Плати/поискай recrawl (листингът е замразен върху стар текст, `PROJECT_STATUS.md:599`). 2) Добави `/f/payapi` към URL-а. 3) Пусни 1 нов canary settlement, за да върнеш „settlement-verified" badge-а актуален | Връща „settlement-verified" доверие | 1–2 ч | Нисък |
+| 1 | **CDP Bazaar → x402scan** | 1) Confirm that `/api/stats` returns a valid v2 challenge with `extensions` echo (the commit from 02.11 triggers it). 2) Wait for the crawl (the index is pull-based). 3) If after 7 days there is no entry — open Listing Request #1270 with the ready text from `SCAN_LISTING_EN.md`. 4) Check the presence with a script (Appendix B.1) | **Highest.** This is the index that x402scan and most x402 agents read | 2–3 h + 7 days of waiting | Low |
+| 2 | **nohumans.directory** | It already works. Keep the listing, add `/f/nohumans` to the URL in the profile and check whether the scout pays again. Do not touch anything else | Confirmed paid traffic | 30 min | Low |
+| 3 | **Glama connector** | It is live. Add `/f/glama` to the connector URL/description if the field allows it; keep `lastTested` fresh | Indexed MCP client | 20 min | Low |
+| 4 | **Glama servers dir** | 1) Fix the cause: the license is "F" because after the MIT text there is an added "COMMERCIAL USE NOTICE" after `---` (`PROJECT_STATUS.md:576-579`) → remove it from `LICENSE` (or put it in a separate file). 2) Make sure it is registered as a **Hosted endpoint**, not "Runs from source". 3) Submit again with a full README. 4) Do not open a new ticket while the old one (#135407945) is not closed | Restoring the #1 position for "defi" | 3–4 h | Medium (depends on Glama) |
+| 5 | **mcp.so** | 1) Claim the listing (the "Claim" button is on the page). 2) Update the description from "whale-wallet signals" to the current positioning (6 routes, x402, no signup). 3) Fill in "Authentication: x402 pay-per-call" instead of "not confirmed" | Fixes the most visible MCP listing | 30 min | Low |
+| 6 | **x402 Trust** | Live, grade B. Submit again for re-evaluation **after** you fix the metadata divergences (see §4) — the grade is affected by them | A higher trust tier | 1 h | Low |
+| 7 | **PayAPI Market** | 1) Pay for/request a recrawl (the listing is frozen on old copy, `PROJECT_STATUS.md:599`). 2) Add `/f/payapi` to the URL. 3) Send 1 new canary settlement to bring the "settlement-verified" badge up to date | Restores "settlement-verified" trust | 1–2 h | Low |
 
-#### TIER 2 — Medium. Ниско усилие, но изискват нещо преди това.
+#### TIER 2 — Medium. Low effort, but they require something first.
 
-| # | Канал | Предусловие | Стъпки | Усилие |
+| # | Channel | Precondition | Steps | Effort |
 |---|---|---|---|---|
-| 8 | **PulseMCP** | Чакат да отворят (пауза от 03.09). Готовият пакет е в `PULSEMCP_SUBMISSION_READY.md` | 1) Настрой watcher (Приложение B.2), който проверява `/submit` за 200 и промяна на текста. 2) При отваряне — подаваш готовия пакет **след** като махнеш „1 free call"/„$0.05" фантомите (`:101-102`) | 1 ч + чакане |
-| 9 | **awesome-x402** PR #1308 | Отворен от 24.08, нула коментара, deadline 08.10 е минал | 1) Коментирай вежлив nudge с 1 изречение и линк към `/llms.txt`. 2) Ако до 14 дни няма отговор — затвори сам и отвори нов PR с **едно** добавено устройство | 30 мин |
-| 10 | **awesome-mcp-servers** PR #13219 | Отворен, labels `has-emoji`/`valid-name`/`has-glama`, rebased 22.09, deadline 01.10 минал | 1) Nudge коментар. 2) Увери се, че Glama score-ът съществува (иначе пак ще умре по 32-дневното правило) | 30 мин |
-| 11 | **mcprush** | Badge в README, но няма submission запис | 1) Провери дали листингът е реален (fetch на badge URL). 2) Ако не — подай; ако да — добави `/f/mcprush` | 20 мин |
-| 12 | **MCP Registry** | Вече активен | 1) Публикувай `server.json` v6.0.0 с **актуални** описания (сега са ок, но провери `paid_endpoints` дали съвпадат с 6-те). 2) Добави `websiteUrl` (има го) | 20 мин |
+| 8 | **PulseMCP** | They are waiting to open (paused since 03.09). The ready package is in `PULSEMCP_SUBMISSION_READY.md` | 1) Set up a watcher (Appendix B.2) that checks `/submit` for a 200 and a text change. 2) When they open — submit the ready package **after** removing the "1 free call"/"$0.05" phantoms (`:101-102`) | 1 h + waiting |
+| 9 | **awesome-x402** PR #1308 | Open since 24.08, zero comments, deadline 08.10 has passed | 1) Comment a polite nudge with 1 sentence and a link to `/llms.txt`. 2) If there is no answer within 14 days — close it yourself and open a new PR with **one** added device | 30 min |
+| 10 | **awesome-mcp-servers** PR #13219 | Open, labels `has-emoji`/`valid-name`/`has-glama`, rebased 22.09, deadline 01.10 passed | 1) Nudge comment. 2) Make sure the Glama score exists (otherwise it will die again by the 32-day rule) | 30 min |
+| 11 | **mcprush** | Badge in the README, but there is no submission record | 1) Check whether the listing is real (fetch the badge URL). 2) If not — submit; if yes — add `/f/mcprush` | 20 min |
+| 12 | **MCP Registry** | Already active | 1) Publish `server.json` v6.0.0 with **current** descriptions (they are ok now, but check whether `paid_endpoints` match the 6). 2) Add `websiteUrl` (it is there) | 20 min |
 
-#### TIER 3 — Low/Medium. Човешки канали — само след като има какво да се покаже.
+#### TIER 3 — Low/Medium. Human channels — only after there is something to show.
 
-| # | Канал | Условие | Бележка |
+| # | Channel | Condition | Note |
 |---|---|---|---|
-| 13 | **Product Hunt** | Изисква ≥3 social proof точки (`VISIBILITY_PLAN.md:88`) | Пусни **след** 3-те външни платци/листинга. Иначе ще е тих провал |
-| 14 | **Show HN** | Изисква „нещо ново и интересно" | Най-добрият ъгъл: „API, който се плаща сам с x402 — без ключове". Публикувай **след** като landing-ът има OG card |
-| 15 | **dev.to статия** | Готов текст в `CONTENT_PACK_1.md` §A | Публикувай **след** като махнеш противоречието „free tier" (`:23-30` vs `:82`) |
-| 16 | **Reddit** (r/LocalLLaMA, r/LangChain, r/Base, r/mcp, r/AI_Agents) | Готови текстове в `OUTREACH_WAVE1.md` §3.1/3.3 | **Само** като отговор на реален въпрос, не като нов пост. Иначе е спам и ще те баннат |
-| 17 | **X/Twitter** | 6-tweet thread в `CONTENT_PACK_1.md` §B | Собственикът го е обявил за „мъртъв канал", но 1 пост с видео съществува. Пусни **само** с OG card + `/f/x` линк |
-| 18 | **Discord** (CDP #agentkit, Base #developers) | Готови текстове в `OUTREACH_WAVE1.md` §1.1/1.3 | Един пост на общност, без cross-post. Най-добър ъгъл: техническа бележка за Bazaar listing |
+| 13 | **Product Hunt** | Requires ≥3 social proof points (`VISIBILITY_PLAN.md:88`) | Launch **after** the 3 external payers/listing. Otherwise it will be a quiet failure |
+| 14 | **Show HN** | Requires "something new and interesting" | The best angle: "An API that pays for itself with x402 — no keys". Publish **after** the landing has an OG card |
+| 15 | **dev.to article** | Ready text in `CONTENT_PACK_1.md` §A | Publish **after** removing the "free tier" contradiction (`:23-30` vs `:82`) |
+| 16 | **Reddit** (r/LocalLLaMA, r/LangChain, r/Base, r/mcp, r/AI_Agents) | Ready texts in `OUTREACH_WAVE1.md` §3.1/3.3 | **Only** as an answer to a real question, not as a new post. Otherwise it is spam and you will be banned |
+| 17 | **X/Twitter** | 6-tweet thread in `CONTENT_PACK_1.md` §B | The owner has declared it a "dead channel", but 1 post with a video exists. Post **only** with an OG card + `/f/x` link |
+| 18 | **Discord** (CDP #agentkit, Base #developers) | Ready texts in `OUTREACH_WAVE1.md` §1.1/1.3 | One post per community, no cross-post. Best angle: a technical note about the Bazaar listing |
 
-### 3.3 Автоматизация на присъствието (конкретно)
+### 3.3 Presence automation (concrete)
 
-**A. Скрипт за проверка на присъствие** (`scripts/distribution/check_presence.py`, ~120 реда):
-- Чете списък от URL-и/API-та (CDP Bazaar, MCP Registry, mcp.so, Glama API, x402scan) и за всяко връща: `present: true/false`, `last_seen`, `metadata_match: true/false`.
-- Пише `docs/distribution_state.json` — **един** източник на истина вместо 8 разпръснати документа.
-- Пуска се от GitHub Action всеки понеделник 08:00 UTC; при промяна → отваря issue „Distribution drift detected".
+**A. Presence check script** (`scripts/distribution/check_presence.py`, ~120 lines):
+- Reads a list of URLs/APIs (CDP Bazaar, MCP Registry, mcp.so, Glama API, x402scan) and for each returns:
+  `present: true/false`, `last_seen`, `metadata_match: true/false`.
+- Writes `docs/distribution_state.json` — **one** source of truth instead of 8 scattered documents.
+- Runs from a GitHub Action every Monday 08:00 UTC; on a change → opens an issue "Distribution drift
+  detected".
 
 **B. Sitemap/IndexNow ping** (`scripts/seo/ping_index.py`):
-- `POST` към IndexNow (`https://api.indexnow.org/indexnow`) с ключ, който се сервира на `/<key>.txt`.
-- Пинг към Google/Bing sitemap само след като `sitemap.xml` получи `lastmod`.
-- Внимание: IndexNow изисква собствен домейн; на `onrender.com` може да не се приеме → предусловие е custom domain (§5, L1).
+- `POST` to IndexNow (`https://api.indexnow.org/indexnow`) with a key that is served at `/<key>.txt`.
+- Ping Google/Bing sitemap only after `sitemap.xml` gets a `lastmod`.
+- Note: IndexNow requires a domain of your own; on `onrender.com` it may not be accepted → the precondition is
+  a custom domain (§5, L1).
 
-**C. Канална атрибуция:**
-- Всички публични линка минават през `/f/<channel>` (вече съществува, `main.py:2242-2252`) — напр. `https://…/f/x`, `/f/discord`, `/f/reddit`, `/f/ph`, `/f/mcpso`.
-- Всяко листинг поле, което позволява URL (Glama, mcp.so, PayAPI, nohumans), получава `/f/<channel>` варианта.
-- **Без това стъпка 4 от принципите е неизпълнима.**
+**C. Channel attribution:**
+- All public links go through `/f/<channel>` (it already exists, `main.py:2242-2252`) — e.g. `https://…/f/x`,
+  `/f/discord`, `/f/reddit`, `/f/ph`, `/f/mcpso`.
+- Every listing field that allows a URL (Glama, mcp.so, PayAPI, nohumans) gets the `/f/<channel>` variant.
+- **Without this, step 4 of the principles is unachievable.**
 
-**D. UTM за имейл/директни:** `?utm_source=…&utm_medium=…&utm_campaign=…` — кодът вече чете `referer`/`funnel`; UTM полетата са само в CRM-а, така че за API пътя трябва разширение (виж §4, H7).
+**D. UTM for email/direct:** `?utm_source=…&utm_medium=…&utm_campaign=…` — the code already reads
+`referer`/`funnel`; the UTM fields are only in the CRM, so the API path needs an extension (see §4, H7).
 
 ---
 
-## 4. Технически стъпки в репото (High / Medium / Low)
+## 4. Technical steps in the repo (High / Medium / Low)
 
-> Всичко по-долу е **предложение**. Не е приложено. Спазва ограниченията: не пипа x402 хедъри/цени/`payTo`, не пипа `secrets/`, не пипа постовете от 27.10.
+> Everything below is a **proposal**. It has not been applied. It respects the constraints: it does not touch
+> x402 headers/prices/`payTo`, it does not touch `secrets/`, it does not touch the posts from 27.10.
 
-### HIGH — правят се първи (1–3 дни, ~8–12 ч работа)
+### HIGH — done first (1–3 days, ~8–12 h of work)
 
-**H1. Open Graph + Twitter Card + canonical + JSON-LD във всички 9 шаблона.**
-- Файлове: `templates/landing.html`, `templates/launch_landing.html`, `templates/dashboard.html`, `templates/agent_playground.html`, `templates/public_activity.html`, `templates/checkout.html`, `templates/admin_dashboard.html`, `templates/admin_login.html`, `templates/admin_research.html`.
-- Минимум за публичните (`landing`, `launch_landing`, `dashboard`, `agent_playground`, `public_activity`):
+**H1. Open Graph + Twitter Card + canonical + JSON-LD in all 9 templates.**
+- Files: `templates/landing.html`, `templates/launch_landing.html`, `templates/dashboard.html`, `templates/agent_playground.html`, `templates/public_activity.html`, `templates/checkout.html`, `templates/admin_dashboard.html`, `templates/admin_login.html`, `templates/admin_research.html`.
+- Minimum for the public ones (`landing`, `launch_landing`, `dashboard`, `agent_playground`, `public_activity`):
   ```html
   <meta property="og:title" content="…">
   <meta property="og:description" content="…">
@@ -239,178 +317,209 @@
   <link rel="canonical" href="{{ request.url }}">
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Kristo Intelligence","applicationCategory":"FinanceApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0.003","priceCurrency":"USDC"}}</script>
   ```
-- **Задължително:** 1 OG изображение 1200×630 (`static/og.png`) — може да се генерира от `docs/glama_thumbnails/generate.py` (вече има 3 варианта).
-- Ефект: всяко споделяне в X/Discord/Reddit/Telegram става карта с изображение → CTR скок без бюджет.
+- **Mandatory:** 1 OG image 1200×630 (`static/og.png`) — it can be generated from
+  `docs/glama_thumbnails/generate.py` (there are already 3 variants).
+- Effect: every share on X/Discord/Reddit/Telegram becomes a card with an image → a CTR jump with no budget.
 
-**H2. Корекция на машинно-четимите спецификации (най-важното за агрегаторите).**
-- `agents.json` (`app/blueprints/discovery.py:1416`): добави липсващия `/api/v1/whaleflow` (6-ти route); махни `monthly_vip_usdc: 29.0` (VIP unlimited не е имплементиран — `[ДОКУМЕНТИРАНО]` само $0.10 Telegram invite) или го маркирай като `legacy`; поддържай `free_tier_limit: 0`.
-- `llms.txt` (`discovery.py:1536`): документирай **стандартната** релса (`PAYMENT-SIGNATURE` / `X-PAYMENT`, x402 v2) като основна и legacy `X-Payment-Proof` като fallback. Сега `llms.txt` описва **само** legacy релсата — агент, който го чете, изпраща грешен хедър.
-- `.well-known/x402` vs `.well-known/x402.json` (`discovery.py:914/922`): унифицирай броя resources (6) и описанията; сега единият дава 6, `agents.json` — 5.
-- `server.json`: обнови `paid_endpoints` да съвпадат с 6-те; провери `_meta` дали не сочи старо.
-- `README.md`: махни „Rug-risk checks" (:21 — няма такъв route), „zero payment incidents" (:111 — има INCIDENT 14.09), „11 resources" (:112 — кодът експонира 6). Замени с проверени числа.
-- **Проверка след промяна:** един тест, който сравнява множеството от `X402_PAID_ENDPOINTS` с `REAL_X402_ROUTES` и с `agents.json`/`.well-known/x402` — в момента няма такъв тест и точно затова се разминават.
+**H2. Correction of the machine-readable specifications (the most important thing for aggregators).**
+- `agents.json` (`app/blueprints/discovery.py:1416`): add the missing `/api/v1/whaleflow` (the 6th route);
+  remove `monthly_vip_usdc: 29.0` (VIP unlimited is not implemented — `[DOCUMENTED]` only a $0.10 Telegram
+  invite) or mark it as `legacy`; keep `free_tier_limit: 0`.
+- `llms.txt` (`discovery.py:1536`): document the **standard** rail (`PAYMENT-SIGNATURE` / `X-PAYMENT`, x402
+  v2) as primary and the legacy `X-Payment-Proof` as a fallback. Right now `llms.txt` describes **only** the
+  legacy rail — an agent that reads it sends a wrong header.
+- `.well-known/x402` vs `.well-known/x402.json` (`discovery.py:914/922`): unify the number of resources (6)
+  and the descriptions; right now one gives 6, `agents.json` — 5.
+- `server.json`: update `paid_endpoints` so that they match the 6; check whether `_meta` points to something
+  old.
+- `README.md`: remove "Rug-risk checks" (:21 — there is no such route), "zero payment incidents" (:111 —
+  there is an INCIDENT 14.09), "11 resources" (:112 — the code exposes 6). Replace them with verified numbers.
+- **Check after the change:** one test that compares the set of `X402_PAID_ENDPOINTS` with
+  `REAL_X402_ROUTES` and with `agents.json`/`.well-known/x402` — there is no such test at the moment, and that
+  is exactly why they diverge.
 
-**H3. HTML страници със съдържание (индексируеми).**
-- `/pricing` — HTML таблица с 6-те route-а и цените (данните ги има в `REAL_X402_ROUTES`); JSON-LD `Offer`.
-- `/api-reference` — рендерира се от `openapi.json` (вече съществува на `/openapi.json`, `discovery.py:1127`); статичен HTML с anchor-и по route.
-- `/how-x402-works` — кратък explainer (материалът е в `docs/GUARD_METHODOLOGY.md` + `docs/blog/2026-10-23-x401-x402-one-gate.md`).
-- `/changelog` — от git log/ръчно; дава „freshness" сигнал на crawler-ите.
-- `/status` — публична страница с `/health` + последно сканиране на блок; може да ползва съществуващия `/api/launch/health` (`main.py:5198`).
-- Всички тези да влязат в `sitemap.xml` (`discovery.py:1387`) **с `lastmod`**.
+**H3. HTML pages with content (indexable).**
+- `/pricing` — an HTML table with the 6 routes and the prices (the data is in `REAL_X402_ROUTES`); JSON-LD
+  `Offer`.
+- `/api-reference` — rendered from `openapi.json` (it already exists at `/openapi.json`,
+  `discovery.py:1127`); static HTML with anchors per route.
+- `/how-x402-works` — a short explainer (the material is in `docs/GUARD_METHODOLOGY.md` +
+  `docs/blog/2026-10-23-x401-x402-one-gate.md`).
+- `/changelog` — from git log/manually; it gives a "freshness" signal to crawlers.
+- `/status` — a public page with `/health` + the last block scan; it can use the existing
+  `/api/launch/health` (`main.py:5198`).
+- All of these should go into `sitemap.xml` (`discovery.py:1387`) **with `lastmod`**.
 
-**H4. `.github/` директория (5 файла, 1 час).**
-- `.github/workflows/ci.yml` — `pytest` + `python -m compileall`; badge в README.
+**H4. `.github/` directory (5 files, 1 hour).**
+- `.github/workflows/ci.yml` — `pytest` + `python -m compileall`; badge in the README.
 - `.github/ISSUE_TEMPLATE/bug.yml`, `feature.yml`.
-- `.github/SECURITY.md` — канал за докладване (имейл, не публичен issue).
-- `.github/social-preview.png` — 1280×640 (същото OG изображение).
-- `.github/FUNDING.yml` (по избор).
-- Ефект: repo-то изглежда „живо" за разработчик; CI badge е безплатен доверителен сигнал.
+- `.github/SECURITY.md` — a reporting channel (email, not a public issue).
+- `.github/social-preview.png` — 1280×640 (the same OG image).
+- `.github/FUNDING.yml` (optional).
+- Effect: the repo looks "alive" to a developer; a CI badge is a free trust signal.
 
-**H5. npm пакетът — реален канал, не badge.**
-- Публикувай `1.0.1` с поправено README (`packages/x402-client/README.md`): цени $0.003–0.005, **без** „1 free call", **без** „$0.05", **без** „$29 VIP unlimited".
-- Добави `repository.directory` (има го), `keywords` (има ги), `homepage` (има го).
-- Добави badge за сваляния в README на repo-то (`img.shields.io/npm/dm/kristo-x402-client`).
-- **Опция с висок ефект:** Python клиент в PyPI (`kristo-x402`), защото `examples/demo_agent/demo_agent.py` вече е Python и агент-разработчиците са 50/50 JS/Python. Това удвоява адресируемата аудитория.
+**H5. The npm package — a real channel, not a badge.**
+- Publish `1.0.1` with a fixed README (`packages/x402-client/README.md`): prices $0.003–0.005, **no** "1 free
+  call", **no** "$0.05", **no** "$29 VIP unlimited".
+- Add `repository.directory` (it is there), `keywords` (they are there), `homepage` (it is there).
+- Add a downloads badge to the repo README (`img.shields.io/npm/dm/kristo-x402-client`).
+- **High-impact option:** a Python client on PyPI (`kristo-x402`), because
+  `examples/demo_agent/demo_agent.py` is already Python and agent developers are 50/50 JS/Python. This doubles
+  the addressable audience.
 
-### MEDIUM — след HIGH (1–2 седмици)
+### MEDIUM — after HIGH (1–2 weeks)
 
-**M1. Сравнителни и „рецепта" страници (органичен трафик от дълги заявки).**
-- „How to call an x402 API from LangChain / CrewAI / Claude Code" — 3 отделни страници, всяка с работещ snippet от `packages/x402-client` и `examples/demo_agent`.
-- „x402 vs API keys: кога pay-per-call печели" — позициониращ текст.
-- „Base DeFi data for AI agents" — keyword-насочена.
-- Всяка страница: 600–900 думи, 1 работещ пример, 1 CTA към `/f/<channel>`.
+**M1. Comparison and "recipe" pages (organic traffic from long-tail queries).**
+- "How to call an x402 API from LangChain / CrewAI / Claude Code" — 3 separate pages, each with a working
+  snippet from `packages/x402-client` and `examples/demo_agent`.
+- "x402 vs API keys: when pay-per-call wins" — positioning copy.
+- "Base DeFi data for AI agents" — keyword-targeted.
+- Each page: 600–900 words, 1 working example, 1 CTA to `/f/<channel>`.
 
-**M2. Публикуване на вече написаното съдържание.**
-- `docs/MARKET_WRITEUP.md` → публичен пост (методологията е силна страна; тя е проверима).
-- `docs/blog/2026-10-23-x401-x402-one-gate.md` → технически пост.
-- `docs/CONTENT_PACK_1.md` §A → dev.to (след H2 корекциите).
-- **Всичко с `/f/<channel>` линк и OG card.**
+**M2. Publishing the content that is already written.**
+- `docs/MARKET_WRITEUP.md` → a public post (the methodology is a strong point; it is verifiable).
+- `docs/blog/2026-10-23-x401-x402-one-gate.md` → a technical post.
+- `docs/CONTENT_PACK_1.md` §A → dev.to (after the H2 corrections).
+- **Everything with a `/f/<channel>` link and an OG card.**
 
-**M3. Автоматизация и мониторинг.**
-- `scripts/distribution/check_presence.py` + GitHub Action (седмично).
-- `scripts/seo/ping_index.py` (IndexNow, след custom domain).
-- `scripts/listing_monitor.py` (вече съществува) → разшири да проверява и mcp.so/mcprush/Glama badge.
+**M3. Automation and monitoring.**
+- `scripts/distribution/check_presence.py` + a GitHub Action (weekly).
+- `scripts/seo/ping_index.py` (IndexNow, after a custom domain).
+- `scripts/listing_monitor.py` (it already exists) → extend it to also check the mcp.so/mcprush/Glama badge.
 
 ### LOW — nice to have
 
-**L1. Собствен домейн** (напр. `kristo.xyz` / `kristo.dev`) с 301 от `onrender.com`.
-- Причина: бранд search, имейл за outreach, IndexNow, доверие при листинг, независимост от Render.
-- Усилие: 1–2 ч (DNS + Render custom domain + `ProxyFix` вече е настроен да следва `X-Forwarded-Host`, `main.py:174`).
+**L1. A domain of your own** (e.g. `kristo.xyz` / `kristo.dev`) with a 301 from `onrender.com`.
+- Reason: brand search, an email for outreach, IndexNow, trust in listings, independence from Render.
+- Effort: 1–2 h (DNS + Render custom domain + `ProxyFix` is already configured to follow
+  `X-Forwarded-Host`, `main.py:174`).
 
-**L2. README пренареждане:** първите 12 реда = 1 изречение + 1 работещ `curl` + 1 screenshot/GIF + 3 badge-а. Подробностите — в `docs/`.
+**L2. README rearrangement:** the first 12 lines = 1 sentence + 1 working `curl` + 1 screenshot/GIF + 3
+badges. The details — in `docs/`.
 
-**L3. Хигиена на repo-то:** премести `PROJECT_STATUS.md` (272 KB), diff-файловете, `temp_*.log`, `server_*.log` извън публичното repo; MP4 файловете (120 MB + 19.9 MB) → GitHub Release assets, не в git.
+**L3. Repo hygiene:** move `PROJECT_STATUS.md` (272 KB), the diff files, `temp_*.log`, `server_*.log` out of
+the public repo; the MP4 files (120 MB + 19.9 MB) → GitHub Release assets, not in git.
 
 ---
 
-## 5. План за общностен маркетинг без спам рисков
+## 5. A community marketing plan without spam risks
 
-### 5.1 Правила на ангажимента
+### 5.1 Rules of engagement
 
-1. **Само отговор на реален въпрос.** Ако някой не е попитал „как да платя на API без ключ" или „къде да намеря Base DeFi данни за агент", не пускай линк.
-2. **Един канал = един пост на тема.** Без cross-posting на идентичен текст; всяка платформа има различен формат.
-3. **Никакъв mass DM.** BlockRun DM-ът е бил изпратен веднъж и е останал без отговор — това е урок, не шаблон.
-4. **Никакви фалшиви stars/fork-ове/отзиви.** Те са лесно разпознаваеми и убиват доверието завинаги.
-5. **Винаги техническа стойност преди линк.** Формулата: 1 конкретен технически факт (напр. „Bazaar изисква echo на `extensions` от challenge-а") + 1 линк към `/llms.txt` или `/f/<channel>`.
-6. **Прозрачност за пазара.** Числата от `MARKET_WRITEUP.md` са проверими — използвай ги; не измисляй „$X милиона пазар".
+1. **Only an answer to a real question.** If nobody has asked "how do I pay an API without a key" or "where do
+   I find Base DeFi data for an agent", do not post a link.
+2. **One channel = one post per topic.** No cross-posting of identical text; every platform has a different
+   format.
+3. **No mass DMs.** The BlockRun DM was sent once and got no answer — that is a lesson, not a template.
+4. **No fake stars/forks/reviews.** They are easily recognised and they kill trust forever.
+5. **Always technical value before a link.** The formula: 1 concrete technical fact (e.g. "Bazaar requires an
+   echo of `extensions` from the challenge") + 1 link to `/llms.txt` or `/f/<channel>`.
+6. **Transparency about the market.** The numbers from `MARKET_WRITEUP.md` are verifiable — use them; do not
+   invent "an $X million market".
 
-### 5.2 Къде и как (по приоритет)
+### 5.2 Where and how (by priority)
 
-| Общност | Тип намеса | Честота | Ъгъл |
+| Community | Type of intervention | Frequency | Angle |
 |---|---|---|---|
-| **x402 Slack #general** | Отговор на технически въпрос | 1–2/седмица | Receipt cross-check методологията (вече си приеман там) |
-| **CDP Discord #agentkit** | 1 техническа бележка | веднъж | „Какво научихме от Bazaar listing trigger-а" |
-| **Base Discord #developers** | 1 техническа бележка | веднъж | „x402 paywall върху Flask — 3 неща, които ни ухапаха" |
-| **r/mcp** | Отговор на „как да намеря MCP сървър за финанси" | при реален въпрос | 3-те инструмента + `/llms.txt` |
-| **r/LocalLLaMA / r/AI_Agents** | Отговор на „как агентите плащат за данни" | при реален въпрос | x402 vs API keys |
-| **HN Show HN** | 1 пост | веднъж, след H1/H2 | „API, който се плаща сам" |
-| **X/Twitter** | 1 thread | веднъж, след H1 | Демо видео + OG card + `/f/x` |
-| **Product Hunt** | 1 launch | след ≥3 social proof | „Pay-per-call DeFi intelligence for AI agents" |
+| **x402 Slack #general** | Answer to a technical question | 1–2/week | The Receipt cross-check methodology (you are already accepted there) |
+| **CDP Discord #agentkit** | 1 technical note | once | "What we learned from the Bazaar listing trigger" |
+| **Base Discord #developers** | 1 technical note | once | "x402 paywall on Flask — 3 things that bit us" |
+| **r/mcp** | Answer to "how do I find an MCP server for finance" | on a real question | The 3 tools + `/llms.txt` |
+| **r/LocalLLaMA / r/AI_Agents** | Answer to "how do agents pay for data" | on a real question | x402 vs API keys |
+| **HN Show HN** | 1 post | once, after H1/H2 | "An API that pays for itself" |
+| **X/Twitter** | 1 thread | once, after H1 | Demo video + OG card + `/f/x` |
+| **Product Hunt** | 1 launch | after ≥3 social proof | "Pay-per-call DeFi intelligence for AI agents" |
 
-### 5.3 Какво да НЕ правим
+### 5.3 What NOT to do
 
-- ❌ Да пускаме един и същ текст в 5 subreddit-а за един ден → shadowban.
-- ❌ Да отваряме втори PR в awesome-* без отговор на първия → 32-дневното правило пак ще го затвори.
-- ❌ Да обявяваме „PUBLISHED" без fetch проверка → документацията вече лъже за Smithery/mcp.so.
-- ❌ Да плащаме за ads преди да имаме OG card и `/pricing` → скъп трафик към счупен funnel.
-- ❌ Да правим „free tier" обещания, при положение че production е `KRISTO_FREE_TIER_LIMIT=0` (`main.py:130`).
+- ❌ Posting the same text in 5 subreddits in one day → shadowban.
+- ❌ Opening a second PR in awesome-* without a reply to the first → the 32-day rule will close it again.
+- ❌ Announcing "PUBLISHED" without a fetch check → the documentation already lies about Smithery/mcp.so.
+- ❌ Paying for ads before we have an OG card and `/pricing` → expensive traffic to a broken funnel.
+- ❌ Making "free tier" promises when production is `KRISTO_FREE_TIER_LIMIT=0` (`main.py:130`).
 
 ---
 
-## 6. 30/60/90 дни — изпълнение и KPI
+## 6. 30/60/90 days — execution and KPIs
 
-### Седмица 1 (Дни 1–7) — „Да стане машинно вярно"
-- [ ] H2: поправи `agents.json` (6 routes), `llms.txt` (v2 релса), README фалшивите твърдения. **Без това всякакъв листинг е вреден.**
+### Week 1 (Days 1–7) — "Make it machine-correct"
+- [ ] H2: fix `agents.json` (6 routes), `llms.txt` (v2 rail), the README false claims. **Without this, any
+  listing is harmful.**
 - [ ] H1: OG/Twitter/canonical/JSON-LD + `static/og.png`.
-- [ ] Провери CDP Bazaar присъствие (Приложение B.1); ако липсва → Listing Request #1270 с `SCAN_LISTING_EN.md`.
-- [ ] mcp.so: claim + описание + „Authentication: x402".
-- [ ] `/f/<channel>` линкове във всички листинги.
+- [ ] Check the CDP Bazaar presence (Appendix B.1); if missing → Listing Request #1270 with
+  `SCAN_LISTING_EN.md`.
+- [ ] mcp.so: claim + description + "Authentication: x402".
+- [ ] `/f/<channel>` links in all listings.
 
-**KPI седмица 1:** `agents.json` == 6 routes; OG card валиден (проверка с opengraph.xyz); 1 листинг потвърден с fetch.
+**KPI week 1:** `agents.json` == 6 routes; OG card valid (check with opengraph.xyz); 1 listing confirmed by
+fetch.
 
-### Седмица 2–4 (Дни 8–30) — „Да стане намеримо"
+### Weeks 2–4 (Days 8–30) — "Make it findable"
 - [ ] H3: `/pricing`, `/api-reference`, `/how-x402-works`, `/status`, `/changelog` + sitemap `lastmod`.
 - [ ] H4: `.github/` + CI badge + social preview.
-- [ ] H5: npm `1.0.1` с поправено README + downloads badge.
-- [ ] Nudge PR #1308 и #13219; оправи Glama license F + hosted endpoint.
-- [ ] GSC + Bing verification; подаване на sitemap.
-- [ ] Активирай `/f/<channel>` във всеки публичен линк.
+- [ ] H5: npm `1.0.1` with a fixed README + downloads badge.
+- [ ] Nudge PR #1308 and #13219; fix the Glama license F + hosted endpoint.
+- [ ] GSC + Bing verification; sitemap submission.
+- [ ] Enable `/f/<channel>` in every public link.
 
-**KPI ден 30:** ≥3 потвърдени листинга (`check_presence.py`), ≥1 индексирана нова HTML страница в GSC, ≥5 външни посетители/ден с атрибуция, npm ≥60 сваляния/месец.
+**KPI day 30:** ≥3 confirmed listings (`check_presence.py`), ≥1 new indexed HTML page in GSC, ≥5 external
+visitors/day with attribution, npm ≥60 downloads/month.
 
-### Дни 31–60 — „Да стане проверимо"
-- [ ] M1: 3 recipe/сравнителни страници.
-- [ ] M2: публикувай MARKET_WRITEUP + 1 dev.to статия + 1 thread.
-- [ ] M3: автоматизация + седмичен „distribution drift" issue.
-- [ ] Product Hunt подготовка (≥3 social proof).
+### Days 31–60 — "Make it verifiable"
+- [ ] M1: 3 recipe/comparison pages.
+- [ ] M2: publish MARKET_WRITEUP + 1 dev.to article + 1 thread.
+- [ ] M3: automation + a weekly "distribution drift" issue.
+- [ ] Product Hunt preparation (≥3 social proof).
 
-**KPI ден 60:** ≥1 органична класификация в топ-50 за дълга заявка; ≥1 външен платен клиент от нов канал; ≥100 npm сваляния/месец.
+**KPI day 60:** ≥1 organic ranking in the top 50 for a long-tail query; ≥1 external paying customer from a new
+channel; ≥100 npm downloads/month.
 
-### Дни 61–90 — „Да стане приходи”
+### Days 61–90 — "Make it revenue"
 - [ ] Product Hunt launch; HN Show HN.
-- [ ] 5 операторски разговора (по модела от `MARKET_WRITEUP.md:72-82`).
-- [ ] Преоценка на x402 Trust; recrawl на PayAPI.
-- [ ] Ревизия: кой канал е дал плащане → концентрирай 80% от усилието там.
+- [ ] 5 operator conversations (following the model from `MARKET_WRITEUP.md:72-82`).
+- [ ] Re-evaluation of x402 Trust; recrawl of PayAPI.
+- [ ] Review: which channel produced a payment → concentrate 80% of the effort there.
 
-**KPI ден 90:** ≥10 външни платци; ≥$0.05 средно/ден; ≥1 дългосрочен операторски договор; 100% от плащанията с атрибуция към канал.
+**KPI day 90:** ≥10 external payers; ≥$0.05 average/day; ≥1 long-term operator contract; 100% of payments with
+channel attribution.
 
 ---
 
-## 7. Какво НЕ да пипаме (ограничения от собственика)
+## 7. What NOT to touch (the owner's constraints)
 
-| Защитено | Защо |
+| Protected | Why |
 |---|---|
-| x402 хедъри и структура на 402 плика | Работещи и валидирани; промяна чупи съвместимост с facilitators |
-| Цени ($0.003–$0.005) и `payTo`/fee receiver | Публично обявени и on-chain проверени; промяна чупи доверие |
-| `GET /.well-known/x402-trust.txt` | Външен trust профил; премахване сваля grade |
-| `secrets/` и `.env` | Никога не са отваряни; не се пипат |
-| Постовете от 27.10 | Изрично забранени за редакция |
-| Push към `main` | Auto-deploy на Render → всяка промяна е production |
+| x402 headers and the 402 envelope structure | Working and validated; a change breaks compatibility with facilitators |
+| Prices ($0.003–$0.005) and `payTo`/fee receiver | Publicly announced and on-chain verified; a change breaks trust |
+| `GET /.well-known/x402-trust.txt` | External trust profile; removing it lowers the grade |
+| `secrets/` and `.env` | Never opened; not touched |
+| The posts from 27.10 | Explicitly forbidden for editing |
+| Push to `main` | Auto-deploy on Render → every change is production |
 
-**Правило:** всички промени по §4 минават през отделен PR + преглед, не директно в `main`.
+**Rule:** all changes in §4 go through a separate PR + review, not directly into `main`.
 
 ---
 
-## 8. Приложения
+## 8. Appendices
 
-### Приложение A — Готови URL-и и контакти за листване
+### Appendix A — Ready URLs and contacts for listing
 
-| Канал | Действие | URL |
+| Channel | Action | URL |
 |---|---|---|
-| CDP Bazaar | Проверка на присъствие | `https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources` |
-| x402scan | Listing Request #1270 | `https://github.com/x402scan/x402scan/issues/1270` (провери номера) |
-| MCP Registry | Публикуване | `https://registry.modelcontextprotocol.io` |
-| Glama | Connector (жив) | `https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` |
-| Glama | Servers dir (проблем) | тикет #135407945 |
+| CDP Bazaar | Presence check | `https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources` |
+| x402scan | Listing Request #1270 | `https://github.com/x402scan/x402scan/issues/1270` (check the number) |
+| MCP Registry | Publish | `https://registry.modelcontextprotocol.io` |
+| Glama | Connector (live) | `https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` |
+| Glama | Servers dir (problem) | ticket #135407945 |
 | mcp.so | Claim | `https://mcp.so/servers/kristo-intelligence` |
 | PulseMCP | Watcher | `https://www.pulsemcp.com/submit` |
-| awesome-x402 | PR #1308 | `https://github.com/coinbase/x402` (провери repo) |
+| awesome-x402 | PR #1308 | `https://github.com/coinbase/x402` (check the repo) |
 | awesome-mcp-servers | PR #13219 | `https://github.com/punkpeye/awesome-mcp-servers` |
-| PayAPI Market | Листинг | `https://payapi.market/api/kristo-intelligence-defi-signals-api` |
-| x402 Trust | Профил | `https://x402-trust.com/endpoint/139372` |
-| nohumans.directory | Листинг | (виж `discovery.py:340-342` за референтния запис) |
+| PayAPI Market | Listing | `https://payapi.market/api/kristo-intelligence-defi-signals-api` |
+| x402 Trust | Profile | `https://x402-trust.com/endpoint/139372` |
+| nohumans.directory | Listing | (see `discovery.py:340-342` for the reference entry) |
 
-### Приложение B — Скриптове (псевдокод)
+### Appendix B — Scripts (pseudocode)
 
 **B.1 `scripts/distribution/check_presence.py`**
 ```python
@@ -420,38 +529,44 @@ CHANNELS = {
   "mcpso": "https://mcp.so/servers/kristo-intelligence",
   "glama": "https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6",
 }
-# за всяко: GET, търси "kristo" / нашия payTo / нашия домейн
-# записва docs/distribution_state.json с {present, checked_at, evidence_url}
-# exit code 1 при промяна → GitHub Action отваря issue
+# for each: GET, look for "kristo" / our payTo / our domain
+# writes docs/distribution_state.json with {present, checked_at, evidence_url}
+# exit code 1 on a change → GitHub Action opens an issue
 ```
 
 **B.2 `scripts/seo/ping_index.py`**
 ```python
-# 1) генерирай key (uuid) → сервирай на /<key>.txt
+# 1) generate a key (uuid) → serve it at /<key>.txt
 # 2) POST https://api.indexnow.org/indexnow  {"host": "...", "key": "...", "urlList": [...]}
-# 3) изисква собствен домейн; на onrender.com може да върне 403
+# 3) requires a domain of your own; on onrender.com it may return 403
 ```
 
 **B.3 `scripts/distribution/submit_payload.py`**
 ```python
-# генерира готовия JSON/Markdown payload за всяка директория от един източник
-# (server.json + REAL_X402_ROUTES) → избягва разминаването 5 vs 6 routes
+# generates the ready JSON/Markdown payload for each directory from one source
+# (server.json + REAL_X402_ROUTES) → avoids the 5 vs 6 routes divergence
 ```
 
-### Приложение C — Измерване (без трети страни)
+### Appendix C — Measurement (without third parties)
 
-- **Сървърно:** `request_log` вече записва `path, source, referer, user_agent, funnel` — добави `channel` от `/f/<channel>` и `utm_*` query params.
-- **Публично:** `/api/dashboard/data` вече има `by_channel` — стига линковете да минават през `/f/`.
-- **Външно:** npm downloads API, MCP Registry search, CDP Bazaar page, `check_presence.py`.
-- **Търсачки:** GSC + Bing (ръчно, еднократно).
-- **On-chain:** `payment_guards` / `onchain_sales` — истината за приходите; всичко друго е шум.
-
----
-
-## 9. Едно изречение
-
-> Платформата не е невидима, защото липсват канали — а защото каналите са много, никой не е завършен, машинно-четимите спецификации лъжат, а платеният продукт се раздава безплатно на два влеза; затова следващите 90 дни не са „маркетинг кампания", а **завършване на 6 листинга, поправяне на 4 спецификации, добавяне на 1 OG card и 1 атрибуционен линк на всяко публично място** — и след това измерване на всеки долар.
+- **Server-side:** `request_log` already records `path, source, referer, user_agent, funnel` — add `channel`
+  from `/f/<channel>` and `utm_*` query params.
+- **Public:** `/api/dashboard/data` already has `by_channel` — as long as the links go through `/f/`.
+- **External:** npm downloads API, MCP Registry search, CDP Bazaar page, `check_presence.py`.
+- **Search engines:** GSC + Bing (manually, once).
+- **On-chain:** `payment_guards` / `onchain_sales` — the truth about revenue; everything else is noise.
 
 ---
 
-*Документът е генериран на 2026-11-03 при HEAD `66a0ce4`. Всички URL-и са проверени на тази дата; външните състояния (Smithery, PulseMCP, CDP Bazaar) се променят — проверявай с `check_presence.py`, не вярвай на документа.*
+## 9. One sentence
+
+> The platform is not invisible because channels are missing — it is because there are many channels, none is
+> completed, the machine-readable specs lie, and the paid product is given away free at two entry points;
+> therefore the next 90 days are not a "marketing campaign" but **finishing 6 listings, fixing 4
+> specifications, adding 1 OG card and 1 attribution link on every public surface** — and then measuring every
+> dollar.
+
+---
+
+*The document was generated on 2026-11-03 at HEAD `66a0ce4`. All URLs were checked on that date; external
+states (Smithery, PulseMCP, CDP Bazaar) change — verify with `check_presence.py`, do not trust the document.*

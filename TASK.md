@@ -1,63 +1,65 @@
-# TASK — Kristo Intelligence: входен брифинг
+# TASK — Kristo Intelligence: entry briefing
 
-> **Опреснен 11.11.2026.** Този файл е само входна точка, не източник на истина.
-> Хронологията е в `HANDOVER.md`, измерванията — в `docs/VISIBILITY_MEASURED.bg.md`,
-> а парите — на веригата.
+> **Refreshed 11.11.2026.** This file is only an entry point, not a source of truth.
+> The chronology is in `HANDOVER.md`, the measurements — in `docs/VISIBILITY_MEASURED.bg.md`,
+> and the money — on chain.
 >
-> Предишната версия беше снимка от 30.09.2026 (`3661419`) и твърдеше неща, които вече
-> не са верни: 6 платени маршрута, 423 теста, продукция на werkzeug dev сървър.
-> Числата по-долу са проверени на 11.11.2026.
+> The previous version was a snapshot of 30.09.2026 (`3661419`) and claimed things that
+> are no longer true: 6 paid routes, 423 tests, production on a werkzeug dev server.
+> The numbers below were checked on 11.11.2026.
 
-## Какво е проектът
+## What the project is
 
-Платен DeFi / on-chain market-intelligence API за AI агенти на **Base** (chain id 8453),
-с плащане по **x402** (402 → USDC по EIP-3009 → 200). Без регистрация, без абонамент,
-без API ключове.
+A paid DeFi / on-chain market-intelligence API for AI agents on **Base** (chain id 8453),
+with payment via **x402** (402 → USDC by EIP-3009 → 200). No registration, no subscription,
+no API keys.
 
 - **Live:** https://kristo-intelligence-api.onrender.com
-- **Repo:** `hristovdimitri2-hub/kristo-intelligence-6` · лиценз MIT
-- **Платени маршрути:** **12 HTTP** (7 канонични + 5 псевдонима с купувашки имена) плюс
-  **7 MCP инструмента**; цени **$0.003–$0.01** по време на пилота (виж по-долу)
-- **Източник на цената:** `config.py` (`KRISTO_*_PRICE`, всяка чете `os.getenv`)
-- **Ключови документи:** `HANDOVER.md`, `docs/VISIBILITY_MEASURED.bg.md`,
+- **Repo:** `hristovdimitri2-hub/kristo-intelligence-6` · MIT license
+- **Paid routes:** **12 HTTP** (7 canonical + 5 aliases with buyer names) plus
+  **7 MCP tools**; prices **$0.003–$0.01** during the pilot (see below)
+- **Price source:** `config.py` (`KRISTO_*_PRICE`, each reads `os.getenv`)
+- **Key documents:** `HANDOVER.md`, `docs/VISIBILITY_MEASURED.bg.md`,
   `PROJECT_STATUS.md`, `docs/PROJECT_CHRONOLOGY.md`
 
-## Състояние към 11.11.2026
+## Status as of 11.11.2026
 
 | | |
 |---|---|
-| Тестове | **1316** (1314 passed, 1 skipped) |
-| CDP каталог | 19 реда; новите `serviceName`, `tags` и описания са **публикувани** |
-| CDP търсене | намира ни за **12 от 14** купувашки заявки, **5 от тях на първо място** |
-| PayAI Bazaar | първи места за `verify seller`, `onchain sales`, `trading signal`, `telegram bot status`, `arbitrage` |
-| Ценови пилот | двата seller-audit маршрута на **$0.01** до 11.12.2026 (връщането е насрочено) |
-| Външни платци | **няма нов**; исторически 9 (виж таблото). Последното не-наше плащане е на робот-обхождащ (`0xa19f…`) на 11.11 02:47:06 UTC |
+| Tests | **1316** (1314 passed, 1 skipped) |
+| CDP catalog | 19 rows; the new `serviceName`, `tags` and descriptions are **published** |
+| CDP search | finds us for **12 of 14** buyer queries, **5 of them in first place** |
+| PayAI Bazaar | first places for `verify seller`, `onchain sales`, `trading signal`, `telegram bot status`, `arbitrage` |
+| Price pilot | the two seller-audit routes at **$0.01** until 11.12.2026 (the revert is scheduled) |
+| External payers | **none new**; historically 9 (see the dashboard). The last payment that is not ours is from a crawling bot (`0xa19f…`) on 11.11 02:47:06 UTC |
 
-**Активни напомняния:** 14.11 19:45 — скъсяване на `X402_FACILITATOR_TIMEOUT` за
-прозореца на CDP; 15.11 04:05 — връщане; 11.12 10:00 — връщане на цената след пилота.
+**Active reminders:** 14.11 19:45 — shortening of `X402_FACILITATOR_TIMEOUT` for
+the CDP window; 15.11 04:05 — revert; 11.12 10:00 — price revert after the pilot.
 
-## Отворени решения (собственик)
+## Open decisions (owner)
 
-1. Броим ли плащането на робота за „първи външен платец“ по **буквалния** текст на целта,
-   или не — по смисъла (същият адрес плаща на 269 получателя за два дни)?
-2. Текст за външно изпращане до операторите на каталозите — да или не.
+1. Do we count the bot's payment as the "first external payer" under the **literal** text of
+   the goal, or not — in spirit (the same address pays 269 recipients in two days)?
+2. Text for external sending to the catalog operators — yes or no.
 
-## Известен дълг (неблокиращ)
+## Known debt (non-blocking)
 
-- теч на памет; замръзнал heartbeat на chain monitor; теч на връзка в
-  `integrations/dashboard_store.py:822`; празни метрики за памет от Render;
-- `server.json` иконата е SVG — форматът, който CDP отхвърля (в 402 вече е PNG);
-- 4 маршрута още не са регистрирани в x402dash (лимит 5/час, има насрочена партида);
-- заявката към x402scan стои от 08.10 без отговор; в Glama нямаме публичен запис.
+- memory leak; frozen heartbeat of the chain monitor; connection leak in
+  `integrations/dashboard_store.py:822`; empty memory metrics from Render;
+- the `server.json` icon is SVG — the format that CDP rejects (in 402 it is already PNG);
+- 4 routes are not yet registered in x402dash (limit 5/hour, a batch is scheduled);
+- the request to x402scan has been pending since 08.10 with no answer; in Glama we have no
+  public listing.
 
-## Правила, които не се нарушават
+## Rules that are not violated
 
-- **Цени, `payTo`/получател, комисиона, формата на 402 обвивката, `secrets/`,
-  `config.py`, `.env`** — не се пипат без изрично решение на собственика.
-- **Env на Render** се сменя само по **единичен** ключ. `PUT` върху колекцията
-  `/env-vars` заменя всички променливи и е забранен (на 07.11 изтри конфигурацията).
-- **Пари:** първо проверка на портфейла, после плащане; при таймаут — първо измерване,
-  никога сляпо повторение.
-- **Нищо външно не се публикува** без изрично „да“.
-- **Собствените плащания не са клиенти.** Демо ключът има собствен клас (`own_key`),
-  за да не се брои за клиент на таблото.
+- **Prices, `payTo`/recipient, commission, the format of the 402 wrapper, `secrets/`,
+  `config.py`, `.env`** — not touched without an explicit owner decision.
+- **Render env** is changed only one **single** key at a time. `PUT` on the
+  `/env-vars` collection replaces all variables and is forbidden (on 07.11 it deleted the
+  configuration).
+- **Money:** first a wallet check, then payment; on timeout — first a measurement,
+  never a blind retry.
+- **Nothing external is published** without an explicit "yes".
+- **Our own payments are not clients.** The demo key has its own class (`own_key`),
+  so that it is not counted as a client on the dashboard.

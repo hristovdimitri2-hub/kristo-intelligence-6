@@ -1,41 +1,41 @@
-# NEW OPERATOR ANALYSIS — fingerprint на 0xcd51 (04.09, финалната intel задача)
+# NEW OPERATOR ANALYSIS — fingerprint of 0xcd51 (04.09, the final intel task)
 
-## ВЕРДИКТ: **multi-API оператор с ~300 calls/ден, пуснат преди 2 дни —
-и неговият източник на discovery НЕ включва нищо от PayAPI**
-(нито house касата, нито проверените third-party листинги). Затова ни е
-пропуснал — не заради цената, не заради формата на challenge-а.
+## VERDICT: **multi-API operator with ~300 calls/day, launched 2 days ago —
+and its discovery source does NOT include anything from PayAPI**
+(neither the house treasury, nor the verified third-party listings). That is why it
+missed us — not because of the price, not because of the challenge format.
 
-## Данните (30-дневен изходящ USDC scan, собствен RPC, chunk 5000)
-- **607 транзакции** към **35 различни payTo адреса**
-- Топ получатели: 263 tx ($1.44), 70 tx ($0.10), 43 tx ($0.43), 35 tx ($0.35)…
-- loopA (`0xcf92…`) е сред тях: 10 tx, $0.213 → $0.021/call (мач с цената му)
-- **House касата (0xFFc4…) ЛИПСВА** от списъка; Skim (0x63AE…), Lemon
-  (0x0adc…), SameDayDesk (0x8904…) също липсват — плаща на 35 други x402
-  endpoint-а (вероятно x402scan-каталог, не PayAPI-каталог)
+## The data (30-day outgoing USDC scan, own RPC, chunk 5000)
+- **607 transactions** to **35 different payTo addresses**
+- Top recipients: 263 tx ($1.44), 70 tx ($0.10), 43 tx ($0.43), 35 tx ($0.35)…
+- loopA (`0xcf92…`) is among them: 10 tx, $0.213 → $0.021/call (matches its price)
+- **The house treasury (0xFFc4…) is MISSING** from the list; Skim (0x63AE…), Lemon
+  (0x0adc…), SameDayDesk (0x8904…) are also missing — it pays 35 other x402
+  endpoints (probably the x402scan catalog, not the PayAPI catalog)
 
-## Funder fingerprint: `0xf7A13DBB…` = gas кранче, не операторска служба
-- 0 USDC изходящи за 30 дни; финансирането на 0xcd51 е било **0.00001 ETH**
-  (gas) на 01.09 + delegation транзакция
-- → еднократно финансиране на нов wallet, който СЛЕД това сам си набавя USDC
-  (през своята дейност/свопове) и започва да плаща на APIs
+## Funder fingerprint: `0xf7A13DBB…` = a gas faucet, not an operator service
+- 0 USDC outgoing for 30 days; the funding of 0xcd51 was **0.00001 ETH**
+  (gas) on 01.09 + a delegation transaction
+- → a one-time funding of a new wallet that AFTERWARDS acquires its own USDC
+  (through its own activity/swaps) and starts paying APIs
 
-## Времева аномалия (важна!)
-Basescan показва само 1 ETH-транзакция в историята на 0xcd51 (финансиране
-01.09). Всичките 607 USDC плащания са през relayer/paymaster (gasless
-7702-модел) и не се броят в ETH-транзакциите му. Ако 607-те са концентрирани
-в последните 2 дни → **операторът се е пуснал онзи ден и вече върти ~300
-calls/ден**. Пазарът добавя нови активни оператори текущо.
+## Time anomaly (important!)
+Basescan shows only 1 ETH transaction in the history of 0xcd51 (funding
+01.09). All 607 USDC payments go through a relayer/paymaster (gasless
+7702 model) and are not counted among its ETH transactions. If the 607 are
+concentrated in the last 2 days → **the operator launched the other day and is
+already doing ~300 calls/day**. The market keeps adding new active operators.
 
-## Какво значи за discovery
-1. Операторът плаща на 35 x402 API-та, но на нито едно от известните ни
-   PayAPI адреси → неговият източник е **друг каталог** (вероятно x402scan).
-   Ние сме листнати там отскоро — влизането в набора му е въпрос на време
-   или на точния ресурс.
-2. Таксономията му (35 payTo) е между „loop" и „crawler" — активен мулти-API
-   клиент, точно таргет-профилът за operator deal.
-3. Действие: НИКАКВО директно. Мониторът ще покаже, ако ни добави.
+## What this means for discovery
+1. The operator pays 35 x402 APIs, but none of the PayAPI addresses we know
+   of → its source is **another catalog** (probably x402scan). We have been
+   listed there recently — entering its set is a matter of time or of the
+   right resource.
+2. Its taxonomy (35 payTo) is between "loop" and "crawler" — an active
+   multi-API client, exactly the target profile for an operator deal.
+3. Action: NONE directly. The monitor will show if it adds us.
 
 ---
-**ТОВА БЕ ПОСЛЕДНАТА intel задача.** Оттук нататък само месечният протокол
-(recon + monitor) и трите човешки бутона. Всички H-хипотези имат отговори,
-всички данни са в repo-то.
+**THIS WAS THE LAST intel task.** From now on only the monthly protocol
+(recon + monitor) and the three human buttons. All H-hypotheses have answers,
+all the data is in the repo.

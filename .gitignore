@@ -106,7 +106,6 @@ scripts/docker_build_log.txt
 scripts/phase*_result.json
 scripts/phase*_check.json
 
-# Working area for the 24.11 document translation. The Bulgarian original is kept
-# here as a rollback copy and must never be committed: the repository's documents
-# are English (see HANDOVER.md ง109).
+# Scratch work area for the document translation. The Bulgarian originals are in
+# git history (see HANDOVER.md ยง109); nothing in this directory is committed.
 _translation/

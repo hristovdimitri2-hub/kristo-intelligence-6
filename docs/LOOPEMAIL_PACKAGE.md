@@ -1,38 +1,38 @@
-# LOOPEMAIL PACKAGE — имейлът към продавача на „loopA" (статус: чака канал)
+# LOOPEMAIL PACKAGE — the email to the seller of "loopA" (status: waiting for a channel)
 
-## Какво е loopA (обобщение)
-- Settlement адрес: започва с `0xcf92…` (пълният адрес е в RECON_FINDINGS.md)
-- Реално third-party x402 API: **14 платци, 117 tx/седмица, $0.002/call** —
-  най-успешният third-party листинг, измерен досега
-- В цикъл с нашия buyer `0x5f64` (единственият потвърден agent-trader на
-  пазара): всеки ден купува house данни + loopA данни → swap през router
+## What loopA is (summary)
+- Settlement address: starts with `0xcf92…` (the full address is in RECON_FINDINGS.md)
+- Real third-party x402 API: **14 payers, 117 tx/week, $0.002/call** —
+  the most successful third-party listing measured so far
+- In a loop with our buyer `0x5f64` (the only confirmed agent-trader on the
+  market): every day it buys house data + loopA data → swap through the router
 
-## Резултат от идентификацията (04.09): НЕ е PayAPI листинг
-Проверени ВСИЧКИ PayAPI кандидати на цена $0.002/call (402-probe на всеки,
-четене на payTo от challenge-а):
-- DNS & Domain Intelligence → house касата (0xFFc4…) ❌
-- Screenshot & PDF Capture → house касата ❌
-- Web Scraper & Content Extractor → house касата ❌
-- Skim – Clean Reader → друга каса (0x63AE…) ❌
-- SameDayDesk → друга каса (0x8904…) ❌
-- Lemon Toolshed → друга каса (0x0adc…) ❌
+## Identification result (04.09): NOT a PayAPI listing
+Checked ALL PayAPI candidates at the price $0.002/call (402-probe of each,
+reading the payTo from the challenge):
+- DNS & Domain Intelligence → house cashier (0xFFc4…) ❌
+- Screenshot & PDF Capture → house cashier ❌
+- Web Scraper & Content Extractor → house cashier ❌
+- Skim – Clean Reader → another cashier (0x63AE…) ❌
+- SameDayDesk → another cashier (0x8904…) ❌
+- Lemon Toolshed → another cashier (0x0adc…) ❌
 
-→ loopA е x402 API, листнат **извън PayAPI** (вероятно x402scan, понеже
-crawler-ът го плаща). Идентификацията на продавача изисква канал, който още
-нямаме.
+→ loopA is an x402 API listed **outside PayAPI** (probably x402scan, since the
+crawler pays for it). Identifying the seller requires a channel we do not have
+yet.
 
-## Налични канали (по ред на усилие)
-1. **x402scan** → търси settlement адреса в списъка с ресурси; ако листингът
-   е там, продавачът е видим (име/сайт). *Опционална задача за следващата
-   сесия: scan на 6777-приемниците срещу x402scan каталога.*
-2. **Директен въпрос към Chet** (САМО веднъж, като „данна" линия към съществуващ
-   имейл, не нова нишка): „does your seller inventory include a $0.002 API
+## Available channels (in order of effort)
+1. **x402scan** → look for the settlement address in the resource list; if the
+   listing is there, the seller is visible (name/site). *Optional task for the
+   next session: scan of the 6777 receivers against the x402scan catalog.*
+2. **A direct question to Chet** (ONLY once, as a "data" line appended to an
+   existing email, not a new thread): "does your seller inventory include a $0.002 API
    whose settlement starts 0xcf92? Happy to cross-link with their seller."
-   *Риск: нисък, но чакай първия band, за да не е единственият ред в имейла.*
-3. **Изчакване:** crawler-ът посещава loopA седмично → ако някога ни плати,
-   seller-ът вероятно ще види нашия listing в същия си източник.
+   *Risk: low, but wait for the first band so that it is not the only line in the email.*
+3. **Waiting:** the crawler visits loopA weekly → if it ever pays us,
+   the seller will probably see our listing in the same source.
 
-## ГОТОВ ТЕКСТ (адрес-агностичен — влиза в действие мигом след намиране на канал)
+## READY TEXT (address-agnostic — comes into effect the moment a channel is found)
 
 > **Subject:** we share a customer — x402 API seller to x402 API seller
 >
@@ -50,23 +50,23 @@ crawler-ът го плаща). Идентификацията на продав�
 >
 > — Dimitri
 
-**Правила, спазени в текста:** нула wallet адреса; нула „следя те" тон
-(„on-chain I noticed" е публичен факт, поднесен като насърчение); нула молби.
+**Rules observed in the text:** zero wallet addresses; zero "I am watching you"
+tone ("on-chain I noticed" is a public fact presented as encouragement); zero requests.
 
-## Решение (по правилото „две сесии или мъртво")
-Ходът НЕ се обявява за мъртъв — целта му (достъп до единствения жив купувач)
-е твърде ценна. Но се **демотира до пасивен**: готов текст + 3 канала в този
-файл. Активира се само при тригерите: loopA продавачът се появи в директория,
-Chet отговори с идентификация, или crawler данните разкрият домейна.
+## Decision (by the "two sessions or dead" rule)
+The move is NOT declared dead — its goal (access to the only live buyer)
+is too valuable. But it is **demoted to passive**: ready text + 3 channels in this
+file. It activates only on the triggers: the loopA seller appears in a directory,
+Chet replies with an identification, or the crawler data reveal the domain.
 
-## Идентификация 2 (04.09 нощ): loopA е MetaMask retail разработчик
-- Буукодът на `0xcf92…` започва с `0xef0100` → **EIP-7702 delegation** (EOA,
-  делегиран към договор). Имплементацията е **„MetaMask: EIP-7702 Delegator"**
-  (Basescan заглавие: 0x63c0…32b)
-- Wallet-ът държи 43 dust meme-токена, $5.42 USDC, 0.0013 ETH → класически
-  **личен MetaMask акаунт на retail разработчик**, тестващ своето API със
-  собствен wallet — не фирмено участие
-- Следствие за имейл-а: продавачът е физическо лице с MetaMask; публичен
-  контакт НЕ съществува (без ENS, без име). Текстът остава готов —
-  „address-agnostic". Каналите (x402scan listing търсене / един ред към Chet)
-  остават пътят към него
+## Identification 2 (04.09 night): loopA is a MetaMask retail developer
+- The bytecode of `0xcf92…` starts with `0xef0100` → **EIP-7702 delegation** (EOA,
+  delegated to a contract). The implementation is **"MetaMask: EIP-7702 Delegator"**
+  (Basescan title: 0x63c0…32b)
+- The wallet holds 43 dust meme tokens, $5.42 USDC, 0.0013 ETH → a classic
+  **personal MetaMask account of a retail developer**, testing his API with
+  his own wallet — not a company participation
+- Consequence for the email: the seller is an individual with MetaMask; a public
+  contact does NOT exist (no ENS, no name). The text remains ready —
+  "address-agnostic". The channels (x402scan listing search / one line to Chet)
+  remain the path to him

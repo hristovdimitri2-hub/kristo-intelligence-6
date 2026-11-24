@@ -1,7 +1,7 @@
 # Offer and Ad Strategy
 
 ## Product claim
-**Получавай живи крипто анализи, DeFi сигнали и VIP Telegram достъп.**
+**Get live crypto analysis, DeFi signals, and VIP Telegram access.**
 
 ## Target audience
 - retail crypto traders;
@@ -42,11 +42,11 @@
 - short-form video content
 
 ## Copy guidance
-Не продавай "AI system". Продай резултат:
-- по-добро вземане на решения;
-- по-ясна картина на пазара;
-- по-малко шум;
-- по-бърз доступ до важни сигнали.
+Do not sell an "AI system". Sell the result:
+- better decision-making;
+- a clearer picture of the market;
+- less noise;
+- faster access to important signals.
 
 ## CTA examples
 - Join VIP access
@@ -55,4 +55,4 @@
 - Start with the Pro plan
 
 ## Launch principle
-Ограничаване на обхвата: 1 offer + 1 channel + 1 audience + 1 CTA.
+Scope limiting: 1 offer + 1 channel + 1 audience + 1 CTA.

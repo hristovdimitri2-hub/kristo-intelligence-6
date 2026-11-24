@@ -1,12 +1,12 @@
-# SALE DIAGNOSIS — първото външно плащане (06.09)
+# SALE DIAGNOSIS — the first external payment (06.09)
 
-## ВЕРДИКТ: **C — LAUNCH SIGNAL. Първи външен платец.** 🎉
+## VERDICT: **C — LAUNCH SIGNAL. First external payer.** 🎉
 
-Едно плащане от **0.003 USDC** (точната цена на signal маршрута ни) в
-**06:41 UTC на 06.09.2026** — от wallet, който НЕ е нито Chet, нито
-известният sampler/crawler.
+A single payment of **0.003 USDC** (the exact price of our signal route) at
+**06:41 UTC on 06.09.2026** — from a wallet that is NEITHER Chet NOR the known
+sampler/crawler.
 
-## 1. Мониторът: `python scripts/listing_monitor.py` изписа:
+## 1. The monitor: `python scripts/listing_monitor.py` printed:
 
 ```
 *** LAUNCH SIGNAL: external human/unknown payer detected ***
@@ -14,54 +14,56 @@
     0x4dB7AAFbe797a39Cd6Cc4E7aa64d970F7F6E02B7  1 txs, 0.003 USDC (avg 0.003)
 ```
 
-Класификацията работи точно както е проектирана: Chet канарките
-(`chet_payapi_verification`) и известните sampler/crawler wallet-и са
-изключени → всичко останало = launch сигнал.
+The classification works exactly as designed: Chet's canaries
+(`chet_payapi_verification`) and the known sampler/crawler wallets are excluded
+→ everything else = launch signal.
 
-## 2. Точната транзакция (on-chain, 48h scan)
+## 2. The exact transaction (on-chain, 48h scan)
 
-| Поле | Стойност |
+| Field | Value |
 |---|---|
-| Сума | **0.003 USDC** (= цената на GET /api/v1/signal) |
-| От | wallet, започващ `0x4dB7AAFb…E02B7` |
+| Amount | **0.003 USDC** (= the price of GET /api/v1/signal) |
+| From | wallet starting with `0x4dB7AAFb…E02B7` |
 | Tx hash | `0xb881f9dcdd0df72bf1853ebbf3328cf8d140ae8966871136b6cbe0cf852d5fc3` |
-| Блок | 50943758 |
-| Време | **2026-09-06 06:41:03 UTC** |
+| Block | 50943758 |
+| Time | **2026-09-06 06:41:03 UTC** |
 
-Не е Chet (`0x7E6b…`), не е sampler `0xC59E…`, не е crawler `0x6777…`.
+It is not Chet (`0x7E6b…`), not the sampler `0xC59E…`, not the crawler `0x6777…`.
 
-## 3. Fingerprint на платеца (30-дневен изходящ USDC scan)
+## 3. Fingerprint of the payer (30-day outgoing USDC scan)
 
-| Метрика | Стойност | Таксономия |
+| Metric | Value | Taxonomy |
 |---|---|---|
-| Различни получатели | **100** | ~23/седмица → под crawler (50), над loop (≤10) |
-| Общо tx-ове | 145 | moderate cadence |
-| Обща сума | 1.67 USDC | микро-диапазон |
-| ENS | няма | анонимен |
-| **PayAPI house каса** | **18 tx, $0.06** | източникът му ВКЛЮЧВА PayAPI листинги |
+| Distinct recipients | **100** | ~23/week → below crawler (50), above loop (≤10) |
+| Total txs | 145 | moderate cadence |
+| Total amount | 1.67 USDC | micro-range |
+| ENS | none | anonymous |
+| **PayAPI house treasury** | **18 tx, $0.06** | its source INCLUDES PayAPI listings |
 
-**Профил: умерен multi-API оператор** — агент, който плаща на ~100 x402
-endpoint-а месечно, включително на house листингите на PayAPI. НЕ е
-crawler-ът (145 tx/30д срещу 150–390/седмица при sampler-ите). И днес
-**включи нас** в цикъла си — първото ни плащане от екосистемата.
+**Profile: a moderate multi-API operator** — an agent that pays ~100 x402
+endpoints a month, including PayAPI's house listings. It is NOT the crawler (145
+tx/30d vs 150–390/week for the samplers). And today it **included us** in its
+cycle — our first payment from the ecosystem.
 
-## 4. Нашите логове (dashboard-stats, read-only)
+## 4. Our logs (dashboard-stats, read-only)
 
-- Продажбата е **записана и потвърдена** в `history` (status: confirmed,
-  block 50943758, tx hash съвпада) — два записа за същия tx = известният
-  козметичен double-record (settle+monitor), не две плащания
-- Търсеният endpoint: **$0.003 = GET /api/v1/signal** (само той струва толкова)
-- Днес (06.09): **107 requests, 2 sales записа ($0.006)**; вчера: 152 requests
-- User-Agent breakdown: НЕ се експонира публично в dashboard-stats —
-  логва се вътрешно (`_live_request_log`), но изисква admin достъп за преглед
+- The sale is **recorded and confirmed** in `history` (status: confirmed, block
+  50943758, tx hash matches) — two records for the same tx = the known cosmetic
+  double-record (settle+monitor), not two payments
+- The endpoint requested: **$0.003 = GET /api/v1/signal** (only it costs that
+  much)
+- Today (06.09): **107 requests, 2 recorded sales ($0.006)**; yesterday: 152
+  requests
+- User-Agent breakdown: it is NOT exposed publicly in dashboard-stats — it is
+  logged internally (`_live_request_log`), but requires admin access to inspect
 
-## 5. Band проверка: все още unscored
-`/agent/get` → reliability: score=null, band=unscored, computed_at=null.
-Compute-ът на Chet не е пуснат за нас (title също не е сменен). Плащането
-от 0x4dB7 е независимо от това.
+## 5. Band check: still unscored
+`/agent/get` → reliability: score=null, band=unscored, computed_at=null. Chet's
+compute has not been run for us (the title has not been changed either). The
+payment from 0x4dB7 is independent of that.
 
-## Какво следва според вердикта
-**„Число" имейл към Chet** (граматиката на нишката — една линия, нула въпроси):
+## What follows according to the verdict
+The **"number" email to Chet** (the thread's grammar — one line, zero questions):
 
 > Subject: first external payer
 >
@@ -71,6 +73,6 @@ Compute-ът на Chet не е пуснат за нас (title също не е 
 >
 > — Dimitri
 
-Плюс: **наблюдавай 0x4dB7** — ако се върне (2-ро плащане), това е оператор
-→	operator deal разговор ($0.01–0.05/call tier според NEW_OPERATOR_ANALYSIS).
-Мониторът вече го класифицира автоматично.
+Plus: **watch 0x4dB7** — if it returns (a 2nd payment), that is an operator →
+operator deal conversation ($0.01–0.05/call tier according to NEW_OPERATOR_ANALYSIS).
+The monitor already classifies it automatically.

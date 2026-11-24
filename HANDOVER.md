@@ -6886,3 +6886,50 @@ becomes right and this decision should be revisited.
 **Still to do under the same rule:** 145 other files in the repository still
 contain Cyrillic — mostly `docs/*.md` and code comments. They are being
 translated in the same way, in batches, and the count is the acceptance test.
+
+## 110. The document rule, carried out: all 95 markdown files are English (24.11.2026)
+
+**Done.** Every tracked markdown file in the repository is now English: **95 of
+95, zero Cyrillic characters**, measured with a regex over the tracked set rather
+than sampled. 58 of them were translated in this batch; `HANDOVER.md` itself was
+translated in §109 and committed as `c5827e4`.
+
+The work was split into two workflows — 20 documents, then 38 — one agent per
+document, each writing its file back in place under the same rules as §109: keep
+every identifier, URL, hash, address, number, code fence and table row verbatim;
+translate prose only; wrap at 88 columns.
+
+**The check, and why it is mechanical.** A translation that loses a hash is worse
+than no translation, so nothing was accepted on the agent's word. `_translation/verify_docs.py`
+compares every modified file against its `HEAD` version and fails on any lost
+hex token, URL, number or code fence. Result: **58 files checked, 1 real loss**,
+which is the point of running it:
+
+- `docs/ACTION_BOARD.md` — the agent turned `comment #3441` into `#344`, dropping
+  a digit from a gist comment id. Fixed by hand. Every other apparent loss was a
+  false positive and was traced to its line: thousands separators (`1 500 000` →
+  `1,500,000`), decimal commas (`0,005` → `0.005`), and numbers that gained a
+  suffix (`429` → `429s`), which the regex counts as different tokens.
+
+**One defect the suite caught, and it was ours.** The full suite failed on
+`test_listing_monitor_glama.py`: `.gitignore` had been rewritten with a stray
+Latin-1 `§` byte instead of UTF-8, so reading it as UTF-8 raised. Fixed by
+replacing the single byte; the file is now valid UTF-8. A scan of **all 413
+tracked text files** then confirmed zero remaining encoding faults. The suite
+came back **1443 passed, 1 skipped** (1444 collected).
+
+**What is deliberately not translated, and why.** The rule is about documents.
+Four other kinds of file still contain Cyrillic and were left alone:
+
+| kind | files | Cyrillic | why left alone |
+|---|---|---|---|
+| `.py` | 77 | 29 575 | Code comments and docstrings. Some are user-facing strings (Telegram, dashboard, verifier messages); translating them would change product behaviour, not documentation. |
+| `.html` | 6 | 14 882 | The dashboard and landing templates — the owner's own interface. He reads Bulgarian; this is a product decision, not a document one. |
+| `.js` | 1 | 1 879 | `lib/nexus/…` comments in the same position as the Python. |
+| `.env.example` | 1 | 766 | Comment lines beside live configuration. |
+
+**The acceptance test from here on:** `git grep -lP '[\x{0400}-\x{04FF}]' -- '*.md'`
+must return nothing. If a future session writes a Bulgarian document, that is the
+command that catches it. Reports to the owner stay in Bulgarian — the rule is
+about what is committed, not about what he is told.
+

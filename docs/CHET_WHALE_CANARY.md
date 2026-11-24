@@ -1,9 +1,9 @@
-# CHET WHALE CANARY — имейл за копи-пейст (09.09)
+# CHET WHALE CANARY — copy-paste email (09.09)
 
-**Кога се праща:** след като лентата покаже първия реален whale запис
-(проверка: `GET /api/v1/whaleflow` с платено извикване) ИЛИ веднага с
-„populating now" реда, ако собственикът реши да не чака.
-**Кой праща:** собственикът (Димитри). Агентът НЕ изпраща нищо.
+**When it is sent:** after the line shows the first real whale entry
+(check: `GET /api/v1/whaleflow` with a paid call) OR immediately with the
+"populating now" line, if the owner decides not to wait.
+**Who sends it:** the owner (Dimitri). The agent does NOT send anything.
 
 ---
 
@@ -27,28 +27,29 @@ Two small things:
    If that's not something you can do, no problem at all — we'll top it up
    ourselves.
 
-> **НЕ ИЗПРАЩАЙ ТОЗИ ТЕКСТ КАТОТО Е (поправено 16.11.2026).** Тук стоеше
-> `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd`, а това е газовият портфейл,
-> чийто ключ е записан като **изгорен/публикуван** още на 27.08 FREEZE
-> (`docs/PROJECT_CHRONOLOGY.md`, `docs/CONTEXT_AND_ROADMAP.md`). Да помолиш
-> трета страна да прати пари там значи да я подканиш да ги подари на всеки,
-> който е прочел ключа. Адресът е махнат. Преди изпращане сложи адрес, чийто
-> ключ държим — газовият се извежда от `WALLET_PRIVATE_KEY` и се проверява с
-> `_forensics/does_self_broadcast_have_gas.py`. За щастие имейлът така и не е
-> бил пратен, а адресът никога не е получавал нищо (ETH 0, USDC 0, nonce 0).
+> **DO NOT SEND THIS TEXT AS IS (fixed 16.11.2026).** Here stood
+> `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd`, and that is the gas wallet
+> whose key is recorded as **burned/published** as early as the 27.08 FREEZE
+> (`docs/PROJECT_CHRONOLOGY.md`, `docs/CONTEXT_AND_ROADMAP.md`). Asking a
+> third party to send money there means inviting them to gift it to anyone
+> who has read the key. The address has been removed. Before sending, put in
+> an address whose key we hold — the gas one is derived from
+> `WALLET_PRIVATE_KEY` and is checked with
+> `_forensics/does_self_broadcast_have_gas.py`. Fortunately the email was
+> never sent, and the address never received anything (ETH 0, USDC 0, nonce 0).
 
 — Dimitri
 
 ---
 
-## Правила (същите като GLAMA_REPLY)
-- Нула пълни клиентски/операторски wallet адреси в имейла (размер/токен/време — да).
-- Нула оплаквания; молбата за $0.05 е с вграден изход („no problem at all").
-- Изпраща се САМО след жива проверка на 402 (направена: amount 3000, v2,
-  description присъства, payTo непокоснат — виж доклада от 11.09).
+## Rules (same as GLAMA_REPLY)
+- Zero full client/operator wallet addresses in the email (size/token/time — yes).
+- Zero complaints; the request for $0.05 has a built-in exit ("no problem at all").
+- Sent ONLY after a live check of 402 (done: amount 3000, v2,
+  description present, payTo untouched — see the report from 11.09).
 
-## Статус към 11.09
+## Status as of 11.09
 - Hot wallet: `0x9c1eb97e121a6836200C539a1BF0ecdC37F750dd` — ETH 0, USDC 0.
-- Whale лента: **празна, catch-up тече** (watermark 51186249, drpc free pace).
-  Прогноза: жива лента в рамките на часове до един ден.
-- 402 пулс: ✅ верен challenge ($0.003, v2, selling description, payTo).
+- Whale line: **empty, catch-up in progress** (watermark 51186249, drpc free pace).
+  Forecast: live line within hours to one day.
+- 402 pulse: ✅ correct challenge ($0.003, v2, selling description, payTo).

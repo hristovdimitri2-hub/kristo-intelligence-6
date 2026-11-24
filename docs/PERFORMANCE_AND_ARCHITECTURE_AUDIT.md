@@ -1,165 +1,174 @@
 # PERFORMANCE & ARCHITECTURE AUDIT — kristo-intelligence-6
 
-**Дата:** 2026-11-03 · **Клон:** `main` · **HEAD по време на одита:** `66a0ce4` (2026-11-02, "step2: echo extensions + resource in x402 payment payload")
-**Локален корен:** `<repo>` (пътят е махнат — репото е публично)
-**Отдалечено:** `https://github.com/hristovdimitri2-hub/kristo-intelligence-6` (origin, main)
-**Обхват:** 345 `.py` файла (без `venv/`), 5859 реда `main.py`, 44 `@app.route` + 26 blueprint рута, 89 файла в `docs/`, 55 файла в `tests/`.
+**Date:** 2026-11-03 · **Branch:** `main` · **HEAD during the audit:** `66a0ce4` (2026-11-02, "step2: echo extensions + resource in x402 payment payload")
+**Local root:** `<repo>` (the path is removed — the repo is public)
+**Remote:** `https://github.com/hristovdimitri2-hub/kristo-intelligence-6` (origin, main)
+**Scope:** 345 `.py` files (excluding `venv/`), 5859 lines of `main.py`, 44 `@app.route` + 26 blueprint routes, 89 files in `docs/`, 55 files in `tests/`.
 
-> **Какво НЕ е пипано:** одитът е **само за четене**. Не е променен нито един файл по кода, x402 хедърите, ценообразуването, `payTo`/комисионната или защитените конфигурации. `secrets\` и `.env` **не са отваряни** (само `.env.example`). Няма `git add/commit/push`. Единственият записан файл е този отчет.
-> **Защо това е важно:** `main` → авто-деплой на Render. Всяка препоръка по-долу е **предложение**, не извършена промяна; прилага се през отделна врата.
+> **What was NOT touched:** the audit is **read-only**. Not a single file of code, the x402 headers, pricing, `payTo`/the commission or the protected configurations was changed. `secrets\` and `.env` were **not opened** (only `.env.example`). There is no `git add/commit/push`. The only file written is this report.
+> **Why this matters:** `main` → auto-deploy to Render. Every recommendation below is a **proposal**, not a change already made; it is applied through a separate gate.
 
 ---
 
-## 0. Индекс на констатациите (по приоритет)
+## 0. Index of findings (by priority)
 
-| ID | Сев. | Констатация | Доказателство |
+| ID | Sev. | Finding | Evidence |
 |---|---|---|---|
-| **F-01** | 🔴 Critical | Платените продукти се раздават безплатно през `/api/dashboard-stats` и `/api/dashboard/data` | `main.py:142-157, 3427-3428, 3986-3989, 5573-5582` |
-| **F-02** | 🔴 Critical | `accepted.amount` (от клиента) замества подписаната `authorization.value` → underpayment | `services/connectors.py:195-200` |
-| **F-03** | 🔴 Critical | При нечетим receipt платеното обаждане се доставя (fail-open) | `main.py:3082-3110, 3132, 3158-3159` |
-| **F-04** | 🔴 Critical | Безплатен GET прави 4 ЗАПИСА в таблицата на replay-заключването (`payment_guards`) | `integrations/dashboard_store.py:1542-1555` |
-| **F-05** | 🟠 High | Реорг никога не отменя кредитирано плащане | `main.py:2631-2690` |
-| **F-06** | 🟠 High | Приемане на сетълмент по nonce **без** проверка за дълбочина | `main.py:2321-2435` |
-| **F-07** | 🟠 High | Нула rate limit по платежния път; gas-разход, контролиран от анонимен клиент | `main.py:1406-1416, 3431-3523` |
-| **F-08** | 🟠 High | Един RPC доставчик, без fallback и без cooldown при 429 | `config.py:57` |
-| **F-09** | 🟠 High | Една споделена DB връзка под глобален lock, отваряна без `connect_timeout` | `integrations/dashboard_store.py:307, 334-340, 342-372` |
-| **F-10** | 🟠 High | `/health` зависи от DB и връща 503 → рестарт на единствения worker → цикъл | `app/blueprints/discovery.py:32-76` |
-| **F-11** | 🟠 High | `/mcp/sse` (безплатен, неограничен) пинира 1 от 8 нишки за ≥15 s → пълен DoS | `app/blueprints/discovery.py:665-717` |
-| **F-12** | 🟠 High | Неограничен thread-per-payment reorg watch + нечанкнат `eth_getLogs(5000 блока)` | `main.py:3217, 2321-2435, 2621-2628` |
-| **F-13** | 🟠 High | Суровият RPC текст (`rpc_error`) се публикува на безплатен рут | `main.py:643 → 3792 → 3986` |
-| **F-14** | 🟠 High | Telegram bot token може да изтече в логовете през `requests` изключения | `services/telegram_sales.py:72, 80-81, 198-212` |
-| **F-15** | 🟠 High | `secrets/` се bake-ва в Docker образа (`.dockerignore` няма запис) | `Dockerfile:29`, `.dockerignore:47-50` |
-| **F-16** | 🟡 Medium | X-Payment-Proof е препредаваем bearer токен върху публично публикувани данни | `main.py:2879-2900` |
-| **F-17** | 🟡 Medium | Едно плащане може да достави два пъти при конкурентност | `main.py:2438-2470` |
-| **F-18** | 🟡 Medium | `payment.amount_usdc` връща атомарни единици под име на USDC (5000 вместо 0.005) | `main.py:1723-1733` |
-| **F-19** | 🟡 Medium | Рекламираните цени дрейфват от 402 предизвикателството в 5+ повърхности | `discovery.py:866-892, 1057, 1276, 1454, 1528` |
-| **F-20** | 🟡 Medium | „$29 VIP — неограничен достъп" не е имплементиран никъде | `discovery.py:873-881` |
-| **F-21** | 🟡 Medium | `FREE_TIER_LIMIT` по подразбиране е 1; продукцията разчита на env | `main.py:129-134` |
-| **F-22** | 🟡 Medium | Статистическият агрегат: 12 заявки, 5 пълни сканирания, ~528 ms локално / ~41 s в продукция, без кеш на 2 от 3 рута | `main.py:3944-3945, 4067-4071, 5573-5582` |
-| **F-23** | 🟡 Medium | Бюджети за блокиране по платения път > gunicorn `--timeout 120` (един worker!) | `main.py:2596-2598, 3082-3096`, `connectors.py:390-410` |
-| **F-24** | 🟡 Medium | Stripe SDK без timeout: 80 s × 3 опита ≈ 4 min по checkout пътя + неограничена пагинация | `stripe/_http_client.py:512`, `stripe/__init__.py:39` |
-| **F-25** | 🟡 Medium | `_stripe_payment_snapshot_loop` е единственият цикъл без `try/except` → тихо умира | `main.py:1113-1121` |
-| **F-26** | 🟡 Medium | `/api/launch/health` без auth: брой лийдове, платени клиенти, Stripe режим | `main.py:5198-5216` |
-| **F-27** | 🟡 Medium | `/api/connectors` разкрива hot wallet и вътрешния settlement маршрут | `services/connectors.py:944-947, 988` |
-| **F-28** | 🟡 Medium | Render конфигурацията не е версионирана (няма `render.yaml`); брой workers е security-значим | `Procfile:1`, `Dockerfile:46` |
-| **F-29** | 🟡 Medium | Админ токенът пада обратно към `SESSION_SECRET` (няма разделяне на ключове) | `main.py:178, 1802-1813` |
-| **F-30** | 🟡 Medium | `_t2_render_env_check.py` принтира живи env стойности (RPC ключ, ADMIN токен) | `scripts/_t2_render_env_check.py:30-45` |
-| **F-31** | 🟡 Medium | Неограничени in-RAM карти + липса на индекси по `user_agent`/`source`/`funnel` | `main.py:1319, 1345, 2260`, `dashboard_store.py:659-733` |
-| **F-32** | 🟢 Low/Med | Ръчно поддържан guard списък без тест за покритие | `main.py:137-139` |
-| **F-33** | 🟢 Low | `/validation` публикува живи платени адреси и остаряло „550/550" | `discovery.py:179-203` |
-| **F-34** | 🟢 Low | Мъртви/остарели цени: `KRISTO_WHALE_PRICE=0.01`, `KRISTO_RUG_PRICE` извън картата | `config.py:78-79` |
-| **F-35** | 🟢 Low | `requirements.lock` не възпроизвежда `requirements.txt` (`cryptography` липсва, без `--hash`) | `requirements.txt:33`, `requirements.lock` |
-| **F-36** | 🟢 Low | `docker-compose.yml` публикува Postgres с подразбираща се парола | `docker-compose.yml:27, 31-32` |
-| **F-37** | 🟢 Low | Обемната отстъпка е no-op (твърдолитерална цена в монолит) | `main.py:83, 1476-1478` |
-| **F-38** | 🟢 Low | Времева зона: Sentinel седмичен отчет ползва локално време, всичко друго е UTC | `services/sentinel.py:464-467` |
-| **F-39** | 🟢 Low | Мониторът на блокове не персистира курсора си → пропуска трансфери при рестарт | `main.py:714-716, 774` |
-| **F-40** | 🟢 Low | Дубликат на цялото репо в `.kilo/worktrees/believed-dancer` (~2× диск, риск от „редакция на грешния файл") | `.git/info/exclude:9` |
+| **F-01** | 🔴 Critical | Paid products are handed out for free through `/api/dashboard-stats` and `/api/dashboard/data` | `main.py:142-157, 3427-3428, 3986-3989, 5573-5582` |
+| **F-02** | 🔴 Critical | `accepted.amount` (from the client) replaces the signed `authorization.value` → underpayment | `services/connectors.py:195-200` |
+| **F-03** | 🔴 Critical | When the receipt is unreadable, the paid call is delivered (fail-open) | `main.py:3082-3110, 3132, 3158-3159` |
+| **F-04** | 🔴 Critical | A free GET performs 4 WRITES in the replay-lock table (`payment_guards`) | `integrations/dashboard_store.py:1542-1555` |
+| **F-05** | 🟠 High | A reorg never reverses a credited payment | `main.py:2631-2690` |
+| **F-06** | 🟠 High | Settlement is accepted by nonce **without** a depth check | `main.py:2321-2435` |
+| **F-07** | 🟠 High | Zero rate limit on the payment path; gas spend controlled by an anonymous client | `main.py:1406-1416, 3431-3523` |
+| **F-08** | 🟠 High | A single RPC provider, with no fallback and no cooldown on 429 | `config.py:57` |
+| **F-09** | 🟠 High | One shared DB connection under a global lock, opened without `connect_timeout` | `integrations/dashboard_store.py:307, 334-340, 342-372` |
+| **F-10** | 🟠 High | `/health` depends on the DB and returns 503 → restart of the only worker → loop | `app/blueprints/discovery.py:32-76` |
+| **F-11** | 🟠 High | `/mcp/sse` (free, unlimited) pins 1 of 8 threads for ≥15 s → full DoS | `app/blueprints/discovery.py:665-717` |
+| **F-12** | 🟠 High | Unbounded thread-per-payment reorg watch + unchunked `eth_getLogs(5000 blocks)` | `main.py:3217, 2321-2435, 2621-2628` |
+| **F-13** | 🟠 High | The raw RPC text (`rpc_error`) is published on a free route | `main.py:643 → 3792 → 3986` |
+| **F-14** | 🟠 High | The Telegram bot token can leak into the logs through `requests` exceptions | `services/telegram_sales.py:72, 80-81, 198-212` |
+| **F-15** | 🟠 High | `secrets/` is baked into the Docker image (`.dockerignore` has no entry) | `Dockerfile:29`, `.dockerignore:47-50` |
+| **F-16** | 🟡 Medium | X-Payment-Proof is a replayable bearer token over publicly published data | `main.py:2879-2900` |
+| **F-17** | 🟡 Medium | A single payment can deliver twice under concurrency | `main.py:2438-2470` |
+| **F-18** | 🟡 Medium | `payment.amount_usdc` returns atomic units under a USDC name (5000 instead of 0.005) | `main.py:1723-1733` |
+| **F-19** | 🟡 Medium | The advertised prices drift from the 402 challenge across 5+ surfaces | `discovery.py:866-892, 1057, 1276, 1454, 1528` |
+| **F-20** | 🟡 Medium | "$29 VIP — unlimited access" is not implemented anywhere | `discovery.py:873-881` |
+| **F-21** | 🟡 Medium | `FREE_TIER_LIMIT` defaults to 1; production relies on env | `main.py:129-134` |
+| **F-22** | 🟡 Medium | The statistics aggregate: 12 queries, 5 full scans, ~528 ms locally / ~41 s in production, with no cache on 2 of 3 routes | `main.py:3944-3945, 4067-4071, 5573-5582` |
+| **F-23** | 🟡 Medium | Blocking budgets on the paid path > gunicorn `--timeout 120` (a single worker!) | `main.py:2596-2598, 3082-3096`, `connectors.py:390-410` |
+| **F-24** | 🟡 Medium | Stripe SDK without a timeout: 80 s × 3 attempts ≈ 4 min on the checkout path + unbounded pagination | `stripe/_http_client.py:512`, `stripe/__init__.py:39` |
+| **F-25** | 🟡 Medium | `_stripe_payment_snapshot_loop` is the only loop without `try/except` → it dies silently | `main.py:1113-1121` |
+| **F-26** | 🟡 Medium | `/api/launch/health` without auth: lead count, paying customers, Stripe mode | `main.py:5198-5216` |
+| **F-27** | 🟡 Medium | `/api/connectors` exposes the hot wallet and the internal settlement route | `services/connectors.py:944-947, 988` |
+| **F-28** | 🟡 Medium | The Render configuration is not versioned (there is no `render.yaml`); the worker count is security-relevant | `Procfile:1`, `Dockerfile:46` |
+| **F-29** | 🟡 Medium | The admin token falls back to `SESSION_SECRET` (no key separation) | `main.py:178, 1802-1813` |
+| **F-30** | 🟡 Medium | `_t2_render_env_check.py` prints live env values (RPC key, ADMIN token) | `scripts/_t2_render_env_check.py:30-45` |
+| **F-31** | 🟡 Medium | Unbounded in-RAM maps + no indexes on `user_agent`/`source`/`funnel` | `main.py:1319, 1345, 2260`, `dashboard_store.py:659-733` |
+| **F-32** | 🟢 Low/Med | A manually maintained guard list with no coverage test | `main.py:137-139` |
+| **F-33** | 🟢 Low | `/validation` publishes live paid addresses and a stale "550/550" | `discovery.py:179-203` |
+| **F-34** | 🟢 Low | Dead/stale prices: `KRISTO_WHALE_PRICE=0.01`, `KRISTO_RUG_PRICE` outside the map | `config.py:78-79` |
+| **F-35** | 🟢 Low | `requirements.lock` does not reproduce `requirements.txt` (`cryptography` is missing, no `--hash`) | `requirements.txt:33`, `requirements.lock` |
+| **F-36** | 🟢 Low | `docker-compose.yml` publishes Postgres with a default password | `docker-compose.yml:27, 31-32` |
+| **F-37** | 🟢 Low | The volume discount is a no-op (a hardcoded price in the monolith) | `main.py:83, 1476-1478` |
+| **F-38** | 🟢 Low | Time zone: the Sentinel weekly report uses local time, everything else is UTC | `services/sentinel.py:464-467` |
+| **F-39** | 🟢 Low | The block monitor does not persist its cursor → it misses transfers on restart | `main.py:714-716, 774` |
+| **F-40** | 🟢 Low | A duplicate of the whole repo in `.kilo/worktrees/believed-dancer` (~2× disk, risk of "editing the wrong file") | `.git/info/exclude:9` |
 
 ---
 
-## 1. Корекция на изходните предпоставки (важно за всеки следващ асистент)
+## 1. Correction of the input premises (important for every subsequent assistant)
 
-Техническото описание, с което беше поискан одитът, **не съвпада с реалното репо**. Това е първата и най-важна констатация, защото всяка инструкция, базирана на описанието, ще търси несъществуващи файлове:
+The technical description with which the audit was requested **does not match the actual repo**. This is the
+first and most important finding, because every instruction based on the description will look for
+nonexistent files:
 
-| Твърдение в заданието | Реалност (проверено) |
+| Claim in the assignment | Reality (verified) |
 |---|---|
-| `app.py` (FastAPI) | **Липсва.** Приложението е `main.py` — **Flask 3.1.3 + gunicorn 26.1.0** (`requirements.txt:11-12`, `main.py:41, 166`). Няма `fastapi`/`uvicorn` никъде. |
-| `mcp_server.py` (FastAPIMCP обвивка) | **Липсва.** MCP сървърът е вграден в `app/blueprints/discovery.py` (рутове `/mcp/sse`:670, `/mcp/message`:720, `/mcp` POST/DELETE:742, `/mcp` GET:766, `/mcp.json`:1026, `/api/mcp/manifest`:835). |
-| `auth.py`, `guard.py` | **Липсват.** Paywall-ът е `@app.before_request def _x402_paywall()` — `main.py:3396`. Guard логиката е в `main.py` + `integrations/dashboard_store.py` (`payment_guards` таблица). |
-| `gas.py`, `wallet.py`, `facilitator.py`, `rpc.py` | **Липсват.** Има само `blockchain/wallet.py` (8594 B). Газ/settlement/facilitator са в `services/connectors.py` (46329 B); RPC логиката е в `integrations/dashboard_store.py` + `main.py`. |
-| `render.yaml` (авто-деплой от main) | **Липсва и никога не е бил в git.** `git log --all -- render.yaml` → празно; `git grep "render.ya?ml"` → 0 попадения в tracked файлове. Има `Procfile:1`, който Render **не** консумира. |
-| „35 сканиращи рута" | **Не съществува такова твърдение в репото.** Реално: **6 платени** x402 рута (`main.py:89-100, 2071-2134`), 27 безплатни в allow-list-а, 44 `@app.route` в `main.py` + 26 blueprint рута. |
-| „550+ теста минават" | ✅ **Потвърдено първоначално:** `550 passed, 1 warning in 180.46s` (пълен пробег, Python 3.12.10, pytest 9.1.1). |
-| „x402 хедъри, ценообразуване, сигурност — непокътнати" | ✅ Съблюдавано: **нищо не е променяно.** |
-| Glama „A4.7 / 100% uptime / 47 дни" | 4.7 се среща като TDQS, но същото репо казва **„A 3.6/5.0"** (`PROJECT_STATUS.md:1199,1204`; `PROJECT_CHRONOLOGY.md:128`). Низовете „100% uptime" и „47 дни" **не съществуват** в репото. |
-| README: „zero payment incidents" | ❌ **Невярно.** `PROJECT_STATUS.md:34-45` документира INCIDENT 14.09: външен платец плати $0.003 на `/api/v1/signal` (tx `0x06b4c8f2…58ce7`, блок 51313253) и получи **HTTP 401**, без claim и без доставка. |
+| `app.py` (FastAPI) | **Missing.** The application is `main.py` — **Flask 3.1.3 + gunicorn 26.1.0** (`requirements.txt:11-12`, `main.py:41, 166`). There is no `fastapi`/`uvicorn` anywhere. |
+| `mcp_server.py` (FastAPIMCP wrapper) | **Missing.** The MCP server is embedded in `app/blueprints/discovery.py` (routes `/mcp/sse`:670, `/mcp/message`:720, `/mcp` POST/DELETE:742, `/mcp` GET:766, `/mcp.json`:1026, `/api/mcp/manifest`:835). |
+| `auth.py`, `guard.py` | **Missing.** The paywall is `@app.before_request def _x402_paywall()` — `main.py:3396`. The guard logic is in `main.py` + `integrations/dashboard_store.py` (the `payment_guards` table). |
+| `gas.py`, `wallet.py`, `facilitator.py`, `rpc.py` | **Missing.** There is only `blockchain/wallet.py` (8594 B). Gas/settlement/facilitator are in `services/connectors.py` (46329 B); the RPC logic is in `integrations/dashboard_store.py` + `main.py`. |
+| `render.yaml` (auto-deploy from main) | **Missing and it has never been in git.** `git log --all -- render.yaml` → empty; `git grep "render.ya?ml"` → 0 hits in tracked files. There is `Procfile:1`, which Render does **not** consume. |
+| "35 scanning routes" | **No such claim exists in the repo.** In reality: **6 paid** x402 routes (`main.py:89-100, 2071-2134`), 27 free in the allow-list, 44 `@app.route` in `main.py` + 26 blueprint routes. |
+| "550+ tests pass" | ✅ **Confirmed initially:** `550 passed, 1 warning in 180.46s` (full run, Python 3.12.10, pytest 9.1.1). |
+| "x402 headers, pricing, security — untouched" | ✅ Observed: **nothing was changed.** |
+| Glama "A4.7 / 100% uptime / 47 days" | 4.7 appears as TDQS, but the same repo says **"A 3.6/5.0"** (`PROJECT_STATUS.md:1199,1204`; `PROJECT_CHRONOLOGY.md:128`). The strings "100% uptime" and "47 days" **do not exist** in the repo. |
+| README: "zero payment incidents" | ❌ **False.** `PROJECT_STATUS.md:34-45` documents INCIDENT 14.09: an external payer paid $0.003 to `/api/v1/signal` (tx `0x06b4c8f2…58ce7`, block 51313253) and received **HTTP 401**, with no claim and no delivery. |
 
-**Извод:** описът в заданието изглежда от по-ранна/друга версия на продукта. Всички препратки към `app.py`, `mcp_server.py`, `auth.py`, `guard.py`, `gas.py`, `facilitator.py`, `rpc.py`, `render.yaml` трябва да се третират като невалидни. Документацията в репото **не** препраща към тези файлове (проверено с пълно търсене) — разминаването е само в заданието.
+**Conclusion:** the description in the assignment appears to be from an earlier/different version of the
+product. All references to `app.py`, `mcp_server.py`, `auth.py`, `guard.py`, `gas.py`, `facilitator.py`,
+`rpc.py`, `render.yaml` must be treated as invalid. The documentation in the repo does **not** refer to
+these files (verified with a full search) — the discrepancy is only in the assignment.
 
 ---
 
-## 2. Реална архитектура
+## 2. Actual architecture
 
-### 2.1 Карта на кода (без `venv/`, `.git/`, `.kilo/`)
+### 2.1 Code map (without `venv/`, `.git/`, `.kilo/`)
 
-| Файл | Размер | Роля |
+| File | Size | Role |
 |---|---|---|
-| `main.py` | 272 244 B / **5859 реда** | Монолит: Flask app, x402 paywall, 44 рута, wallet state, background threads, 140 top-level функции |
-| `app/blueprints/discovery.py` | 74 072 B | Discovery + **MCP сървър** + OpenAPI/llms.txt/robots/sitemap/glama.json, `/health`, `/validation`, 6 `/sample` рута |
-| `integrations/dashboard_store.py` | 124 935 B | Durable store (SQLite **или** Postgres): sales, requests, payment_guards, whaleflow, meta watermarks |
-| `integrations/stripe_checkout.py` | 20 057 B | Човешки абонаменти (втори, off-chain рейл) |
-| `integrations/catalog_store.py`, `crm_store.py`, `research_store.py`, `verified_sales.py` | 46 370 / 30 029 / 12 197 / 5 827 B | Каталог от агенти, CRM/лийдове, research, seed-нати верифицирани продажби |
-| `services/connectors.py` | 46 329 B | x402 facilitator верига (self-broadcast → CDP → PayAI), EIP-712 precheck, broadcast |
-| `services/telegram_sales.py`, `sentinel.py`, `market_data.py`, `verifier.py`, `arb_radar.py`, `signal_track_record.py`, `trading_agent.py`, `coingecko.py`, `defi_signals.py`, `base_listener.py`, `ai_engine.py` | 45 158 … 3 470 B | Продажби през Telegram, Sentinel мониторинг/отчети, CoinGecko/DEXScreener, верификация на сигнали, арбитраж, track record |
-| `blockchain/wallet.py` | 8 594 B | Base wallet, USDC трансфери, `pay_request_fee()` (**мъртъв код**, без извикващи) |
-| `src/nexus/*` | 7 файла | NEXUS „интелигентен" слой (`mount_nexus_engine`) |
-| `config.py` | 4 819 B | Единствен източник на цени/адреси (`KRISTO_*_PRICE`, `BOUND_BASE_FEE_RECEIVER`) |
-| `tests/` | 55 файла | 550 теста |
-| `docs/` | 89 файла / 0.57 MB | 46 `.md` + 26 probe `.py` + JSON/PNG/PDF |
+| `main.py` | 272 244 B / **5859 lines** | Monolith: Flask app, x402 paywall, 44 routes, wallet state, background threads, 140 top-level functions |
+| `app/blueprints/discovery.py` | 74 072 B | Discovery + **MCP server** + OpenAPI/llms.txt/robots/sitemap/glama.json, `/health`, `/validation`, 6 `/sample` routes |
+| `integrations/dashboard_store.py` | 124 935 B | Durable store (SQLite **or** Postgres): sales, requests, payment_guards, whaleflow, meta watermarks |
+| `integrations/stripe_checkout.py` | 20 057 B | Human subscriptions (the second, off-chain rail) |
+| `integrations/catalog_store.py`, `crm_store.py`, `research_store.py`, `verified_sales.py` | 46 370 / 30 029 / 12 197 / 5 827 B | Catalog of agents, CRM/leads, research, seeded verified sales |
+| `services/connectors.py` | 46 329 B | x402 facilitator chain (self-broadcast → CDP → PayAI), EIP-712 precheck, broadcast |
+| `services/telegram_sales.py`, `sentinel.py`, `market_data.py`, `verifier.py`, `arb_radar.py`, `signal_track_record.py`, `trading_agent.py`, `coingecko.py`, `defi_signals.py`, `base_listener.py`, `ai_engine.py` | 45 158 … 3 470 B | Sales via Telegram, Sentinel monitoring/reports, CoinGecko/DEXScreener, signal verification, arbitrage, track record |
+| `blockchain/wallet.py` | 8 594 B | Base wallet, USDC transfers, `pay_request_fee()` (**dead code**, no callers) |
+| `src/nexus/*` | 7 files | The NEXUS "intelligent" layer (`mount_nexus_engine`) |
+| `config.py` | 4 819 B | Single source of prices/addresses (`KRISTO_*_PRICE`, `BOUND_BASE_FEE_RECEIVER`) |
+| `tests/` | 55 files | 550 tests |
+| `docs/` | 89 files / 0.57 MB | 46 `.md` + 26 probe `.py` + JSON/PNG/PDF |
 
-### 2.2 Топология на изпълнение
+### 2.2 Execution topology
 
 ```
-Render / Docker → gunicorn --workers=1 --threads=8 --timeout=120 main:app   (gthread, 1 процес)
-   ├── 8 нишки = ЦЯЛАТА HTTP способност (всяко блокиращо обаждане = −12.5% капацитет)
-   ├── 11 background нишки в СЪЩИЯ процес (monitor, dashboard scan, whale scan, agent,
+Render / Docker → gunicorn --workers=1 --threads=8 --timeout=120 main:app   (gthread, 1 process)
+   ├── 8 threads = the ENTIRE HTTP capacity (every blocking call = −12.5% capacity)
+   ├── 11 background threads in the SAME process (monitor, dashboard scan, whale scan, agent,
    │    catalog, stripe snapshot, arbitrage, sentinel, keep-alive, reorg-watch-per-call …)
-   └── in-RAM състояние: free-tier броячи, `_verified_payments`, кешове, `_lock`
+   └── in-RAM state: free-tier counters, `_verified_payments`, caches, `_lock`
 ```
 
-- `Procfile:1`, `Dockerfile:46`, `DEPLOYMENT.md:96`, `DEPLOYMENT_CHECKLIST.md:37` са съгласувани на **1 worker / 8 threads**.
-- `PROJECT_STATUS.md:107` твърди, че продукцията реално върви на `python main.py` (Werkzeug), `numInstances=1` — **несъответствие**, което трябва да се провери.
-- Единственият предпазен механизъм срещу дублиране на нишките е `KRISTO_BG_THREADS_STARTED` (`main.py:5734`) — **process-local env променлива**. При `--workers 2+` или втори instance всичките 11 цикъла и всички in-RAM guard-ове се удвояват **тихо** (`tests/test_background_thread_guard.py` тества само единичния процес).
-- `--timeout 120` при `--workers 1` означава: **една прекалено бавна заявка убива целия сървис** (8 нишки + 11 цикъла + всички кешове).
+- `Procfile:1`, `Dockerfile:46`, `DEPLOYMENT.md:96`, `DEPLOYMENT_CHECKLIST.md:37` are consistent on **1 worker / 8 threads**.
+- `PROJECT_STATUS.md:107` claims that production actually runs on `python main.py` (Werkzeug), `numInstances=1` — a **discrepancy** that needs to be verified.
+- The only safeguard against thread duplication is `KRISTO_BG_THREADS_STARTED` (`main.py:5734`) — a **process-local env variable**. With `--workers 2+` or a second instance, all 11 loops and all in-RAM guards double **silently** (`tests/test_background_thread_guard.py` tests only the single-process case).
+- `--timeout 120` with `--workers 1` means: **one excessively slow request kills the entire service** (8 threads + 11 loops + all caches).
 
-### 2.3 Жизнен цикъл на заявката (платен път)
+### 2.3 Request lifecycle (the paid path)
 
 ```
 HTTP → @app.before_request _x402_paywall()            main.py:3396
         ├─ parked demo surface? → 404                 3417
-        ├─ path ∈ X402_FREE_ENDPOINTS (27 записа) → свободно   3427
-        ├─ path ∈ X402_PAID_ENDPOINTS (6 записа, ТОЧНО съвпадение) → 3431
-        │    ├─ free tier (per-IP, in-RAM) → пропусни   3433-3442
+        ├─ path ∈ X402_FREE_ENDPOINTS (27 entries) → free   3427
+        ├─ path ∈ X402_PAID_ENDPOINTS (6 entries, EXACT match) → 3431
+        │    ├─ free tier (per-IP, in-RAM) → skip   3433-3442
         │    ├─ Rail 1: PAYMENT-SIGNATURE / X-PAYMENT (EIP-3009)   3450-3488
-        │    │     ├─ 402→401 при невалиден; 425 при „settled, но възелът не е наваксал"
+        │    │     ├─ 402→401 on invalid; 425 on "settled, but the node has not caught up"
         │    │     └─ _try_consume_standard_payment → connectors.verify/settle
         │    └─ Rail 2: X-Payment-Proof (legacy, base64 JSON)      3490-3518
-        └─ всичко останало → НЕ се проверява (deny-by-default липсва)   3525-3526
+        └─ everything else → NOT checked (deny-by-default is missing)   3525-3526
       → handler (route)
-      → @app.after_request _capture_live_request → INSERT в request_log за ВСЕКИ отговор   2185-2216
+      → @app.after_request _capture_live_request → INSERT into request_log for EVERY response   2185-2216
 ```
 
-**Ключов архитектурен факт:** защитата е **allow-list по точен `request.path`**, не deny-by-default и не per-route декоратор. Всичко, което не е изброено в двата set-а (`main.py:137-157`), минава **безплатно и без проверка** — включително `/api/launch/health` (F-26) и, по-важно, огледалните dashboard рутове (F-01).
+**Key architectural fact:** the protection is an **allow-list by exact `request.path`**, not deny-by-default
+and not a per-route decorator. Everything that is not listed in the two sets (`main.py:137-157`) passes
+**for free and without any check** — including `/api/launch/health` (F-26) and, more importantly, the mirrored
+dashboard routes (F-01).
 
-### 2.4 Данни и индекси (измерено локално)
+### 2.4 Data and indexes (measured locally)
 
-`data/dashboard_state.db` — **41 398 272 B**; таблици `dashboard_meta, guard_events, meta, onchain_sales, payapi_state, payment_guards, pr_watch_state, request_log, signal_history, vip_invites, whaleflow_events`.
-Индекси: `idx_guard_events_ts, idx_onchain_sales_ts, idx_request_log_path, idx_request_log_ts, idx_signal_history_issued, idx_vip_invites_wallet, idx_whaleflow_ts` (+PK).
-Редове: `request_log` **46 301**, `onchain_sales` 10, `payment_guards` 3, `guard_events` 128, `whaleflow_events` 0.
-**Липсват индекси** по `request_log.user_agent` (филтърът `LIKE 'Render/%'`), `source`, `funnel`, както и по `payment_guards.consumed_at`.
+`data/dashboard_state.db` — **41 398 272 B**; tables `dashboard_meta, guard_events, meta, onchain_sales, payapi_state, payment_guards, pr_watch_state, request_log, signal_history, vip_invites, whaleflow_events`.
+Indexes: `idx_guard_events_ts, idx_onchain_sales_ts, idx_request_log_path, idx_request_log_ts, idx_signal_history_issued, idx_vip_invites_wallet, idx_whaleflow_ts` (+PK).
+Rows: `request_log` **46 301**, `onchain_sales` 10, `payment_guards` 3, `guard_events` 128, `whaleflow_events` 0.
+**Missing indexes** on `request_log.user_agent` (the `LIKE 'Render/%'` filter), `source`, `funnel`, as well as on `payment_guards.consumed_at`.
 
 ---
 
-## 3. x402 платежен рейл
+## 3. The x402 payment rail
 
-### 3.1 Какво е коректно (проверено — не се пипа)
+### 3.1 What is correct (verified — not touched)
 
-1. **Паритет на 402 плика.** `PAYMENT-REQUIRED` и тялото (`accepts`, `accepts[]`, `x402_accepts`, `resource`, `extensions`) са идентични **включително ред на ключовете**, защото тялото се връща като суров `Response(json.dumps(body), status=402)`, заобикаляйки сортирането на Flask (`main.py:1750-1763, 1791-1793`; тест `tests/test_envelope_body_mirror.py:48-62`).
-2. **Версиониране.** v2 навън (`x402Version: 2`, CAIP-2 `eip155:8453`, атомарни низове, `payTo`, `asset`, `extra: {USD Coin, 2}`, `maxTimeoutSeconds: 60` — `main.py:1577-1589`); навътре приема `PAYMENT-SIGNATURE` (v2) и `X-PAYMENT` (v1), v2 с предимство (`main.py:2970-2981`); рекламира се само схема `exact`.
-3. **402 хигиена.** `Cache-Control: no-store` + CORS `Expose-Headers` **само** при статус 402 (`main.py:3386-3393`). Шестте `/sample` рута са статични с честни дисклеймъри — не изтичат живи платени данни.
-4. **Локална криптографска верификация.** Няма обаждане до facilitator при verify (`connectors.py:672-727`); EIP-712 recovery трябва да съвпадне с `authorization.from`; `auth.to` трябва да е сървърният `payTo` (клиент не може да пренасочи средствата към себе си); `asset` = сървърният USDC; прозорецът на авторизацията е ограничен ≤60 s сървърно (`connectors.py:203-225`).
-5. **Replay заключване.** `payment_guards.tx_hash` PRIMARY KEY + `INSERT … ON CONFLICT DO NOTHING` с rowcount — атомарно между нишки/процеси, БД-то е истината, RAM кешът може само да откаже, изрично fail-closed при грешка в store-а (`dashboard_store.py:1313-1370, 439-448`). Един tx купува точно едно обаждане и не може да се пренасочи към друг endpoint (H2 обвързване), включително при равноценни съседни рутове.
-6. **Отчетност на доставката.** `delivered_at` се слага само при 2xx/3xx (`main.py:3309-3316`), така че платено обаждане, чийто handler е умрял, е възстановимо точно веднъж и след това окончателно отказано; слотът се освобождава при грешка, за да не се губи плащане.
-7. **Rail 2 (legacy) интегритет на сумата.** `amount_usdc` от proof-а се декодира, но **не** се вярва (`main.py:2744-2750`); сумата идва от receipt-а/записаната продажба; underpayment, грешен платец, непознат tx и несъответствие на endpoint → 401. Тук C2 изисква **12** потвърждения (`main.py:2487-2493, 2775-2799`) срещу 1 при синхронния рейл.
-8. **Няма кеширане на достъп и няма session bypass.** Грантовете са per-call; `_verified_payments` е само block-list; в Flask сесията не се пише; `_is_dashboard_request()` е сведена до `return False` (`main.py:1797-1799`); MCP `tools/call` връща **само инструкции за плащане**, не проксира платени данни (`discovery.py:635-657`).
-9. **Произход на цената в предизвикателството.** `_x402_challenge_core` извежда `payTo`, `asset`, мрежа и атомарна сума от `config` (`main.py:74-100, 1577-1588`); конверсията е вярна (0.005 → `"5000"`); `X-Payment-Amount-USDC`, `WWW-Authenticate`, `x402_amount` и `accepts[0].amount` съвпадат числово (`main.py:1688, 1705, 1766, 1774`).
-10. **Webhook-ове fail-closed.** Stripe: `Stripe-Signature` → `Webhook.construct_event(payload, sig, secret)` върху **суровия** тяло-байт; при липсващ секрет/библиотека → **503**, никога грант (`main.py:4714-4723`, `stripe_checkout.py:313-322`). Telegram: `X-Telegram-Bot-Api-Secret-Token` през `hmac.compare_digest`, липсващ секрет сам по себе си отказва с 401 (`main.py:4108-4117`).
-11. **Всички админ рутове имат guard**, нито един не е достъпен без auth (проверени индивидуално); всички споделени секрети се сравняват с `hmac.compare_digest` (`main.py:1835, 1852, 1859, 4113, 5151, 5177, 2019`); cookie-то е `HttpOnly + Secure + SameSite=Lax`, `session.clear()` преди login (анти-fixation); `ProxyFix(x_for=0)` умишлено **не** пренаписва `remote_addr` от хедър (`main.py:174`); error handler-ът не изтича traceback (`main.py:218-236`); SQL е параметризиран (двете интерполации са по константи); `MAX_CONTENT_LENGTH` 512 KB се налага преди handler-ите.
+1. **402 envelope parity.** `PAYMENT-REQUIRED` and the body (`accepts`, `accepts[]`, `x402_accepts`, `resource`, `extensions`) are identical **including the key order**, because the body is returned as a raw `Response(json.dumps(body), status=402)`, bypassing Flask's sorting (`main.py:1750-1763, 1791-1793`; test `tests/test_envelope_body_mirror.py:48-62`).
+2. **Versioning.** v2 outward (`x402Version: 2`, CAIP-2 `eip155:8453`, atomic strings, `payTo`, `asset`, `extra: {USD Coin, 2}`, `maxTimeoutSeconds: 60` — `main.py:1577-1589`); inward it accepts `PAYMENT-SIGNATURE` (v2) and `X-PAYMENT` (v1), with v2 taking precedence (`main.py:2970-2981`); only the `exact` scheme is advertised.
+3. **402 hygiene.** `Cache-Control: no-store` + CORS `Expose-Headers` **only** on status 402 (`main.py:3386-3393`). The six `/sample` routes are static with honest disclaimers — they do not leak live paid data.
+4. **Local cryptographic verification.** There is no call to a facilitator on verify (`connectors.py:672-727`); EIP-712 recovery must match `authorization.from`; `auth.to` must be the server's `payTo` (a client cannot redirect the funds to itself); `asset` = the server's USDC; the authorization window is bounded to ≤60 s server-side (`connectors.py:203-225`).
+5. **Replay locking.** `payment_guards.tx_hash` PRIMARY KEY + `INSERT … ON CONFLICT DO NOTHING` with rowcount — atomic across threads/processes, the DB is the truth, the RAM cache can only refuse, explicitly fail-closed on a store error (`dashboard_store.py:1313-1370, 439-448`). One tx buys exactly one call and cannot be redirected to another endpoint (the H2 binding), including across equally-priced neighbouring routes.
+6. **Delivery accountability.** `delivered_at` is set only on 2xx/3xx (`main.py:3309-3316`), so a paid call whose handler died is recoverable exactly once and then permanently refused; the slot is released on error so that a payment is not lost.
+7. **Rail 2 (legacy) amount integrity.** `amount_usdc` from the proof is decoded but **not** trusted (`main.py:2744-2750`); the amount comes from the receipt/the recorded sale; underpayment, wrong payer, unknown tx and endpoint mismatch → 401. Here C2 requires **12** confirmations (`main.py:2487-2493, 2775-2799`) versus 1 on the synchronous rail.
+8. **No access caching and no session bypass.** Grants are per-call; `_verified_payments` is only a block-list; nothing is written to the Flask session; `_is_dashboard_request()` has been reduced to `return False` (`main.py:1797-1799`); MCP `tools/call` returns **only payment instructions**, it does not proxy paid data (`discovery.py:635-657`).
+9. **Origin of the price in the challenge.** `_x402_challenge_core` derives `payTo`, `asset`, network and atomic amount from `config` (`main.py:74-100, 1577-1588`); the conversion is correct (0.005 → `"5000"`); `X-Payment-Amount-USDC`, `WWW-Authenticate`, `x402_amount` and `accepts[0].amount` match numerically (`main.py:1688, 1705, 1766, 1774`).
+10. **Webhooks are fail-closed.** Stripe: `Stripe-Signature` → `Webhook.construct_event(payload, sig, secret)` over the **raw** body bytes; with a missing secret/library → **503**, never a grant (`main.py:4714-4723`, `stripe_checkout.py:313-322`). Telegram: `X-Telegram-Bot-Api-Secret-Token` through `hmac.compare_digest`, a missing secret by itself refuses with 401 (`main.py:4108-4117`).
+11. **All admin routes have a guard**, not one of them is accessible without auth (verified individually); all shared secrets are compared with `hmac.compare_digest` (`main.py:1835, 1852, 1859, 4113, 5151, 5177, 2019`); the cookie is `HttpOnly + Secure + SameSite=Lax`, `session.clear()` before login (anti-fixation); `ProxyFix(x_for=0)` deliberately does **not** rewrite `remote_addr` from a header (`main.py:174`); the error handler does not leak a traceback (`main.py:218-236`); SQL is parameterized (the two interpolations are over constants); `MAX_CONTENT_LENGTH` 512 KB is enforced before the handlers.
 
-### 3.2 Констатации по платежния рейл
+### 3.2 Findings on the payment rail
 
-#### 🔴 F-01 — Платените продукти се раздават безплатно (нарушен бизнес модел)
-`main.py:142-157` съдържа в **безплатния** allow-list двата dashboard JSON рута; paywall-ът ги пропуска на `main.py:3427-3428`:
+#### 🔴 F-01 — Paid products are handed out for free (a broken business model)
+`main.py:142-157` contains in the **free** allow-list the two dashboard JSON routes; the paywall lets them
+through at `main.py:3427-3428`:
 
 ```python
 X402_FREE_ENDPOINTS = { ..., "/api/dashboard-stats", "/api/dashboard/data", ... }
@@ -167,15 +176,17 @@ if path in X402_FREE_ENDPOINTS:
     return None
 ```
 
-- `/api/dashboard-stats` (`main.py:3986-3989`) → `_cached_statistics_payload()` → `_statistics_payload(include_recent_requests=False)`; **единствената** разлика с платения `/api/stats` (`main.py:4067-4071`) е:
+- `/api/dashboard-stats` (`main.py:3986-3989`) → `_cached_statistics_payload()` → `_statistics_payload(include_recent_requests=False)`; the **only** difference from the paid `/api/stats` (`main.py:4067-4071`) is:
   `if include_recent_requests: payload["recent_requests"] = recent_requests[-50:]` (`main.py:3818-3819`).
-  Всичко останало, за което клиент плаща, е в безплатното тяло: `"history"` (≤100 durable реда), `total_volume_usd`, `total_sales`, `by_token`, `market_data`, `products`, `wallet` (`main.py:3792, 3797-3800`).
-- Редовете идват от `dashboard_store.py:1240-1244` — `SELECT tx_hash, block_number, ts, sender, amount_usdc, payer_class, payer_label, source` — т.е. **tx hash + платец + сума + вътрешната операторска класификация на платеца** са публични (`main.py:5259-5263`).
-- `/api/dashboard/data` (`main.py:5573-5582`) е още по-лошо: `"history": sales["history"][:100]` (`main.py:5452`) и `"whales": whales["whales"]` (`main.py:5503`) — второто **е** продуктът, за който `/api/v1/whaleflow` таксува $0.003 (`main.py:5625-5634`), при това с повече полета. Цялото тяло на `/api/sales` (`main.py:3630-3639`) е подмножество на `sections.onchain`.
+  Everything else a client pays for is in the free body: `"history"` (≤100 durable rows), `total_volume_usd`, `total_sales`, `by_token`, `market_data`, `products`, `wallet` (`main.py:3792, 3797-3800`).
+- The rows come from `dashboard_store.py:1240-1244` — `SELECT tx_hash, block_number, ts, sender, amount_usdc, payer_class, payer_label, source` — i.e. **the tx hash + the payer + the amount + the internal operator classification of the payer** are public (`main.py:5259-5263`).
+- `/api/dashboard/data` (`main.py:5573-5582`) is even worse: `"history": sales["history"][:100]` (`main.py:5452`) and `"whales": whales["whales"]` (`main.py:5503`) — the latter **is** the product that `/api/v1/whaleflow` charges $0.003 for (`main.py:5625-5634`), and with more fields at that. The entire body of `/api/sales` (`main.py:3630-3639`) is a subset of `sections.onchain`.
 
-**Защо е сериозно:** `X402_PRICE_MAP` е практически неспазваем — рационален купувач сравнява един безплатен URL срещу шест 402 отговора. Освен това публикуването на `(tx_hash, sender)` прави F-16 експлоатируем. Това е продуктово решение, не бъг в кода: paywall-ът не може да се „поправи", докато съществува безплатно огледало.
+**Why it is serious:** `X402_PRICE_MAP` is practically unenforceable — a rational buyer compares one free URL
+against six 402 responses. Moreover, publishing `(tx_hash, sender)` makes F-16 exploitable. This is a product
+decision, not a bug in the code: the paywall cannot be "fixed" while a free mirror exists.
 
-#### 🔴 F-02 — `accepted.amount` замества подписаната стойност; реално платената сума не се проверява
+#### 🔴 F-02 — `accepted.amount` replaces the signed value; the actually paid amount is not checked
 `services/connectors.py:195-200`:
 
 ```python
@@ -184,29 +195,38 @@ got_amount = str(accepted.get("amount") or auth.get("value") or "")
 if want_amount and got_amount.isdigit() and int(got_amount) < int(want_amount):
 ```
 
-Клиентското `accepted.amount` има предимство пред подписаното `authorization.value` и двете никога не се сравняват. Доказано с реалната функция (`precheck_payment_payload`, read-only):
+The client-side `accepted.amount` takes precedence over the signed `authorization.value` and the two are
+never compared. Proven with the real function (`precheck_payment_payload`, read-only):
 
 ```
-A  accepted.amount=5000, подписано value=1  -> []                                  (минава!)
-B  без accepted.amount, подписано value=1   -> ['amount below price: 1 < 5000 …']  (хваща се)
-C  нечислов amount "1_000"                  -> []                                  (проверката се прескача)
+A  accepted.amount=5000, signed value=1  -> []                                  (passes!)
+B  without accepted.amount, signed value=1   -> ['amount below price: 1 < 5000 …']  (caught)
+C  non-numeric amount "1_000"                  -> []                                  (the check is skipped)
 ```
 
-Сетълментът после излъчва точно подписаното (`connectors.py:360-368`, `abi_encode(... int(auth["value"]) ...)`), а при успех `main.py:3182-3213` прави claim и доставя **без** да чете сумата на Transfer-а (четат се само `status`, `blockNumber`, `blockHash` — `main.py:3076-3120`), записвайки продажбата по сървърната цена (`main.py:3210-3213`). Допълнително `_merged_requirements` (`connectors.py:287-294`) подава **клиентския** amount и към facilitator-а.
+Settlement then broadcasts exactly the signed amount (`connectors.py:360-368`, `abi_encode(... int(auth["value"]) ...)`), and on success `main.py:3182-3213` claims and delivers **without** reading the amount of the Transfer (only `status`, `blockNumber`, `blockHash` are read — `main.py:3076-3120`), recording the sale at the server price (`main.py:3210-3213`). In addition, `_merged_requirements` (`connectors.py:287-294`) passes the **client's** amount on to the facilitator as well.
 
-**Защо е сериозно:** директно недоплащане; всяка продажба през стандартния рейл може да е под отчетената стойност. Сигурно експлоатируемо по self-broadcast пътя (нужни са `WALLET_PRIVATE_KEY` + газ); при PayAI/CDP зависи дали техният facilitator сравнява подписаната стойност — защита по случайност, не по дизайн.
+**Why it is serious:** direct underpayment; every sale through the standard rail may be below the recorded
+value. It is reliably exploitable along the self-broadcast path (`WALLET_PRIVATE_KEY` + gas are needed); with
+PayAI/CDP it depends on whether their facilitator compares the signed value — protection by accident, not by
+design.
 
-#### 🔴 F-03 — При нечетим receipt платеното обаждане се доставя (fail-open)
-`main.py:3082-3110` умишлено отменя провалената проверка на receipt-а:
+#### 🔴 F-03 — When the receipt is unreadable, the paid call is delivered (fail-open)
+`main.py:3082-3110` deliberately overrides a failed receipt check:
 
 ```python
-log.warning("c2_receipt_status_override_delivered: tx=%s receipt status=%s след ~8s poll — fail-open, доставя се", ...)
+log.warning("c2_receipt_status_override_delivered: tx=%s receipt status=%s after ~8s poll — fail-open, delivering", ...)
 ```
 
-При спрял RPC всяко `get_transaction_receipt` хвърля изключение, `receipt` остава `None` през 4-те опита и заявката продължава към C1 claim и доставка само по думата на facilitator-а. Пропуска се и проверката за дълбочина (`if receipt is not None …`, `main.py:3132`). Цялата проверка е обвита в поглъщане, което при изключение **дава** достъп (`main.py:3158-3159`), така че и `read_head()` при RPC смущение води до грант. Legacy рейлът обвива **същия** helper и задава `deep_enough = False` (`main.py:2790-2793`) — асиметрията изглежда случайна.
+When the RPC is down, every `get_transaction_receipt` throws an exception, `receipt` stays `None` through
+the 4 attempts and the request continues to the C1 claim and delivery on the facilitator's word alone. The
+depth check is skipped as well (`if receipt is not None …`, `main.py:3132`). The whole check is wrapped in a
+swallowing block that on an exception **grants** access (`main.py:3158-3159`), so `read_head()` under RPC
+trouble also leads to a grant. The legacy rail wraps the **same** helper and sets `deep_enough = False`
+(`main.py:2790-2793`) — the asymmetry looks accidental.
 
-#### 🔴 F-04 — Безплатен GET прави 4 ЗАПИСА в таблицата на replay-заключването
-`/api/dashboard/data` (безплатен, `main.py:142-157`) → `_canonical_dashboard_payload` (`main.py:5400`) → `dashboard_db.guard_stats()` → `integrations/dashboard_store.py:1542-1555`:
+#### 🔴 F-04 — A free GET performs 4 WRITES in the replay-lock table
+`/api/dashboard/data` (free, `main.py:142-157`) → `_canonical_dashboard_payload` (`main.py:5400`) → `dashboard_db.guard_stats()` → `integrations/dashboard_store.py:1542-1555`:
 
 ```
 DELETE FROM payment_guards WHERE tx_hash = ?
@@ -215,24 +235,50 @@ SELECT COUNT(*) … WHERE tx_hash = ?
 DELETE … WHERE tx_hash = ?
 ```
 
-Всяко през `_run`, което взима `_pg_lock` (`dashboard_store.py:307, 353` — „one shared, serialised link") и прави commit. `templates/dashboard.html:763` го вика с `cache:'no-store'`, а `:800` го повтаря на всеки 45 s на отворен таб.
+All of them through `_run`, which takes `_pg_lock` (`dashboard_store.py:307, 353` — "one shared, serialised
+link") and commits. `templates/dashboard.html:763` calls it with `cache:'no-store'`, and `:800` repeats it
+every 45 s on an open tab.
 
-**Защо е сериозно:** това е **същият lock, който `claim_payment_tx` използва за C1 replay защитата**, върху **същата таблица**. Анонимен poll може да забави replay claim на платещ клиент; endpoint-ът може да се върти в цикъл за неограничени INSERT/DELETE/WAL; а самият код документира (`dashboard_store.py:1532-1537`), че провалена проба е fail-closed условието, при което започват да се отказват плащания. **Писането върху read път е най-опасният единичен модел в кода.**
+**Why it is serious:** this is **the same lock that `claim_payment_tx` uses for the C1 replay protection**,
+on **the same table**. An anonymous poll can delay the replay claim of a paying client; the endpoint can be
+spun in a loop for unbounded INSERT/DELETE/WAL; and the code itself documents (`dashboard_store.py:1532-1537`)
+that a failed probe is the fail-closed condition under which payments start being refused. **Writing on a
+read path is the single most dangerous pattern in the code.**
 
-#### 🟠 F-05 — Реорг никога не отменя кредитирано плащане
-`main.py:2631-2690` препрочита анкерните височини и записва `c2_reorg_detected` — **нищо друго**. Редът в `onchain_sales` (`dashboard_store.py:812-845`), claim-ът в `payment_guards` (`:1313-1370`) и VIP поканата (`main.py:882-898`) оцеляват. Дълбочината на стандартния рейл е **1** (`main.py:2484`), т.е. прозорецът е един Base блок (~2 s). `tests/test_reorg_watch.py:100-118` изрично фиксира, че детекцията **не** е отказ и не мести `blocked_total`.
+#### 🟠 F-05 — A reorg never reverses a credited payment
+`main.py:2631-2690` re-reads the anchor heights and records `c2_reorg_detected` — **nothing else**. The row
+in `onchain_sales` (`dashboard_store.py:812-845`), the claim in `payment_guards` (`:1313-1370`) and the VIP
+invite (`main.py:882-898`) survive. The depth of the standard rail is **1** (`main.py:2484`), i.e. the window
+is one Base block (~2 s). `tests/test_reorg_watch.py:100-118` explicitly pins down that detection is **not** a
+refusal and does not move `blocked_total`.
 
-#### 🟠 F-06 — Приемане на сетълмент по nonce без проверка за дълбочина
-`main.py:2321-2435` (`_find_settlement_by_nonce`) приема всеки `AuthorizationUsed` лог от последните 5000 блока, чийто receipt съдържа съответстващия `Transfer`, проверявайки **само** `receipt.status == 1` — без `_confirmations_ok` и без сравнение с главата на веригата. Вика се от `main.py:3021` преди всеки сетълмент: сетълмент на самия връх (или такъв, който ще бъде реорганизиран) се приема и после се доставя по същия път като F-03.
+#### 🟠 F-06 — Settlement is accepted by nonce without a depth check
+`main.py:2321-2435` (`_find_settlement_by_nonce`) accepts any `AuthorizationUsed` log from the last 5000
+blocks whose receipt contains the matching `Transfer`, checking **only** `receipt.status == 1` — without
+`_confirmations_ok` and without comparison with the chain head. It is called from `main.py:3021` before every
+settlement: a settlement at the very tip (or one that will be reorged) is accepted and then delivered along
+the same path as F-03.
 
-#### 🟠 F-07 — Нула rate limit по платежния път; газ-разходът е под контрола на анонимен клиент
-`main.py:1406-1416` дефинира 9 scope-а за rate limit; **нито един не покрива paywall-а** и `_x402_paywall` (`main.py:3431-3523`) никога не вика `_check_rate_limit`. Всяка заявка с валидно подписан, свеж authorization води до: `eth_getLogs` през 5000 блока (`main.py:3020-3021` → `:2364-2374`), после сетълмент. Ако `WALLET_PRIVATE_KEY` е наличен, `_self_broadcast_settlement` излъчва **наша** транзакция за купувач, който може умишлено да я направи revert (нулев USDC баланс или бомбастичен EIP-712 домейн — F-16/F-33 контекст), т.е. ние плащаме газа, и държи нишката до 24 s (`connectors.py:390-410`: `deadline = time.time() + 24`, `time.sleep(2)`).
+#### 🟠 F-07 — Zero rate limit on the payment path; the gas spend is under an anonymous client's control
+`main.py:1406-1416` defines 9 rate-limit scopes; **not one of them covers the paywall**, and `_x402_paywall`
+(`main.py:3431-3523`) never calls `_check_rate_limit`. Every request with a validly signed, fresh
+authorization leads to: `eth_getLogs` over 5000 blocks (`main.py:3020-3021` → `:2364-2374`), then settlement.
+If `WALLET_PRIVATE_KEY` is available, `_self_broadcast_settlement` broadcasts **our** transaction for a buyer
+who can deliberately make it revert (zero USDC balance or a bombastic EIP-712 domain — F-16/F-33 context),
+i.e. we pay the gas, and it holds the thread for up to 24 s (`connectors.py:390-410`: `deadline = time.time() + 24`, `time.sleep(2)`).
 
-#### 🟠 F-12 — Неограничен reorg watch на нишка-на-плащане + нечанкнат `getLogs`
-`main.py:3217` стартира `threading.Thread(target=_detect_reorgs, …)` от `_try_consume_standard_payment` (fire-and-forget, без throttle и без single-flight), а `_read_block_hash` (`main.py:2621-2628`) строи **нов** `Web3(HTTPProvider(…, timeout=20))` при всяко викане, до 25 викания вътре в `_detect_reorgs` → до 25 нови provider-а и 25 RPC обаждания на платено обаждане. Паралелно `_find_settlement_by_nonce` прави `get_logs` за 5000 блока **на един ред**, докато `services/market_data.py:194+` има `_adaptive_get_logs` с намаляване на прозореца, което този път не използва. 5000-блоков `getLogs` е класически тригер за 429/timeout, а 429 точно там превръща „платено и търпеливо" в „платено и провалено".
+#### 🟠 F-12 — Unbounded reorg watch per payment thread + unchunked `getLogs`
+`main.py:3217` starts `threading.Thread(target=_detect_reorgs, …)` from `_try_consume_standard_payment`
+(fire-and-forget, with no throttle and no single-flight), while `_read_block_hash` (`main.py:2621-2628`) builds
+a **new** `Web3(HTTPProvider(…, timeout=20))` on every call, up to 25 calls inside `_detect_reorgs` → up to 25
+new providers and 25 RPC calls per paid call. In parallel, `_find_settlement_by_nonce` does a `get_logs` over
+5000 blocks **in one line**, whereas `services/market_data.py:194+` has `_adaptive_get_logs` with window
+reduction, which this path does not use. A 5000-block `getLogs` is a classic trigger for 429/timeout, and a
+429 exactly there turns "paid and patient" into "paid and failed".
 
-#### 🟡 F-16 — X-Payment-Proof е препредаваем bearer токен върху публично публикувани данни
-Бързият път (`main.py:2879-2900`) приема proof за всеки tx, който вече е в `_sales_history`, ако заявеният платец съвпадне със записания sender:
+#### 🟡 F-16 — X-Payment-Proof is a replayable bearer token over publicly published data
+The fast path (`main.py:2879-2900`) accepts a proof for any tx that is already in `_sales_history`, if the
+claimed payer matches the recorded sender:
 
 ```python
 if recorded_sender != proof["payer"]:
@@ -240,41 +286,69 @@ if recorded_sender != proof["payer"]:
 amount = float(s.get("amount_usd", 0.0))
 ```
 
-Самият proof е неавтентикиран base64 JSON (`main.py:2729-2752`: `{payer, transaction_hash, amount_usdc}`), а **двете** половини на проверката се публикуват безплатно от F-01 (tx hash **и** sender в ≤100 реда история). Тестът в репото сам описва модела на заплахата (`tests/test_payment_guards.py:396-429`). Прозорец: всеки трансфер, открит от монитора, но още без ред в `payment_guards` (напр. 9-те seed-нати хеша в `integrations/verified_sales.py:58-122`).
+The proof itself is unauthenticated base64 JSON (`main.py:2729-2752`: `{payer, transaction_hash, amount_usdc}`),
+and **both** halves of the check are published for free by F-01 (the tx hash **and** the sender in ≤100 rows
+of history). The test in the repo itself describes the threat model (`tests/test_payment_guards.py:396-429`).
+Window: any transfer detected by the monitor but not yet having a row in `payment_guards` (e.g. the 9 seeded
+hashes in `integrations/verified_sales.py:58-122`).
 
-#### 🟡 F-17 — Едно плащане може да достави два пъти при конкурентност
-Durable claim-ът е коректен, но recovery слотът re-admit-ва братче, което още е in flight (`main.py:2438-2470`): губещият `claim_payment_tx` получава False, но `delivered_at` още е NULL (победителят не е излъчил отговора), затова губещият взима retry слота и също доставя. Ограничено до 2 доставки.
+#### 🟡 F-17 — A single payment can deliver twice under concurrency
+The durable claim is correct, but the recovery slot re-admits a sibling that is still in flight
+(`main.py:2438-2470`): the losing `claim_payment_tx` gets False, but `delivered_at` is still NULL (the winner
+has not emitted the response yet), so the loser takes the retry slot and delivers as well. Limited to 2
+deliveries.
 
-#### 🟡 F-18 — `payment.amount_usdc` връща атомарни единици под име на USDC
-`main.py:1723-1733`: `"amount_usdc": int(atomic_amount),` → за рут от $0.005 тялото казва `5000`, докато хедърът казва `X-Payment-Amount-USDC: 0.005` (`main.py:1766`), а съобщението — „Send 0.005 USDC" (`main.py:1719-1722`). `x402_amount` е документиран като атомарен (`main.py:1705`), но това поле — не, а тялото съществува именно за да може агент да конструира плащането без документация (`main.py:1698-1700`). `tests/test_402_response_headers.py:81` фиксира грешната единица. **Агент, който чете само JSON-а, се инструктира да авторизира 5000 USDC за обаждане от $0.005.**
+#### 🟡 F-18 — `payment.amount_usdc` returns atomic units under a USDC name
+`main.py:1723-1733`: `"amount_usdc": int(atomic_amount),` → for a $0.005 route the body says `5000`, while the
+header says `X-Payment-Amount-USDC: 0.005` (`main.py:1766`), and the message says "Send 0.005 USDC"
+(`main.py:1719-1722`). `x402_amount` is documented as atomic (`main.py:1705`), but this field is not, and the
+body exists precisely so that an agent can construct the payment without documentation (`main.py:1698-1700`).
+`tests/test_402_response_headers.py:81` pins down the wrong unit. **An agent that reads only the JSON is
+instructed to authorize 5000 USDC for a $0.005 call.**
 
-#### 🟡 F-19 — Рекламираните цени дрейфват от предизвикателството
-- `discovery.py:866-867`: tier `price_usdc: MICRO_FEE_USDC` (=0.005) с описание „from {KRISTO_SIGNAL_PRICE}" (=0.003) — две различни числа в един обект; `:887-892` ценообразува `/api/stats`, `/api/sales`, `/api/bot-status` от `MICRO_FEE_USDC` вместо от картата.
-- `discovery.py:1057, 1276, 1454, 1528`: `price_per_call_usdc: X402_FEE_USDC` (плоско 0.005), докато `/api/v1/signal` и `/api/v1/whaleflow` таксуват 0.003.
-- `discovery.py:440`: whaleflow sample казва „$0.005", а `KRISTO_WHALEFLOW_PRICE` е 0.003 (`config.py:83`); `:416/:462/:482/:504` също твърдолитерални.
-- MCP инструментите (`discovery.py:535, 555, 576`) рекламират `X402_FEE_USDC` за endpoints, ценообразувани от картата.
-- Правилният модел вече съществува: `discovery.py:950-956` извежда от `X402_PRICE_MAP` — просто не е приложен навсякъде.
+#### 🟡 F-19 — The advertised prices drift from the challenge
+- `discovery.py:866-867`: tier `price_usdc: MICRO_FEE_USDC` (=0.005) with the description "from {KRISTO_SIGNAL_PRICE}" (=0.003) — two different numbers in one object; `:887-892` prices `/api/stats`, `/api/sales`, `/api/bot-status` from `MICRO_FEE_USDC` instead of from the map.
+- `discovery.py:1057, 1276, 1454, 1528`: `price_per_call_usdc: X402_FEE_USDC` (a flat 0.005), while `/api/v1/signal` and `/api/v1/whaleflow` charge 0.003.
+- `discovery.py:440`: the whaleflow sample says "$0.005", while `KRISTO_WHALEFLOW_PRICE` is 0.003 (`config.py:83`); `:416/:462/:482/:504` are also hardcoded.
+- The MCP tools (`discovery.py:535, 555, 576`) advertise `X402_FEE_USDC` for endpoints priced from the map.
+- The correct pattern already exists: `discovery.py:950-956` derives from `X402_PRICE_MAP` — it simply has not been applied everywhere.
 
-#### 🟡 F-20 — „$29 VIP — неограничен достъп" не е имплементиран
-`discovery.py:873-881` го продава на `VIP_MONTHLY_USDC = 29.00` (`main.py:402`), но **нито един рут не консултира `_vip_subscribers`** (grep: само запис в `main.py:474`, dedup в `:887`, два брояча `:4949/:4980`); paywall-ът няма клон за абонамент. Единственият VIP тригер е плащане ≥ `VIP_THRESHOLD_USDC = KRISTO_VIP_ANALYSIS_PRICE` = **$0.10** (`main.py:406, 882-898`), което издава Telegram покана. Т.е. или платено обещание, което API-ът не изпълнява (риск от refund/dispute), или $0.10 праг върху $29 полза. Поканата nav nav се задейства и при всеки несвързан трансфер ≥$0.10 към получателя.
+#### 🟡 F-20 — "$29 VIP — unlimited access" is not implemented
+`discovery.py:873-881` sells it at `VIP_MONTHLY_USDC = 29.00` (`main.py:402`), but **not a single route
+consults `_vip_subscribers`** (grep: only a write in `main.py:474`, dedup in `:887`, two counters
+`:4949/:4980`); the paywall has no subscription branch. The only VIP trigger is a payment ≥
+`VIP_THRESHOLD_USDC = KRISTO_VIP_ANALYSIS_PRICE` = **$0.10** (`main.py:406, 882-898`), which issues a Telegram
+invite. That is, either a paid promise the API does not fulfil (risk of refund/dispute), or a $0.10 threshold
+on a $29 benefit. The invite nav nav is also triggered by any unrelated transfer ≥$0.10 to the receiver.
 
-#### 🟡 F-21 — `FREE_TIER_LIMIT` по подразбиране е 1
-`main.py:129-134`: `FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))`. Само коментар твърди, че продукцията работи с 0. `.env.example` **не** документира нито този ключ, нито който и да е x402 ключ. Броячът е in-RAM, по IP, без pruning (`main.py:1319`); при 1 worker е консистентен, но всяко мащабиране умножава безплатните обаждания. 402 тялото публикува `"free_tier_limit": FREE_TIER_LIMIT` (`main.py:1735`).
+#### 🟡 F-21 — `FREE_TIER_LIMIT` defaults to 1
+`main.py:129-134`: `FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "1")))`. Only a comment
+claims that production runs with 0. `.env.example` does **not** document this key, nor any x402 key. The
+counter is in-RAM, per IP, without pruning (`main.py:1319`); with 1 worker it is consistent, but any scaling
+multiplies the free calls. The 402 body publishes `"free_tier_limit": FREE_TIER_LIMIT` (`main.py:1735`).
 
-#### 🟢 F-32 — Ръчно поддържан guard списък без тест за покритие
-`main.py:137-139` (шест литерала, точно съвпадение) е **единственото**, което paywall-ът налага, докато рекламираният списък е `REAL_X402_ROUTES` (`:2071-2134`), а цените — `X402_PRICE_MAP` (`:89-100`). Добавяне в единия списък без другия прави рут безплатен или го ценообразува с fallback-а `BASE_FEE_AMOUNT_USDC` (`:1473`). Няма тест, който да твърди `REAL_X402_ROUTES ⊆ X402_PAID_ENDPOINTS` (grep в `tests/` — 0 попадения). Днес няма втори рут към платен ресурс, но дизайнът го допуска по конструкция.
+#### 🟢 F-32 — A manually maintained guard list with no coverage test
+`main.py:137-139` (six literals, exact match) is **the only thing** the paywall enforces, while the advertised
+list is `REAL_X402_ROUTES` (`:2071-2134`), and the prices are `X402_PRICE_MAP` (`:89-100`). Adding to one list
+without the other makes a route free or prices it with the `BASE_FEE_AMOUNT_USDC` fallback (`:1473`). There is
+no test asserting `REAL_X402_ROUTES ⊆ X402_PAID_ENDPOINTS` (grep in `tests/` — 0 hits). Today there is no
+second route to a paid resource, but the design allows it by construction.
 
-#### 🟢 F-37 — Обемната отстъпка е no-op и е твърдолитерална цена
-`main.py:83` `X402_FEE_USDC_DISCOUNT = 0.01` в файл, чието собствено docstring казва „Nothing in this file may hardcode a price" (`main.py:14-16`), прилага се като **таван** (`:1476-1478`): `return min(X402_FEE_USDC_DISCOUNT, base)`. Всичките шест цени са ≤ $0.01, значи `min(0.01, base) == base` винаги — рекламираната отстъпка след 10 платени обаждания никога не се случва. Броячът е per-process RAM по IP (`:1345, 1475`).
+#### 🟢 F-37 — The volume discount is a no-op and is a hardcoded price
+`main.py:83` `X402_FEE_USDC_DISCOUNT = 0.01` in a file whose own docstring says "Nothing in this file may
+hardcode a price" (`main.py:14-16`), applied as a **ceiling** (`:1476-1478`):
+`return min(X402_FEE_USDC_DISCOUNT, base)`. All six prices are ≤ $0.01, so `min(0.01, base) == base` always —
+the discount advertised after 10 paid calls never happens. The counter is per-process RAM per IP
+(`:1345, 1475`).
 
 ---
 
-## 4. Производителност и тесни места
+## 4. Performance and bottlenecks
 
-### 🟡 F-22 — Статистическият агрегат: 12 заявки, 5 пълни сканирания, без кеш на 2 от 3 рута
-Измерено локално върху **46 301** реда (`requests_summary`, `dashboard_store.py:659-733`), с `EXPLAIN QUERY PLAN`:
+### 🟡 F-22 — The statistics aggregate: 12 queries, 5 full scans, no cache on 2 of 3 routes
+Measured locally over **46 301** rows (`requests_summary`, `dashboard_store.py:659-733`), with `EXPLAIN QUERY PLAN`:
 
-| Заявка | Време | План |
+| Query | Time | Plan |
 |---|---|---|
 | `count_total` | 4.14 ms | covering index `idx_request_log_path` |
 | `count_today` | 0.37 ms | index |
@@ -288,286 +362,398 @@ Durable claim-ът е коректен, но recovery слотът re-admit-ва
 | `hourly_today` | 0.20 ms | index |
 | `funnel_grouped` | 44.48 ms | `SEARCH idx_request_log_path` |
 | `recent_25` | 0.20 ms | index |
-| **ОБЩО** | **528.22 ms** | **5 пълни таблични + 1 пълен индексен скан** |
+| **TOTAL** | **528.22 ms** | **5 full table + 1 full index scan** |
 
-- Причината: **няма индекс по `request_log.user_agent`** (филтърът `LIKE 'Render/%'`), нито по `source`/`funnel`.
-- В продукция мащабът е друг: самият код отбелязва (`main.py:3944-3945`) „~783K реда, ~22 seq scans", „измерени ~41 s на живо" — над 30-секундния timeout на клиента на Sentinel.
-- На Postgres `user_agent LIKE 'Render/%'` **не може** да ползва btree → гарантиран seq scan върху 783K реда.
-- Кешът от 60 s покрива **само** `/api/dashboard-stats` (`main.py:3951-3955, 3966-3983`). `/api/stats` (`:4067-4071`) и `/api/dashboard/data` (`:5573-5582`) са **некеширани**, а `_cached_statistics_payload` умишлено допуска дублирани конкурентни build-ове (`:3966-3983`): изтичане на TTL + 8 едновременни попадения = 8 × ~41 s DB работа, сериализирана зад `_pg_lock`.
-- Допълнително `_sanitize_json` (`main.py:1482-1496`) рекурсивно пре-създава цялото дърво на **всеки** отговор.
-- **F-31:** `payment_guards` се дърпа цялата в Python при всеки dashboard poll, **два пъти** (`dashboard_store.py:1615-1625` — `SELECT tx_hash, endpoint FROM payment_guards` без WHERE/LIMIT; викана от `main.py:5400` и отново в `clients_summary` `:1933-2002`), а `payment_guard_stats` (`:1479-1486`) добавя `ORDER BY consumed_at DESC LIMIT 1` без индекс по `consumed_at`.
+- The reason: **there is no index on `request_log.user_agent`** (the `LIKE 'Render/%'` filter), nor on `source`/`funnel`.
+- In production the scale is different: the code itself notes (`main.py:3944-3945`) "~783K rows, ~22 seq scans", "measured ~41 s live" — above the 30-second timeout of the Sentinel client.
+- On Postgres `user_agent LIKE 'Render/%'` **cannot** use a btree → a guaranteed seq scan over 783K rows.
+- The 60 s cache covers **only** `/api/dashboard-stats` (`main.py:3951-3955, 3966-3983`). `/api/stats` (`:4067-4071`) and `/api/dashboard/data` (`:5573-5582`) are **uncached**, and `_cached_statistics_payload` deliberately allows duplicate concurrent builds (`:3966-3983`): a TTL expiry + 8 simultaneous hits = 8 × ~41 s of DB work, serialized behind `_pg_lock`.
+- In addition, `_sanitize_json` (`main.py:1482-1496`) recursively re-creates the whole tree of **every** response.
+- **F-31:** `payment_guards` is pulled entirely into Python on every dashboard poll, **twice** (`dashboard_store.py:1615-1625` — `SELECT tx_hash, endpoint FROM payment_guards` without WHERE/LIMIT; called from `main.py:5400` and again in `clients_summary` `:1933-2002`), while `payment_guard_stats` (`:1479-1486`) adds `ORDER BY consumed_at DESC LIMIT 1` with no index on `consumed_at`.
 
-### 🟠 F-09 — Една споделена DB връзка под глобален lock, без `connect_timeout`
-`dashboard_store.py:307` (`_pg_lock`), `:334-340` (`_pg_connection()` — **без** `connect_timeout`), `:342-372` (`_run` държи `_pg_lock` и при изключение затваря споделената връзка). Същият файл ползва `connect_timeout=5` за странична връзка на `:624-625`. `integrations/crm_store.py:399-473` също е без `connect_timeout`, а `:490-493` отваря **нова** връзка на всяко четене.
-**Ефект:** psycopg не подава timeout → libpq default 0 = чака вечно. Мрежова партида или Postgres failover блокира **първата** заявка завинаги, държейки `_pg_lock` → всичките 8 нишки + всички background цикли + `/health`. SQLite пътят не е по-добър: `_run` държи `self._lock` през connect+execute+commit, а `DashboardStore._connect` (`:1659-1662`) отваря **нова** `sqlite3.connect(..., timeout=30)` на всяко викане → едно `/api/dashboard/data` отваря ~35-40 връзки.
+### 🟠 F-09 — One shared DB connection under a global lock, without `connect_timeout`
+`dashboard_store.py:307` (`_pg_lock`), `:334-340` (`_pg_connection()` — **without** `connect_timeout`),
+`:342-372` (`_run` holds `_pg_lock` and on an exception closes the shared connection). The same file uses
+`connect_timeout=5` for a side connection at `:624-625`. `integrations/crm_store.py:399-473` is also without
+`connect_timeout`, and `:490-493` opens a **new** connection on every read.
+**Effect:** psycopg does not pass a timeout → the libpq default of 0 = waits forever. A network blip or a
+Postgres failover blocks the **first** request forever, holding `_pg_lock` → all 8 threads + all background
+loops + `/health`. The SQLite path is no better: `_run` holds `self._lock` through connect+execute+commit,
+while `DashboardStore._connect` (`:1659-1662`) opens a **new** `sqlite3.connect(..., timeout=30)` on every
+call → one `/api/dashboard/data` opens ~35-40 connections.
 
-### 🟠 F-10 — `/health` зависи от DB и може да предизвика рестарт-цикъл
-`app/blueprints/discovery.py:32-76` вика `crm_store.is_healthy()` и връща **503** при нездрав CRM store (`:58, :76`); `crm_store.py:639-645 / 390-396` отваря връзка на всяко викане без `connect_timeout`. Проверяващи: `Dockerfile:39` (`--interval=30s --timeout=10s --retries=3`), платформената проверка, keep-alive цикълът (`main.py:5681-5713`) и `sentinel.py:144-165`.
-**Ефект:** транзиентно DB забавяне → 503 → оркестраторът рестартира **единствения** worker → студен старт (виж F-04 от перф. анализа: ~1.3 s import + DB работа + Telegram round trip) → още 503. Самоподдържащ се цикъл. Освен това **само RPC смущение не обръща `/health.status`**, значи няма Telegram аларма при пълен RPC отказ.
+### 🟠 F-10 — `/health` depends on the DB and can trigger a restart loop
+`app/blueprints/discovery.py:32-76` calls `crm_store.is_healthy()` and returns **503** when the CRM store is
+unhealthy (`:58, :76`); `crm_store.py:639-645 / 390-396` opens a connection on every call without
+`connect_timeout`. Checkers: `Dockerfile:39` (`--interval=30s --timeout=10s --retries=3`), the platform check,
+the keep-alive loop (`main.py:5681-5713`) and `sentinel.py:144-165`.
+**Effect:** a transient DB delay → 503 → the orchestrator restarts the **only** worker → a cold start (see
+F-04 from the perf analysis: ~1.3 s import + DB work + Telegram round trip) → more 503s. A self-sustaining
+loop. Moreover, **an RPC disturbance alone does not flip `/health.status`**, so there is no Telegram alarm on
+a full RPC failure.
 
-### 🟠 F-11 — `/mcp/sse` пинира 1 от 8 нишки за ≥15 s, безплатно и без throttle
-`discovery.py:665-667` (`_SSE_SESSIONS`, `_SSE_SESSIONS_LOCK`, `_SSE_IDLE_CLOSE_SECONDS = 15`), рут `:670-717`. Липсва **и** в `X402_FREE_ENDPOINTS`, **и** в `X402_PAID_ENDPOINTS`, **и** в rate-limit scope-овете (`main.py:1406-1448`; липсват scope-ове и за `/api/stats`, `/api/sales`, `/api/v1/signal`, `/api/v1/whaleflow`, `/api/arb/opportunities`, `/dashboard`, `/api/dashboard/data`). 8 анонимни SSE връзки = 8/8 нишки заети ≥15 s → пълен отказ на услугата, включително `/health`. Един `curl` цикъл е достатъчен.
+### 🟠 F-11 — `/mcp/sse` pins 1 of 8 threads for ≥15 s, free and without a throttle
+`discovery.py:665-667` (`_SSE_SESSIONS`, `_SSE_SESSIONS_LOCK`, `_SSE_IDLE_CLOSE_SECONDS = 15`), route
+`:670-717`. It is missing from **both** `X402_FREE_ENDPOINTS` **and** `X402_PAID_ENDPOINTS` **and** the
+rate-limit scopes (`main.py:1406-1448`; scopes are also missing for `/api/stats`, `/api/sales`,
+`/api/v1/signal`, `/api/v1/whaleflow`, `/api/arb/opportunities`, `/dashboard`, `/api/dashboard/data`). 8
+anonymous SSE connections = 8/8 threads occupied for ≥15 s → a full denial of service, including `/health`. A
+single `curl` loop is enough.
 
-### 🟡 F-23 — Бюджетите за блокиране по платения път надхвърлят `--timeout 120`
-- `main.py:2596-2598` — `time.sleep(wait)` (C2 lag, `C2_LAG_WAIT_SECONDS_DEFAULT = 2.5` при `:2528`, до 3 препрочитания на главата).
-- `main.py:3082-3096` — `time.sleep(2)` цикъл ≈ 8 s.
-- `connectors.py:390-410` и `:656-667` — `deadline = time.time() + 24` + `time.sleep(2)` → до **24 s** вътре в `_self_broadcast_settlement`/`_broadcast_client_transaction`.
-- `connectors.py:100-136` — facilitator POST с `FACILITATOR_TIMEOUT=15` (`:47`), верига PayAI→CDP (`:55-58`) в `settle_standard_payment` (`:799-899`) → до ~2×15 s на набор доставчици.
-- `main.py:4389-4478` → `verifier.py:252` — **последователно** строене на DEXScreener картата: до 4 символа × `SOURCE_TIMEOUT_SECONDS=5` = **+20 s** при студен кеш, ×8 конкурентни = 32 upstream заявки.
-- **F-24:** Stripe SDK без конфигуриран timeout — измерено `_http_client.py:512` `timeout = 80`, `stripe/__init__.py:39` `max_network_retries = 2` → до ~240 s в една checkout заявка (`stripe_checkout.py:290, 336, 361`; викани от `main.py:4188, 4330, 4561, 4708`), плюс `list_recent_completed_payments` (`:347-395`), която обхожда **цялата** история на checkout сесиите на акаунта, докато намери 25 платени.
+### 🟡 F-23 — The blocking budgets on the paid path exceed `--timeout 120`
+- `main.py:2596-2598` — `time.sleep(wait)` (C2 lag, `C2_LAG_WAIT_SECONDS_DEFAULT = 2.5` at `:2528`, up to 3 head re-reads).
+- `main.py:3082-3096` — `time.sleep(2)` loop ≈ 8 s.
+- `connectors.py:390-410` and `:656-667` — `deadline = time.time() + 24` + `time.sleep(2)` → up to **24 s** inside `_self_broadcast_settlement`/`_broadcast_client_transaction`.
+- `connectors.py:100-136` — facilitator POST with `FACILITATOR_TIMEOUT=15` (`:47`), the PayAI→CDP chain (`:55-58`) in `settle_standard_payment` (`:799-899`) → up to ~2×15 s per provider set.
+- `main.py:4389-4478` → `verifier.py:252` — **sequential** building of the DEXScreener map: up to 4 symbols × `SOURCE_TIMEOUT_SECONDS=5` = **+20 s** on a cold cache, ×8 concurrent = 32 upstream requests.
+- **F-24:** Stripe SDK with no configured timeout — measured `_http_client.py:512` `timeout = 80`, `stripe/__init__.py:39` `max_network_retries = 2` → up to ~240 s in one checkout request (`stripe_checkout.py:290, 336, 361`; called from `main.py:4188, 4330, 4561, 4708`), plus `list_recent_completed_payments` (`:347-395`), which walks the **entire** checkout session history of the account until it finds 25 paid ones.
 
-**Верижен ефект:** едно платено обаждане може да навърже агрегат (41 s) + C2 изчакване (2.5 s) + self-broadcast (≤24 s) + facilitator верига (≤30-60 s) > **120 s**. При 1 worker това не е „1 от N worker-а зацикли", а **целият API умира и рестартира по средата на плащане**.
+**Chain effect:** one paid call can chain the aggregate (41 s) + the C2 wait (2.5 s) + self-broadcast (≤24 s) +
+the facilitator chain (≤30-60 s) > **120 s**. With 1 worker this is not "1 of N workers is stuck", it is **the
+entire API dying and restarting in the middle of a payment**.
 
-### 🟡 F-25 — Един цикъл без `try/except`
-`main.py:1113-1121` (`_stripe_payment_snapshot_loop`) е единственият намерен background цикъл, чието тяло не е защитено: едно неочаквано изключение го убива **завинаги** и админ панелът показва „stale" без никой да бъде уведомен.
+### 🟡 F-25 — A single loop without `try/except`
+`main.py:1113-1121` (`_stripe_payment_snapshot_loop`) is the only background loop found whose body is not
+protected: one unexpected exception kills it **forever** and the admin panel shows "stale" with nobody
+notified.
 
-### 🟢 F-39 — Курсорът на блоковия монитор е само в RAM
-`main.py:714` задава `last_block = wallet.w3.eth.block_number` при старт; цикълът сканира `last_block+1 … min(current, from_block+1000)` (`:749-750`). `_wallet_state["last_block_checked"]` е само за показване (`:716, 774`). Рестарт **пропуска** всеки трансфер, минат по време на престоя. Dashboard пътят частично компенсира с durable watermark (`dashboard_store.py:2235-2247`), но мониторът — не.
+### 🟢 F-39 — The block monitor's cursor is RAM-only
+`main.py:714` sets `last_block = wallet.w3.eth.block_number` at startup; the loop scans
+`last_block+1 … min(current, from_block+1000)` (`:749-750`). `_wallet_state["last_block_checked"]` is for
+display only (`:716, 774`). A restart **misses** every transfer that went through during the downtime. The
+dashboard path partially compensates with a durable watermark (`dashboard_store.py:2235-2247`), but the
+monitor does not.
 
-### 4.1 Какво е коректно по производителност (не се пипа)
-- `/api/arb/opportunities` е наистина евтин: `arb_radar.py:61-92` копира списък под кратък lock; `data_age_blocks` от стенен часовник — **нула RPC на обаждане**.
-- `/api/connectors` → `connectors.py:950-1034` е чист CPU; `_ACTIVITY` е с 9 фиксирани ключа (ограничено).
-- `market_data._CACHE` е ограничен коректно (64 записа, TTL 900 s, stale 21600 s, `RLock`); `CoinGeckoClient._price_cache` — 32 записа (`coingecko.py:79-81`) с 5 s timeout.
-- `verifier.py` има 60 s `_dex_cache` (`:44, 47, 70-71, 111-114`) — `/api/v1/signal` **не** удря DEXScreener на всяко платено обаждане.
-- `main.py` има **140 top-level функции без нито едно дублирано име** (AST проверка) — хипотезата за „дублирани/мъртви helper-и" не се потвърждава.
-- Нито един тест не пре-импортира `main.py`; thread guard-ът работи за еднопроцесния случай, за който е проектиран.
-- Всички `requests`/`urlopen`/`Web3` в `market_data.py`, `verifier.py`, `sentinel.py`, `telegram_sales.py`, `arb_radar.py`, `connectors.py` имат **експлицитен timeout** — проблемите са в **бюджети и сериализация**, не в липсващи timeout-и. Изключенията са Stripe SDK (F-24) и DB connect (F-09).
-- `web3` (3.832 s студен импорт) се зарежда **лениво**; модулният импорт на `main.py` е 1.27-1.37 s и не включва web3/psycopg/stripe/telegram.
+### 4.1 What is correct performance-wise (not touched)
+
+- `/api/arb/opportunities` is genuinely cheap: `arb_radar.py:61-92` copies a list under a short lock; `data_age_blocks` from a wall clock — **zero RPC per call**.
+- `/api/connectors` → `connectors.py:950-1034` is pure CPU; `_ACTIVITY` has 9 fixed keys (bounded).
+- `market_data._CACHE` is correctly bounded (64 entries, TTL 900 s, stale 21600 s, `RLock`); `CoinGeckoClient._price_cache` — 32 entries (`coingecko.py:79-81`) with a 5 s timeout.
+- `verifier.py` has a 60 s `_dex_cache` (`:44, 47, 70-71, 111-114`) — `/api/v1/signal` does **not** hit DEXScreener on every paid call.
+- `main.py` has **140 top-level functions with not a single duplicated name** (AST check) — the hypothesis of "duplicated/dead helpers" is not confirmed.
+- No test re-imports `main.py`; the thread guard works for the single-process case it was designed for.
+- All `requests`/`urlopen`/`Web3` in `market_data.py`, `verifier.py`, `sentinel.py`, `telegram_sales.py`, `arb_radar.py`, `connectors.py` have an **explicit timeout** — the problems are in **budgets and serialization**, not in missing timeouts. The exceptions are the Stripe SDK (F-24) and the DB connect (F-09).
+- `web3` (3.832 s cold import) is loaded **lazily**; the module import of `main.py` is 1.27-1.37 s and does not include web3/psycopg/stripe/telegram.
 
 ---
 
-## 5. RPC, блокчейн и външни зависимости
+## 5. RPC, blockchain and external dependencies
 
-### 5.1 Таблица на зависимостите
+### 5.1 Dependency table
 
-| Зависимост | Конфигурация | Timeout | Fallback | Поведение при отказ | Blast radius |
+| Dependency | Configuration | Timeout | Fallback | Behaviour on failure | Blast radius |
 |---|---|---|---|---|---|
-| **Base RPC** | `config.py:57` (`BASE_RPC_URL`, default `https://mainnet.base.org`; прод. стойност `https://base.drpc.org` според `scripts/_render_env_set.py:17` и `PROJECT_STATUS.md:2473`) | 15-30 s (различни по места) | **Няма** втори доставчик | `_adaptive_get_logs` намалява прозореца и повтаря **същия** начален блок на всеки 2 s (`dashboard_store.py:243-255`), **без** `Retry-After` | **Най-висок.** И двата платежни рейла fail-closed (401) → никой не може да плати; скановете спират; цената в сигнала става `None` |
-| **Postgres / `DATABASE_URL`** | `dashboard_store.py:300-371` | `connect_timeout=5` само на request-log пътя (`:625`); другаде default (безкрайно) | SQLite файл при липсващ `DATABASE_URL` — **не** е runtime failover | `claim_payment_tx` връща False → `C1 replay lock UNREACHABLE … refusing every payment` (`:1359-1364`) | **Критичен:** недостъпна БД отказва всяко платено обаждане, макар парите да са on-chain |
-| **CoinGecko** | `coingecko.py:32-33`, `market_data.py:31`; ключове `COINGECKO_API_KEY`/`BASE44_API_KEY` | 5 s | Base44 прокси → публичен API (`coingecko.py:144-169`); stale кеш до 6 h | 2 опита + експоненциален backoff; 429 → process-wide cooldown ≤120 s | Среден за парите; **висок за платения сигнал** (цена `None` → confidence ×0.8) |
-| **DexScreener** | `verifier.py:39, 68`, `market_data.py:32` | 5 s / 10 s | `search` → `tokens` вътре във verifier-а; няма крос-доставчик | Връща `[]`/`"error"`; присъдата става `unverified` → **fail-open, сигналът се доставя** | Среден: платен сигнал се доставя неверифициран |
-| **Telegram Bot API** | `main.py:536`, `sentinel.py:123`, `telegram_sales.py:74, 199` | 10-20 s | Няма | Логва се, не е фатално | Нисък: забавени аларми/VIP кодове |
-| **Stripe** | `stripe_checkout.py:85-133` | **Няма** → SDK default 80 s × 3 | Няма | `stripe_checkout_creation_failed`; snapshot остава `stale` | Нисък за x402 paywall-а (човешки продукт) |
-| **x402 facilitator-и** (PayAI, CDP) | `connectors.py:55-63`, верига `:86-97` | 15 s | Верига: self-broadcast → CDP → PayAI (`:860-899`) | HTTP/транспортна грешка → следващият; всички fail → `settlement_failed` | Среден: **значим само ако hot wallet-ът няма газ** |
-| **GitHub API / DefiLlama / alternative.me** | `sentinel.py:248, 271, 362, 370`; `market_data.py:33, 494` | 25-30 s / 10 s | Няма | Полето показва `n/a`; baseline се запазва | Незначителен |
+| **Base RPC** | `config.py:57` (`BASE_RPC_URL`, default `https://mainnet.base.org`; prod value `https://base.drpc.org` according to `scripts/_render_env_set.py:17` and `PROJECT_STATUS.md:2473`) | 15-30 s (varies by place) | **None**, no second provider | `_adaptive_get_logs` reduces the window and retries the **same** start block every 2 s (`dashboard_store.py:243-255`), **without** `Retry-After` | **Highest.** Both payment rails fail-closed (401) → nobody can pay; the scans stop; the price in the signal becomes `None` |
+| **Postgres / `DATABASE_URL`** | `dashboard_store.py:300-371` | `connect_timeout=5` only on the request-log path (`:625`); elsewhere the default (infinite) | SQLite file when `DATABASE_URL` is missing — **not** a runtime failover | `claim_payment_tx` returns False → `C1 replay lock UNREACHABLE … refusing every payment` (`:1359-1364`) | **Critical:** an unreachable DB refuses every paid call, even though the money is on-chain |
+| **CoinGecko** | `coingecko.py:32-33`, `market_data.py:31`; keys `COINGECKO_API_KEY`/`BASE44_API_KEY` | 5 s | Base44 proxy → public API (`coingecko.py:144-169`); stale cache up to 6 h | 2 attempts + exponential backoff; 429 → process-wide cooldown ≤120 s | Medium for money; **high for the paid signal** (price `None` → confidence ×0.8) |
+| **DexScreener** | `verifier.py:39, 68`, `market_data.py:32` | 5 s / 10 s | `search` → `tokens` inside the verifier; no cross-provider | Returns `[]`/`"error"`; the verdict becomes `unverified` → **fail-open, the signal is delivered** | Medium: a paid signal is delivered unverified |
+| **Telegram Bot API** | `main.py:536`, `sentinel.py:123`, `telegram_sales.py:74, 199` | 10-20 s | None | Logged, not fatal | Low: delayed alerts/VIP codes |
+| **Stripe** | `stripe_checkout.py:85-133` | **None** → SDK default 80 s × 3 | None | `stripe_checkout_creation_failed`; the snapshot stays `stale` | Low for the x402 paywall (a human product) |
+| **x402 facilitators** (PayAI, CDP) | `connectors.py:55-63`, chain `:86-97` | 15 s | Chain: self-broadcast → CDP → PayAI (`:860-899`) | HTTP/transport error → the next one; all fail → `settlement_failed` | Medium: **significant only if the hot wallet has no gas** |
+| **GitHub API / DefiLlama / alternative.me** | `sentinel.py:248, 271, 362, 370`; `market_data.py:33, 494` | 25-30 s / 10 s | None | The field shows `n/a`; the baseline is preserved | Negligible |
 
-### 5.2 Аритметика на натоварването (изведено от кода — **не** измерено в продукция)
+### 5.2 Load arithmetic (derived from the code — **not** measured in production)
 
-| Цикъл | Интервал | RPC обаждания/цикъл | RPC/час |
+| Loop | Interval | RPC calls/loop | RPC/hour |
 |---|---|---|---|
-| `_blockchain_monitor_loop` (`main.py:679-780`) | 30 s | 1 `block_number` + 2 `balanceOf/decimals` + ~1 receiver balance + 1 `get_logs`(≤1000 блока) | **~480** |
-| `_dashboard_scan_loop` (`main.py:1151-1154`) | 60 s | 1 `block_number` + 1 `get_logs` + 1 `get_block` **на трансфер** | ~60 + ~60·N |
-| `_whaleflow_scan_loop` (`main.py:1229-1236`) | 60 s | 1 `block_number` + 1 `get_logs` + 1 `get_block` **на кит** | ~60 + ~60·M |
-| `arb_radar` (`arb_radar.py:27`) | 60 s | 1 RPC + 8 последователни DEXScreener GET | ~60 |
-| **Сумарно** | | | **~600-900/час при ниска активност; ~2 700/час при висока** (втората оценка е от отделен анализатор и предполага 30+ трансфера на цикъл — третирай я като песимистична горна граница) |
+| `_blockchain_monitor_loop` (`main.py:679-780`) | 30 s | 1 `block_number` + 2 `balanceOf/decimals` + ~1 receiver balance + 1 `get_logs`(≤1000 blocks) | **~480** |
+| `_dashboard_scan_loop` (`main.py:1151-1154`) | 60 s | 1 `block_number` + 1 `get_logs` + 1 `get_block` **per transfer** | ~60 + ~60·N |
+| `_whaleflow_scan_loop` (`main.py:1229-1236`) | 60 s | 1 `block_number` + 1 `get_logs` + 1 `get_block` **per whale** | ~60 + ~60·M |
+| `arb_radar` (`arb_radar.py:27`) | 60 s | 1 RPC + 8 sequential DEXScreener GETs | ~60 |
+| **Total** | | | **~600-900/hour at low activity; ~2 700/hour at high activity** (the second estimate is from a separate analyzer and assumes 30+ transfers per loop — treat it as a pessimistic upper bound) |
 
-> **Бележка за честност:** двама независими анализатори дадоха 480/час и ~2 700/час. Разликата е в допускането за брой трансфери на цикъл (локалната БД има само **10** `onchain_sales` общо). Числата са **изведени от кода**, не измерени в продукция.
+> **Honesty note:** two independent analyzers gave 480/hour and ~2 700/hour. The difference is in the assumption
+> about the number of transfers per loop (the local DB has only **10** `onchain_sales` in total). The numbers are
+> **derived from the code**, not measured in production.
 >
-> **Boot backfill (веднъж на деплой):** продажби — 30 дни × 86400 / 2 s = 1 296 000 блока ÷ 5000 = **260 `getLogs`** + 1 `get_block` на трансфер; китове — 24 h × 3600 / 2 = 43 200 блока ÷ 100 = **432 `getLogs`** + 1 `get_block` на кит.
+> **Boot backfill (once per deploy):** sales — 30 days × 86400 / 2 s = 1 296 000 blocks ÷ 5000 = **260 `getLogs`** + 1 `get_block` per transfer; whales — 24 h × 3600 / 2 = 43 200 blocks ÷ 100 = **432 `getLogs`** + 1 `get_block` per whale.
 
-### 5.3 Допълнителни находки
+### 5.3 Additional findings
 
-#### 🟠 F-08 — Един RPC доставчик, без fallback и без cooldown
-`config.py:57` дефинира един `BASE_RPC_URL`; всеки консуматор го препрочита със същия default (`main.py:661, 2625, 3062`; `connectors.py:335, 646`; `dashboard_store.py:2125…2410`; `wallet.py:117`). Няма втора константа за доставчик. `_block_timestamps` дори твърдолитерално ползва `mainnet.base.org` (`dashboard_store.py:2078-2079`) — това е **друг** доставчик, не fallback. Единственото „backoff" е намаляване на прозореца. `scan_window` дори продължава при `is_connected() == False` (`dashboard_store.py:2137-2146`).
+#### 🟠 F-08 — A single RPC provider, with no fallback and no cooldown
+`config.py:57` defines a single `BASE_RPC_URL`; every consumer re-reads it with the same default
+(`main.py:661, 2625, 3062`; `connectors.py:335, 646`; `dashboard_store.py:2125…2410`; `wallet.py:117`). There
+is no second provider constant. `_block_timestamps` even hardcodes `mainnet.base.org`
+(`dashboard_store.py:2078-2079`) — that is a **different** provider, not a fallback. The only "backoff" is
+window reduction. `scan_window` even continues when `is_connected() == False`
+(`dashboard_store.py:2137-2146`).
 
-#### 🟠 F-40-свързано — Несериализирано nonce управление и газ без таван
-`connectors.py:319-417` (`_self_broadcast_settlement`) чете `get_transaction_count` на `:376` без lock и без проследяване на pending nonce → две конкурентни платени заявки могат да построят един и същ nonce, едната revert-ва, а nonce-ът на купувача все пак е изразходен. `maxFeePerGas = gas_price * 2` **без таван** (`:350`). `connectors.py` не импортира `threading` — в модула няма нито един lock.
+#### 🟠 F-40-related — Unserialized nonce management and gas without a ceiling
+`connectors.py:319-417` (`_self_broadcast_settlement`) reads `get_transaction_count` at `:376` without a lock
+and without tracking the pending nonce → two concurrent paid requests can build the same nonce, one reverts,
+and the buyer's nonce is still consumed. `maxFeePerGas = gas_price * 2` **without a ceiling** (`:350`).
+`connectors.py` does not import `threading` — there is not a single lock in the module.
 
-#### 🟠 F-16-свързано — Услугата излъчва клиентска raw транзакция почти без валидация
-`connectors.py:641-669` декодира и `send_raw_transaction`-ва каквото има в `payload.transaction`. `_local_verify_transaction_payload` (`:561-634`) проверява signer == `from`, chainId == 8453, `to` == USDC и calldata префикса `transfer(payTo, amount ≥ price)` — **но не** `gas`, `gasPrice`/`maxFeePerGas`, `nonce` или `value`. Извикващ може да ни накара да излъчим USDC трансфер с екстремен gas price или препредаден nonce.
+#### 🟠 F-16-related — The service broadcasts a client raw transaction with almost no validation
+`connectors.py:641-669` decodes and `send_raw_transaction`s whatever is in `payload.transaction`.
+`_local_verify_transaction_payload` (`:561-634`) checks signer == `from`, chainId == 8453, `to` == USDC and
+the calldata prefix `transfer(payTo, amount ≥ price)` — **but not** `gas`, `gasPrice`/`maxFeePerGas`, `nonce`
+or `value`. A caller can make us broadcast a USDC transfer with an extreme gas price or a replayed nonce.
 
-#### 🟡 H5 — CoinGecko кешът на verifier-а е с несъответстващ регистър
-`coingecko.py:89` търси `prices.get(s.lower(), prices.get(s))`, но кешираният речник се строи с регистъра на извикващия (`:221-228`). Агентският цикъл го пълни с малки букви (`main.py:1067` → `trading_agent.py:76`), а verifier-ът подава `[s.lower() for s in symbols]`, където `symbols` са с главни букви (`verifier.py:250-252, 237`). Ключът е нормализиран (`:179`), **payload-ът — не** → verifier-ът пропуска кеша и прави живо CoinGecko обаждане **на всяко платено `/api/v1/signal`**.
+#### 🟡 H5 — The verifier's CoinGecko cache has a mismatched case
+`coingecko.py:89` looks up `prices.get(s.lower(), prices.get(s))`, but the cached dictionary is built with the
+caller's case (`:221-228`). The agent loop fills it with lowercase (`main.py:1067` → `trading_agent.py:76`),
+while the verifier passes `[s.lower() for s in symbols]`, where `symbols` are uppercase
+(`verifier.py:250-252, 237`). The key is normalized (`:179`), **the payload is not** → the verifier misses the
+cache and makes a live CoinGecko call **on every paid `/api/v1/signal`**.
 
-#### 🟡 M6 — 24-часовият прозорец на китовете може тихо да изпусне събития
-`dashboard_store.py:775-776` строи cutoff от `datetime.now(utc) - 24h` и го сравнява с `ts` низове, записани от **блокови** времена (`:2316-2317`). При провалено четене на блок fallback-ът е `datetime.now(utc)` (`:2319`), което **надува** timestamp-а и може да избута реални събития извън прозореца; stale watermark също оставя прозореца празен. `all_time_count` ползва друга предикатна логика (`:784-788`) → двете числа могат да се разминават.
+#### 🟡 M6 — The whales' 24-hour window can silently drop events
+`dashboard_store.py:775-776` builds a cutoff from `datetime.now(utc) - 24h` and compares it with `ts` strings
+recorded from **block** times (`:2316-2317`). On a failed block read the fallback is `datetime.now(utc)`
+(`:2319`), which **inflates** the timestamp and can push real events outside the window; a stale watermark
+also leaves the window empty. `all_time_count` uses different predicate logic (`:784-788`) → the two numbers
+can diverge.
 
-#### 🟡 M7 — Отказан диапазон може да придвижи watermark вместо да го повтори
-`dashboard_store.py:2423-2424` (`whaleflow_increment`) и `:2246-2247` (`scan_increment`) падат към `to_block`, когато `safe` е 0, т.е. когато **целият** прозорец е отказан; `whaleflow_backfill` прави същото (`:2401`). Правилото „никога не пропускай диапазон", заявено на `:2343-2345`, не се спазва на тотално-проваления клон.
+#### 🟡 M7 — A refused range can advance the watermark instead of retrying it
+`dashboard_store.py:2423-2424` (`whaleflow_increment`) and `:2246-2247` (`scan_increment`) fall back to
+`to_block` when `safe` is 0, i.e. when the **entire** window is refused; `whaleflow_backfill` does the same
+(`:2401`). The rule "never skip a range", stated at `:2343-2345`, is not honoured on the totally-failed
+branch.
 
-#### 🟢 M3 — Всеки входящ USDC трансфер се записва като продажба, без минимум
-`main.py:764-765` → `_process_incoming_transfer` → `_record_real_sale` (`:815-822`) и `dashboard_store.record_sale` (`:812-845`) приемат **всякаква** сума; `VIP_THRESHOLD_USDC` само гейтва поканата (`:882`). Dust-спамър може да надуе `total_sales`, `total_volume_usd` и 7-дневната линия в Sentinel отчета (`sentinel.py:377-387`) и да задейства `New payment received!` аларми (`sentinel.py:200-211`).
+#### 🟢 M3 — Every incoming USDC transfer is recorded as a sale, with no minimum
+`main.py:764-765` → `_process_incoming_transfer` → `_record_real_sale` (`:815-822`) and
+`dashboard_store.record_sale` (`:812-845`) accept **any** amount; `VIP_THRESHOLD_USDC` only gates the invite
+(`:882`). A dust spammer can inflate `total_sales`, `total_volume_usd` and the 7-day line in the Sentinel
+report (`sentinel.py:377-387`) and trigger `New payment received!` alarms (`sentinel.py:200-211`).
 
-#### 🟢 F-38 — Времева зона: само Sentinel седмичният отчет е с локално време
-`sentinel.py:464-467` ползва `datetime.now()` и `local.weekday()/hour`. Всичко останало е UTC (`sentinel.py:382, 405`; `main.py:3661, 3712`; `dashboard_store.py:1223`). На non-UTC хост отчетът „неделя 18:00" излиза в грешен ден или се пропуска; `last_report_date` е локален низ. Паричните пътища са UTC-консистентни — DST рискът е само в този гейт.
+#### 🟢 F-38 — Time zone: only the Sentinel weekly report uses local time
+`sentinel.py:464-467` uses `datetime.now()` and `local.weekday()/hour`. Everything else is UTC
+(`sentinel.py:382, 405`; `main.py:3661, 3712`; `dashboard_store.py:1223`). On a non-UTC host the report
+"Sunday 18:00" comes out on the wrong day or is skipped; `last_report_date` is a local string. The money
+paths are UTC-consistent — the DST risk is only in this gate.
 
-#### 🟢 L3 — `data_age_blocks` е изведен от стенен часовник
-`arb_radar.py:75` дели изминали секунди на твърдолитерално 2 s блоково време — оценка, не измерване на веригата, подвеждащо име.
-
----
-
-## 6. Сигурност и deployment конфигурация
-
-### 🟠 F-13 — Суров RPC текст се публикува на анонимен безплатен рут
-`main.py:643` — `_wallet_state["rpc_error"] = str(exc)` (сурово). Всички останали места в същия файл **умишлено** редактират: `main.py:769, 778, 1141, 1158, 1228, 1235` ползват `redact_rpc(exc)`. Самият редактор съществува, защото RPC URL-ите носят ключове (`dashboard_store.py:46-48`: `(\/v[0-9]+\/|apikey=|api-key=|key=|token=)([A-Za-z0-9_\-]{6,})`). Суровата стойност се сервира през `main.py:3792` (`"wallet": wallet_info`) в `_statistics_payload`, достижима от `/api/dashboard-stats` (`:3986-3989`) — **безплатен** (`:147`). `_safe_jsonify` (`:1499-1501`) само маха NaN/Infinity, **не** редактира.
-**Експлоатация:** ако `BASE_RPC_URL` е доставчик с ключ в URL-а (Alchemy/DRPC/POKT се използват в репото) и мониторният Web3 init се провали веднъж, изключението (което обикновено съдържа пълния URL с ключа) се връща на всеки анонимен `GET /api/dashboard-stats`.
-
-### 🟠 F-14 — Telegram bot token може да изтече в логовете
-`telegram_sales.py:72` строи `url = TELEGRAM_API_BASE.format(token=token, method=method)` — токенът е в пътя на URL-а; `:80-81` логва `log.warning("Telegram API %s failed: %s", method, exc)`; същото на `:198-199, 211-212` за `setWebhook`. `requests` изключенията стрингифицират **пълния** URL → `.../bot<TOKEN>/sendMessage` попада в лог реда. `stripe_checkout.py:57-59` има `redact()` helper, но се прилага само на Stripe пътища и regex-ът му не хваща Telegram токен.
-**Експлоатация:** всяко транзиентно мрежово смущение към `api.telegram.org` записва живия токен в Render лог потока → пълно поемане на бота.
-
-### 🟠 F-15 — `secrets/` се bake-ва в Docker образа
-`Dockerfile:29` — `COPY --chown=kristo:kristo . .` копира целия build context. `.dockerignore:47-50` изключва `.env`, `.env.local`, `.env.production`, но **няма запис за `secrets/`**, докато `.gitignore:53` го изключва. Също липсват `kristo_paid_demo_clip.mp4` (120 MB) и `kristo_paid_demo_clip_web.mp4` (20 MB).
-**Експлоатация:** `docker build` от това дърво произвежда образ с `secrets/cdp_api_key.json`, `secrets/demo_private_key.txt`, `secrets/render_api_key.txt`; всяко push-ване в registry, layer inspection или `docker save` предава CDP ключовата двойка, private key на демо wallet и Render API ключа. (Файловете **не** са отваряни — само имената им са изброени.)
-
-### 🟡 F-26 — `/api/launch/health` без auth
-`main.py:5198-5216` няма auth проверка в тялото: `payment_provider` (Stripe или mock), `crm_backend`, `lead_count`, `pipeline` (вкл. брой платени клиенти), `public_url`. Не е в нито един от двата endpoint set-а → `_x402_paywall` пада към `:3526` без дори предизвикателство.
-
-### 🟡 F-27 — `/api/connectors` разкрива hot wallet и вътрешен маршрут
-`main.py:149` (безплатен) + `:3992-4007` (без auth). `connectors.py:988` — `"detail": f"payer wallet={wallet_addr}"` → **payer-side hot wallet** (страната, сдвоена с `WALLET_PRIVATE_KEY`), която кодът изрично разграничава от публичния fee receiver (`main.py:3793-3796`). `connectors.py:944-947` чрез `:980` → `f"...(gas={gas}) → CDP ({cdp}) → payai"`, т.е. дали `WALLET_PRIVATE_KEY` е зареден, здраве на CDP JWT/PEM и вътрешната settlement верига. Липсва в `_RATE_LIMIT_DEFAULTS` (`main.py:1406-1416`) и прави ES256 JWT на всяка заявка (`connectors.py:941-943`).
-
-### 🟡 F-28 — Render конфигурацията не е версионирана
-Проверено, не предположено: `render.yaml` липсва; не е в `git ls-files`; `git log --all -- render.yaml` е празно; `git grep "render.ya?ml"` → 0 попадения в tracked файлове. Единственото описание е проза (`DEPLOYMENT.md:95-96`, `DEPLOYMENT_CHECKLIST.md:36-37`), `Procfile:1` не се консумира от Render, а програмният деплой е 3 императивни скрипта, искащи `RENDER_API_KEY` от env или от untracked `secrets/render_api_key.txt`.
-**Защо е security-значимо:** start командата, броят workers, health пътят и регионът живеят само в dashboard-а. Инвариантите на кода зависят от тях: `main.py:1404-1405` и `Dockerfile:45` предполагат **един** worker (in-RAM rate limiter, free-tier броячи, `_verified_payments` replay set на `main.py:2260`), а редакция в dashboard-а не оставя следа за review.
-
-### 🟡 F-29 — Админ токенът пада към `SESSION_SECRET`
-`main.py:1802-1813` връща `ADMIN_API_TOKEN`, иначе `SESSION_SECRET`; `main.py:178` вдига `SECRET_KEY` от същия `SESSION_SECRET`. Един секрет едновременно подписва session cookie-та и автентикира админ API-то. Коректността е ок (fail-closed, ако нищо не е зададено — `:1835`), а fallback-ът се предупреждава (`:1809-1812`), но не е фатален.
-
-### 🟡 F-30 — Операторски скрипт принтира живи env стойности
-`scripts/_t2_render_env_check.py:30-31` дефинира `watch = ("RPC", "CHUNK", ..., "ADMIN")`; `:35-36` принтира `f"  {k} = {e.get('value')}"`; `:45` принтира `startCommand`, `buildCommand`, `plan`, `region`, `numInstances`, `healthCheckPath` от живия сървис. Списъкът хваща `BASE_RPC_URL` (ключ на доставчик) и `ADMIN_API_TOKEN` (споделената админ парола) по име, а файлът е **tracked в git**.
-
-### 🟡 F-31 / M6 — Админ brute-force лимит и XFF допускане
-`main.py:1407` — `"admin_login": (20, 300)` (20 опита/5 min на IP, без lockout, без глобален брояч); ключът е `(scope, _get_client_ip())` (`:1434`). `main.py:174` — `ProxyFix(x_for=0)` → в продукция `request.remote_addr` е **винаги** частният адрес на Render прокси-то; следователно `if fwd and _is_private_or_loopback(peer):` (`:1391`) е **винаги истина** и „anti-spoofing" клонът, документиран на `:1386-1387`, е **недостижим** в продукция. Защитата разчита изцяло на това Render да добавя реалния клиентски IP **последен**. Регресионният тест покрива само публичния peer-клон (`tests/test_v6_launch.py:170` подава TEST-NET адрес). **Това изисква един live probe, за да се затвори.**
-
-### 🟢 F-33 — `/validation` публикува живи платени адреси и остаряло число
-`discovery.py:186-203` сервира статичен `recent_payments` списък с 4 реални сетълмента с `payer`, `amount_usdc` и пълен `tx` — данните на платения `/api/sales` — на **постоянно безплатна** страница; `:179-183` публикува `"passed": 550, "total": 550` с `last_run: 2026-10-30`.
-
-### 🟢 F-34 / F-35 / F-36 / L2 / L4 / L7 — По-дребни
-- **F-34:** `config.py:79` `KRISTO_WHALE_PRICE = 0.01` и `:78` `KRISTO_RUG_PRICE = 0.003` **не са** в `X402_PRICE_MAP` — консумирани само от мъртвия демо каталог. `docs/OUTREACH_KIT.md:20` още цитира Whale Flow „$0.01/call".
-- **F-35:** `requirements.txt:33` има `cryptography>=42.0.0` (диапазон във файл, чието заглавие твърди „pinned"), а `cryptography` **липсва изцяло** в `requirements.lock`; lock-ът е без `--hash`. Продукцията инсталира `requirements.txt`, не lock-а (`DEPLOYMENT.md:95`). `requirements.txt:32` вкарва `pytest==9.1.1` в продукционния образ (`Dockerfile:22-25`).
-- **F-36:** `docker-compose.yml:27` — `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kristo_dev}` с `:31-32` `ports: "5432:5432"` и `env_file: .env` (`:43, :64`). Copy-paste деплой на non-localhost хост излага CRM БД-то (имейли, Stripe checkout id-та, суми) на `kristo:kristo_dev`.
-- **L2:** `catalog_store.py:462-489` `grant_entitlement()` иска само `checkout_id` и валиден продукт; `_checkout_matches` (`:400-417`) **никога** не проверява `agent_checkouts.payment_status`. Днес няма жива експлоатация (единственият извикващ е подписаният webhook, зад `payment_status != "paid"` гейт), но всеки бъдещ извикващ може да издаде 30 дни достъп от неплатен checkout id.
-- **L4:** `main.py:1319` (`_free_tier_usage`) и `:1345` (`_paid_calls_usage`) са IP-ключовани и **никога** не се prune-ват (само `_rate_limit_hits` се чисти на `:1443-1447`); `/api/leads` и `/api/funnel/track` приемат имейл с произволна дължина до 512 KB cap без ограничение в `LeadRecord`.
-- **L7:** `glama-connector-claim.json` е committed и публично сервиран ownership токен (`discovery.py:822-832`) — умишлено (HTTP challenge), но подлежи на ротация след claim прозореца.
-- **Хигиена на теста:** `tests/test_secret_hygiene.py:8-26` сканира само 5 поименно зададени файла с 5 regex-а; `ROOT` се изчислява на `:5`, но никога не се използва за откриване — затова **не може** да хване F-13, F-14 или F-30.
+#### 🟢 L3 — `data_age_blocks` is derived from a wall clock
+`arb_radar.py:75` divides elapsed seconds by a hardcoded 2 s block time — an estimate, not a measurement of
+the chain, a misleading name.
 
 ---
 
-## 7. Документация, твърдения и хигиена на репото
+## 6. Security and deployment configuration
 
-### 7.1 Инвентар
-`docs/` — **89 файла / 597 925 B (0.57 MB)**: 46 `.md`, 26 probe `.py`, 7 `.json`, 3 `.png`, 2 `.pdf`, 2 `.static`, 1 `.prisma`, 1 `.txt`, 1 `.js`. **75 tracked, 14 untracked** (вкл. `AP2_RADAR.md`, `BAZAAR_RESEARCH.md`, `GRANT_APPLICATION.md`, `HAIKU_AUDIT*.md`, `SCAN_LISTING_*.md`, `WATCH_LIST.md`, `monitor_state.json`, `glama_thumbnails/`). Остатък: `docs/evidence/pytest_cache/` — untracked, не е gitignored, ACL-недостъпен.
+### 🟠 F-13 — Raw RPC text is published on an anonymous free route
+`main.py:643` — `_wallet_state["rpc_error"] = str(exc)` (raw). All other places in the same file
+**deliberately** redact: `main.py:769, 778, 1141, 1158, 1228, 1235` use `redact_rpc(exc)`. The redactor itself
+exists because RPC URLs carry keys (`dashboard_store.py:46-48`:
+`(\/v[0-9]+\/|apikey=|api-key=|key=|token=)([A-Za-z0-9_\-]{6,})`). The raw value is served through
+`main.py:3792` (`"wallet": wallet_info`) in `_statistics_payload`, reachable from `/api/dashboard-stats`
+(`:3986-3989`) — **free** (`:147`). `_safe_jsonify` (`:1499-1501`) only removes NaN/Infinity, it does **not**
+redact.
+**Exploitation:** if `BASE_RPC_URL` is a provider with a key in the URL (Alchemy/DRPC/POKT are used in the
+repo) and the monitor's Web3 init fails once, the exception (which usually contains the full URL with the
+key) is returned to every anonymous `GET /api/dashboard-stats`.
 
-### 7.2 Проверка на публичните твърдения
+### 🟠 F-14 — The Telegram bot token can leak into the logs
+`telegram_sales.py:72` builds `url = TELEGRAM_API_BASE.format(token=token, method=method)` — the token is in
+the URL path; `:80-81` logs `log.warning("Telegram API %s failed: %s", method, exc)`; the same at
+`:198-199, 211-212` for `setWebhook`. `requests` exceptions stringify the **full** URL →
+`.../bot<TOKEN>/sendMessage` ends up in the log line. `stripe_checkout.py:57-59` has a `redact()` helper, but
+it is applied only on Stripe paths and its regex does not catch a Telegram token.
+**Exploitation:** any transient network disturbance to `api.telegram.org` writes the live token into the
+Render log stream → full takeover of the bot.
 
-| Твърдение | Присъда |
+### 🟠 F-15 — `secrets/` is baked into the Docker image
+`Dockerfile:29` — `COPY --chown=kristo:kristo . .` copies the entire build context. `.dockerignore:47-50`
+excludes `.env`, `.env.local`, `.env.production`, but **there is no entry for `secrets/`**, whereas
+`.gitignore:53` excludes it. `kristo_paid_demo_clip.mp4` (120 MB) and `kristo_paid_demo_clip_web.mp4` (20 MB)
+are also missing.
+**Exploitation:** a `docker build` from this tree produces an image with `secrets/cdp_api_key.json`,
+`secrets/demo_private_key.txt`, `secrets/render_api_key.txt`; any push to a registry, layer inspection or
+`docker save` hands over the CDP key pair, the demo wallet private key and the Render API key. (The files were
+**not** opened — only their names were listed.)
+
+### 🟡 F-26 — `/api/launch/health` without auth
+`main.py:5198-5216` has no auth check in its body: `payment_provider` (Stripe or mock), `crm_backend`,
+`lead_count`, `pipeline` (incl. the number of paying customers), `public_url`. It is in neither of the two
+endpoint sets → `_x402_paywall` falls through to `:3526` without even a challenge.
+
+### 🟡 F-27 — `/api/connectors` exposes the hot wallet and an internal route
+`main.py:149` (free) + `:3992-4007` (without auth). `connectors.py:988` —
+`"detail": f"payer wallet={wallet_addr}"` → the **payer-side hot wallet** (the side paired with
+`WALLET_PRIVATE_KEY`), which the code explicitly distinguishes from the public fee receiver
+(`main.py:3793-3796`). `connectors.py:944-947` via `:980` → `f"...(gas={gas}) → CDP ({cdp}) → payai"`, i.e.
+whether `WALLET_PRIVATE_KEY` is loaded, the health of the CDP JWT/PEM and the internal settlement chain. It is
+missing from `_RATE_LIMIT_DEFAULTS` (`main.py:1406-1416`) and makes an ES256 JWT on every request
+(`connectors.py:941-943`).
+
+### 🟡 F-28 — The Render configuration is not versioned
+Verified, not assumed: `render.yaml` is missing; it is not in `git ls-files`; `git log --all -- render.yaml`
+is empty; `git grep "render.ya?ml"` → 0 hits in tracked files. The only description is prose
+(`DEPLOYMENT.md:95-96`, `DEPLOYMENT_CHECKLIST.md:36-37`), `Procfile:1` is not consumed by Render, and the
+programmatic deploy is 3 imperative scripts that require `RENDER_API_KEY` from env or from the untracked
+`secrets/render_api_key.txt`.
+**Why it is security-significant:** the start command, the worker count, the health path and the region live
+only in the dashboard. The code's invariants depend on them: `main.py:1404-1405` and `Dockerfile:45` assume
+**one** worker (the in-RAM rate limiter, the free-tier counters, the `_verified_payments` replay set at
+`main.py:2260`), and an edit in the dashboard leaves no trace for review.
+
+### 🟡 F-29 — The admin token falls back to `SESSION_SECRET`
+`main.py:1802-1813` returns `ADMIN_API_TOKEN`, otherwise `SESSION_SECRET`; `main.py:178` raises `SECRET_KEY`
+from the same `SESSION_SECRET`. One secret simultaneously signs the session cookie and authenticates the
+admin API. The correctness is fine (fail-closed if nothing is set — `:1835`), and the fallback is warned
+about (`:1809-1812`), but it is not fatal.
+
+### 🟡 F-30 — An operator script prints live env values
+`scripts/_t2_render_env_check.py:30-31` defines `watch = ("RPC", "CHUNK", ..., "ADMIN")`; `:35-36` prints
+`f"  {k} = {e.get('value')}"`; `:45` prints `startCommand`, `buildCommand`, `plan`, `region`,
+`numInstances`, `healthCheckPath` from the live service. The list catches `BASE_RPC_URL` (a provider key) and
+`ADMIN_API_TOKEN` (the shared admin password) by name, and the file is **tracked in git**.
+
+### 🟡 F-31 / M6 — The admin brute-force limit and the XFF assumption
+`main.py:1407` — `"admin_login": (20, 300)` (20 attempts/5 min per IP, no lockout, no global counter); the key
+is `(scope, _get_client_ip())` (`:1434`). `main.py:174` — `ProxyFix(x_for=0)` → in production
+`request.remote_addr` is **always** the private address of the Render proxy; therefore
+`if fwd and _is_private_or_loopback(peer):` (`:1391`) is **always true** and the "anti-spoofing" branch
+documented at `:1386-1387` is **unreachable** in production. The protection relies entirely on Render adding
+the real client IP **last**. The regression test covers only the public peer branch
+(`tests/test_v6_launch.py:170` passes a TEST-NET address). **This requires one live probe to close.**
+
+### 🟢 F-33 — `/validation` publishes live paid addresses and a stale number
+`discovery.py:186-203` serves a static `recent_payments` list with 4 real settlements with `payer`,
+`amount_usdc` and the full `tx` — the data of the paid `/api/sales` — on a **permanently free** page;
+`:179-183` publishes `"passed": 550, "total": 550` with `last_run: 2026-10-30`.
+
+### 🟢 F-34 / F-35 / F-36 / L2 / L4 / L7 — Smaller items
+- **F-34:** `config.py:79` `KRISTO_WHALE_PRICE = 0.01` and `:78` `KRISTO_RUG_PRICE = 0.003` are **not** in `X402_PRICE_MAP` — consumed only by the dead demo catalog. `docs/OUTREACH_KIT.md:20` still quotes Whale Flow at "$0.01/call".
+- **F-35:** `requirements.txt:33` has `cryptography>=42.0.0` (a range in a file whose title claims "pinned"), and `cryptography` is **entirely missing** from `requirements.lock`; the lock has no `--hash`. Production installs `requirements.txt`, not the lock (`DEPLOYMENT.md:95`). `requirements.txt:32` pulls `pytest==9.1.1` into the production image (`Dockerfile:22-25`).
+- **F-36:** `docker-compose.yml:27` — `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kristo_dev}` with `:31-32` `ports: "5432:5432"` and `env_file: .env` (`:43, :64`). A copy-paste deploy on a non-localhost host exposes the CRM DB (emails, Stripe checkout ids, amounts) to `kristo:kristo_dev`.
+- **L2:** `catalog_store.py:462-489` `grant_entitlement()` requires only a `checkout_id` and a valid product; `_checkout_matches` (`:400-417`) **never** checks `agent_checkouts.payment_status`. Today there is no live exploitation (the only caller is the signed webhook, behind a `payment_status != "paid"` gate), but any future caller could issue 30 days of access from an unpaid checkout id.
+- **L4:** `main.py:1319` (`_free_tier_usage`) and `:1345` (`_paid_calls_usage`) are IP-keyed and **never** pruned (only `_rate_limit_hits` is cleaned at `:1443-1447`); `/api/leads` and `/api/funnel/track` accept an email of arbitrary length up to the 512 KB cap with no limit in `LeadRecord`.
+- **L7:** `glama-connector-claim.json` is a committed and publicly served ownership token (`discovery.py:822-832`) — deliberate (an HTTP challenge), but subject to rotation after the claim window.
+- **Test hygiene:** `tests/test_secret_hygiene.py:8-26` scans only 5 explicitly named files with 5 regexes; `ROOT` is computed at `:5`, but is never used for discovery — which is why it **cannot** catch F-13, F-14 or F-30.
+
+---
+
+## 7. Documentation, claims and repo hygiene
+
+### 7.1 Inventory
+`docs/` — **89 files / 597 925 B (0.57 MB)**: 46 `.md`, 26 probe `.py`, 7 `.json`, 3 `.png`, 2 `.pdf`, 2 `.static`, 1 `.prisma`, 1 `.txt`, 1 `.js`. **75 tracked, 14 untracked** (incl. `AP2_RADAR.md`, `BAZAAR_RESEARCH.md`, `GRANT_APPLICATION.md`, `HAIKU_AUDIT*.md`, `SCAN_LISTING_*.md`, `WATCH_LIST.md`, `monitor_state.json`, `glama_thumbnails/`). Remainder: `docs/evidence/pytest_cache/` — untracked, not gitignored, ACL-inaccessible.
+
+### 7.2 Verification of the public claims
+
+| Claim | Verdict |
 |---|---|
-| „550 tests" (`README.md:105,115`) | ✅ **Потвърдено** — `550 passed in 180.46s` |
-| MCP „3 инструмента" | ✅ **Потвърдено** — `discovery.py:508` `_mcp_tools()`: `get_market_stats` (`:522`), `get_onchain_sales` (`:541`), `get_bot_status` (`:561`). **Но:** вторият каталог (`/api/mcp/manifest`, `discovery.py:1061-1110`) нарича същия инструмент `get_sales_history` (`:1071`) — две каталог-дефиниции с различни имена за един рут |
-| Цени „$0.003–$0.005" | ✅ **Потвърдено** за живата карта: стойности {0.003, 0.005} от `config.py:75-83` през `main.py:89-100`. ❌ Невярно в `docs/PRODUCT_AUDIT.md:43` и `docs/MYSTERY_AGENT_REPORT.md:23,26` ($0.05) |
-| „35 scanning routes" | ❌ **Не съществува никъде в репото.** Реално 6 платени |
-| Glama „A4.7" | ⚠️ **Вътрешно противоречиво** — `PROJECT_CHRONOLOGY.md:196`, `PROJECT_STATUS.md:526`, `weekly/2026-09-29.md:39` = 4.7, но `PROJECT_STATUS.md:1199,1204` и `PROJECT_CHRONOLOGY.md:128` = **A 3.6/5.0**. Низът `A4.7` се среща 0 пъти |
-| „100% uptime (47 дни)" | ❌ **Не съществува** в репото (0 попадения) |
-| „11 resources on x402scan" (`README.md:112`) | ⚠️ **Неверифицируемо локално**; кодът експонира **6** ресурса (`discovery.py:969-1007`) |
-| …„zero payment incidents" (`README.md:111`) | ❌ **Невярно** — `PROJECT_STATUS.md:34-45` документира INCIDENT 14.09 (платени $0.003 → 401, без доставка); `TASK.md:43-44` го потвърждава |
-| agentic.market #66, MCPso #5200, awesome-x402 PR #1308 | ⚠️ **#66 и #5200 не съществуват в репото**; #1308 е документиран като OPEN без review (`LISTING_CHANNELS_AUDIT.md:23,29,118`) |
-| PulseMCP | ⚠️ `PULSEMCP_SUBMISSION_READY.md:9-17` — „**НЕ сме там**", подаванията са спрени. Всяко твърдение за присъствие е невярно |
+| "550 tests" (`README.md:105,115`) | ✅ **Confirmed** — `550 passed in 180.46s` |
+| MCP "3 tools" | ✅ **Confirmed** — `discovery.py:508` `_mcp_tools()`: `get_market_stats` (`:522`), `get_onchain_sales` (`:541`), `get_bot_status` (`:561`). **But:** the second catalog (`/api/mcp/manifest`, `discovery.py:1061-1110`) calls the same tool `get_sales_history` (`:1071`) — two catalog definitions with different names for one route |
+| Prices "$0.003–$0.005" | ✅ **Confirmed** for the live map: values {0.003, 0.005} from `config.py:75-83` through `main.py:89-100`. ❌ False in `docs/PRODUCT_AUDIT.md:43` and `docs/MYSTERY_AGENT_REPORT.md:23,26` ($0.05) |
+| "35 scanning routes" | ❌ **Does not exist anywhere in the repo.** In reality 6 paid |
+| Glama "A4.7" | ⚠️ **Internally contradictory** — `PROJECT_CHRONOLOGY.md:196`, `PROJECT_STATUS.md:526`, `weekly/2026-09-29.md:39` = 4.7, but `PROJECT_STATUS.md:1199,1204` and `PROJECT_CHRONOLOGY.md:128` = **A 3.6/5.0**. The string `A4.7` occurs 0 times |
+| "100% uptime (47 days)" | ❌ **Does not exist** in the repo (0 hits) |
+| "11 resources on x402scan" (`README.md:112`) | ⚠️ **Not locally verifiable**; the code exposes **6** resources (`discovery.py:969-1007`) |
+| …"zero payment incidents" (`README.md:111`) | ❌ **False** — `PROJECT_STATUS.md:34-45` documents INCIDENT 14.09 (paid $0.003 → 401, no delivery); `TASK.md:43-44` confirms it |
+| agentic.market #66, MCPso #5200, awesome-x402 PR #1308 | ⚠️ **#66 and #5200 do not exist in the repo**; #1308 is documented as OPEN without review (`LISTING_CHANNELS_AUDIT.md:23,29,118`) |
+| PulseMCP | ⚠️ `PULSEMCP_SUBMISSION_READY.md:9-17` — "**we are NOT there**", submissions are halted. Any claim of presence is false |
 
-### 7.3 Противоречия между документи (конкретни двойки)
-1. **Брой платени рутове: 6 vs 5 vs 4 vs 3.** Истина = 6 (`main.py:89-100`; `tests/test_whaleflow.py:255`). `PROJECT_STATUS.md:27`/`TASK.md:19`/`weekly:38` = 6; `PRODUCT_AUDIT.md:9` = 5; `README.bg.md:206` = 4; `DISTRIBUTION_STATUS.md:11` = 3, докато собствената му таблица `:20-27` изрежда 4; `MYSTERY_AGENT_REPORT.md:18,21` = 3.
-2. **Цена на `/api/sales`:** `config.py:76` = 0.005 vs `PRODUCT_AUDIT.md:43` и `MYSTERY_AGENT_REPORT.md:23,26` = 0.05.
-3. **Праг за китове:** код = $5 000 000 (`dashboard_store.py:98`, `main.py:1514`) vs `WHALE_FLOW_SPEC.md:19` = $50 000.
-4. **Цена на whale flow:** `config.py:83` = 0.003 vs `OUTREACH_KIT.md:20` = 0.01 (плюс осиротялото `config.py:79`).
-5. **Glama: 4.7 vs A 3.6/5.0** (виж таблицата).
-6. **PulseMCP път:** `DISTRIBUTION_STATUS.md:16` („PayAPI автоматично публикува") vs `PULSEMCP_SUBMISSION_READY.md:16-17` („все още не се е случило").
-7. **Тестове: 8/8 → 17 → 77 → 152 → 154 → 164 → 410 → 422 → 426 → 550** в девет различни документа.
-8. **„100% production-ready"** (`FINAL_STATUS.txt:5`, `PROJECT_COMPLETION_REPORT.md:4,11`, `TEST_REPORT_2026-08-17.md:5,100`) срещу **собствения** `CODE_AUDIT_REPORT.md:9-19` (Critical: неавтентикиран Stripe webhook, неавтентикирани админ endpoints, x402 bypass) и `PROJECT_STATUS_REPORT_2026-08-20.md:5` („Не е коректно да бъде обявен за „100% готов"").
-9. **Стек/деплой:** `README.md:98`/`DEPLOYMENT.md:13` (Render, Flask) vs `ARCHITECTURE.md:1,20`/`QUICK_START.md:1-45`/`TEST_REPORT_2026-08-17.md:4` (**V5** sales engine) vs `PROJECT_STATUS_REPORT_2026-08-20.md:18` (Replit).
-10. **`MYSTERY_AGENT_REPORT.md` е самоостарял:** `:18` „3 resources", `:23,26` $0.05 vs днес 6 ресурса и 0.005 — а `README.md:114` още цитира неговото „23/23".
+### 7.3 Contradictions between documents (specific pairs)
+1. **Number of paid routes: 6 vs 5 vs 4 vs 3.** The truth = 6 (`main.py:89-100`; `tests/test_whaleflow.py:255`). `PROJECT_STATUS.md:27`/`TASK.md:19`/`weekly:38` = 6; `PRODUCT_AUDIT.md:9` = 5; `README.bg.md:206` = 4; `DISTRIBUTION_STATUS.md:11` = 3, while its own table `:20-27` lists 4; `MYSTERY_AGENT_REPORT.md:18,21` = 3.
+2. **Price of `/api/sales`:** `config.py:76` = 0.005 vs `PRODUCT_AUDIT.md:43` and `MYSTERY_AGENT_REPORT.md:23,26` = 0.05.
+3. **Whale threshold:** code = $5 000 000 (`dashboard_store.py:98`, `main.py:1514`) vs `WHALE_FLOW_SPEC.md:19` = $50 000.
+4. **Whale flow price:** `config.py:83` = 0.003 vs `OUTREACH_KIT.md:20` = 0.01 (plus the orphaned `config.py:79`).
+5. **Glama: 4.7 vs A 3.6/5.0** (see the table).
+6. **PulseMCP path:** `DISTRIBUTION_STATUS.md:16` ("PayAPI publishes automatically") vs `PULSEMCP_SUBMISSION_READY.md:16-17` ("it still has not happened").
+7. **Tests: 8/8 → 17 → 77 → 152 → 154 → 164 → 410 → 422 → 426 → 550** across nine different documents.
+8. **"100% production-ready"** (`FINAL_STATUS.txt:5`, `PROJECT_COMPLETION_REPORT.md:4,11`, `TEST_REPORT_2026-08-17.md:5,100`) versus **its own** `CODE_AUDIT_REPORT.md:9-19` (Critical: unauthenticated Stripe webhook, unauthenticated admin endpoints, x402 bypass) and `PROJECT_STATUS_REPORT_2026-08-20.md:5` ("It is not correct to declare it '100% ready'").
+9. **Stack/deploy:** `README.md:98`/`DEPLOYMENT.md:13` (Render, Flask) vs `ARCHITECTURE.md:1,20`/`QUICK_START.md:1-45`/`TEST_REPORT_2026-08-17.md:4` (**V5** sales engine) vs `PROJECT_STATUS_REPORT_2026-08-20.md:18` (Replit).
+10. **`MYSTERY_AGENT_REPORT.md` is self-outdated:** `:18` "3 resources", `:23,26` $0.05 vs today's 6 resources and 0.005 — and `README.md:114` still quotes its "23/23".
 
-### 7.4 Хигиена: какво не бива да стига до клиент или registry reviewer
-**Tracked в git:**
-- `CODE_AUDIT_REPORT.md` — първите пет находки са Critical/High дефекти (вкл. неавтентикиран Stripe webhook `:23-27` и x402 bypass през `Referer` `:15`). Даването му на reviewer е самоуличаващо.
-- `PROJECT_STATUS.md` (271 953 B) — финансови вътрешности, адреси на платци, инцидентът от 14.09, бележки за ротация на секрети; `:20` обсъжда компрометирания `WALLET_PRIVATE_KEY` адрес.
-- `docs/_origin_data.json`, `docs/_operator_fingerprint.json`, `docs/_recon_currency_api_7d.json`, `docs/_cadence_*.json` — on-chain проследяване на трети страни (35 payTo адреса, тотали по wallet).
-- `docs/DASHBOARD_AUDIT.md:13` — документира, че `/nexus` показва **симулирани случайни данни като жива активност**.
-- `FINAL_STATUS.txt`, `PROJECT_COMPLETION_REPORT.md`, `docs/TEST_REPORT_2026-08-17.md` — „100% production-ready / 8-8 теста", опровергани от по-късните одити.
-- `docs/DISTRIBUTION_STATUS.md:66` — сочи читателя към `secrets/render_api_key.txt`.
+### 7.4 Hygiene: what must not reach a client or a registry reviewer
+**Tracked in git:**
+- `CODE_AUDIT_REPORT.md` — the first five findings are Critical/High defects (incl. the unauthenticated Stripe webhook `:23-27` and the x402 bypass via `Referer` `:15`). Handing it to a reviewer is self-incriminating.
+- `PROJECT_STATUS.md` (271 953 B) — financial internals, payer addresses, the 14.09 incident, secret rotation notes; `:20` discusses the compromised `WALLET_PRIVATE_KEY` address.
+- `docs/_origin_data.json`, `docs/_operator_fingerprint.json`, `docs/_recon_currency_api_7d.json`, `docs/_cadence_*.json` — on-chain tracking of third parties (35 payTo addresses, per-wallet totals).
+- `docs/DASHBOARD_AUDIT.md:13` — documents that `/nexus` shows **simulated random data as live activity**.
+- `FINAL_STATUS.txt`, `PROJECT_COMPLETION_REPORT.md`, `docs/TEST_REPORT_2026-08-17.md` — "100% production-ready / 8-8 tests", refuted by the later audits.
+- `docs/DISTRIBUTION_STATUS.md:66` — points the reader to `secrets/render_api_key.txt`.
 
-**Untracked / на диска:**
-- `kristo_paid_demo_clip.mp4` — **120 112 530 B (~114.5 MB)** + `_web.mp4` 19.9 MB + `preview.jpg` 583 KB (gitignored, но на диска в проектна папка).
-- `ops/kristo-intelligence-6-main.zip` — 885 327 B, пълен source snapshot (проверен: 272 записа, **без** `.env`/ключове вътре, но съдържа `PROJECT_STATUS.md`, `CODE_AUDIT_REPORT.md`, `FINAL_STATUS.txt` и целия `docs/`).
+**Untracked / on disk:**
+- `kristo_paid_demo_clip.mp4` — **120 112 530 B (~114.5 MB)** + `_web.mp4` 19.9 MB + `preview.jpg` 583 KB (gitignored, but on disk in the project folder).
+- `ops/kristo-intelligence-6-main.zip` — 885 327 B, a full source snapshot (verified: 272 entries, **without** `.env`/keys inside, but it contains `PROJECT_STATUS.md`, `CODE_AUDIT_REPORT.md`, `FINAL_STATUS.txt` and the whole `docs/`).
 - `commit_54a7ba3_full.txt` / `_diff_only.txt` (38.5/38.2 KB), `main_py_diff.txt`, `main_py_full_diff.txt`, `temp_*.log`, `server_err.log`, `server_out.log`.
-- **`.kilo/worktrees/believed-dancer/`** — пълно **второ копие** на репото (`main.py` 242 907 B, `dashboard_store.py` 118 472 B, …), detached HEAD `d08748f`. Игнорирано само през `.git/info/exclude:9` — **локално**, а не в `.gitignore`; всяко сканиране на диска дава сдвоени резултати (затова и инвентарът на `.py` е 345, а не ~176). Риск: редакция на грешното копие.
-- `docs/monitor_state.json` — untracked и **не** игнориран → влиза с `git add -A`.
-- `kristo-intelligence/` (`.clinerules/`, `.specify/`, `specs/`) — untracked speckit скеле.
+- **`.kilo/worktrees/believed-dancer/`** — a complete **second copy** of the repo (`main.py` 242 907 B, `dashboard_store.py` 118 472 B, …), detached HEAD `d08748f`. Ignored only via `.git/info/exclude:9` — **locally**, not in `.gitignore`; any disk scan yields doubled results (which is why the `.py` inventory is 345 and not ~176). Risk: editing the wrong copy.
+- `docs/monitor_state.json` — untracked and **not** ignored → it goes in with `git add -A`.
+- `kristo-intelligence/` (`.clinerules/`, `.specify/`, `specs/`) — an untracked speckit scaffold.
 
-**Git състояние:** 29 записа в `git status --porcelain` (untracked `.mcp.json`, `TASK.md`, diff-файлове, 10 `docs/` файла, `scripts/_*.py`, `kristo-intelligence/`) — локална работа, която **не е комитвана**. 351 комита, първи 2026-08-19, последен 2026-11-02.
-
----
-
-## 8. Приоритизиран план за действие
-
-> Всичко по-долу е **предложение**. Нищо не е прилагано. Промени в продукция минават през вратата „push = авто-деплой".
-> **Непокътнати инварианти:** x402 хедъри и структура на плика, `payTo`/`X402_RECEIVER_ADDRESS`, цените в `config.py`, `/.well-known/x402-trust.txt`, `secrets/` и `.env`.
-
-### P0 — блокиращи за бизнес модела (без тях таксуването е декоративно)
-1. **F-01 — премахни огледалото на платените данни.** Реши кое поле реално се продава и го махни от публичния read model на `/api/dashboard-stats` и `/api/dashboard/data` (история с `tx_hash`+`sender`, `whales`, market snapshot). Алтернатива: dashboard payload зад админ/session обхват. Това е продуктово решение — paywall-ът не може да се „поправи" при налично безплатно копие.
-2. **F-02 — верифицирай подписаната стойност.** Извличай amount-а **само** от `auth.value`; отказвай при несъответствие с `accepted.amount`; отказвай нечислови amount-и вместо да прескачаш проверката; препрочети сумата на `Transfer` от receipt-а преди грант (adoption пътят вече го прави правилно на `main.py:2419-2421`).
-3. **F-03 — махни fail-open при нечетим receipt.** Една изрична политика: fail-closed след poll-а (401/425 с tx hash, както прави in-flight клонът `main.py:3144-3157`), или override само с независимо потвърждение. Никога не позволявай **изключение** в confirmation проверката да води до доставка.
-4. **F-04 — махни записа от read пътя.** `guard_stats()` не трябва да прави INSERT/DELETE; пробата за живост се мести в background цикъла, а рутът чете последния резултат (и получава кеширан read model).
-5. **F-05 + F-06 — реши семантиката на реорг.** Минимум: маркирай `onchain_sales` реда като `reorged` и го изключи от тоталите; добави проверка за дълбочина на adoption пътя по nonce.
-6. **F-07 — rate limit/budget по платежния път** (per IP и per signer), pre-check на USDC баланса на купувача преди broadcast, и изнеси сетълмента извън request нишката.
-
-### P1 — стабилност и изтичане на информация
-7. **F-22 + F-31** — един кеширан read model с single-flight за `/api/dashboard/data`, `/api/dashboard-stats` **и** платения `/api/stats`; индекси по `request_log(user_agent)`, `(source)`, `(funnel)`; агрегирай `payment_guards` в SQL и индексирай `consumed_at`.
-8. **F-09** — `psycopg_pool` + `connect_timeout` + `statement_timeout`; престани да държиш един глобален lock върху една споделена връзка (`dashboard_store.py:624` вече показва правилния модел).
-9. **F-10** — `/health` да е чисто liveness (без DB); readiness отделно.
-10. **F-11** — изолирай и ограничи `/mcp/sse` (кап на едновременни сесии + rate limit).
-11. **F-23 + F-24 + F-25** — ограничи всеки блокиращ бюджет по платения път; задай явни timeout-и на Stripe (и `max_network_retries=0` за request-path); обвий тялото на `_stripe_payment_snapshot_loop` в `try/except`.
-12. **F-08 + F-12** — списък от RPC доставчици с health ротация + process-wide cooldown с `Retry-After`; един ограничен reorg watcher с опашка вместо нишка на плащане; чанкни `getLogs` през вече съществуващия `_adaptive_get_logs`.
-13. **F-13 + F-14 + F-15 + F-30** — приложи `redact_rpc()` на `main.py:643`; редактирай Telegram токена преди логване; добави `secrets/` и `*.mp4` в `.dockerignore`; маскирай env стойностите в `_t2_render_env_check.py`. Разшири `tests/test_secret_hygiene.py` да **открива** файлове, вместо да проверява 5 поименно зададени.
-14. **F-26 + F-27** — админ guard за `/api/launch/health`; махни `payer wallet=`, `gas=` и CDP детайла от публичния `/api/connectors`.
-15. **F-28 + F-29** — комитни `render.yaml` (или изрично документирай дрейфа и фиксирай `--workers=1`); изисквай `ADMIN_API_TOKEN` в продукция вместо тихо преизползване на `SESSION_SECRET`.
-16. **F-21** — задай и документирай `KRISTO_FREE_TIER_LIMIT=0` в `.env.example`; изнеси броячите в durable store.
-
-### P2 — документация и хигиена
-17. **F-19 + F-20 + F-32 + F-34 + F-37** — един аксесор над `X402_PRICE_MAP`/`REAL_X402_ROUTES` за **всички** рекламни повърхности (моделът на `discovery.py:950-956` вече е верен); реши съдбата на $29 VIP (Telegram продукт или API entitlement); тест за `REAL_X402_ROUTES ⊆ X402_PAID_ENDPOINTS`; махни мъртвите цени; премести отстъпката в `config.py` с assert.
-18. **F-33** — махни суровите платец-адреси от `/validation` и избери едно число за тестовете.
-19. **Документация** — прочети първо `TASK.md` (единственият onboarding бриф с верни оперативни факти; untracked, затова `git add` + опресняване). Пренапиши: `README.md` (махни „zero payment incidents"; оправи „550 tests"; маркирай „11 resources" като индекс на x402scan, не факт за репото), `DISTRIBUTION_STATUS.md` (§1 vs §2 брой рутове; PulseMCP), `MYSTERY_AGENT_REPORT.md` (датирай или пре-изпълни), `VISIBILITY_PLAN.md` (mojibake + остарелия #12799), `OUTREACH_KIT.md:20`. Архивирай V5 документите (`ARCHITECTURE.md`, `QUICK_START.md`, `TEST_REPORT_2026-08-17.md`, `DASHBOARD_AUDIT.md`, `PRODUCT_AUDIT.md`, `LISTING_CHANNELS_AUDIT.md`, `MCP_*`), както и `docs/evidence/probes/`. Изтрий `FINAL_STATUS.txt`, `PROJECT_COMPLETION_REPORT.md`, diff-файловете, `temp_*.log`, `server_*.log`. Премести извън репото (непубликуемо): `PROJECT_STATUS.md`, `CODE_AUDIT_REPORT.md`, `TASK*.md`, `docs/_*.json`, `docs/DASHBOARD_AUDIT.md`, `docs/DISTRIBUTION_STATUS.md`.
-20. **Хигиена на диска** — изтрий/премахни `.kilo/worktrees/believed-dancer` (второ копие на репото) или го добави в `.gitignore`; gitignore-ни `docs/monitor_state.json`; реши какво да е с ~134 MB видео артефакти.
-21. **F-35 + F-36** — регенерирай `requirements.lock` от `requirements.txt` с `--hash`, отдели dev/test зависимости, пинни `cryptography`; вържи compose Postgres на `127.0.0.1` и махни подразбиращата се парола.
+**Git state:** 29 entries in `git status --porcelain` (untracked `.mcp.json`, `TASK.md`, diff files, 10 `docs/` files, `scripts/_*.py`, `kristo-intelligence/`) — local work that has **not been committed**. 351 commits, the first on 2026-08-19, the last on 2026-11-02.
 
 ---
 
-## 9. Методология, ограничения и какво остава непроверено
+## 8. Prioritized action plan
 
-**Как е правен одитът:** инвентар през PowerShell (read-only), целеви `grep`/четене с номера на редове, AST-анализ на `main.py`, `EXPLAIN QUERY PLAN` + тайминги върху локалната SQLite БД (read-only, `mode=ro&immutable=1`), изолирани измервания на студен импорт, четене на инсталирания Stripe SDK, пълен пробег на тестовете.
+> Everything below is a **proposal**. Nothing has been applied. Changes in production go through the
+> "push = auto-deploy" gate.
+> **Untouched invariants:** the x402 headers and envelope structure, `payTo`/`X402_RECEIVER_ADDRESS`, the
+> prices in `config.py`, `/.well-known/x402-trust.txt`, `secrets/` and `.env`.
 
-**Измерено първоначално:**
-- ✅ `550 passed, 1 warning in 180.46s` (пълен пробег в `venv`, Python 3.12.10, pytest 9.1.1).
-- ✅ 46 301 реда `request_log`; 12 заявки на `requests_summary` = **528.22 ms**, 5 пълни сканирания.
-- ✅ Студен импорт: `web3` 3.832 s, `stripe` 0.963, `psycopg` 0.934, `telegram` 0.935, `flask` 0.655; модулният сет на `main.py` 1.27-1.37 s.
-- ✅ `main.py` = 5859 реда (CRLF), 140 top-level функции, **0 дублирани имена**.
+### P0 — blocking for the business model (without them, charging is decorative)
+1. **F-01 — remove the mirror of the paid data.** Decide which field is actually sold and take it out of the public read model of `/api/dashboard-stats` and `/api/dashboard/data` (history with `tx_hash`+`sender`, `whales`, market snapshot). Alternative: the dashboard payload behind an admin/session scope. This is a product decision — the paywall cannot be "fixed" while a free copy exists.
+2. **F-02 — verify the signed value.** Derive the amount **only** from `auth.value`; refuse on a mismatch with `accepted.amount`; refuse non-numeric amounts instead of skipping the check; re-read the `Transfer` amount from the receipt before the grant (the adoption path already does it correctly at `main.py:2419-2421`).
+3. **F-03 — remove the fail-open on an unreadable receipt.** One explicit policy: fail-closed after the poll (401/425 with the tx hash, as the in-flight branch does at `main.py:3144-3157`), or an override only with independent confirmation. Never let an **exception** in the confirmation check lead to delivery.
+4. **F-04 — remove the writes from the read path.** `guard_stats()` must not do INSERT/DELETE; move the liveness probe into the background loop, and let the route read the last result (and get a cached read model).
+5. **F-05 + F-06 — decide the reorg semantics.** At minimum: mark the `onchain_sales` row as `reorged` and exclude it from the totals; add a depth check to the adoption path by nonce.
+6. **F-07 — rate limit/budget on the payment path** (per IP and per signer), a pre-check of the buyer's USDC balance before broadcast, and move settlement out of the request thread.
+
+### P1 — stability and information leakage
+7. **F-22 + F-31** — one cached read model with single-flight for `/api/dashboard/data`, `/api/dashboard-stats` **and** the paid `/api/stats`; indexes on `request_log(user_agent)`, `(source)`, `(funnel)`; aggregate `payment_guards` in SQL and index `consumed_at`.
+8. **F-09** — `psycopg_pool` + `connect_timeout` + `statement_timeout`; stop holding one global lock over one shared connection (`dashboard_store.py:624` already shows the correct pattern).
+9. **F-10** — make `/health` pure liveness (no DB); readiness separately.
+10. **F-11** — isolate and limit `/mcp/sse` (a cap on concurrent sessions + a rate limit).
+11. **F-23 + F-24 + F-25** — bound every blocking budget on the paid path; set explicit timeouts on Stripe (and `max_network_retries=0` for the request path); wrap the body of `_stripe_payment_snapshot_loop` in `try/except`.
+12. **F-08 + F-12** — a list of RPC providers with health rotation + a process-wide cooldown with `Retry-After`; one bounded reorg watcher with a queue instead of a thread per payment; chunk `getLogs` through the already existing `_adaptive_get_logs`.
+13. **F-13 + F-14 + F-15 + F-30** — apply `redact_rpc()` at `main.py:643`; redact the Telegram token before logging; add `secrets/` and `*.mp4` to `.dockerignore`; mask the env values in `_t2_render_env_check.py`. Extend `tests/test_secret_hygiene.py` to **discover** files instead of checking 5 explicitly named ones.
+14. **F-26 + F-27** — an admin guard for `/api/launch/health`; remove `payer wallet=`, `gas=` and the CDP detail from the public `/api/connectors`.
+15. **F-28 + F-29** — commit `render.yaml` (or explicitly document the drift and pin `--workers=1`); require `ADMIN_API_TOKEN` in production instead of silently reusing `SESSION_SECRET`.
+16. **F-21** — set and document `KRISTO_FREE_TIER_LIMIT=0` in `.env.example`; move the counters into the durable store.
+
+### P2 — documentation and hygiene
+17. **F-19 + F-20 + F-32 + F-34 + F-37** — a single accessor over `X402_PRICE_MAP`/`REAL_X402_ROUTES` for **all** advertising surfaces (the pattern of `discovery.py:950-956` is already correct); decide the fate of the $29 VIP (a Telegram product or an API entitlement); a test for `REAL_X402_ROUTES ⊆ X402_PAID_ENDPOINTS`; remove the dead prices; move the discount into `config.py` with an assert.
+18. **F-33** — remove the raw payer addresses from `/validation` and pick one number for the tests.
+19. **Documentation** — read `TASK.md` first (the only onboarding brief with correct operational facts; untracked, so `git add` + refresh it). Rewrite: `README.md` (remove "zero payment incidents"; fix "550 tests"; mark "11 resources" as an x402scan index, not a fact about the repo), `DISTRIBUTION_STATUS.md` (§1 vs §2 route count; PulseMCP), `MYSTERY_AGENT_REPORT.md` (date it or re-run it), `VISIBILITY_PLAN.md` (mojibake + the stale #12799), `OUTREACH_KIT.md:20`. Archive the V5 documents (`ARCHITECTURE.md`, `QUICK_START.md`, `TEST_REPORT_2026-08-17.md`, `DASHBOARD_AUDIT.md`, `PRODUCT_AUDIT.md`, `LISTING_CHANNELS_AUDIT.md`, `MCP_*`), as well as `docs/evidence/probes/`. Delete `FINAL_STATUS.txt`, `PROJECT_COMPLETION_REPORT.md`, the diff files, `temp_*.log`, `server_*.log`. Move outside the repo (unpublishable): `PROJECT_STATUS.md`, `CODE_AUDIT_REPORT.md`, `TASK*.md`, `docs/_*.json`, `docs/DASHBOARD_AUDIT.md`, `docs/DISTRIBUTION_STATUS.md`.
+20. **Disk hygiene** — delete/remove `.kilo/worktrees/believed-dancer` (a second copy of the repo) or add it to `.gitignore`; gitignore `docs/monitor_state.json`; decide what to do with the ~134 MB of video artifacts.
+21. **F-35 + F-36** — regenerate `requirements.lock` from `requirements.txt` with `--hash`, separate the dev/test dependencies, pin `cryptography`; bind the compose Postgres to `127.0.0.1` and remove the default password.
+
+---
+
+## 9. Methodology, limitations and what remains unverified
+
+**How the audit was done:** an inventory through PowerShell (read-only), targeted `grep`/reading with line
+numbers, an AST analysis of `main.py`, `EXPLAIN QUERY PLAN` + timings over the local SQLite DB (read-only,
+`mode=ro&immutable=1`), isolated cold-import measurements, reading the installed Stripe SDK, a full test run.
+
+**Measured initially:**
+- ✅ `550 passed, 1 warning in 180.46s` (a full run in `venv`, Python 3.12.10, pytest 9.1.1).
+- ✅ 46 301 `request_log` rows; 12 queries of `requests_summary` = **528.22 ms**, 5 full scans.
+- ✅ Cold import: `web3` 3.832 s, `stripe` 0.963, `psycopg` 0.934, `telegram` 0.935, `flask` 0.655; the module set of `main.py` 1.27-1.37 s.
+- ✅ `main.py` = 5859 lines (CRLF), 140 top-level functions, **0 duplicated names**.
 - ✅ Stripe SDK: `timeout = 80`, `max_network_retries = 2`.
-- ✅ Липса на `render.yaml`, `app.py`, `mcp_server.py`, `auth.py`, `guard.py`, `gas.py`, `facilitator.py`, `rpc.py` — потвърдено с търсене в цялото репо.
+- ✅ The absence of `render.yaml`, `app.py`, `mcp_server.py`, `auth.py`, `guard.py`, `gas.py`, `facilitator.py`, `rpc.py` — confirmed by a search of the whole repo.
 
-**Изведено от кода (не измерено в продукция):** RPC/час и backfill аритметиката, оценките за CoinGecko/DexScreener, „~40 s worst case" за платен сигнал, „~41 s / ~783K реда" (цитат от коментар в `main.py:3944-3945`).
+**Derived from the code (not measured in production):** the RPC/hour and backfill arithmetic, the
+CoinGecko/DexScreener estimates, "~40 s worst case" for a paid signal, "~41 s / ~783K rows" (a quote from a
+comment at `main.py:3944-3945`).
 
-**Непроверено / ограничения:**
-1. **`.env` и `secrets/` не са отваряни** (изрично ограничение). Затова е неизвестно дали в продукция са зададени `KRISTO_FREE_TIER_LIMIT=0`, `WALLET_PRIVATE_KEY`, `DATABASE_URL`, `KRISTO_DISABLE_BACKGROUND_THREADS`, `FACILITATOR_CDP_*`. Част от находките (F-02, F-07, F-15, F-21, F-28) зависят от тези стойности.
-2. **Няма мрежови проверки** — Glama, x402scan, PayAPI, Smithery, PulseMCP, GitHub PR-ове остават UNVERIFIABLE; поведението на живите facilitator-и (сравняват ли подписаната стойност) също е ненаблюдавано.
-3. **X-Forwarded-For семантиката на Render** (F-31/M6) изисква един live probe, за да се определи дали админ лимитът и free tier-ът са заобиколими.
-4. **Продукционната Postgres план-карта** и реалните бройки редове не са възпроизведени — няма достъп до живата БД.
-5. `main.py` **не е изпълняван** (импортът му пише в `data/dashboard_state.db`), затова стартовото време и шевът между `after_request` куките са изведени от кода, не премерени край-до-край.
-6. Два независими анализатора дадоха различна оценка за RPC натоварването (480/час vs ~2 700/час); представени са и двете с изрична бележка.
+**Unverified / limitations:**
+1. **`.env` and `secrets/` were not opened** (an explicit limitation). It is therefore unknown whether `KRISTO_FREE_TIER_LIMIT=0`, `WALLET_PRIVATE_KEY`, `DATABASE_URL`, `KRISTO_DISABLE_BACKGROUND_THREADS`, `FACILITATOR_CDP_*` are set in production. Some of the findings (F-02, F-07, F-15, F-21, F-28) depend on those values.
+2. **There are no network checks** — Glama, x402scan, PayAPI, Smithery, PulseMCP, GitHub PRs remain UNVERIFIABLE; the behaviour of the live facilitators (whether they compare the signed value) is likewise unobserved.
+3. **Render's X-Forwarded-For semantics** (F-31/M6) require one live probe to determine whether the admin limit and the free tier are bypassable.
+4. **The production Postgres plan map** and the real row counts have not been reproduced — there is no access to the live DB.
+5. `main.py` **was not executed** (importing it writes to `data/dashboard_state.db`), so the startup time and the seam between the `after_request` hooks are derived from the code, not measured end-to-end.
+6. Two independent analyzers gave a different estimate of the RPC load (480/hour vs ~2 700/hour); both are presented with an explicit note.
 
 ---
 
-## 10. Приложение A — Пълен инвентар на рутовете
+## 10. Appendix A — Full inventory of the routes
 
 ### `main.py` (44 `@app.route`)
 `/.well-known/x402-trust.txt`:2223 · `/f/<channel>`:2242 · `/api/arb/opportunities`:3549 · `/api/sales`:3582 · `/api/admin/seed-sales`:3823 · `/public/signals/history`:3912 · `/api/dashboard-stats`:3986 · `/api/connectors`:3992 · `/api/v1/quickstart`:4010 · `/api/stats`:4067 · `/api/bot-status`:4074 · `/api/telegram-webhook`:4089 · `/`:4152 · `/launch`:4182 · `/sales/checkout`:4188 · `/api/leads`:4299 · `/api/checkout`:4330 · `/api/v1/signal`:4389 · `/api/v1/agents`:4481 · `/api/v1/agents/<agent_id>`:4491 · `/api/v1/agents/<agent_id>/playground`:4500 · `/agents`:4537 · `/api/v1/agents/<agent_id>/click`:4543 · `/api/v1/agents/<agent_id>/checkout`:4561 · `/api/v1/agents/<agent_id>/access`:4624 · `/api/webhooks/stripe`:4708 · `/api/sales/summary`:4868 · `/api/admin/leads`:4890 · `/api/admin/overview`:5057 · `/api/admin/catalog-metrics`:5066 · `/api/v1/research/ingest`:5075 · `/api/admin/research-insights`:5102 · `/api/admin/research-insights/<insight_id>`:5118 · `/sales/admin/login`:5140 · `/admin/login`:5141 · `/sales/admin/logout`:5160 · `/sales/admin`:5166 · `/sales/admin/research`:5186 · `/api/launch/health`:5198 · `/api/funnel/track`:5219 · `/api/dashboard/data`:5573 · `/api/v1/whaleflow`:5585 · `/dashboard`:5642 · `/nexus`:5655
 
-### `app/blueprints/discovery.py` (26 рута)
+### `app/blueprints/discovery.py` (26 routes)
 `/health`:32 · `/validation`:79 · `/api/v1/signal/sample`:356 · `/api/stats/sample`:399 · `/api/v1/whaleflow/sample`:420 · `/api/sales/sample`:444 · `/api/bot-status/sample`:466 · `/api/arb/opportunities/sample`:486 · `/mcp/sse`:670 · `/mcp/message`:720 · `/mcp` (POST/DELETE):742 · `/mcp` (GET):766 · `/glama.json`:804 · `/.well-known/glama.json`:822 · `/api/mcp/manifest`:835 · `/.well-known/x402.json`:914 · `/.well-known/x402`:922 · `/mcp.json`:1026 · `/openapi.json`:1127 · `/favicon.ico`:1358 · `/favicon.svg`:1359 · `/robots.txt`:1374 · `/sitemap.xml`:1387 · `/agents.json`:1416 · `/.well-known/ai-plugin.json`:1485 · `/llms.txt`:1536
 
-### Платен allow-list (`main.py:137-139`) — 6 рута
+### Paid allow-list (`main.py:137-139`) — 6 routes
 `/api/sales` · `/api/stats` · `/api/bot-status` · `/api/arb/opportunities` · `/api/v1/signal` · `/api/v1/whaleflow`
 
-### Меродавни константи
+### Significant constants
 `FREE_TIER_LIMIT` = `KRISTO_FREE_TIER_LIMIT` (default **1**) `main.py:134` · `X402_PAID_ENDPOINTS` 6 · `X402_FREE_ENDPOINTS` 27 · `STATS_CACHE_TTL_SECONDS` 60 `main.py:3951` · `BLOCKCHAIN_POLL_INTERVAL` 30 `main.py:692` · `KRISTO_DASHBOARD_SCAN_INTERVAL` 60 `main.py:1133` · `WHALEFLOW_SCAN_INTERVAL` 60 `main.py:1219` · `AGENT_POLL_INTERVAL` 300 `main.py:1059` · `KEEPALIVE_INTERVAL_SECONDS` 600 `main.py:5681` · `SCAN_INTERVAL` (arb) 60 `arb_radar.py:27` · `SALES_CHUNK_BLOCKS` 5000 `dashboard_store.py:2117` · `WHALEFLOW_CHUNK_BLOCKS` 100 `:2276` · `WHALEFLOW_BACKFILL_HOURS` 24 `:106` · `WHALE_THRESHOLD_USDC` 5 000 000 `:98` · `C2_LAG_WAIT_SECONDS_DEFAULT` 2.5 `main.py:2528` · `FACILITATOR_TIMEOUT` 15 `connectors.py:47` · `BASE_RPC_URL` default `https://mainnet.base.org` `config.py:57`.
 
 ---
 
-*Отчетът е генериран на 2026-11-03 при HEAD `66a0ce4`. Всички номера на редове се отнасят за това ревизионно състояние.*
+*The report was generated on 2026-11-03 at HEAD `66a0ce4`. All line numbers refer to that revision state.*

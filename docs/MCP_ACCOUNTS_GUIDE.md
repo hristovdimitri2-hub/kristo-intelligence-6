@@ -1,71 +1,71 @@
-# ИНСТРУКЦИЯ: Регистрации в MCP директориите (ръчен български, без жаргон)
+# INSTRUCTIONS: Registrations in the MCP directories (manual Bulgarian, no jargon)
 
-> 📦 **НОВО:** Готов регистрационен пакет с проверени URL-и и точен текст за
-> копи-пейст: **`docs/MCP_REGISTRATION_PACKET.md`** — ползвай НЕГО (този файл
-> остава като обща справка). Проверено на живо 05.09: Glama/нашите endpoints
-> работят; PulseMCP и Smithery имат bot-защита срещу скриптове — в човешки
-> браузър са ОК.
+> 📦 **NEW:** A ready registration packet with verified URLs and exact text for
+> copy-paste: **`docs/MCP_REGISTRATION_PACKET.md`** — use THAT one (this file
+> remains as a general reference). Verified live on 05.09: Glama/our endpoints
+> work; PulseMCP and Smithery have bot protection against scripts — in a human
+> browser they are OK.
 
-**Какво ще правим:** качваме нашия API в три публични каталога (телефонни
-книжки за AI агенти). Всяка регистрация = отваряш сайт, създаваш безплатен
-акаунт с твоя поща, поставяш готов текст (имам го аз). Общо ~30 минути.
+**What we will do:** we upload our API to three public catalogs (phone
+books for AI agents). Each registration = you open a site, create a free
+account with your email, paste ready text (I have it). About ~30 minutes total.
 
-**Преди да почнеш — подготы си тези три неща (ги пиши на лист):**
-1. Твоята имейл адреса: `<contact-email>`
-2. Твоя GitHub профил: `hristovdimitri2-hub` (ако нямаш парола за него —
-   направи „Forgot password" от github.com)
-3. Описание на API-то (копираш от `docs/MCP_SUBMISSIONS.md`, раздел „Общи
-   полета" — или по-долу):
+**Before you start — prepare these three things (write them down on a sheet):**
+1. Your email address: `<contact-email>`
+2. Your GitHub profile: `hristovdimitri2-hub` (if you don't have a password for
+   it — do "Forgot password" from github.com)
+3. Description of the API (you copy it from `docs/MCP_SUBMISSIONS.md`, section
+   "Common fields" — or below):
    > Paid DeFi intelligence API on Base: trading-agent signals (action,
    > confidence, price, reasoning for ETH/ONDO/KAITO/DEGEN), cross-DEX
    > arbitrage spreads, whale USDC tracking, rug-risk checks. x402-native:
    > agents pay per call in USDC, from $0.003 — no signup, no API keys.
    - URL: `https://kristo-intelligence-api.onrender.com/mcp/sse`
-   - Листинг: `https://payapi.market/api/kristo-intelligence-defi-signals-api`
+   - Listing: `https://payapi.market/api/kristo-intelligence-defi-signals-api`
 
 ---
 
-## СТОПЪКА 1 — PulseMCP (най-лесната, започни с нея)
-1. Отвори в браузъра: **https://www.pulsemcp.com**
-2. Търси бутон **„Submit a Server"** или **„Add your server"** (обикновено горе).
-3. Ще те попита да влезеш → избери **Sign in with GitHub** (по-лесно от поща).
-   Пиши GitHub потребителя и паролата си, натисни „Authorize".
-4. Формата пита за име/URL/описание → поставяш от горния блок:
+## STEP 1 — PulseMCP (the easiest one, start with it)
+1. Open in the browser: **https://www.pulsemcp.com**
+2. Look for the button **"Submit a Server"** or **"Add your server"** (usually at the top).
+3. It will ask you to sign in → choose **Sign in with GitHub** (easier than email).
+   Enter your GitHub user and password, click "Authorize".
+4. The form asks for name/URL/description → you paste from the block above:
    - Name: `kristo-intelligence`
    - URL: `https://kristo-intelligence-api.onrender.com/mcp/sse`
-   - Description: описанието горе
-   - Category (ако пита): Finance / Market Data
-5. Натисни **Submit**. Готово — те индексират за ден-два, нищо друго не искат.
+   - Description: the description above
+   - Category (if it asks): Finance / Market Data
+5. Click **Submit**. Done — they index it in a day or two, they ask nothing else.
 
-## СТОПЪКА 2 — Glama
-1. Отвори: **https://glama.ai/mcp/servers**
-2. Търси **„Add server"** → пак **Sign in with GitHub**.
-3. Поставяш същите полета. При въпрос за transport избери **SSE**.
-4. При тагове (tags) напиши: `base, defi, x402, crypto, signals`
-5. Submit → готово.
+## STEP 2 — Glama
+1. Open: **https://glama.ai/mcp/servers**
+2. Look for **"Add server"** → again **Sign in with GitHub**.
+3. You paste the same fields. If asked about transport, choose **SSE**.
+4. For tags write: `base, defi, x402, crypto, signals`
+5. Submit → done.
 
-## СТОПЪКА 3 — Smithery
-1. Отвори: **https://smithery.ai**
-2. „Publish server" → **Sign in with GitHub**.
-3. Техният формуляр може да поиска допълнителен файл в кода на проекта
-   (нарича се `smithery.yaml`). Ако формата го иска — СПри тук и ми кажи
-   „Smithery иска yaml файл" — аз го подготвям за 5 минути и връщаш да
-   довършиш.
-4. Ако не иска нищо специално — същите полета, Submit.
+## STEP 3 — Smithery
+1. Open: **https://smithery.ai**
+2. "Publish server" → **Sign in with GitHub**.
+3. Their form may ask for an additional file in the project code
+   (it is called `smithery.yaml`). If the form asks for it — STOP here and tell me
+   "Smithery wants a yaml file" — I prepare it in 5 minutes and you come back
+   to finish.
+4. If it asks nothing special — the same fields, Submit.
 
 ---
 
-## След всяка регистрация — кажи ми само едно нещо:
-„PulseMCP — пратено", „Glama — пратено", „Smithery — пратено" (или каква
-грешка ти е дало). Аз проверявам след 2–3 дни дали сървърът вече се вижда
-в каталога (това е моята работа, не твоя).
+## After each registration — tell me just one thing:
+"PulseMCP — sent", "Glama — sent", "Smithery — sent" (or what
+error it gave you). I check after 2–3 days whether the server is already visible
+in the catalog (that is my job, not yours).
 
-## Защо си струва 30-те минути
-Това са каталогите, в които AI агентите (клиентите ни) реално търсят какво
-да купят. Единственият канал, който един наш човек от платформата нарече
-„пътят, който има значение". Една регистрация = нашето API става видимо за
-цялата тази тълпа, завинаги и безплатно.
+## Why the 30 minutes are worth it
+These are the catalogs where AI agents (our clients) actually look for what
+to buy. The only channel that one of our people from the platform called
+"the path that matters". One registration = our API becomes visible to
+that whole crowd, forever and for free.
 
-**ГРЕШКИ, КОИТО НЕ СА ПРОБЛЕМ:** ако сайтът не изглежда така, както описах
-(менят се често) — търси бутоните „Submit"/„Add"/„Publish" и полетата ще са
-същите. Ако нещо ти е неясно — направи screenshot и ми го покажи.
+**ERRORS THAT ARE NOT A PROBLEM:** if the site does not look the way I described
+(they change often) — look for the "Submit"/"Add"/"Publish" buttons and the fields
+will be the same. If anything is unclear to you — take a screenshot and show it to me.

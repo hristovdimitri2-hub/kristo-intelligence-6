@@ -1,25 +1,26 @@
-# PayAPI Agent marketplace — готов листинг за `/api/v1/verify-seller`
+# PayAPI Agent marketplace — ready listing for `/api/v1/verify-seller`
 
-**Защо точно този маршрут.** PayAPI има две места: **API каталог** (едно обаждане —
-lookup, feed) и **Agent marketplace** (агент, който върши цяла работа, на цена за
-работа). `/api/v1/verify-seller` е единственият ни маршрут, който е **задача**, не
-данни: одитира продавач по веригата и връща присъда. Останалите ни маршрути вече
-са в API каталога.
+**Why exactly this route.** PayAPI has two places: the **API catalog** (a single
+call — lookup, feed) and the **Agent marketplace** (an agent that does a whole job,
+at a price per job). `/api/v1/verify-seller` is our only route that is a **task**,
+not data: it audits a seller along the chain and returns a verdict. Our other
+routes are already in the API catalog.
 
-**Състояние (14.11.2026):** в API каталога сме с `endpoints_count: 11`,
-`payment_verified: true`, 3 верифицирани маршрута. В Agent marketplace **още не
-сме** — той иска вход с имейл, който агентът не може да осъществи (виж стъпките).
+**Status (14.11.2026):** in the API catalog we are at `endpoints_count: 11`,
+`payment_verified: true`, 3 verified routes. In the Agent marketplace we are
+**not yet** — it requires an email login, which the agent cannot perform (see the
+steps).
 
-## Стъпките (само ти можеш)
+## The steps (only you can do them)
 
-1. Отвори <https://payapi.market/agent-marketplace/list>
-2. Въведи `<contact-email>` — **същият имейл**, с който сме в API
-   каталога (иначе се създава втори provider акаунт).
-3. PayAPI праща **линк за вход** на този адрес. Отвори го.
-4. В таблото добави агента с полетата по-долу. Един агент е включен в безплатния
-   план.
+1. Open <https://payapi.market/agent-marketplace/list>
+2. Enter `<contact-email>` — the **same email** with which we are in the API
+   catalog (otherwise a second provider account is created).
+3. PayAPI sends a **login link** to that address. Open it.
+4. In the dashboard add the agent with the fields below. One agent is included in
+   the free plan.
 
-## Полетата
+## The fields
 
 ```json
 {
@@ -97,20 +98,20 @@ lookup, feed) и **Agent marketplace** (агент, който върши цял
 }
 ```
 
-## Две неща, които да не се забравят
+## Two things not to forget
 
-**Цената.** Полетата казват `0.01`, защото това е **пилотната** цена в момента.
-На **11.12.2026** пилотът изтича и цената се връща на **0.10** (напомняне
-`schedule-39d6abaf`). Ако листингът се направи след тази дата, `price_usdc` трябва
-да е `0.10` — иначе листингът лъже за цената, което е точно дефектът, който
-затваряхме при `config.py`.
+**The price.** The fields say `0.01`, because that is the current **pilot** price.
+On **11.12.2026** the pilot expires and the price goes back to **0.10** (reminder
+`schedule-39d6abaf`). If the listing is made after that date, `price_usdc` must be
+`0.10` — otherwise the listing lies about the price, which is exactly the defect we
+were closing in `config.py`.
 
-**Верификацията.** `verification_state` се попълва от PayAPI, не от нас — те
-верифицират, като платят маршрута. Не обещавай verified в описанието.
+**Verification.** `verification_state` is filled in by PayAPI, not by us — they
+verify by paying the route. Do not promise verified in the description.
 
-## Какво листването не прави (тяхното собствено предупреждение)
+## What the listing does not do (their own warning)
 
 > It doesn't guarantee jobs. A listing is a place to be found, not demand.
 
-Тоест това е разпространение, не търсене. Съответства на находката от
-`df-data-agent`: ограничението ни е видимост, не цена.
+That is, this is distribution, not demand. It matches the finding from
+`df-data-agent`: our constraint is visibility, not price.

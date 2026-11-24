@@ -1,35 +1,35 @@
-# OUTREACH WAVE 1 — ЧЕРНОВИ (НЕ СЕ ИЗПРАЩАТ)
+# OUTREACH WAVE 1 — DRAFTS (DO NOT SEND)
 
-> ## ⛔ ИЗПРАЩАНЕ ЧАКА ДВЕ УСЛОВИЯ: (а) merge на #13219, (б) F1 гейт затворен.
-> ## Без двете — не се праща.
+> ## ⛔ SENDING WAITS FOR TWO CONDITIONS: (a) merge of #13219, (b) F1 gate closed.
+> ## Without both — it does not go out.
 
-**Статус към 25.09.2026 (проверено живо):**
+**Status as of 25.09.2026 (verified live):**
 
-| Условие | Състояние |
+| Condition | State |
 |---|---|
-| (а) PR #13219 (punkpeye/awesome-mcp-servers) | ✗ **OPEN** — mergeable CLEAN, етикет `has-glama`, значката рендерира „rated A"; чака merge от Frank (последна активност 22.09) |
-| (б) F1 гейт | ✗ **ОТВОРЕН (частично доказателство)** — **A1:** жив guard_events (PostgreSQL, 25.09 06:18 UTC): **никога** няма `c2_settlement_in_flight`/`c1_nonce_adopted` — пътят съществува в код+тестове, живо не е минаван. **A2:** частично доказан — 402 + retry механика живи отвън (`scripts/e2e_nopay_probe.py`: 6×402 идентични, синтетичен proof → 401 fail-closed). **ПЪЛНО доказателство (плащане → 425 → 200) ЧАКА WALLET** — зареждането е човешко действие, не решение. |
+| (a) PR #13219 (punkpeye/awesome-mcp-servers) | ✗ **OPEN** — mergeable CLEAN, label `has-glama`, badge renders "rated A"; awaiting merge from Frank (last activity 22.09) |
+| (b) F1 gate | ✗ **OPEN (partial proof)** — **A1:** live guard_events (PostgreSQL, 25.09 06:18 UTC): **never** any `c2_settlement_in_flight`/`c1_nonce_adopted` — the path exists in code+tests, never traversed live. **A2:** partially proven — 402 + retry mechanics live from outside (`scripts/e2e_nopay_probe.py`: 6×402 identical, synthetic proof → 401 fail-closed). **FULL proof (payment → 425 → 200) WAITS FOR WALLET** — funding is a human action, not a decision. |
 
-**Правила на пакета:** нищо от тук не е изпратено; всеки текст се изпраща ЕДИН път,
-персонализиран; payTo/цените/стражите не се пипат. Всеки текст води с едно число
-ИЛИ една методология — никога и с двете наведнъж.
+**Package rules:** nothing here has been sent; every text goes out ONCE, personalized;
+payTo/prices/guards are not touched. Every text leads with one number OR one
+methodology — never both at once.
 
-**Проверени живи числа (25.09):** 6 платени маршрута от $0.003/call · challenge-и
-общо ~27.6k (signal 12,351) · on-chain $0.043 / 13 tx / 2 external · Glama rated A ·
-410/410 теста · C1 lock в PostgreSQL (durable, survive deploy) · C2 = 12 confirmations.
+**Verified live numbers (25.09):** 6 paid routes from $0.003/call · challenges total
+~27.6k (signal 12,351) · on-chain $0.043 / 13 tx / 2 external · Glama rated A ·
+410/410 tests · C1 lock in PostgreSQL (durable, survive deploy) · C2 = 12 confirmations.
 
-**Единственият curl, който трябва на всеки:**
-`curl -i https://kristo-intelligence-api.onrender.com/api/v1/signal` → 402 с цялото
-challenge тяло (amount, payTo, scheme) — нищо друго не се обяснява с думи.
+**The only curl everyone needs:**
+`curl -i https://kristo-intelligence-api.onrender.com/api/v1/signal` → 402 with the whole
+challenge body (amount, payTo, scheme) — nothing else is explained in words.
 
 ---
 
-## СЕГМЕНТ 1 — Coinbase AgentKit / CDP общности (4 бр.)
+## SEGMENT 1 — Coinbase AgentKit / CDP communities (4 pcs.)
 
-Кратки. ЕДНО число + един curl. Не разказваме история — показваме готова
-интеграция, която техните агенти могат да платят още днес.
+Short. ONE number + one curl. We do not tell a story — we show a ready-made integration
+that their agents can pay for today.
 
-### 1.1 CDP Discord → #agentkit (или #build-on-base)
+### 1.1 CDP Discord → #agentkit (or #build-on-base)
 
 > Hey — built against AgentKit + the x402 facilitator: a live DeFi data API
 > where the agent pays per call in USDC on Base, no API keys, no signup.
@@ -40,7 +40,7 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 
 ### 1.2 github.com/coinbase/agentkit → Discussions
 
-**Тема:** `x402-paid data endpoint that AgentKit agents can call out of the box`
+**Topic:** `x402-paid data endpoint that AgentKit agents can call out of the box`
 
 > We run an x402 v2 endpoint (canonical challenges, atomic units, eip155:8453)
 > tuned for AgentKit-style agents: `GET /api/v1/signal` → 402 → settle via the
@@ -57,7 +57,7 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 > 6 routes from $0.003, all on-chain settled. If anyone's building an
 > agent-wallet loop, this is a cheap endpoint to test against.
 
-### 1.4 Отговор в съществуващ x402/CDP thread (попълни линка)
+### 1.4 Reply in an existing x402/CDP thread (fill in the link)
 
 > One more server for the list — DeFi signals on Base, x402 v2 canonical
 > challenges, paid per call from $0.003:
@@ -66,13 +66,13 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 
 ---
 
-## СЕГМЕНТ 2 — x402 продавачи (3 бр.)
+## SEGMENT 2 — x402 sellers (3 pcs.)
 
-Колегиален тон. Методологията се СПОДЕЛЯВА, не се продава — писали сме я, защото
-самите ние се спънахме в нея четири пъти; ако им спести един бъг, печелят всички.
-Нито един текст не иска нещо.
+Collegial tone. The methodology is SHARED, not sold — we wrote it because we
+tripped over it ourselves four times; if it saves them a single bug, everyone
+wins. Not one text asks for anything.
 
-### 2.1 ParkerChet / PayAPI Market (познат канал)
+### 2.1 ParkerChet / PayAPI Market (known channel)
 
 > Chet — sharing, not selling: we turned our 402-guard field notes into a short
 > doc (https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/GUARD_METHODOLOGY.md).
@@ -81,11 +81,11 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 > because its absence once cost us a wrong number or a lost sale. If any of it
 > is useful for how PayAPI validates sellers, it's yours. No ask attached.
 
-### 2.2 Втори x402 продавач (от x402scan/Bazaar — попълни името)
+### 2.2 Second x402 seller (from x402scan/Bazaar — fill in the name)
 
-**Тема:** `402 guard field notes — yours if useful`
+**Topic:** `402 guard field notes — yours if useful`
 
-> Hi [NAME] — fellow x402 seller here ([едно изречение: какво продаваш]). We
+> Hi [NAME] — fellow x402 seller here ([one sentence: what you sell]). We
 > audited our own guard four times and wrote down what actually held up:
 > consume the proof once in a durable store BEFORE serving, refuse when depth
 > can't be determined, bind proof→endpoint→payer, read revenue from the chain
@@ -94,9 +94,9 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 > Curious whether your stack hit the same four failure modes — always keen to
 > compare notes with another live seller.
 
-### 2.3 Трети x402 продавач / инфраструктурен проект (facilitator или index)
+### 2.3 Third x402 seller / infrastructure project (facilitator or index)
 
-**Тема:** `Replay + depth failures we hit in production — writeup`
+**Topic:** `Replay + depth failures we hit in production — writeup`
 
 > Hey — we operate a paid 402 endpoint and documented the failure modes that
 > survived four audits (bearer-token replay across deploys, unbound proofs,
@@ -108,15 +108,15 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 
 ---
 
-## СЕГМЕНТ 3 — AI билдъри (3 бр.) — METHODOLOGY-LED
+## SEGMENT 3 — AI builders (3 pcs.) — METHODOLOGY-LED
 
-**Правило на сегмента:** „Какво научихме, докато строихме x402 payment guard".
-Техническото съдържание води. **Числата остават в линка, не в съобщението** —
-нито едно price/revenue число в телата по-долу.
+**Segment rule:** "What we learned while building the x402 payment guard". The
+technical content leads. **The numbers stay in the link, not in the message** —
+not a single price/revenue number in the bodies below.
 
 ### 3.1 Reddit r/AI_Agents
 
-**Заглавие:** `We built an x402 payment guard for our API and audited it 4 times — here is what actually broke`
+**Title:** `We built an x402 payment guard for our API and audited it 4 times — here is what actually broke`
 
 > Every "agent pays for data" demo assumes the seller can tell that the money
 > is real, exactly once, for exactly this request. Ours couldn't, four
@@ -138,7 +138,7 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 
 ### 3.2 Hacker News — Show HN
 
-**Заглавие:** `Show HN: Field notes from running a paid 402 endpoint in production`
+**Title:** `Show HN: Field notes from running a paid 402 endpoint in production`
 
 > We've been selling API calls to AI agents and wrote down the seller-side
 > half of the handshake — "was I really paid, and can I prove it?" — because
@@ -156,9 +156,9 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 > Curious what other people running pay-per-call endpoints got wrong that
 > we haven't found yet.
 
-### 3.3 Reddit r/AI_Agents (втори пост — по-тесен, deployment-фокус)
+### 3.3 Reddit r/AI_Agents (second post — narrower, deployment-focused)
 
-**Заглавие:** `A payment-replay lock that doesn't survive a deploy is a rate limiter with a misleading name`
+**Title:** `A payment-replay lock that doesn't survive a deploy is a rate limiter with a misleading name`
 
 > We kept a set of consumed payment hashes in process memory. It worked
 > perfectly until the first deploy — after which every previously consumed
@@ -174,12 +174,12 @@ challenge тяло (amount, payTo, scheme) — нищо друго не се о�
 
 ---
 
-## Преди изпращане (чеклист — попълва се, когато гейтът е затворен)
+## Before sending (checklist — filled in once the gate is closed)
 
-- [ ] (а) #13219 е MERGED
-- [ ] (б) F1 гейт: ПЪЛНО доказателство — реално плащане ($0.003) + уловен 425
-      + 200, след което guard_events показва ново `c2_settlement_in_flight` /
-      `c1_nonce_adopted`. Сега: A1 + A2 (no-pay) са готови, **последната стъпка
-      чака funded wallet** (човешко зареждане — не „чака решение“)
-- [ ] Всеки текст е персонализиран (име/проект на получателя)
-- [ ] 1 съобщение/ден — сегментите не се пускат наведнъж
+- [ ] (a) #13219 is MERGED
+- [ ] (b) F1 gate: FULL proof — a real payment ($0.003) + captured 425
+      + 200, after which guard_events shows a new `c2_settlement_in_flight` /
+      `c1_nonce_adopted`. Right now: A1 + A2 (no-pay) are ready, **the last step
+      waits for a funded wallet** (human funding — not "waiting for a decision")
+- [ ] Every text is personalized (recipient's name/project)
+- [ ] 1 message/day — the segments are not fired all at once
