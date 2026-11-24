@@ -8,6 +8,41 @@ it. Full text of every message is in `docs/OUTREACH_DRAFTS.md`.
 
 ## The one priority
 
+**The market audit of 24.11 changed what the priority is. Read this first.**
+
+The owner asked for a full audit of every API, every MCP server and every place we
+are listed, because after 12 October the system looked silent. It was measured
+instead of argued, and the answer is in `HANDOVER.md` §118. In one paragraph:
+
+- **Nothing is lost.** 1,246,641 requests in 30 days (~30,000/day), 457 distinct
+  agents reached a paywall, 163 were delivered content, 25 further directories we
+  never submitted to probe us daily, all seven paid routes and all five alias
+  routes answer a valid `402`, MCP serves seven tools. Discovery and plumbing are
+  both intact.
+- **The money is not there.** Lifetime: 180 payments, $1.983. Of that, **$1.785
+  is our own demo key** (131 payments, confirmed by decoding the Base receipts of
+  the fifteen most recent sales). Genuinely external, lifetime: **12 payments,
+  $0.055.**
+- **No sale was lost to a bug.** All 135 `payment_attempts` are accounted for: 98
+  settled, and every refusal is either our own testing or adversarial conformance
+  fuzzing (`0x1111…1111`, `payload_undecodable`, `amount below price: 1 < 5000`).
+
+So the work is not distribution and it is not repair. Three independent
+measurements — Ernest's CDP census, PayAPI's 6,323 views with 0 payments, and now
+our own ledger — say the same thing: **the traffic is machines checking us, not
+buyers wanting us.**
+
+**What this does to the priorities below.** The marketplace line stays the only
+untried channel, and it is still untried. But it should now be read with the audit
+in hand: adding a seventh channel to a service that 457 agents already found and
+12 wallets ever paid is not obviously the fix. The two candidates that survive
+every measurement are the ones §108 named — **data a buyer cannot get elsewhere**,
+and **selling the measurement itself**.
+
+---
+
+## The marketplace line (unchanged)
+
 **The catalogue work is done. The marketplace work has not started.**
 
 Six catalogues and directories now list us — CDP Bazaar, MCP Registry, Glama,

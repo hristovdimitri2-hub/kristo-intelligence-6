@@ -7276,6 +7276,143 @@ generated, and named in the tool that enforces the rule.
 A translated artefact that a generator overwrites is not progress; it is a
 treadmill that also turns CI red.
 
+## 118. The whole market, measured end to end: nothing was lost, and that is the finding (24.11.2026)
+
+**Why this exists.** The owner's red light was this: "after 12 October, unless it
+is our own sales, there is not a single inquiry to the system." That is a claim
+about traffic, and traffic is measurable from the service's own ledger. Every
+number below comes from `request_log`, `onchain_sales` and `payment_attempts` in
+production, read through `scripts/inbound_traffic_audit.py` (read-only SELECTs),
+plus public endpoints through `scripts/placement_audit.py`.
+
+### The premise is false: the traffic is enormous
+
+| | |
+|---|---|
+| requests in the 30-day retention window | **1,246,641** |
+| typical day | **~30,000** |
+| span of the ledger | 2026-10-25 → 2026-11-24 (retention is 30 days, so 12 Oct is already gone) |
+| distinct user agents that reached a paywall (402) | **457** |
+| distinct user agents that were delivered content (200) | **163** |
+| busiest paths | `/health` 568,337 · `/mcp` 328,679 · `/api/v1/signal` 32,134 · `/api/v1/whaleflow` 27,535 |
+
+Traffic on 24.11 alone was 30,185 requests. Dozens of third-party agents called
+us *today*, several within minutes of this measurement. Nothing has been quiet
+since 12 October.
+
+### The placement layer is intact
+
+`scripts/placement_audit.py`, run against every surface we know of:
+
+| placement | state |
+|---|---|
+| CDP Bazaar (current `payTo`) | present, rows current to 24.11 |
+| CDP Bazaar (retired `payTo`) | **still present** — the old rows never aged out |
+| MCP Registry | present, current to 23.11 |
+| Glama connector | present, current to 24.11 |
+| Glama `/mcp/servers/` | **absent** — the known gap, still blocking the awesome-list PR |
+| x402scan server page | present |
+| PayAPI listing | present; `price` fixed, page text still September (see §116) |
+| our `/.well-known/x402`, `agent-card.json`, `openapi.json`, `llms.txt`, `/api/mcp/manifest`, `robots.txt`, `sitemap.xml` | all 200 and carrying our host |
+| 25 further directories found in the log | 4 confirmed carrying our host by name; the rest are JS apps whose listing cannot be read from a root page |
+
+**And 25 more directories we never submitted to are already probing us daily** —
+agent402.tools, x402station.io, x402-list.com, mcpbeat.com, mcptry.com,
+alalanet.com, nohumans.directory, PayAI Bazaar, mekler.ai, toolvet.app,
+botsrated.com, kertivo.com, lumierepaycheck.org, agenteconomy.report,
+agentlair.dev, brick.blue, agenstry.com, ai-powered.com, addrbook.com,
+nitrograph.com, carbon-cashmere.de, glimind.com, x402-trust.com, x402-router,
+zero.xyz. Discovery is not the missing piece. It has not been for weeks.
+
+### The product surfaces are intact
+
+Checked live, 24.11:
+
+- all seven paid routes answer `402` with a valid v2 envelope (`scheme=exact`,
+  `network=eip155:8453`, `payTo=0xB4Fc…C844`, `USDC`, correct amount);
+- the five legacy alias paths (`/api/v1/trading-signals`, `/whale-alerts`,
+  `/arbitrage-opportunities`, `/onchain-sales`, `/seller-check`) are **all
+  paywalled too** — no free bypass exists;
+- `/api/v1/*/sample` returns an honest static example that names its price and
+  refuses to disclose live values;
+- MCP: `initialize` → 200, `tools/list` → all seven tools;
+- `/health` → 200, `HEAD` → 402, `OPTIONS` → 204.
+
+### The money: 180 payments, $1.983, of which $1.785 is ours
+
+`onchain_sales` classifies its own payers. Lifetime, since 2 September:
+
+| payer class | payments | USDC | first → last |
+|---|---|---|---|
+| `own_key` — our demo wallet `0xe50c…5763` | **131** | **1.785** | 7 Oct → 24 Nov |
+| `sampler` — `market_crawler_*` wallets | 20 | 0.100 | 9 Sep → 17 Nov |
+| `canary` — `chet_payapi_verification`, `lumiere_paycheck_tester`, `settled_scout` | 17 | 0.067 | 2 Sep → 16 Nov |
+| `external` — unclassified, 12 distinct wallets | 12 | **0.055** | 6 Sep → 16 Nov |
+
+Independently corroborated: every one of the fifteen most recent sale receipts
+was decoded from Base and the USDC `Transfer.from` is `0xe50c…5763` in all
+fifteen. The `tx.from` differs each time because that is the facilitator's
+relayer, not the payer.
+
+**Genuinely external money, lifetime: 12 payments, $0.055.** Two of those are
+`0xEe523a51…` ($0.013 on 16 Nov) and `0x171d8021…` ($0.01 on 16 Nov).
+
+### The missing middle: 135 attempts, and none of them was a lost sale
+
+`payment_attempts` records every credential ever presented. It was created on
+8 November, so it covers only the last two weeks — the same limit as everything
+else.
+
+| outcome | attempts | payers |
+|---|---|---|
+| `settled` | 98 | 7 |
+| `rejected` | 30 | 3 |
+| `settle_failed` | 7 | 2 |
+
+The refusals were read one by one, because a refusal to a real buyer is a lost
+sale and a refusal to a fuzzer is not. They are all one of three things:
+
+1. **Adversarial conformance testing.** `0x85c2e08E…` made six attempts inside
+   four seconds on 21 Nov, including `authorization.to != payTo` with the junk
+   address `0x1111…1111`, `amount below price: 1 < 5000`, a bad EIP-712
+   signature, and an `authorization window too long`. Alongside it, 27 attempts
+   carry an empty payer and the detail `payload_undecodable` — the shape of
+   `Mekler-Conformance/1.0`, which made 13,452 challenged calls. Our rail refused
+   every one correctly.
+2. **Our own testing.** `payai_unreachable(status=400)` four times, a 20-second
+   settlement deadline, a missing `verifyingContract` — all from our own payer.
+3. **Nothing else.** Not one refusal is an ordinary buyer with a correct
+   signature and a funded wallet.
+
+### So where did it get lost? Nowhere. That is the answer.
+
+Three layers were measured separately and all three work: discovery (457 agents
+find the paywall), plumbing (the envelope is valid, the aliases are closed, MCP
+serves seven tools), and settlement (98 settled attempts, and every refusal
+explained). There is no broken link to repair.
+
+What the numbers actually say is harder:
+
+- Of the 457 agents that reached a paywall, the classification splits them into
+  206 whose names are probe/monitor/health/index/crawl/scan/uptime/bazaar and
+  251 "other" — and reading the top of the "other" list gives `Render/1.0`
+  (our own host's health checks), `claude-code` (our own agent),
+  `python-requests`, `node`, `axios`, `Go-http-client`. **The overwhelming
+  majority of the traffic is infrastructure telemetry about us, not demand
+  for what we sell.**
+- The four directories that carry our listing by name, the 25 that probe us,
+  the 6,323 PayAPI views and the six catalogues all converge on the same
+  endpoint: a paywall that machines check and do not buy from.
+- Lifetimes, three independent measurements now agree: Ernest's CDP census (top
+  10 rows = 92% of spend, median row $0.01/30d), PayAPI (6,323 views, 0
+  payments), and our own ledger (457 agents, 12 external payments, 5.5 cents).
+
+**The rule this leaves behind:** when the owner says "something must have got
+lost on the way", measure the layer he is not pointing at first — here,
+discovery and plumbing were both fine, and the money was simply absent. An
+absent market and a broken pipeline look identical from the dashboard and
+opposite from the ledger.
+
 
 
 
