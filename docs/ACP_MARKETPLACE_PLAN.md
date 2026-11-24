@@ -108,3 +108,66 @@ that earns money without a human in the loop.
 
 The order that wastes the least: **authorise → create the agent → browse the
 marketplace → only then decide whether the worker is worth writing.**
+
+---
+
+## Result of that order, 24.11.2026 — the marketplace cannot be measured
+
+Everything up to "browse" worked. "Browse" did not, and the reason is not on our
+side.
+
+**Done:**
+
+| step | result |
+|---|---|
+| CLI authenticated | owner wallet `0x823750e5383008ba2c3f48523b6f723b268ea62d` |
+| Agent created | `Kristo Intelligence`, id `01a20e70-5e40-75cc-b063-7e1915ab544c` |
+| Agent wallets | EVM `0x3724b449…46e4`, Solana `45ZEZR5W…95u6` |
+| Agent email | `kristo_intelligence@agents.world` |
+
+**Blocked: the signer.** `acp browse` refuses with `NO_SIGNER`. The approval link
+was generated four times and opened each time, but `agent signer-status` keeps
+returning `{"status":"pending"}` and the CLI's own config keeps `"publicKey": ""`.
+Four locally generated keys were each written into that field by hand and none of
+them matched a server signer — so the two `DENY_ALL` signer records the server
+reports are not ours.
+
+The backend explains it. Endpoints that should report a count all fail:
+
+| endpoint | response |
+|---|---|
+| `/agents/search?query=<anything>` | 200, `{"data":[]}` |
+| `/agents/count` | **500 Internal server error** |
+| `/agents/stats` | **500 Internal server error** |
+| `/agents/list` | **500 Internal server error** |
+| `/agents/legacy` | 200, `{"data":[]}` |
+| `/agents` (owner-scoped) | 200, exactly our one agent |
+
+**The search finds nothing at all — not even our own agent.** Queried by its exact
+name (`Kristo`, `Intelligence`), by its wallet address, and by broad terms
+(`agent`, `a`, `defi`), authenticated and unauthenticated, with `onlineStatus=all`
+and with `chainIds=8453`. Every one returns zero rows. Meanwhile `/agents`
+returns our agent immediately.
+
+So either the index is empty or it is broken, and the 500s on every endpoint that
+would tell us which point to broken. **We cannot conclude there are no buyers, but
+we can conclude we cannot find out, and neither can a buyer find us.**
+
+**What we gained anyway.** The CLI's auth token lives in the Windows Credential
+Manager under the service `acp-auth`, as `access-token-<ownerWallet>`. The search
+API accepts it directly, so the CLI's signer requirement can be bypassed for
+reading. `_tools/acp/probe_market.mjs` does exactly that and was the instrument
+used for every number above.
+
+### Decision
+
+**Do not build the provider worker.** The premise was a marketplace where agents
+hire each other. The premise cannot be verified, every endpoint that would verify
+it errors, and Ernest's independent measurement of the adjacent market points the
+same way: the top ten rows take 92% of all spend and the median row earns $0.01 a
+month. Building a worker to sell into a market we cannot observe would repeat the
+mistake the last month was spent on.
+
+**Keep the agent.** It costs nothing, it is registered under a name that matches
+every other channel, and if `/agents/search` ever returns a row the question can be
+answered in one command. Revisit only when that endpoint returns something.

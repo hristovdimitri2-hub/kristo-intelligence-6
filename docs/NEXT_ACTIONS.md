@@ -136,7 +136,7 @@ fallback if the dashboard has no price field.
 
 ---
 
-## 3. Marketplace — the agent exists, the signer is one click away
+## 3. Marketplace — measured, and the answer is "cannot be measured"
 
 Full detail in `docs/ACP_MARKETPLACE_PLAN.md`.
 
@@ -149,13 +149,24 @@ Full detail in `docs/ACP_MARKETPLACE_PLAN.md`.
 | Agent EVM wallet | `0x3724b449603cb7faf70ea87f79c3733c6d9546e4` |
 | Agent Solana wallet | `45ZEZR5WQY1YexW6YHiP4GYwbLho4BsKyeK3m1ob95u6` |
 | Agent email | `kristo_intelligence@agents.world` |
-| Offerings / resources | 0 / 0 — deliberately empty until the market is measured |
+| Offerings / resources | 0 / 0 — correct, and they stay that way |
 
-**Blocked on:** the signer approval link, which expires five minutes after it is
-generated. `acp browse` refuses with `NO_SIGNER` until a signer exists, so the
-marketplace cannot be measured without it. Policy chosen: **`deny-all`** — we are
-only looking, so the agent should not be able to sign anything on its own. Switch
-to `restricted` with `acp agent set-signer-policy` if we build the provider worker.
+**The signer never completes, and it is not our fault.** Four approval links were
+generated and opened; `agent signer-status` returns `pending` every time and the
+CLI's config keeps `"publicKey": ""`. All four local keys were written into that
+field by hand — none matched a server signer. The backend explains it: of the
+endpoints that would report a count, `/agents/count`, `/agents/stats` and
+`/agents/list` all return **500**, and `/agents/search` returns `{"data":[]}` for
+**every** query — including our own agent's exact name and wallet address.
+
+**Decision: do not build the provider worker.** The premise was a marketplace
+where agents hire; the premise cannot be verified, and nothing that would verify
+it works. Keep the agent — it is free and one command re-checks it later.
+
+**Kept as a tool:** `_tools/acp/probe_market.mjs` reads the marketplace directly by
+pulling the stored token out of the Windows Credential Manager (service `acp-auth`,
+account `access-token-<ownerWallet>`), bypassing the CLI's signer requirement. It
+was the instrument for every number above. Re-run it before revisiting ACP.
 
 **A Windows trap worth keeping:** `acp-cli-signer-windows.exe` cannot write to
 `%APPDATA%\acp-cli` — the sandbox gives spawned binaries read-only access outside
