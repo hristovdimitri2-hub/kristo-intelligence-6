@@ -6900,10 +6900,10 @@ every identifier, URL, hash, address, number, code fence and table row verbatim;
 translate prose only; wrap at 88 columns.
 
 **The check, and why it is mechanical.** A translation that loses a hash is worse
-than no translation, so nothing was accepted on the agent's word. `_translation/verify_docs.py`
-compares every modified file against its `HEAD` version and fails on any lost
-hex token, URL, number or code fence. Result: **58 files checked, 1 real loss**,
-which is the point of running it:
+than no translation, so nothing was accepted on the agent's word.
+`scripts/doc_language_audit.py --diff` compares every modified file against its
+`HEAD` version and fails on any lost hex token, URL, number or code fence.
+Result: **58 files checked, 1 real loss**, which is the point of running it:
 
 - `docs/ACTION_BOARD.md` — the agent turned `comment #3441` into `#344`, dropping
   a digit from a gist comment id. Fixed by hand. Every other apparent loss was a
@@ -6928,8 +6928,9 @@ Four other kinds of file still contain Cyrillic and were left alone:
 | `.js` | 1 | 1 879 | `lib/nexus/…` comments in the same position as the Python. |
 | `.env.example` | 1 | 766 | Comment lines beside live configuration. |
 
-**The acceptance test from here on:** `git grep -lP '[\x{0400}-\x{04FF}]' -- '*.md'`
-must return nothing. If a future session writes a Bulgarian document, that is the
-command that catches it. Reports to the owner stay in Bulgarian — the rule is
-about what is committed, not about what he is told.
+**The acceptance test from here on:** `python scripts/doc_language_audit.py`
+counts Cyrillic in every tracked text file and exits 1 if any markdown file still
+holds one. If a future session writes a Bulgarian document, that is the command
+that catches it. Reports to the owner stay in Bulgarian — the rule is about what
+is committed, not about what he is told.
 
