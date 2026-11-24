@@ -27,60 +27,87 @@ no reason to be called twice. More listings cannot fix that. An integration can.
 
 ---
 
-## 1. Send — five messages, ready, verified destinations
+## 1. Sent — five of six, by the owner on 24.11.2026
 
-| # | To | Where | What |
+| # | To | Where | State |
 |---|---|---|---|
-| 1 | Ernest | `ernest@nolimbsfighting.com` | yes to the CDP support request; asks whether anyone buys pre-payment verification |
-| 2 | r/x402 | the fourfold thread, 23.11 | comment on why the numbers move and what they do not show |
-| 3 | Virtuals ACP | `Virtual-Protocol/acp-cli/issues/new` | can a hosted HTTP service be an offering? |
-| 4 | Olas | `t.me/olaschat` | same question, their shape |
-| 5 | x402scan | `Merit-Systems/x402scan/issues/1270` | update our listing: new host, 7 routes |
-| 5b | x402scan | `Merit-Systems/x402scan/issues/1340` | confirm the vercel.app host is dead, remove the rows |
-
-Order: **1, 2, 5b, 5, 3, 4.** Ernest first because he is already measuring us.
-The two x402scan ones are housekeeping that costs nothing. ACP and Olas last
-because they may need a follow-up conversation rather than a message.
+| 1 | Ernest | `ernest@nolimbsfighting.com` | sent |
+| 2 | r/x402 | the fourfold thread, 23.11 | sent |
+| 3 | Virtuals ACP | `Virtual-Protocol/acp-cli/issues/new` | sent |
+| 4 | Olas | `t.me/olaschat` | **not sent** — the only one left |
+| 5 | x402scan | `Merit-Systems/x402scan/issues/1270` | sent |
+| 5b | x402scan | `Merit-Systems/x402scan/issues/1340` | sent |
 
 ---
 
-## 2. Owner decisions — nothing moves without them
+## 2. The four decisions — all approved, three finished
 
-| # | Decision | Why it waits |
+| # | Decision | State |
 |---|---|---|
-| 1 | **PayAPI's `Price` field** says "$0.003 to $0.005" and "3 endpoints"; the page text says seven routes at $0.005–0.050. Email Chet? | Under-prices us for a buyer who budgets from the structured field. No email sent. |
-| 2 | **Remove `X402LIST_VERIFICATION_TOKEN`** after 26.11 15:06Z | The env var has no expiry check, so the well-known path keeps serving a stale proof. Removal plus a redeploy. |
-| 3 | **Tell Jamenbin** the fixture moved from `d76537a7…` to `3d76d803…` | He verified v1 and was never told it changed. The `REVISIONS` block records it; he does not know. |
-| 4 | **Free or pilot tier** — allowed or not? | Needed before any marketplace conversation can promise anything. |
+| 1 | **Jamenbin** — tell him the fixture moved | **DONE.** Comment posted 24.11 at 16:46Z on `VibeMirror-coder/n8n-nodes-omnidome#3`, verified by reading the issue back. |
+| 2 | **Free or pilot tier** | **Approved.** Marketplace conversations may promise a pilot. |
+| 3 | **`X402LIST_VERIFICATION_TOKEN`** | **Prepared.** Token still present (`x402list-verify-rCh48s…`, 59 chars) and `/.well-known/x402list.txt` serves it (HTTP 200). It expires 26.11 15:06Z. `_tools/remove_x402list_token.py` does the whole job — dry-run verified, `--apply` deletes the variable with `DELETE /env-vars/{key}` (never a `PUT` of the collection), triggers the deploy, then polls until the path returns 404. Reminder set for 26.11 17:10 EET. |
+| 4 | **PayAPI's `Price` field** | **Blocked on the owner's email.** See §2b. |
 
-**All four approved by the owner on 24.11.2026.** Actions:
-`OUTREACH_DRAFTS.md` J1 (PayAPI, to `hello@payapi.market`), a reminder set for
-26.11 17:10 EET for the token, `OUTREACH_DRAFTS.md` J2 (Jamenbin, at
-`VibeMirror-coder/n8n-nodes-omnidome#3`), and the pilot tier is now allowed.
+### 2b. PayAPI — the field cannot be fixed by API
+
+Measured 24.11 through PayAPI's own discovery API, not from memory:
+
+| | listing says | truth |
+|---|---|---|
+| price | `$0.003 – $0.005` | `$0.005 – $0.05` |
+| endpoints | `3` | `7` |
+| base_url | correct (the new host) | correct |
+
+The listing is `kristo-intelligence-defi-signals-api`; the record is a leftover
+from their September verification, when we really did have three routes at those
+prices. **Submitting again will not fix it**: their OpenAPI documents that a URL
+that already exists returns the existing fields rather than refreshing them, and
+Chet has warned against creating a second card for one product.
+
+**The fix is the provider dashboard**, which needs one click in the owner's inbox:
+
+1. Open `https://payapi.market/agent-marketplace/list`
+2. Enter `hristovdimitri2@gmail.com` (the address the listing is registered under)
+3. Click the sign-in link PayAPI emails, then edit the DeFi Signals API listing:
+   price `$0.005 – $0.05`, seven endpoints
+
+The email to `hello@payapi.market` (`OUTREACH_DRAFTS.md` J1) stays as the
+fallback if the dashboard has no price field.
 
 ---
 
-## 3. Marketplace — the priority, and where it stands
+## 3. Marketplace — the agent exists, the signer is one click away
 
 Full detail in `docs/ACP_MARKETPLACE_PLAN.md`.
 
-**What the ACP documentation answers:** a hosted HTTP service cannot be an
-offering directly — an offering belongs to an agent, and the agent does the work.
-`acp browse` needs an active agent, so the marketplace cannot be inspected until
-we register. The order is therefore: **authorise → create the agent → browse →
-only then decide whether to build the provider worker.**
+**Done 24.11.2026:**
 
-**The auth link, generated 24.11.2026 15:33 EET:**
+| | |
+|---|---|
+| CLI authenticated | owner wallet `0x823750e5383008ba2c3f48523b6f723b268ea62d` |
+| Agent created | `Kristo Intelligence`, id `01a20e70-5e40-75cc-b063-7e1915ab544c` |
+| Agent EVM wallet | `0x3724b449603cb7faf70ea87f79c3733c6d9546e4` |
+| Agent Solana wallet | `45ZEZR5WQY1YexW6YHiP4GYwbLho4BsKyeK3m1ob95u6` |
+| Agent email | `kristo_intelligence@agents.world` |
+| Offerings / resources | 0 / 0 — deliberately empty until the market is measured |
 
-`https://app.virtuals.io/acp/auth/v2?requestId=6cdc56bd37d2dfce6e77edcbacb1ccf9`
+**Blocked on:** the signer approval link, which expires five minutes after it is
+generated. `acp browse` refuses with `NO_SIGNER` until a signer exists, so the
+marketplace cannot be measured without it. Policy chosen: **`deny-all`** — we are
+only looking, so the agent should not be able to sign anything on its own. Switch
+to `restricted` with `acp agent set-signer-policy` if we build the provider worker.
 
-If it has expired, run `acp configure start` again — it costs nothing. The CLI is
-installed at `_tools/acp/node_modules/.bin/acp.cmd` (v1.0.0, 400 packages).
+**A Windows trap worth keeping:** `acp-cli-signer-windows.exe` cannot write to
+`%APPDATA%\acp-cli` — the sandbox gives spawned binaries read-only access outside
+the workspace, so key generation dies with "Access is denied". Redirect **only**
+`APPDATA` (to `_tools\home\AppData\Roaming`) and leave `USERPROFILE`/`HOME` alone:
+the CLI keeps its token in `~/.config/acp`, and moving that loses the session.
 
-**One thing to weigh before committing:** ACP pays on buyer acceptance, not on
-delivery. The money sits in escrow and a dispute leaves it there. x402 pays
-immediately and finally. For a $0.05 check the escrow overhead may cost more than
-the sale — which argues for a higher price per job or a subscription.
+**One thing to weigh before building anything:** ACP pays on buyer acceptance,
+not on delivery. The money sits in escrow and a dispute leaves it there, while
+x402 pays immediately and finally. For a $0.05 check the escrow overhead may cost
+more than the sale — which argues for a higher price per job or a subscription.
 
 ---
 
@@ -91,7 +118,7 @@ the sale — which argues for a higher price per job or a subscription.
 | 1 | Abdellah | Re-running the 36-vector set against v4 (`3d76d803…`, 11 tests). Expected 22 + 14 + 0. |
 | 2 | Ernest | Writing the CDP support request for the 7 duplicate rows. |
 | 3 | x402-list | Manual review; the FORTE tier cannot be bought yet (§101). |
-| 4 | Olas | The one message not sent. |
+| 4 | Glama | The `/mcp/servers/` record — Discord message ready in `OUTREACH_DRAFTS.md` §K. |
 | 5 | Glama | Tool Count 4/5 — decision taken: do not chase it. Removing response fields to buy 0.1 of a third-party score is not worth changing a paid endpoint. |
 | 6 | Glama, the `/mcp/servers/` record | The connector is listed and rated A; the `/mcp/servers/` record does not exist and cannot be created from our side (both Add Server paths reject "already listed as a hosted connector"). `quality` is computed only for `/mcp/servers/`, so `awesome-mcp-servers` PR #13219 cannot merge. Discord message drafted in `OUTREACH_DRAFTS.md` §K; ticket #135407945 open since September. |
 
