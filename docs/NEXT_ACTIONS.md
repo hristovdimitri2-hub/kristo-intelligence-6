@@ -53,30 +53,59 @@ because they may need a follow-up conversation rather than a message.
 | 3 | **Tell Jamenbin** the fixture moved from `d76537a7…` to `3d76d803…` | He verified v1 and was never told it changed. The `REVISIONS` block records it; he does not know. |
 | 4 | **Free or pilot tier** — allowed or not? | Needed before any marketplace conversation can promise anything. |
 
+**All four approved by the owner on 24.11.2026.** Actions:
+`OUTREACH_DRAFTS.md` J1 (PayAPI, to `hello@payapi.market`), a reminder set for
+26.11 17:10 EET for the token, `OUTREACH_DRAFTS.md` J2 (Jamenbin, at
+`VibeMirror-coder/n8n-nodes-omnidome#3`), and the pilot tier is now allowed.
+
 ---
 
-## 3. Waiting on other people — no action from us
+## 3. Marketplace — the priority, and where it stands
+
+Full detail in `docs/ACP_MARKETPLACE_PLAN.md`.
+
+**What the ACP documentation answers:** a hosted HTTP service cannot be an
+offering directly — an offering belongs to an agent, and the agent does the work.
+`acp browse` needs an active agent, so the marketplace cannot be inspected until
+we register. The order is therefore: **authorise → create the agent → browse →
+only then decide whether to build the provider worker.**
+
+**The auth link, generated 24.11.2026 15:33 EET:**
+
+`https://app.virtuals.io/acp/auth/v2?requestId=6cdc56bd37d2dfce6e77edcbacb1ccf9`
+
+If it has expired, run `acp configure start` again — it costs nothing. The CLI is
+installed at `_tools/acp/node_modules/.bin/acp.cmd` (v1.0.0, 400 packages).
+
+**One thing to weigh before committing:** ACP pays on buyer acceptance, not on
+delivery. The money sits in escrow and a dispute leaves it there. x402 pays
+immediately and finally. For a $0.05 check the escrow overhead may cost more than
+the sale — which argues for a higher price per job or a subscription.
+
+---
+
+## 4. Waiting on other people — no action from us
 
 | # | Who | What |
 |---|---|---|
 | 1 | Abdellah | Re-running the 36-vector set against v4 (`3d76d803…`, 11 tests). Expected 22 + 14 + 0. |
 | 2 | Ernest | Writing the CDP support request for the 7 duplicate rows. |
 | 3 | x402-list | Manual review; the FORTE tier cannot be bought yet (§101). |
-| 4 | Glama | Tool Count 4/5 — decision taken: do not chase it. Removing response fields to buy 0.1 of a third-party score is not worth changing a paid endpoint. |
+| 4 | Olas | The one message not sent. |
+| 5 | Glama | Tool Count 4/5 — decision taken: do not chase it. Removing response fields to buy 0.1 of a third-party score is not worth changing a paid endpoint. |
 
 ---
 
-## 4. Technical — open, not urgent
+## 5. Technical — open, not urgent
 
 | # | Item | State |
 |---|---|---|
 | 1 | Two-process deploy overlap | Render runs old and new instance together during a deploy, so log streams interleave. Harmless; makes "which process answered" non-deterministic from outside. |
 | 2 | `autoDeploy` is on | Every push deploys production. Documentation commits carry `[skip render]`; verified to work. Build filters would be better but risk blocking real deploys. |
-| 3 | PayAPI `verify-seller` pilot | Ended 16.11; the route now sells at $0.05. |
 
 ---
 
-## 5. Done — so it is not reopened
+## 6. Done — so it is not reopened
 
 | | |
 |---|---|

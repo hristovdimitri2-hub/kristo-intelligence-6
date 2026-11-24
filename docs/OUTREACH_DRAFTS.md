@@ -266,3 +266,52 @@ v2, Base)`. Do not open a second one — comment on #1270 with the current host 
 the seven routes. Issue #1340, `Remove dead listings: 16 resources on a 404 host
 (kristo-intelligence.vercel.app)`, is also open and is about the host we left; a
 short comment there confirming the migration closes it honestly.
+
+---
+
+## J. Two more messages, approved 24.11.2026
+
+### J1. PayAPI — the structured Price field is stale
+
+**Where:** `hello@payapi.market` (the only address on the site; the listing form is
+`https://payapi.market/list`). The owner approved sending this.
+
+**Subject:** `Kristo Intelligence listing — the structured Price field still shows the old prices`
+
+```
+Hello,
+
+I operate the Kristo Intelligence listing (kristo-intelligence-api.onrender.com) and I am writing about an inconsistency on the listing page itself.
+
+The prose description is correct: seven paid routes, $0.005 to $0.050. But the structured Price field still reads "$0.003 to $0.005" and "3 endpoints". A buyer or an agent that reads the structured field rather than the text sees a price we no longer charge and an endpoint count we no longer have.
+
+The routes today: /api/stats, /api/sales, /api/arb/opportunities and /api/bot-status at $0.005; /api/v1/signal and /api/v1/whaleflow at $0.01; /api/v1/verify-seller at $0.05. All seven return a live 402 on request.
+
+Could the structured field be refreshed to match? If it is generated from the submitted listing, tell me which field to correct and I will resubmit; if it is set by hand, this is the request. And if there is a way to keep the listing current without a support ticket each time, I would rather do that.
+
+Thank you,
+Dimitri Hristov
+```
+
+### J2. Jamenbin — the fixture moved after he verified it
+
+**Where:** `https://github.com/VibeMirror-coder/n8n-nodes-omnidome/issues/3`
+The owner approved sending this. He verified v1 (`d76537a7…b524e`) and was never
+told it changed.
+
+```
+Jamenbin — the fixture moved after you verified it, and I owe you a direct note rather than a change you have to notice.
+
+The hash you measured, d76537a7...b524e (7 tests, 22 973 bytes), was revision 1. Since then the file has been revised three times. The current one is 3d76d8030efc10cbbfcfe3a739078ee5fa4a8af417712a583b934789f37d170a — 11 tests, 37 862 bytes. The REVISIONS block inside the file records every step, so the hash you verified stays inside the bytes rather than being replaced by them.
+
+What changed, in order:
+- v2 binds a transfer to the payer: a payment to the right address from the wrong sender is not ours.
+- v3 compares atomic units, no epsilon, and carries the MIT licence.
+- v4 binds the authorization rail to the nonce. The receipt that settled a payment is the one that consumed the authorization — AuthorizationUsed(payer, nonce) in the same receipt as the Transfer. Two tests, by name: test_a_transfer_that_consumed_another_nonce_is_not_this_payment and test_the_receipt_that_consumed_this_nonce_is_the_one_that_delivers.
+
+Same URL: https://gist.github.com/hristovdimitri2-hub/0d2f4436cc73a14d837c39f88168a5bf
+
+If you integrated against the first revision, nothing breaks: the signature is backward compatible and everything new is a keyword with a default. But the hash you recorded is no longer the current one, and you should know that before you cite it.
+
+Dimitri
+```
