@@ -183,3 +183,57 @@ corrected to $0.005–$0.05 and seven routes.
 4. **Olas** — same question, larger existing demand.
 5. **x402scan** — listing only; do it last, because it is the least likely to
    produce a call.
+
+---
+
+## H. Radar digest replies (23.11) — two comments, ready to post
+
+The radar digest of 23.11 listed nine issues. Two are worth a comment; the rest
+are either closed or are vendor pitches where a third voice adds nothing.
+
+### H1. `vAPI-Network/vapi-network#86` — "valid SIWE signature rejected"
+
+Zero comments, open, and the reporter has already done the work: rebuilt the
+flow by hand, ruled out the CLI and the wallet, and got a 401 on a signature
+that recovers correctly. This is a signature-verification bug in our own domain,
+and we hit the same class of failure in our settlement path.
+
+```
+The 401 is most likely the server rebuilding a different message than the one you signed, not the signature being invalid. You have already recovered the signer locally, so the signature is sound, and the only remaining variable is the message the server reconstructs.
+
+Of the eight fields in a SIWE message, five are fixed by the spec and three are the usual suspects: the URI (trailing slash), the statement (whitespace), and Issued At (millisecond precision). JSON serialisation can change the string between what you signed and what you send, and newline escaping is the classic.
+
+Two tests that isolate it in one request each:
+
+1. Send a deliberately malformed siweMessage. If the error is still "signature could not be verified", the server is not reaching the recovery step at all — it is failing earlier, on parsing or on the nonce lookup. A server that cannot tell "bad message" from "bad signature" is not verifying signatures.
+
+2. Recover the signer from the literal string in your JSON body, not from the string you built. If those differ, you have found it.
+
+One structural note. We had the same class of failure in our own settlement path, and the fix was to stop comparing strings. The server should reconstruct the message, recover the address, and compare that to payoutWallet. If it compares message text instead, it will reject valid signatures forever, and the error will keep saying "could not be verified" while the real problem is that it never tried.
+```
+
+### H2. `AsterPay/attest#1` — detached XDR-1 receipts
+
+Open, zero comments. The proposal is a competitor's pitch (`hcrb.in`), and the
+comment is not a counter-pitch — it is the one design gap in the receipt, which
+is the thing we spent a day proving with the conformance fixtures.
+
+```
+One thing in the XDR-1 design is worth pinning before this goes wider: the receipt carries nonce in its payload, and carrying a nonce is not the same as binding to it.
+
+A receipt that says "this payment had nonce N" is an assertion by the issuer. The proof is that the transaction behind the receipt is the one that consumed authorization N. On Base that means the same receipt contains the AuthorizationUsed(address,bytes32) event for (payer, N) and the USDC Transfer to the recipient. Without it the same receipt can be presented against a different payment, and the verifier has no way to tell.
+
+The event topic is keccak("AuthorizationUsed(address,bytes32)") = 0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5, and the authorizer must equal the payer the receipt claims. Two Base receipts that carry both events in one transaction, for checking the shape: 0x3b4f77a4dc91541a13ee425b1df7ea6ac51e124f052b263f65668b0ec208e218 and 0x5b8030c9a87ec1b02ed0eba28fdb8d8225d3afce4b01db53a919dca103c996be. Both were re-checked on 24.11: one AuthorizationUsed and one Transfer each, same block, 0.02 USDC.
+
+If nonce is filled from the facilitator's response rather than from the chain, the receipt is only as good as the facilitator. That is the difference between a receipt that records a payment and one that proves it.
+```
+
+### H3. The one that is not worth a comment
+
+`MikeyPetrillo/Agent402#2058` — the malformed duplicate route. It is **closed**
+and already has a reply. Nothing to add.
+
+The rest of the digest is either a documentation refresh
+(`api-evangelist/ibanforge#2`), a vendor pitch by the same author
+(`oneshot-agent/sdk#10`), or a listing submission. A comment there would be
+noise.
