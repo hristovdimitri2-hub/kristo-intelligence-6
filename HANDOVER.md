@@ -7030,5 +7030,38 @@ already has an agent framework can wire the API in without writing HTTP code.
 (`pytest packages/x402-client-python/tests`), so the main suite's count and the
 1444 figure in the README are unaffected.
 
+## 113. The Glama badge in the README was displaying "not listed" (24.11.2026)
+
+The maintainer of `punkpeye/awesome-mcp-servers` asked, in PR #13219, for a
+Glama badge in the README and a mention of the listing in the PR description.
+Both requests were reasonable; the URL in his template was not.
+
+**The template URL renders "not listed".** It points at
+`/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg`. That
+path returns a badge whose own `<title>` is **"This MCP server is not listed on
+Glama"**, because this server is a hosted endpoint and Glama keys it under
+`/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence`. The
+`/mcp/servers/` path for this repository returns HTTP 200 but renders the
+registry index, not a listing — so the badge was live in the README and saying
+the opposite of what it was meant to say.
+
+**That is worse than no badge.** The README's first sentence is "check that a
+seller is real"; a badge under it reading "not listed" is a credibility problem,
+not a cosmetic one. The README now carries **only the connector badge**, which
+renders "rated A" and links to the listing. The servers-path badge was removed.
+
+**What was done on the PR:** the description was rewritten to (a) carry the
+connector listing link, (b) correct the prices, which had gone stale — the body
+still said $0.003–0.005 and "no free tier", while the live routes are $0.005 to
+$0.05 and each route has a free sample endpoint — and (c) state plainly that the
+servers-path badge renders "not listed" and why. A comment was posted saying the
+same in shorter form and offering to go through the Add Server flow if a
+`/mcp/servers/` listing is a hard requirement.
+
+**The rule this leaves behind:** a badge is a claim. A badge that renders a
+contradiction is worse than an empty space, because a reader trusts it. Before
+adding any third-party badge, open its URL and read what it actually says.
+
+
 
 
