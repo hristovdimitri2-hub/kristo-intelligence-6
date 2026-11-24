@@ -7113,6 +7113,53 @@ question is not "what does it cost" but "who else is already selling this, and a
 what price". A listing in a market where a brand-name provider sells the same
 thing cheaper is not distribution — it is a page nobody will read.
 
+## 115. The channel we were missing is a marketplace, not a catalogue (24.11.2026)
+
+**The diagnosis.** Every channel we worked for a month — CDP Bazaar, the MCP
+Registry, Glama, x402-list, x402scan, the awesome-list PR — is a **catalogue**.
+An agent browses a catalogue when it already knows what it wants. That is why
+being listed in six of them produced no calls: a catalogue answers "where is the
+thing I am looking for", and nobody was looking for us.
+
+**What we had never tried is a marketplace**, where the agent is hired rather
+than found. Two exist on Base and both take x402:
+
+- **Virtuals Protocol — Agent Commerce Protocol (ACP).** `acp-cli` lets an agent
+  publish *offerings* (a job it can be hired to do, with price, SLA, requirements
+  and deliverable) and *subscriptions* (reusable access packages: USDC price,
+  7/15/30/90 days). Buyers hire through on-chain USDC escrow. The same CLI gives
+  an agent a wallet, an email inbox, a virtual card, and ERC-8004 identity.
+- **Olas — Mech Marketplace / Pearl.** 8.8 million agent-to-agent transactions,
+  and x402 integrated with their own facilitators. Pearl v1 is pitched as an "AI
+  agent app store".
+
+**Why this is the answer and not another listing.** An offering has a price, an
+SLA and a deliverable — structurally the same object as our paid route. A
+catalogue entry is a URL; an offering is a transaction. If we want to be hired,
+we have to be in the place where hiring happens.
+
+**The open question, which only their team can answer:** ACP assumes the provider
+is an agent running the CLI. We are a hosted HTTP service that takes x402. Either
+the deliverable can be "the buyer calls this URL and gets the data, escrow
+releases on a delivered response", or an HTTP service needs a thin agent wrapper.
+That question was written into `docs/OUTREACH_DRAFTS.md` and has not been sent.
+
+**What it costs to find out:** an agent record, a signer approved through a
+browser flow (interactive, cannot be unattended), and an offering. Small. The
+reason it was not done today is that it needs the owner at the keyboard for the
+signer approval.
+
+**Drafts are ready and unsent.** `docs/OUTREACH_DRAFTS.md` holds five items —
+Ernest, the r/x402 comment, Virtuals ACP, Olas, x402scan — each with the facts
+verified and the recipient's channel named. The agent has no email credentials in
+the workspace, so nothing could be sent from here; every item is the owner's to
+send.
+
+**The rule this leaves behind:** a catalogue is where an agent looks for
+something it already knows it wants. A marketplace is where it looks for
+something to hire. Being listed in six catalogues is not distribution; being
+hireable in one marketplace is.
+
 
 
 
