@@ -9125,6 +9125,12 @@ def _dashboard_seed_from_store(key) -> bool:
 _DASHBOARD_SEED_THREAD = None
 _DASHBOARD_SEED_DONE = False
 
+#: Guards the seed's creation. Two cold requests arrive together after a deploy;
+#: without this lock the second one can read the thread object the first just
+#: created and call join() on it before it has been started, which raises
+#: "cannot join thread before it is started" into the request path.
+_DASHBOARD_SEED_LOCK = threading.Lock()
+
 #: How long a REQUEST may wait for that seed. The board's design rule is that the
 #: request path does no database work; the seed is the single exception and it is
 #: bounded here so a slow store cannot turn the rule into a slow request.
@@ -9149,20 +9155,26 @@ def _dashboard_seed_once() -> bool:
     global _DASHBOARD_SEED_THREAD, _DASHBOARD_SEED_DONE
     if _DASHBOARD_SEED_DONE:
         return False
-    thread = _DASHBOARD_SEED_THREAD
-    if thread is None:
-        def _work():
-            global _DASHBOARD_SEED_DONE
-            try:
-                _dashboard_seed_from_store((False, False))
-            except Exception as exc:      # pragma: no cover - defensive
-                log.debug("dashboard board seed failed: %s", exc)
-            finally:
-                _DASHBOARD_SEED_DONE = True
-        thread = threading.Thread(target=_work, name="dashboard-seed",
-                                  daemon=True)
-        _DASHBOARD_SEED_THREAD = thread
-        thread.start()
+    with _DASHBOARD_SEED_LOCK:
+        thread = _DASHBOARD_SEED_THREAD
+        if thread is None:
+            def _work():
+                global _DASHBOARD_SEED_DONE
+                try:
+                    _dashboard_seed_from_store((False, False))
+                except Exception as exc:      # pragma: no cover - defensive
+                    log.debug("dashboard board seed failed: %s", exc)
+                finally:
+                    _DASHBOARD_SEED_DONE = True
+            thread = threading.Thread(target=_work, name="dashboard-seed",
+                                      daemon=True)
+            # START BEFORE PUBLISHING. A second cold request reads this global
+            # and joins it; joining a thread that has not been started raises
+            # "cannot join thread before it is started" — measured on 24.11 as a
+            # flaky CI failure of the stampede test. Publishing only after
+            # start() means any thread that can see it can also join it.
+            thread.start()
+            _DASHBOARD_SEED_THREAD = thread
     thread.join(_DASHBOARD_SEED_WAIT_SECONDS)
     with _DASHBOARD_LAST_GOOD_LOCK:
         return _DASHBOARD_LAST_GOOD.get((False, False)) is not None

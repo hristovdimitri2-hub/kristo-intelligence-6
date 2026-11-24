@@ -6934,3 +6934,43 @@ holds one. If a future session writes a Bulgarian document, that is the command
 that catches it. Reports to the owner stay in Bulgarian — the rule is about what
 is committed, not about what he is told.
 
+## 111. Two red CI runs, and one of them was a real race in the request path (24.11.2026)
+
+The owner forwarded two GitHub Actions failure emails. Neither was a mystery, and
+one of them was a genuine defect that had been failing intermittently.
+
+**Run 1 — `0306a9f`, "observability: log the producer evidence…" (07:16Z).**
+`test_a_stampede_of_cold_requests_runs_exactly_one_build` failed with
+`RuntimeError: cannot join thread before it is started`. The suite summary was
+`1 failed, 1439 passed` — so it was one test, not a broken build. That same
+commit's next run passed, which is what a race looks like from the outside.
+
+**The cause, found in `_dashboard_seed_once`.** Two cold requests arrive together
+after a deploy. The first creates the seed thread and assigns it to
+`_DASHBOARD_SEED_THREAD`; the second reads that global and calls `join()` on it
+before the first has called `start()`. Joining an unstarted thread raises, and
+the raise lands in the request path, because `_dashboard_payload_resilient` calls
+`_dashboard_seed_once()` when the cache is cold. So the real-world symptom was not
+a red test: it was an occasional 500 on the dashboard's first cold request after a
+deploy.
+
+**Fixed by ordering and a lock.** The thread is now started **before** it is
+published to the global, and creation+start+publish all happen under
+`_DASHBOARD_SEED_LOCK`. Any thread that can see the object can also join it. The
+join stays outside the lock, so a slow seed never blocks another request.
+
+**Verified by repetition, not by one green run:** the stampede and seed tests were
+run 12 times in 12 fresh processes — 12/12 passed. The full suite: **1443 passed,
+1 skipped**.
+
+**Run 2 — `c5827e4`, the HANDOVER translation (08:10Z).**
+`test_key_file_lives_in_gitignored_secrets` failed with `UnicodeDecodeError: byte 0xa7`. That
+was the `.gitignore` encoding fault described in §110 — a stray Latin-1 `§` byte
+written by the translation pass. It was already fixed in `83dd6cf`, whose CI run
+passed. Nothing else to do.
+
+**The state as of this section:** the two most recent runs on `main` are green.
+The two failures are both fixed and both have a named cause — neither is "flaky,
+retry until green", which is how a real defect gets buried.
+
+
