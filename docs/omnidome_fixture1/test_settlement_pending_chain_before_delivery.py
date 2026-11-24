@@ -56,6 +56,16 @@ WHAT IT PINS
 7. Amounts are compared in ATOMIC UNITS (integers), never as floats. A float
    comparison is exact for USDC at six decimals and silently wrong above
    2**53, which a token with 18 decimals reaches.
+8. When the payment carries a NONCE (the authorization rail), the transaction
+   that delivers must be the one that CONSUMED that nonce: its receipt has to
+   carry the EIP-3009 `AuthorizationUsed(payer, nonce)` event. Payer plus
+   amount is not enough there either - the same payer paying the same price
+   twice leaves two receipts that are identical in every other respect, and
+   only the nonce says which of them is THIS payment. The binding is a chain
+   query, not a field the facilitator's response is trusted for: production
+   resolves the transaction by the authorization event and then requires that
+   same receipt to carry the Transfer (`_find_settlement_by_nonce`,
+   main.py:3671).
 
 REVISIONS
 ---------
@@ -76,10 +86,20 @@ to declare. Superseded revisions, and why each was superseded:
         9 tests, 29 522 bytes. Adds the payer binding (PAYER, the sender check,
         the payer_mismatch reason) and atomic-unit comparison.
 
-    this revision adds this REVISIONS block and nothing else of substance, so
-    its hash is the one a verifier computes from the bytes in front of them.
-    Run it, hash it, and if the hash is not the one the thread names, say so -
-    that is the whole point of shipping the bytes rather than the claim.
+    v3  SHA-256 558351e6daf4faaa6ffa8293bf3cf593e030ff0933c0eea00d7fa09e33a7a1e2
+        9 tests, 30 900 bytes. Adds this REVISIONS block and nothing else of
+        substance. Verified independently on 24.11.2026 against the 36-vector
+        reference set: 9 tests pass, 22 vectors agree, 12 differ where the
+        vectors allow either answer, and 2 differed by delivering where the
+        reference refuses - both on the authorization rail, because the file
+        had no nonce to bind to.
+
+    this revision adds the nonce binding (assertion 8) and its two tests, and
+    says plainly where the nonce comes from: the chain, not the response. It
+    adds this REVISIONS entry and nothing else of substance, so its hash is the
+    one a verifier computes from the bytes in front of them. Run it, hash it,
+    and if the hash is not the one the thread names, say so - that is the whole
+    point of shipping the bytes rather than the claim.
 
 RUN IT
 ------
@@ -132,6 +152,16 @@ PAYER = "0x00000000000000000000000000000000000000c3"
 #: A second payer, for the "somebody else's payment" case. Synthetic.
 OTHER_PAYER = "0x00000000000000000000000000000000000000e5"
 
+#: The nonce of the authorization that pays for THIS call. Synthetic. A nonce
+#: is a 32-byte value and is unique to one authorization, which is exactly why
+#: it - and not the payer or the amount - can tell two otherwise identical
+#: payments apart.
+NONCE = "0x" + "11" * 32
+
+#: The nonce of a DIFFERENT authorization by the same payer: the older payment
+#: that would be indistinguishable without it. Synthetic.
+OTHER_NONCE = "0x" + "22" * 32
+
 #: A different address, for the "paid someone else" case. Synthetic.
 OTHER_PAY_TO = "0x00000000000000000000000000000000000000b2"
 
@@ -183,12 +213,20 @@ class Transfer:
 
 @dataclass(frozen=True)
 class Receipt:
-    """A mined transaction receipt. status 1 = success, 0 = reverted."""
+    """A mined transaction receipt. status 1 = success, 0 = reverted.
+
+    `authorizations` are the (authorizer, nonce) pairs this transaction
+    consumed through EIP-3009 - USDC's `AuthorizationUsed(address indexed
+    authorizer, bytes32 indexed nonce)` log. It is empty for a transaction
+    that moved USDC without an authorization, which is the proof rail: no
+    nonce was ever signed, so there is nothing here to bind to.
+    """
 
     tx_hash: str
     status: int
     block_number: int
     transfers: Tuple[Transfer, ...] = ()
+    authorizations: Tuple[Tuple[str, str], ...] = ()
 
 
 class SyntheticChain:
@@ -290,13 +328,22 @@ def check_chain(
     price_atomic: int = PRICE_ATOMIC,
     required: int = REQUIRED_CONFIRMATIONS,
     payer: Optional[str] = PAYER,
+    nonce: Optional[str] = None,
 ) -> ChainCheck:
-    """Verify the transfer itself: USDC, payTo, amount, sender, depth, status.
+    """Verify the transfer itself: USDC, payTo, amount, sender, nonce, depth.
 
     Fail-closed throughout: an unknown transaction, a reverted one, a shallow
     one, one that moved the wrong asset to the wrong address, one that is short
-    by a single atomic unit, or one sent by somebody other than the payer the
-    proof named is never "verified".
+    by a single atomic unit, one sent by somebody other than the payer the
+    proof named, or one that consumed a DIFFERENT authorization than the one
+    this payment signed is never "verified".
+
+    `nonce` is the nonce of the authorization that pays for this call. When it
+    is given, the receipt must be the one that consumed it: a payment from the
+    right payer, for the right amount, to the right address, in a receipt that
+    consumed somebody else's nonce is still not this payment. A nonce is only
+    meaningful next to a payer - the event is indexed by both - so a nonce with
+    no payer is not applied.
     """
     r = chain.receipt(tx)
     if r is None:
@@ -309,6 +356,16 @@ def check_chain(
     conf = chain.confirmations(tx)
     if conf < required:
         reasons.append("confirmations_%d_lt_%d" % (conf, required))
+
+    # The authorization binding: this receipt must be the one that consumed
+    # THIS nonce. Checked before the transfer scan, because when it fails there
+    # is nothing in this receipt that could be ours.
+    if nonce is not None and payer is not None:
+        consumed = {
+            (str(a).lower(), str(n).lower()) for a, n in r.authorizations
+        }
+        if (payer.lower(), str(nonce).lower()) not in consumed:
+            return ChainCheck(True, r.status, conf, None, reasons + ["nonce_not_consumed_here"])
 
     matching = None
     right_shape_wrong_sender = False
@@ -352,8 +409,9 @@ def _decide_on_chain(
     required: int,
     adopted: bool,
     payer: Optional[str] = None,
+    nonce: Optional[str] = None,
 ) -> Decision:
-    check = check_chain(chain, tx, pay_to, price_atomic, required, payer)
+    check = check_chain(chain, tx, pay_to, price_atomic, required, payer, nonce)
 
     # Not mined yet: hold. The transaction may still land.
     if not check.found:
@@ -387,6 +445,7 @@ def decide(
     price_atomic: int = PRICE_ATOMIC,
     required: int = REQUIRED_CONFIRMATIONS,
     payer: Optional[str] = PAYER,
+    nonce: Optional[str] = None,
 ) -> Decision:
     """Map one settle response to one verdict.
 
@@ -396,9 +455,20 @@ def decide(
     anything else    -> deny. An unknown code is not a payment.
 
     `payer` is the address that signed the payment. It is passed into the chain
-    check so the transfer is bound to THIS payment. Pass `payer=None` only when
-    no payer is known - which is exactly when the proof rail has nothing to
-    bind to, and the durable one-hash-one-delivery claim is doing the work.
+    check so the transfer is bound to THIS payment, and it is REQUIRED on both
+    of our live rails: `X-Payment-Proof` carries `payer` as a mandatory field
+    and a proof without a well-formed address is rejected before any chain
+    check runs (main.py:4173). `payer=None` is therefore not a state our rails
+    ever observe - it exists so a caller that genuinely has no payer gets the
+    unbound check instead of a crash, and in that case the durable
+    one-hash-one-delivery claim is what stands between a replayed hash and a
+    second delivery.
+
+    `nonce` is the nonce of the authorization that pays for this call, and it
+    is the binding on the rail that has one. When it is given, the receipt must
+    be the one that consumed it. Pass `nonce=None` on the proof rail: no
+    authorization was signed there, so there is no nonce to bind to and the
+    durable claim is again what does the work.
     """
     if not isinstance(resp, dict):
         return Decision(DENY, None, False, ["not_a_dict"])
@@ -410,13 +480,13 @@ def decide(
         if not _is_tx_hash(tx):
             return Decision(DENY, None, False, ["success_without_transaction"])
         return _decide_on_chain(chain, tx, pay_to, price_atomic, required,
-                               adopted=False, payer=payer)
+                               adopted=False, payer=payer, nonce=nonce)
 
     if code == SETTLEMENT_PENDING_CODE:
         if not _is_tx_hash(tx):
             return Decision(DENY, None, False, ["settlement_pending_without_transaction"])
         return _decide_on_chain(chain, tx, pay_to, price_atomic, required,
-                               adopted=True, payer=payer)
+                               adopted=True, payer=payer, nonce=nonce)
 
     if code in TERMINAL_CODES:
         return Decision(DENY, tx if _is_tx_hash(tx) else None, False, ["terminal:" + code])
@@ -527,7 +597,9 @@ def chain_with(
     token: str = USDC,
     amount_atomic: int = PRICE_ATOMIC,
     sender: str = PAYER,
+    authorization: Optional[Tuple[str, str]] = None,
 ) -> SyntheticChain:
+    """One receipt. `authorization` is the (payer, nonce) pair it consumed."""
     return SyntheticChain(
         head=head,
         receipts={
@@ -538,6 +610,7 @@ def chain_with(
                 transfers=(Transfer(token=token, to=to,
                                     amount_atomic=amount_atomic,
                                     sender=sender),),
+                authorizations=(authorization,) if authorization else (),
             )
         },
     )
@@ -607,6 +680,61 @@ def test_an_old_payment_from_another_payer_is_not_this_payment():
     # With no payer known the binding cannot be checked, so it is not applied.
     d = decide(pending_resp(), chain_with(sender=OTHER_PAYER), payer=None)
     assert d.verdict == ALLOW, d.verdict
+
+
+def test_a_transfer_that_consumed_another_nonce_is_not_this_payment():
+    """Assertion 8: on the authorization rail only the nonce tells them apart.
+
+    The same payer pays the same price to the same address twice. Every check
+    in assertions 2 and 6 passes for BOTH receipts - same token, same payTo,
+    same amount, same sender, same depth. The authorization each receipt
+    consumed is the only thing that distinguishes them, and the response here
+    names the older payment.
+    """
+    # Right payer, right amount, right address - wrong authorization.
+    d = decide(pending_resp(), chain_with(authorization=(PAYER, OTHER_NONCE)),
+               nonce=NONCE)
+    assert d.verdict == INDETERMINATE, d.verdict
+    assert "nonce_not_consumed_here" in d.reasons, d.reasons
+    assert d.verdict != ALLOW, "a payment that consumed another nonce was delivered"
+
+    # The same nonce consumed by somebody else's authorization is not ours.
+    d = decide(pending_resp(), chain_with(authorization=(OTHER_PAYER, NONCE)),
+               nonce=NONCE)
+    assert d.verdict == INDETERMINATE, d.verdict
+
+    # A plain transfer with no authorization at all cannot satisfy the check:
+    # this is the proof rail's receipt, and an authorization rail payment is
+    # not settled by it.
+    d = decide(pending_resp(), chain_with(), nonce=NONCE)
+    assert d.verdict == INDETERMINATE, d.verdict
+    assert "nonce_not_consumed_here" in d.reasons, d.reasons
+
+    # No nonce asked for - the proof rail, where no authorization was signed.
+    # The binding is not applied and the durable claim does the work instead.
+    d = decide(pending_resp(), chain_with(authorization=(PAYER, OTHER_NONCE)))
+    assert d.verdict == ALLOW, d.verdict
+
+
+def test_the_receipt_that_consumed_this_nonce_is_the_one_that_delivers():
+    """Assertion 8: with the right nonce the same receipt delivers, once."""
+    store = EffectStore()
+    calls: List[int] = []
+
+    def effect() -> Dict[str, Any]:
+        calls.append(1)
+        return {"ok": True}
+
+    d = handle(pending_resp(), chain_with(authorization=(PAYER, NONCE)), store,
+               effect=effect, nonce=NONCE)
+    assert d.verdict == ALLOW and d.delivered is True, d.verdict
+    assert store.effects_applied == 1 and len(calls) == 1
+
+    # The replay is refused on the same binding, not on the hash alone.
+    d = handle(pending_resp(), chain_with(authorization=(PAYER, NONCE)), store,
+               effect=effect, nonce=NONCE)
+    assert d.verdict == DENY, d.verdict
+    assert store.effects_applied == 1 and len(calls) == 1
 
 
 def test_amounts_are_compared_in_atomic_units_not_floats():
@@ -752,12 +880,16 @@ def fixture() -> Dict[str, Any]:
                          "amount_atomic": PRICE_ATOMIC,
                          "amount_usdc": PRICE}
                     ],
+                    "authorizations": [
+                        {"authorizer": PAYER, "nonce": NONCE}
+                    ],
                 },
             },
             "price_atomic": PRICE_ATOMIC,
             "price_usdc": PRICE,
             "pay_to": PAY_TO,
             "payer": PAYER,
+            "nonce": NONCE,
             "required_confirmations": REQUIRED_CONFIRMATIONS,
         },
         "expected_output": {
