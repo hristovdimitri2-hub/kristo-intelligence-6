@@ -105,3 +105,8 @@ docs/monitor_state.json
 scripts/docker_build_log.txt
 scripts/phase*_result.json
 scripts/phase*_check.json
+
+# Working area for the 24.11 document translation. The Bulgarian original is kept
+# here as a rollback copy and must never be committed: the repository's documents
+# are English (see HANDOVER.md §109).
+_translation/
