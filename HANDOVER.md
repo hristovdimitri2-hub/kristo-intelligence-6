@@ -7246,9 +7246,9 @@ English. It did not hold. On 24.11 at 20:00 the radar ran again and
 minutes before the language audit was run, which is how it was noticed.
 
 **Why it cannot hold.** `docs/AP2_RADAR.md` is not a document that happens to be
-Bulgarian; it is built from scratch by `scripts/ap2_radar.py`, whose headings,
-journal entries and notes are Bulgarian string literals (`## СЪБИТИЯ`,
-`- Няма нови комити от миналата проверка.`, and so on — 159 lines carry Cyrillic).
+Bulgarian; it is built from scratch by `scripts/ap2_radar.py`, whose 159 lines of
+headings, journal entries and notes are Bulgarian string literals — the section
+headings, the "nothing new since the last check" lines, the journal prose.
 Translating the output file is translating a build artefact. The next run reverts
 it, every time.
 
