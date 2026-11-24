@@ -366,3 +366,96 @@ The repo carries a Dockerfile and a stdio bridge (Dockerfile.glama, scripts/mcp_
 
 Thank you.
 ```
+
+---
+
+## L. Ernest's CDP ticket — verified, with one correction (24.11.2026)
+
+Ernest sent the ticket ready to paste, and it is **exact**: we re-measured every
+number through CDP's own discovery API before touching it. One part is now
+outdated and would have made the ticket wrong.
+
+**Verified 24.11.2026, 19:0x EET:**
+
+| payTo | rows | composition |
+|---|---|---|
+| `0xB4FcF8ef…C844` (current) | **20** | 12 HTTP + 8 MCP |
+| `0xd4cdA900…d08f` (retired) | **6** | 6 MCP, every one double-hashed |
+
+The six retired rows carry exactly the timestamps Ernest lists (07:17:16Z through
+07:17:42Z on 10.11.2026). The duplicate under the current address is
+`/mcp#get_whale_flow#get_whale_flow`, last updated 17.11.2026 06:31:02Z, and the
+correctly named `/mcp#get_whale_flow` exists beside it at 24.11.2026 06:51:53Z.
+
+**The correction.** Ernest's second request says the MCP descriptions still show
+pre-23-November text with 16–17 November timestamps. That was true when he looked;
+it is not true now. **Seven of the eight MCP rows under the current address were
+refreshed on 24 November** — we paid through each tool, and the row was rewritten
+from the extensions the tool echoed. Only the duplicate is still stale, and it is
+the one row no paid call can reach, which is exactly why it cannot be fixed from
+our side. So the ticket must not claim eight stale descriptions: it would be wrong,
+and CDP would answer a question we no longer have.
+
+**Ticket to send — paste as is, add your name:**
+
+```
+Subject: Remove stale Bazaar index rows for a rotated payTo, and one stale MCP tool description
+
+Hello,
+
+We operate an x402 seller at https://kristo-intelligence-api.onrender.com. We rotated our receiving wallet, and CDP's Bazaar index (/platform/v2/x402/discovery/merchant) still carries rows under the previous address. We cannot remove them ourselves; please delete the stale rows and confirm.
+
+Current payTo (live, should remain):
+0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844 -> 20 rows (12 HTTP + 8 MCP)
+
+Retired payTo (no longer controlled by us; every row has been stale since 10 November 2026):
+0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f -> 6 rows, all duplicate /mcp
+
+Please delete these 6 rows under the retired address (all under https://kristo-intelligence-api.onrender.com):
+1. /mcp#verify_seller_receiver#verify_seller_receiver (last updated 2026-11-10 07:17:42Z)
+2. /mcp#get_trading_signal#get_trading_signal (2026-11-10 07:17:37Z)
+3. /mcp#get_arbitrage_opportunities#get_arbitrage_opportunities (2026-11-10 07:17:33Z)
+4. /mcp#get_bot_status#get_bot_status (2026-11-10 07:17:29Z)
+5. /mcp#get_onchain_sales#get_onchain_sales (2026-11-10 07:17:24Z)
+6. /mcp#get_market_stats#get_market_stats (2026-11-10 07:17:16Z)
+
+Also please delete one duplicate row under the CURRENT address:
+7. /mcp#get_whale_flow#get_whale_flow (last updated 2026-11-17 06:31:02Z)
+(The correctly named single row /mcp#get_whale_flow exists at 2026-11-24 06:51:53Z and must remain.)
+
+Second request, same ticket: one stale tool description.
+
+Our MCP server has served updated tool descriptions since 23 November 2026. Seven of the eight MCP rows under the current address now carry them: we refreshed those by paying through each tool on 24 November, which also confirms how a row is written — the stored description comes from the extensions echoed by the last paid call, not from a crawl.
+
+One row still carries the old text: /mcp#get_whale_flow#get_whale_flow (2026-11-17 06:31:02Z). It is the duplicate in item 7. No paid call can reach it, so it cannot be refreshed from our side; deleting it resolves its description as well.
+
+Question for future rotations: can support update a stored description directly, or is a paid call through the tool the only path?
+
+How we measured this (reproducible):
+GET https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=<address>&limit=100&offset=0
+paginated to pagination.total. The row counts and lastUpdated values above are copied from that output.
+
+Thank you,
+[your name / organisation]
+```
+
+### L2. Reply to Ernest
+
+**Where:** reply in the same Gmail thread. He asked for a straight answer and gave
+two free offers; both deserve a direct reply.
+
+```
+Ernest,
+
+The ticket is exact. I re-measured every row through the discovery API before sending it: 20 rows on the current address (12 HTTP + 8 MCP), 6 on the retired one, all six with the timestamps you list, and the double-hashed get_whale_flow sitting beside the correct single row. One correction, in your favour: seven of the eight MCP descriptions were refreshed on 24 November, because I paid through each tool. Only the duplicate is still stale, and it is the one row no paid call can reach. I narrowed that half of the ticket rather than send a claim that is no longer true.
+
+Yes to your first offer. Benchmark the seven routes and tell me which, if any, has a design a buyer would pay for. I would rather hear "none of them" than keep guessing.
+
+And thank you for the straight answer, because it is the first one I have had. I am going to act on it: I will stop treating verify-seller-receiver as a business. What you describe — platforms absorbing the cost themselves or running a sanctions screen — matches the shape of your numbers, and your point about visibility is the part I had not understood: a route is invisible until someone has paid through it, so polishing a route nobody can see is work with no output.
+
+On your second offer: I do know sellers with the symptom, but not many who rotated a wallet the way we did. Before I name anyone, tell me how you want the introduction made — directly, or through me relaying your review — because it is their decision, not mine, and I will not hand over someone's name without asking them first.
+
+One question, since you sell the measurement and I have now bought it twice. Of the two things you say actually earn — data a buyer cannot get elsewhere, and the measurement itself — which one would you push a seller toward when the seller has no unique data at all? I am asking because that is where we are, and I would rather build the second thing than a seventh route.
+
+Dimitri
+```

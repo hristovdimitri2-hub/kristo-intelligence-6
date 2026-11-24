@@ -38,6 +38,65 @@ no reason to be called twice. More listings cannot fix that. An integration can.
 | 5 | x402scan | `Merit-Systems/x402scan/issues/1270` | sent |
 | 5b | x402scan | `Merit-Systems/x402scan/issues/1340` | sent |
 
+### 1b. Ready to send — two from Ernest's reply of 24.11
+
+| # | What | Where | Note |
+|---|---|---|---|
+| 6 | **The CDP ticket** | support, as a reply in the Ernest thread | Ernest wrote it; we re-measured every row and corrected one claim. Text in `OUTREACH_DRAFTS.md` §L. Add your name. |
+| 7 | **Reply to Ernest** | the same Gmail thread | Accepts his free benchmark of the seven routes; asks how he wants a referral introduced. Text in `OUTREACH_DRAFTS.md` §L2. |
+
+**Why the ticket changed.** Ernest's second request said all MCP descriptions were
+stale. Seven of eight were refreshed on 24 November by paying through each tool;
+only the duplicate is still stale. Sending the original would have asked CDP to
+answer a question we no longer have.
+
+---
+
+## 1c. What Ernest measured, and what it means
+
+He read the whole CDP Bazaar discovery dump: **34,893 rows, 30-day window**, calls
+per row multiplied by that row's price.
+
+| | |
+|---|---|
+| Top 10 rows | **92%** of all spend |
+| Top 100 rows | **96.9%** |
+| Median revenue per row | **$0.01 per 30 days** |
+| Rows reaching $1/month | 1,161 of 34,893 — **3.3%** |
+| Hosts reaching $100/month | **32** |
+| Rows with exactly one call in 30 days | **18,885** — mostly the owner testing their own route |
+
+The verification routes that do sell are all occupied, and all by whoever
+registered the space first:
+
+| route | calls / 30d | price |
+|---|---|---|
+| `api.agents-trust.com/recommend` | 14,621 | $0.01 |
+| `agent.pocket.network/v1/sanctions-watchlist-screen` | 3,733 | $0.005 |
+| `api.strale.io/x402/domain-age-check` | 454 | $0.032 |
+| `api.strale.io/x402/domain-reputation` | 219 | $0.054 |
+| `api.strale.io/x402/sanctions-check` | 122 | $0.216 |
+
+**His straight answer, in his words:** pre-payment trust checks *are* bought, as
+$0.005–$0.05 lookups in the thousands — but he sees **no provider paying for the
+pattern we built**, a platform checking a stranger's receiving wallet before paying.
+Platforms absorb that cost themselves or run a sanctions screen. Nobody is buying
+it as a standalone operation right now, and refining the route does not change
+that, **because a route is invisible to buyers until someone has paid through it
+and written the catalogue row.**
+
+**His advice:** stop treating per-call fees as revenue — they are negligible unless
+a volume buyer has no alternative. Two things earn: **(a)** data a buyer cannot get
+anywhere else, or **(b)** selling the measurement itself, which is what he does and
+what we have now bought twice.
+
+**The consequence for us.** `verify-seller-receiver` is not a business, and neither
+is any other single route we could add. The top verification route in the entire
+index earns about $146 a month. This is the same conclusion the ACP work reached
+from the other side: a catalogue entry is found only after it has been paid, and a
+marketplace is where you are hired instead. Two doors, and both point away from
+"one more route".
+
 ---
 
 ## 2. The four decisions — all approved, three finished
