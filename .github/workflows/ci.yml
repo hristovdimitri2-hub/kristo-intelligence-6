@@ -3,7 +3,8 @@ name: CI
 # WHY THIS EXISTS
 # The repository had no pipeline at all, so nothing checked a change before it
 # reached the live service — the only gate was running the suite by hand on one
-# machine. Two jobs: the suite, and a scan for credentials being committed.
+# machine. Three jobs: the suite, a scan for credentials being committed, and the
+# owner's language rule.
 
 on:
   push:
@@ -99,3 +100,38 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo \
             ghcr.io/gitleaks/gitleaks:latest \
             detect --no-git --redact --verbose --exit-code 1
+
+  language:
+    name: Document language (English)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # The owner's rule: every document in the repository is English, because a
+      # second language in the tree is how code gets misread. Reports TO him stay
+      # Bulgarian — the rule is about what is committed.
+      #
+      # This ran only by hand until 24.11.2026, and the rule quietly broke: the
+      # radar is a Bulgarian generator, so it restored `docs/AP2_RADAR.md` within
+      # one run of the translation commit and nothing noticed for weeks. The
+      # generator is a report to the owner, so that one file is a named exception
+      # inside the script (OWNER_FACING_GENERATED); everything else fails here.
+      - name: Every tracked document is English
+        run: |
+          set -o pipefail
+          python3 scripts/doc_language_audit.py 2>&1 | tee lang-output.log
+
+      # Same reasoning as the suite job: the log needs admin rights, so the
+      # failure itself has to carry the file names.
+      - name: Annotate the documents that are not English
+        if: failure()
+        run: |
+          found=0
+          while IFS= read -r line; do
+            echo "::error::not English: ${line}"
+            found=1
+          done < <(grep -E '^ *[0-9]+ +.*\.md$' lang-output.log || true)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::the language audit failed without naming a file — read the job log"
+            tail -n 40 lang-output.log
+          fi

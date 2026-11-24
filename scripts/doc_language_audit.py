@@ -6,7 +6,8 @@ Two jobs, both mechanical:
 1. LANGUAGE (default): count Cyrillic characters in every tracked text file and
    print the ones that still have any. The owner's rule is that every document
    in the repository is English; this is the command that enforces it. Exit 1 if
-   any markdown file still contains Cyrillic.
+   any markdown file still contains Cyrillic, except the generated owner-facing
+   files listed in OWNER_FACING_GENERATED below.
 
 2. FACTS (--diff): compare every modified markdown file against its HEAD version
    and report any identifier that vanished — hex tokens, URLs, numbers, code
@@ -41,6 +42,21 @@ BINARY = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg",
     ".woff", ".woff2", ".ttf", ".otf", ".eot",
     ".pdf", ".zip", ".gz", ".exe", ".dll", ".so", ".pyc",
+}
+
+# The one acknowledged exception to the English rule.
+#
+# `docs/AP2_RADAR.md` is not a repository document that happens to be Bulgarian —
+# it is generated from scratch by `scripts/ap2_radar.py` on every radar run, and
+# it is a report to the owner, which the rule keeps in Bulgarian on purpose.
+#
+# It was translated on 24.11.2026, and the radar overwrote it 16 minutes past the
+# next run on the same day: the generator's strings are Bulgarian, so the
+# translation cannot survive. Recorded here instead of being translated a second
+# time and lost again. The file is still counted and printed below, so it stays
+# visible; it is only exempt from failing the exit code.
+OWNER_FACING_GENERATED = {
+    "docs/AP2_RADAR.md",
 }
 
 
@@ -93,12 +109,17 @@ def language_audit():
             print("%7d  %s" % (n, path))
 
     md_bad = [p for rows in by_ext.values() for _, p in rows
-              if p.lower().endswith(".md")]
+              if p.lower().endswith(".md") and p not in OWNER_FACING_GENERATED]
     if not_utf8:
         print("\n=== files that are not valid UTF-8: %d ===" % len(not_utf8))
         for p in not_utf8:
             print("  " + p)
     print("\nmarkdown files with Cyrillic: %d" % len(md_bad))
+    exempt = sorted(p for rows in by_ext.values() for _, p in rows
+                    if p in OWNER_FACING_GENERATED)
+    if exempt:
+        print("exempt (generated owner-facing, Bulgarian by design): %s"
+              % ", ".join(exempt))
     return 1 if (md_bad or not_utf8) else 0
 
 
