@@ -1,11 +1,17 @@
-"""Send the §N draft to Ernest, exactly as written in docs/OUTREACH_DRAFTS.md.
+"""Send a draft from docs/OUTREACH_DRAFTS.md, exactly as written there.
 
 The body is extracted from the draft itself, so what is sent cannot drift from
-what is documented. Secrets are read from .env and never printed.
+what is documented. The recipient is never hardcoded: it is passed on the
+command line, so an address chosen at send time is visible at send time.
+Secrets are read from .env and never printed.
 
-    python send_section_n.py --dry-run   # print what would be sent
-    python send_section_n.py --send      # actually send
+    python send_draft.py --section N --to someone@example.com            # dry run
+    python send_draft.py --section N --to someone@example.com --send
+
+A section is named by its letter. `--section O` matches the heading
+`## O. ...` and takes everything up to the next `## ` heading.
 """
+import argparse
 import os
 import re
 import smtplib
@@ -15,8 +21,6 @@ from email.message import EmailMessage
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRAFT = os.path.join(REPO, "docs", "OUTREACH_DRAFTS.md")
 ENV = os.path.join(REPO, ".env")
-TO = "ernest@nolimbsfighting.com"
-SECTION = "## N. Ernest"
 
 
 def load_env(path):
@@ -31,25 +35,37 @@ def load_env(path):
     return env
 
 
-def extract(path):
+def extract(path, section):
+    """Return (subject, body) for the named draft section."""
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
-    start = text.index(SECTION)
-    end = text.find("\n## ", start + 1)
-    chunk = text[start:end if end != -1 else len(text)]
+
+    heading = re.search(r"^## %s\." % re.escape(section), text, re.M)
+    if not heading:
+        raise SystemExit("no heading '## %s.' in %s" % (section, path))
+    start = heading.start()
+    following = text.find("\n## ", start + 1)
+    chunk = text[start:following if following != -1 else len(text)]
 
     subj = re.search(r"\*\*Subject:\*\*\s*`([^`]+)`", chunk)
     if not subj:
-        raise SystemExit("no **Subject:** line found in the section")
+        raise SystemExit("no **Subject:** line in section %s" % section)
     body = re.search(r"```\n(.*?)\n```", chunk, re.S)
     if not body:
-        raise SystemExit("no fenced body found in the section")
+        raise SystemExit("no fenced body in section %s" % section)
     return subj.group(1), body.group(1)
 
 
 def main():
-    subject, body = extract(DRAFT)
-    print("to:      %s" % TO)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--section", required=True,
+                    help="draft letter as it appears in '## <letter>.'")
+    ap.add_argument("--to", required=True, help="recipient address")
+    ap.add_argument("--send", action="store_true", help="actually send")
+    args = ap.parse_args()
+
+    subject, body = extract(DRAFT, args.section)
+    print("to:      %s" % args.to)
     print("subject: %s" % subject)
     print("chars:   %d" % len(body))
 
@@ -57,7 +73,7 @@ def main():
     # header dump is what smtplib would put on the wire.
     msg = EmailMessage()
     msg["From"] = "draft@localhost"
-    msg["To"] = TO
+    msg["To"] = args.to
     msg["Subject"] = subject
     msg.set_content(body, charset="utf-8")
 
@@ -65,7 +81,7 @@ def main():
     print(body)
     print("-" * 70)
 
-    if "--send" not in sys.argv:
+    if not args.send:
         raw = msg.as_bytes().decode("utf-8", "replace")
         print("--- encoded headers as they would go on the wire ---")
         print(raw.split("\n\n", 1)[0])
@@ -85,7 +101,7 @@ def main():
         s.starttls()
         s.login(user, password)
         s.send_message(msg)
-    print("sent to %s as %s" % (TO, user))
+    print("sent to %s as %s" % (args.to, user))
     return 0
 
 

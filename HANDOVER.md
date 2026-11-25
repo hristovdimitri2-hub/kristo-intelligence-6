@@ -7480,6 +7480,44 @@ score next to the price. A self-scoring record is the only credential in this
 market that cannot be bought, and the first honest thing we have found that a
 competitor cannot copy by writing better copy.
 
+## §120. The second buyer had already written our question in public (25.11.2026)
+
+Script Master Labs, the operator of HIVE402, published on 24.11.2026 the first
+episode of *402 Daily*: **"x402 Settlements Top 919,457 — So Why Did the Median
+Seller Earn Zero?"** Their own homepage reports settlements rising from 103,317 to
+557,258 week over week (5.4x) while the median seller earns approximately nothing.
+That is our finding, from the other end of the market, published by a third party
+one day before we wrote to them.
+
+Three properties made them the next recipient rather than a larger catalogue:
+
+- **They sell the same shape at the same price.** Their probe-intelligence feed
+  gives aggregate stats free, **$0.05 per page and $0.25 for the complete
+  snapshot** — the exact price and shape of our census. Independent confirmation
+  that $0.25 for a measured dataset is a real price and not a guess.
+- **They already run our discipline.** Their sales feed excludes their own wallets
+  in the source index, and their activity feed marks their own settlements
+  `SELF-PROOF` instead of passing them off as outside demand. Nothing to teach, so
+  the only thing left to offer is the measurement they cannot see.
+- **Their trust formula prices exactly what we measure.** `/api/public/trust/method`
+  weights payable 30, uptime 25, **demand 20**, spec 10, latency 10, operator 5,
+  where demand is `12·log10(1+buyers)` capped at 20, with facilitator-reported
+  payers at half weight. Our census is that component measured directly at one
+  service, with all 135 payment attempts read individually — the part no catalogue
+  can derive from listings, because it is the demand side at the moment it meets a
+  price.
+
+Draft **§O** answers their question with our numbers (12 external payments, 9
+wallets, $0.054 lifetime, 135 attempts of which none was a funded buyer), states the
+$0.25 price rather than proposing one, and offers the shape to be cut to their
+demand component or as its own line. Sent to `ScriptMasterLabs@gmail.com`.
+
+The tooling changed with it: `scripts/send_section_n.py` is replaced by
+`scripts/send_draft.py`, which takes the section letter and the recipient on the
+command line — so an address chosen at send time is printed at send time, and no
+recipient is baked into the script. The dry run prints the encoded wire headers.
+
+
 
 
 

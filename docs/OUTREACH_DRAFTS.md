@@ -526,3 +526,39 @@ The aggregate is written up and I will send it in whatever form is useful to you
 
 Dimitri
 ```
+
+## O. Script Master Labs (HIVE402) — the answer to their own episode 1 (25.11.2026)
+
+**Where:** `ScriptMasterLabs@gmail.com`, the contact address published on HIVE402.
+**Why this one, out of everything in the feed:** their Episode 1 of *402 Daily*
+(24.11.2026) is titled **"x402 Settlements Top 919,457 — So Why Did the Median Seller
+Earn Zero?"** and was published by Timmy on @TimmyCrypto78. They asked our exact
+question in public, one day before this message. Their probe-intelligence feed sells
+aggregate stats free, **$0.05 per page and $0.25 for the complete snapshot** — the same
+price and shape as our census, which is the strongest evidence we have that the price
+is real. And their sales feed excludes their own wallets while their activity feed
+labels their own settlements `SELF-PROOF`: the same discipline we use, which is the
+reason to write to them rather than to a larger catalogue.
+
+**Subject:** `You asked why the median seller earned zero — one measured answer`
+
+```
+Timothy,
+
+Your Episode 1 asks why 919,457 settlements left the median seller earning nothing. I run one of the endpoints in your catalog, so I can answer it from inside a real service rather than from an index.
+
+Seven routes on Base, $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests, was reached by 457 distinct user agents, and was paid twelve times by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs. The traffic is machines checking whether we are still there, not buyers wanting the thing.
+
+Your catalog measures the half of this market that is a listing: whether an endpoint is payable at all. Mine measures the other half, which no index can see: what the demand side does at the moment it meets a price — which agents arrive, how often they come back, which route they pick, whether they ever present a credential, and what that credential says when they do. Your trust score already prices demand at 20 of 100. This is that component measured directly, at one service, with every attempt read individually.
+
+Two things, and neither is a favour.
+
+One: I would rather sell this than give it away, and I have priced it. Get /api/v1/demand-census returns the full document — the 1,494-row per-agent table, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25, which is what your complete probe snapshot costs. The aggregate and the method are already public, so you can judge it before buying anything: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two: I noticed that your sales feed excludes your own wallets in the source index, and that your activity feed marks your own settlements SELF-PROOF rather than passing them off as outside demand. That is the same discipline I keep — my published figures separate my own demo key from external revenue, and I publish my own signal engine's record, which is a losing one (1 hit against 12 misses, free to read at /public/signals/history). You are the only operator in this market whose numbers I can check in the direction that hurts, which is why I am writing to you and not to a bigger catalog.
+
+I am already carried in your catalog through the CDP Bazaar source. If a demand-side ledger is useful to you — for the demand component of the trust score, or as its own line next to the probe feed — say what shape works and I will cut it that way. If it is not useful, say so plainly and I will stop treating the demand side as a market. That answer is worth as much to me as a sale.
+
+Dimitri
+```
+

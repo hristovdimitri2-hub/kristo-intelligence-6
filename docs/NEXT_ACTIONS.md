@@ -79,9 +79,26 @@ Verified against the running service after the deploy, not against the source: c
 checksum, sample `200`.
 
 **The message to Ernest went out on 25.11.2026** from the owner's Gmail, naming the
-price instead of proposing one. `scripts/send_section_n.py` sends the §N body
+price instead of proposing one. `scripts/send_draft.py` sends a section body
 extracted from `docs/OUTREACH_DRAFTS.md` verbatim, so the sent text and the record
-cannot drift apart.
+cannot drift apart. It takes the section letter and the recipient on the command
+line, so the address chosen at send time is printed at send time.
+
+### The second buyer wrote the question first (25.11.2026)
+
+Script Master Labs (HIVE402) published, on 24.11.2026, Episode 1 of *402 Daily*:
+**"x402 Settlements Top 919,457 — So Why Did the Median Seller Earn Zero?"** They
+asked our exact question in public, the day before we wrote to them. Three facts
+made them the next recipient rather than a bigger catalogue: their probe-intelligence
+feed sells aggregate stats free, **$0.05 per page and $0.25 for the complete
+snapshot** — the same price and shape as our census, which is independent evidence
+that the price is real; their sales feed excludes their own wallets while their
+activity feed marks their own settlements `SELF-PROOF`, which is our discipline, not
+theirs to be taught; and their trust formula already prices **demand at 20 of 100**,
+which is the exact component the census measures and no index can see.
+
+Draft §O answers their question with our numbers rather than with a pitch. Sent to
+`ScriptMasterLabs@gmail.com`, the contact address published on HIVE402.
 
 ### One defect the deploy exposed (25.11.2026)
 

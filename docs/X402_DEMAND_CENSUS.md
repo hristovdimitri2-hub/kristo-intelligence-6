@@ -89,11 +89,21 @@ Three independent measurements now agree, from three different directions:
 | seller-side census of a public index | a third-party analyst, paid work | the top 10 rows take 92% of spend; the median row earns $0.01 per 30 days |
 | views of one marketplace listing | a marketplace, 7 days | 6,323 views, **0** payments |
 | demand-side ledger of a live service | this document | 457 agents at the paywall, 12 external payments, 5.4 cents, 84 days |
+| settlements across a public marketplace | that marketplace's own settlement index, 5 weeks | **919,457** settlements, and the median seller earned almost nothing |
+| payability of everything listed in a public catalog | that catalog's live probes | of **56,080** listed endpoints, **47,041** reproduced a payable challenge at all — one listing in six cannot take money |
+
+The last two come from Script Master Labs' HIVE402, which publishes a live catalog and
+its own settlement records — read directly from their public endpoints on 25.11.2026,
+not quoted from a summary. Their report also records the settlement count rising 5.4×
+week over week (103,317 to 557,258), which is the clearest available statement that
+the *payments* are growing while the *sellers* are not.
 
 The consistent reading: **being listed, being found, being crawled and being
 healthy are all solved problems, and none of them is a sale.** An x402 seller with
 commodity data has no distribution problem left to solve — it has a demand problem
-that more distribution cannot touch.
+that more distribution cannot touch. A catalog of 56,080 endpoints, where one in six
+cannot even take a payment and the median seller earns nothing, is what "more
+distribution" produces at scale.
 
 The two things that survive every measurement are the ones the analyst named: data
 a buyer cannot get elsewhere, and the measurement itself. This document is the
