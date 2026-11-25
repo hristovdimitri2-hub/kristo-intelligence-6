@@ -7692,6 +7692,64 @@ every previous outreach in this file, and it comes with named addresses.
 4. **Unchanged: the census stays at $0.25**, and the sellable change remains
    December 2026 against November 2026.
 
+## §123. The discovery layer's own numbers, and one that was mine (25.11.2026)
+
+§121 fixed our own catalogue row. The obvious next question — is our row the
+exception or the rule? — had never been asked of the layer itself, and CDP's
+public listing makes it answerable: **87,419 rows**, read 10,000, probed 200
+randomly and unpaid, each called with the method its own declaration names. Full
+write-up in `docs/DISCOVERY_TRUTH.md`; the method travels with it as
+`scripts/catalogue_truth_study.py`.
+
+**What the layer looks like from outside:**
+
+- **Freshness.** Median `lastUpdated` 5.95 days, mean 9.64, oldest 209.7. **47% of
+  rows are older than a week, 29% are 14–30 days.** If that timestamp moves when a
+  settlement touches the row, then most listings have had no paid call in over a
+  week — the demand-side finding, arriving from the catalogue's own clocks.
+- **Reachability.** 190 of 200 (95.0%) answer a parsable `402`. The other 5% are
+  dead URLs, 400s, 403, a 500, an unreachable host, and one `402` no parser could
+  read. **One listing in twenty cannot be bought from at all.**
+- **Method discovery, and it is the finding with a specification consequence.**
+  **0 of 10,000 rows carry a top-level `method` field**; 9,999 carry it only
+  inside `extensions.bazaar.info.input.method`. **40% declare POST.** So an agent
+  that reads a row and issues the obvious GET **reaches 60% of the layer**; the
+  rest answer `405` — not because they are broken, but because the listing never
+  said how to call them.
+- **Truth.** Of the 190 that answered, **28 (14.7%) describe a different product
+  from what the endpoint now declares** and **7 (3.7%) advertise a different
+  price**. Worst two: `aizamon.com/x402/v1/bot-fuel-day` listed at $1.49 and live
+  at $0.10 — a **15× overquote** an agent would have budgeted from — and
+  `probeline.io/v1/implants/peri-implant`, where the URL now sells dental implant
+  specifications while the catalogue still advertises peri-implant clinical
+  status.
+
+**The number that was mine, and why it is published rather than hidden.** The
+first pass probed every row with GET and called `405` a dead listing: **21.5%
+unreachable**, a much better story. It was wrong — 84 of the 200 rows declare
+POST, and a GET to a POST-only endpoint correctly answers 405. Re-probing with
+each row's declared method moved the failure rate from 21.5% to **5.0%**. A
+measurement about a layer's honesty has to survive the same standard, and the
+mistake turned out to be the best evidence for the finding above: nothing in the
+row told a competent caller how to call, so the probe got it wrong four times in
+five attempts.
+
+**Limits, in the document and repeated here:** one index, not all catalogues; the
+10,000 rows read are the first 50 pages and the listing is ordered by recency, so
+this is the **freshest** slice of 87,419 and the figures are likely optimistic —
+re-checked, the first 400 rows are 60.8% under a day old, which confirms the
+ordering; 200 probes give a rate to roughly ±5 points, not a verdict on any single
+seller.
+
+**What it is for.** Three uses, in order of cost: it is the honest content of the
+Domain Discovery contribution §122 planned (a measurement, not a documentation
+nit); it is a second unique data asset next to the census; and it names a product
+shape nobody in the crowded verification table occupies — **listing truth and
+freshness monitoring**, which is not "is this seller up" but "does the catalogue
+still describe what this seller sells". Any paid route for that needs a price in
+`config.py`, which is the owner's decision and has not been asked for.
+
+
 
 
 

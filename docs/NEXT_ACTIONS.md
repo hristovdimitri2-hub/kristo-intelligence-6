@@ -35,12 +35,13 @@ anyone pays, and cannot get it by crawling. Full reasoning in `HANDOVER.md` §12
 
 Ordered plan, cheapest first:
 
-1. **Carry the measured discovery finding into the spec repo** (free). The Bazaar
-   extension doc documents the echo requirement and async cataloguing, but not
-   what we measured twice: a catalogue row is a snapshot of the **last settled
-   echo**, so a row keeps publishing text the seller has since changed, and only a
-   new paid call updates it. Our own row advertised a pre-change description until
-   we paid $0.01 through it (`tx 0xbb454d…`).
+1. **Carry a measured finding into the spec repo** (free). The planned
+   documentation nit is superseded: `docs/DISCOVERY_TRUTH.md` now holds the first
+   measurement of whether x402 discovery tells the truth — **0 of 10,000 rows
+   carry a top-level method** (so a naive GET reaches only 60% of the layer), 5%
+   of listings cannot serve a request at all, 14.7% misdescribe the product and
+   3.7% misstate the price, with a 15× overquote as the worst case. That, not a
+   docs typo, is what the Domain Discovery working group is for.
 2. **Join the Domain Discovery working group's public mailing list and Slack**
    (free) — the only place our measurements could shape a specification.
 3. **§P: the trust-layer vendors** (sent 25.11.2026 to Hosannaith, the closest
