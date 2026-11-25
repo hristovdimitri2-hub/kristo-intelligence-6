@@ -68,6 +68,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True, help="api base url")
     ap.add_argument("--path", required=True, help="endpoint path, e.g. /api/v1/signal")
+    ap.add_argument("--show-body", action="store_true",
+                    help="also report what the paid answer actually carried "
+                         "(body keys, signal_count, track_record). The old script "
+                         "threw the body away and printed only the tx, so a "
+                         "changed product could be paid for and never inspected.")
     args = ap.parse_args()
     base = args.base.rstrip("/")
     path = args.path
@@ -147,7 +152,19 @@ def main() -> int:
         except Exception:
             tx = ""
     usd = round(int(acc.get("amount", 0)) / 1e6, 6)
-    emit({"ok": True, "path": path, "usd": usd, "tx": tx})
+    out = {"ok": True, "path": path, "usd": usd, "tx": tx}
+    if args.show_body:
+        try:
+            delivered = json.loads(resp_body)
+        except Exception:
+            delivered = None
+        if isinstance(delivered, dict):
+            out["body_keys"] = sorted(delivered)
+            out["signal_count"] = delivered.get("signal_count")
+            out["track_record"] = delivered.get("track_record")
+        else:
+            out["body_prefix"] = resp_body[:200]
+    emit(out)
     return 0
 
 

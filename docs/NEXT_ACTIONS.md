@@ -154,6 +154,35 @@ make itself, and never for a feed it can crawl.
 3. **December** — the second census snapshot creates the first real delta product, and
    the $0.25 route gets its first paid canary, which is what promotes it to the vitrine.
 
+### The paid canary, and the one place the record does NOT yet appear (25.11.2026)
+
+Two real paid calls were made to `/api/v1/signal` with our own demo key ($0.01 each),
+after the deploy, to check what a buyer actually receives rather than what the code
+says:
+
+- The **first attempt was refused** by the unready guard — `no_signal_to_deliver`,
+  HTTP 503, `payment_taken: false` — because a fresh process has not run the signal
+  engine yet. That is the guard working exactly as designed, and worth having seen.
+- The **second attempt settled** and delivered. The body carried `track_record` with
+  the measured figures: `hits 1, misses 12, flats 84, scored_n 97, hit_rate_pct 1.0,
+  issued 268, avg_move_on_hit 3.862, avg_move_on_miss 5.625`, plus the free feed URL.
+  The change is verified end-to-end on the live rail, not only in tests.
+
+`scripts/phase1_paid_call.py` gained `--show-body`. It used to throw the delivered
+payload away and print only the transaction, so a changed product could be paid for
+and never inspected.
+
+**Gap found, and it needs the owner.** The text in the CDP Bazaar rows is the **402
+challenge description** (`CHALLENGE_DESCRIPTIONS`), not the vitrine description
+(`REAL_X402_ROUTES`). Verified against the index: the row for
+`/mcp#get_trading_signal` reproduces `CHALLENGE_DESCRIPTIONS["/api/v1/signal"]`
+verbatim. So the catalogue that agents actually search still describes the signal
+without its record, while the vitrine pages, README, `server.json` and the paid
+response all state it. Closing that gap means editing one description string inside
+the 402 envelope — a protected surface — so it is recorded here rather than done.
+Recommended: append the same one sentence to the challenge description and re-pay the
+route once so the Bazaar row is re-indexed.
+
 
 ---
 
