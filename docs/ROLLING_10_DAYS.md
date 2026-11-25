@@ -113,7 +113,14 @@ zero-dependency Python client (14 tests).
   the useful half: **the buyer of a demand-side ledger is the seller.** His free
   benchmark then arrived; §S checked it — the route table and prices are exact,
   but the call counts are our own test traffic (**131 of 180 lifetime payments are
-  our own key**), which is the same blindness every index has, his included.
+  our own key**), which is the same blindness every index has, his included. §T
+  then measured the per-path split against production: **his counts are not
+  reproducible under any window, but his conclusion is right** — `verify-seller` is
+  the one route with calls that are not ours (4 of 19, `$0.04` of `$0.95`), so the
+  §L2 decision to drop it is reversed. §U corrected the introduction we do not have
+  (**5 CRM leads, zero customer checkouts**) and asked him to name his share: the
+  product shape — *the buyer of demand-side measurement is the seller* — is now
+  confirmed three times in one week.
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already

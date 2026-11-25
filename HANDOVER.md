@@ -7990,6 +7990,55 @@ is already `$0.05`, not the `$0.01` his category section used to argue against.
 measurable, here it is, your counts are our tests, your conclusion is right, and I
 was wrong to drop the route.
 
+## §127. Ernest answered both questions, and the introduction does not exist (25.11.2026)
+
+He answered the two questions from §L2. On the introduction: send the address
+directly or forward his, he opens with a free benchmark of that seller's own
+routes, and he never quotes our numbers. On which of the two earning things to push
+a seller toward: **the measurement — as seller-side due diligence, not a demand
+forecast** — because our own numbers settle it (457 agents, 12 paying wallets,
+every refusal a fuzzer or our own test), so "the demand side at the moment it meets
+a price is not a market; it is monitors meeting a wall." A demand-side ledger
+therefore sells to exactly one buyer — another seller deciding what to build and at
+what price — and should be priced as a subscription. Same from the supply side: a
+seller with no unique data is better off buying the measurement than building a
+seventh route.
+
+**Checked before answering, and the answer is that we have nothing to introduce.**
+`data/crm_sales.db` holds **5 leads**; `data/agent_catalog.db` holds **zero**
+customer checkouts. What we actually have is (a) thousands of sellers known **by
+their listings** and (b) a short list of verifiers, directories and trust vendors —
+the layer Ernest and we both occupy, not his buyers. §L2's "I do know sellers with
+the symptom" was true of the layer and false of an address book. Corrected in the
+reply (§U) rather than papered over with a cold list carrying our name.
+
+**The product shape is now confirmed three times in one week**, from three
+directions that did not talk to each other: our own pricing of the census instead
+of giving it away (§118), Ernest pricing it back to us (§R), and now Ernest
+answering which of the two things he would push (§127). **The buyer of demand-side
+measurement is the seller, and what is bought is due diligence, not a forecast.**
+
+**Which makes his product and ours the same product.** He cannot produce the five
+metrics without the seller's own log; we have the method, the extraction
+(`scripts/build_demand_census.py`) and a live dataset. He has a sales motion; we
+have none. **Neither of us has the other's half** — so §U asked him to **name his
+share**, the term §R deliberately left open and which the three confirmations now
+justify asking for. If the answer is "I would rather keep the customer", we know we
+are competitors and the asking stops.
+
+**Given, and still wanted.** Given: the §T case study, usable by him attributed or
+not — a quality finding about the data he sells, from a customer holding the ground
+truth. Still unanswered: whether the 5,538 on sniperx is payer-classified or raw
+settlements on their `payTo`.
+
+**The new decision this opens, and it is the owner's:** a **seller-side demand
+ledger as a service** — bring a seller's log, get their per-route demand ledger —
+is buildable from code we already have, and the buyer is confirmed. What is missing
+is the channel, which is exactly what Ernest has and we do not. Two paths: supply
+him and take a share, or sell directly to the few sellers we can reach. No price,
+no split and no channel decision has been made.
+
+
 
 
 

@@ -901,3 +901,61 @@ The offer stands as before.
 
 Dimitri
 ```
+
+## U. Ernest — the introduction we do not have, and the partner question (25.11.2026)
+
+**Where:** same thread, `ernest@nolimbsfighting.com`.
+
+**What he sent.** Two answers. On the introduction: send the address directly, or
+forward his, and he opens with a free benchmark of that seller's own routes, never
+quoting our numbers. On which of the two earning things to push a seller toward:
+**the measurement — but as seller-side due diligence, not a demand forecast.** His
+reasoning is our own numbers: 457 agents, 12 paying wallets, every refusal a fuzzer
+or our test run, so "the demand side at the moment it meets a price is not a
+market; it is monitors meeting a wall." A demand-side ledger therefore sells to
+exactly one buyer — another seller deciding what to build and at what price — and
+should be priced as a subscription. Supply side, same conclusion: a seller with no
+unique data is better off buying the measurement than building a seventh route.
+
+**Checked before answering: we do not have the contacts.** `crm_sales.db` holds
+**5 leads**; `agent_catalog.db` holds **zero** customer checkouts. What we actually
+know is (a) thousands of sellers **by their listings** and (b) a short list of
+verifiers, directories and trust vendors — the layer Ernest and we both sit in, not
+his buyers. §L2's "I do know sellers with the symptom" was true of the layer, not
+of an address book, and the correction goes in the reply rather than a cold list
+with our name on it.
+
+**The strategic point, stated plainly for the first time.** His answer confirms, for
+the third time this week, that **the buyer of demand-side measurement is the
+seller** — which makes his product and ours the same product. He cannot produce the
+five metrics without the seller's log; we have the method, the extraction
+(`scripts/build_demand_census.py`) and a live dataset. He has the sales motion; we
+have none. Neither of us has the other's half, and that is a partnership question,
+not an introduction. So the reply asks him to **name his share** — the one thing §R
+deliberately left open, now asked because the shape has been confirmed three times.
+
+**What we give, and what we still want.** Given: the §T case study — his index
+undercounts our settlements unevenly, measured against a seller's own books — usable
+by him attributed or not. Wanted, still unanswered: is the 5,538 on sniperx
+payer-classified, or raw settlements on their `payTo`?
+
+**Subject:** `Re: measurement ledger — the intro, and what I would push`
+
+```
+Ernest,
+
+Two answers, and one of them is a correction.
+
+The introduction: I do not have it, and I would rather say so than send you a cold list with my name on it. I checked before writing. What I actually have is thousands of sellers I know by their listings and none I know as contacts who would take an introduction. The people I do know are verifiers, directories and trust vendors — the layer you and I both sit in, not your buyers. Last week I told you I knew sellers with the symptom. That was true of the layer, not of my address book, and I am correcting it before it costs you a wasted benchmark.
+
+What I can give you instead is worth more than a name. Your index undercounts my settlements, unevenly: six of your rows are exactly my own test sweep of 10 and 11 November, signal is 8 against my 22, verify-seller 4 against my 19. That is a quality finding about the data you sell, from a customer who has the ground truth, and you may use it, attributed or not. I would rather hand you that than a stranger's address.
+
+Your second answer is the most useful thing anyone has said to me this week, and it is the third time the same shape has come back: the buyer of demand-side measurement is the seller, and it is due diligence rather than a forecast. Which also means we are selling the same product. I have the measurement, the extraction and a live dataset; you cannot produce the five metrics without the seller's log. You have a sales motion and I have none. Neither of us has the other's half.
+
+So the introduction is the wrong question. The right one is the one I asked twice and have not had an answer to: if I supply and you sell, what is your share? Name it and I will answer. If the honest answer is that you would rather keep the customer, say that too — then we both know we are competitors, and I will stop asking.
+
+And the one thing I still want, which is not a favour: is the 5,538 on sniperx payer-classified, or raw settlements on their payTo? One incumbent answered would teach me something I cannot measure from inside my own logs.
+
+Dimitri
+```
+
