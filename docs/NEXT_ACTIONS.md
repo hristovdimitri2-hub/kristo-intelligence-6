@@ -113,6 +113,47 @@ new price exists yet, and a monthly route would need a price in `config.py`, whi
 requires the owner's explicit approval — so it is deliberately not built until there is
 a second snapshot and therefore something real to sell.
 
+### What the signal engine's own record says (measured 25.11.2026)
+
+The free feed at `/public/signals/history` has scored this engine since 18.09 and the
+numbers are unambiguous: **268 issued, 97 scored, 1 hit, 12 misses, 84 flats, 33
+unresolved.** The single hit moved +3.9%; the average miss moved 5.6% against. The
+first checkpoint (n=30) recorded a 1.2% hit rate, and it is stored as a failure with
+`verdict: below_50_at_final_checkpoint`. The high-confidence band (0.6–0.8) is the
+worst of the two: of its 11 directional calls, 1 was right and 10 were wrong.
+
+Until today the paid route sold a signal and said none of this, while the free route
+beside it published exactly this. A buyer acting on it could only discover the record
+by looking somewhere else. **Fixed:** the record now travels with the paid response
+(`track_record`), built by the same `build_feed()` the public page uses so the two
+cannot disagree, fail-open so a paid delivery is never lost, cached 300s so a $0.01
+route is not taxed. It is also printed in the vitrine description, in `README.md`, and
+in the MCP tool description in `server.json`.
+
+### Where the money can be, judged against what we measured
+
+| candidate | verdict |
+|---|---|
+| Sell the feeds (signals, whale flow, arbitrage) | **rejected.** Lifetime external revenue $0.054, and the engine's own record is 1 hit against 12 misses. Selling it as edge would be selling something we have measured as unprofitable. |
+| Sell distribution (more listings, more registries) | **rejected.** 457 agents reached a paywall, 25 directories probe us daily, 0 payments followed. |
+| Sell the measurement (census + the engine's record) | **in flight.** The only asset here with no competitor, because it requires running a paywalled service for months and keeping the ledger. Ernest is the first buyer test. |
+| Sell judgement (verification / evaluation of x402 sellers) | **next, after the census sells once.** A Base ecosystem digest reports an operator extending an *Evaluation* API the same week — the category is being built now. Our credential cannot be faked: we published our own failure. |
+
+**Decision: the third, then the fourth — and the fourth's credibility is earned by doing
+the third honestly.** Both are the same trade: the market pays for a judgement it cannot
+make itself, and never for a feed it can crawl.
+
+### The first three steps
+
+1. **Done 25.11.2026** — the record travels with the product. A signal can no longer be
+   bought without the measurement of how those signals have done.
+2. **Next** — publish the failure as a first-class document rather than a footnote:
+   the engine's full record, its method, and the two things it proves (that our
+   measurement instrument is honest, and that a commodity feed is not an edge). This is
+   the trust asset that makes the census and any evaluation product sellable.
+3. **December** — the second census snapshot creates the first real delta product, and
+   the $0.25 route gets its first paid canary, which is what promotes it to the vitrine.
+
 
 ---
 

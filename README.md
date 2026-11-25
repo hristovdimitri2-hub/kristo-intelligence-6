@@ -27,7 +27,10 @@ seller is real:
   pay it: distinct payers, repeat-payer concentration, treasury-sized flows,
   and the read's own coverage stated
 - **Trading-agent signals** — for ETH, ONDO, KAITO and DEGEN: action,
-  0–1 confidence score, current USD price, and one-line reasoning
+  0–1 confidence score, current USD price, and one-line reasoning. **Its own
+  measured record is published free at `/public/signals/history` and travels
+  with every paid response — as scored to date it is a losing record, the
+  average miss being larger than the average hit.**
 - **Whale flow** — large USDC transfer tracking on Base (transfers ≥ $5M, labeled counterparties)
 - **Arbitrage radar** — cross-DEX spreads, refreshed every 60 seconds
 - **Market stats** — aggregated activity (CoinGecko, DEXScreener,
@@ -197,7 +200,7 @@ blockchain/wallet.py     # Base wallet, USDC transfers, on-chain verification
 scripts/                 # On-chain recon tools, demo agent, E2E helpers
 examples/demo_agent/     # Public reference x402 client
 docs/                    # Audit reports, recon findings, outreach docs
-tests/                   # Test suite (1473 tests)
+tests/                   # Test suite (1479 tests)
 ```
 
 ## Verification
@@ -211,7 +214,7 @@ tests/                   # Test suite (1473 tests)
   canonical v2 challenges (CAIP-2 `eip155:8453`, atomic units, bazaar schema)
 - **23/23 adversarial audit** (mystery-agent simulation, 2026-08-29 — a dated
   snapshot; see the banner in `docs/MYSTERY_AGENT_REPORT.md`)
-- **1473 automated tests** in this repository
+- **1479 automated tests** in this repository
 
 ## Docs
 

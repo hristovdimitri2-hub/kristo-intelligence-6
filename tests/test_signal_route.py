@@ -313,3 +313,133 @@ def test_a_producer_that_ran_and_found_nothing_is_a_real_answer(
                          "signals": []})
     assert main._x402_unready_payload("/api/v1/signal") is None, (
         "an engine that ran and produced zero signals has still answered")
+
+
+# ── the measured record must travel WITH the signal, not sit beside it ───────
+#
+# Until 25.11.2026 the paid route sold a signal and said nothing about how those
+# signals had scored, while the free route next to it published exactly that: as
+# measured, 1 hit against 12 misses on resolved directional calls, with the
+# average miss larger than the average hit. A buyer could act on a number we had
+# already measured as unprofitable and only find out by looking elsewhere. These
+# tests keep the record attached and keep it identical to the public feed.
+
+def _history_rows(hits=40, misses=45, flats=15, unresolved=0, asset="ETH"):
+    rows = []
+    for i in range(hits):
+        rows.append({"asset": asset, "outcome": "hit", "confidence": 0.78,
+                     "move_pct": 3.0, "issued_at": "2026-11-01T00:00:00+00:00"})
+    for i in range(misses):
+        rows.append({"asset": asset, "outcome": "miss", "confidence": 0.78,
+                     "move_pct": -7.0, "issued_at": "2026-11-01T00:00:00+00:00"})
+    for i in range(flats):
+        rows.append({"asset": asset, "outcome": "flat", "confidence": 0.45,
+                     "move_pct": -0.5, "issued_at": "2026-11-01T00:00:00+00:00"})
+    for i in range(unresolved):
+        rows.append({"asset": asset, "outcome": "unresolved", "confidence": 0.45,
+                     "move_pct": None, "issued_at": "2026-11-01T00:00:00+00:00"})
+    return rows
+
+
+def _feed_the_store(monkeypatch, rows, issued=500):
+    import main
+    monkeypatch.setattr(main, "_signal_record_cache",
+                        {"at": None, "value": None})
+    monkeypatch.setattr(main.dashboard_db, "signal_history_rows",
+                        lambda *a, **k: list(rows))
+    monkeypatch.setattr(main.dashboard_db, "signal_history_not_scored",
+                        lambda *a, **k: 3)
+    monkeypatch.setattr(main.dashboard_db, "signal_history_total",
+                        lambda *a, **k: issued)
+
+
+def test_the_paid_signal_carries_the_engines_measured_record(client, monkeypatch):
+    rows = _history_rows()
+    _feed_the_store(monkeypatch, rows)
+    payload = client.get("/api/v1/signal").get_json()
+    record = payload["track_record"]
+    assert record is not None, "the paid route sold a signal with no record"
+    assert record["hits"] == 40 and record["misses"] == 45
+    assert record["flats"] == 15 and record["scored_n"] == 100
+    assert record["issued"] == 500
+    # 40/100 at n>=50, the feed's own rule (a percentage only at n>=50).
+    assert record["hit_rate_pct"] == pytest.approx(40.0)
+    assert record["avg_move_on_hit_pct"] == pytest.approx(3.0)
+    # The feed reports a miss as a MAGNITUDE — how far it moved against you —
+    # which is what makes it comparable with the size of a hit.
+    assert record["avg_move_on_miss_pct"] == pytest.approx(7.0)
+    assert record["feed_url"].endswith("/public/signals/history")
+
+
+def test_the_record_cannot_disagree_with_the_public_feed(client, monkeypatch):
+    """One source of truth: the same build_feed() builds both."""
+    _feed_the_store(monkeypatch, _history_rows())
+    paid = client.get("/api/v1/signal").get_json()["track_record"]
+    free = client.get("/public/signals/history").get_json()["totals"]
+    for key in ("hits", "misses", "flats", "scored_n", "unresolved", "issued",
+                "hit_rate_pct"):
+        assert paid[key] == free[key], key
+
+
+def test_a_percentage_is_withheld_below_fifty_like_the_feed(client, monkeypatch):
+    import main
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1000)
+    # The live sample is 97 scored with a 1.0% shown, so the boundary to test is
+    # a small n, not a losing one.
+    _feed_the_store(monkeypatch, _history_rows(hits=1, misses=2, flats=2))
+    record = client.get("/api/v1/signal").get_json()["track_record"]
+    assert record["scored_n"] == 5 and record["hits"] == 1
+    assert record["hit_rate_pct"] is None, (
+        "n<50 must withhold the percentage, exactly as the public feed does")
+    # ... and the live-sized sample does show it, at the feed's own value.
+    _feed_the_store(monkeypatch, _history_rows(hits=1, misses=12, flats=84))
+    record = client.get("/api/v1/signal").get_json()["track_record"]
+    assert record["scored_n"] == 97
+    assert record["hit_rate_pct"] == pytest.approx(1.0)
+
+
+def test_the_record_is_fail_open_and_never_costs_a_paid_delivery(
+        client, monkeypatch):
+    """A paid delivery is never lost because the record could not be read."""
+    import main
+    monkeypatch.setattr(main, "_signal_record_cache",
+                        {"at": None, "value": None})
+
+    def boom(*a, **k):
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(main.dashboard_db, "signal_history_rows", boom)
+    r = client.get("/api/v1/signal")
+    assert r.status_code == 200
+    payload = r.get_json()
+    assert payload["signals"], "the signal itself still has to be delivered"
+    assert payload["track_record"] is None
+
+
+def test_the_disclaimer_names_the_record_as_a_losing_one(client, monkeypatch):
+    """The text must not quietly revert to 'informational' with no number."""
+    _feed_the_store(monkeypatch, _history_rows())
+    payload = client.get("/api/v1/signal").get_json()
+    text = payload["disclaimer"].lower()
+    assert "track_record" in text
+    assert "losing" in text
+    assert "misses are larger than the hits" in text
+
+
+def test_the_record_is_cached_so_it_does_not_tax_a_cheap_route(
+        client, monkeypatch):
+    import main
+    calls = []
+    monkeypatch.setattr(main, "_signal_record_cache",
+                        {"at": None, "value": None})
+    monkeypatch.setattr(main.dashboard_db, "signal_history_rows",
+                        lambda *a, **k: calls.append(1) or [])
+    monkeypatch.setattr(main.dashboard_db, "signal_history_not_scored",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(main.dashboard_db, "signal_history_total",
+                        lambda *a, **k: 0)
+    monkeypatch.setattr(main, "FREE_TIER_LIMIT", 1000)
+    for _ in range(3):
+        client.get("/api/v1/signal")
+    assert len(calls) == 1, "the record was re-read on every request"
+

@@ -3379,7 +3379,7 @@ REAL_X402_ROUTES: List[dict] = [
     {
         "id": "signal",
         "name": "Trading-Agent Signals",
-        "description": "Action, confidence, price_usd and one-line reasoning for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data. Useful when an agent has to act on a market view and needs a stated action and its reason rather than raw prices.",
+        "description": "Action, confidence, price_usd and one-line reasoning for Ethereum (ETH)/ONDO/KAITO/DEGEN — refreshed every 5 minutes from live market data. Useful when an agent has to act on a market view and needs a stated action and its reason rather than raw prices. Its own measured record is published free at /public/signals/history and travels with every paid response: as scored to date it is a losing record, because the average miss is larger than the average hit. Read the record before acting on a signal.",
         "category": "intelligence",
         "endpoint": "/api/v1/signal",
         "method": "GET",
@@ -7674,6 +7674,62 @@ def api_checkout():
     })
 
 
+# ── The signal engine's measured record, attached to what is sold ───────────
+# /public/signals/history has scored this engine since 18.09 and it is free to
+# read. Measured on 25.11.2026: of 13 resolved directional calls, 1 was a hit and
+# 12 were misses, and the average miss (+5.6%) was larger than the average hit
+# (+3.9%). Until today the paid route sold the signal and mentioned none of it,
+# while the free route beside it published it — so a buyer acting on a signal
+# could only discover its record by looking somewhere else. The record now
+# travels WITH the product. It is fail-open on purpose: a paid delivery must
+# never be lost because the record could not be read.
+_SIGNAL_RECORD_TTL_SECONDS = 300
+_signal_record_cache: Dict[str, Any] = {"at": None, "value": None}
+
+
+def _signal_track_record_summary(now: Optional[datetime] = None
+                                 ) -> Optional[Dict[str, Any]]:
+    """The engine's measured outcome, in the PUBLIC feed's own terms.
+
+    Every number comes from services.signal_track_record.build_feed — the same
+    function that builds the public page — so the paid response cannot disagree
+    with the free record. Returns None when the store cannot answer; the caller
+    delivers the signal anyway.
+    """
+    now = now or datetime.now(timezone.utc)
+    cached_at = _signal_record_cache.get("at")
+    if (cached_at is not None
+            and (now - cached_at).total_seconds() < _SIGNAL_RECORD_TTL_SECONDS):
+        return _signal_record_cache.get("value")
+    value: Optional[Dict[str, Any]] = None
+    try:
+        from services import signal_track_record as track
+        cutoff = (now - timedelta(hours=track.RESOLVE_AFTER_HOURS)).isoformat()
+        feed = track.build_feed(
+            dashboard_db.signal_history_rows(cutoff), now=now, checkpoints=[],
+            not_scored=dashboard_db.signal_history_not_scored(),
+            issued_total=dashboard_db.signal_history_total())
+        totals = feed.get("totals") or {}
+        value = {
+            "hits": totals.get("hits"),
+            "misses": totals.get("misses"),
+            "flats": totals.get("flats"),
+            "scored_n": totals.get("scored_n"),
+            "unresolved": totals.get("unresolved"),
+            "issued": totals.get("issued"),
+            "hit_rate_pct": totals.get("hit_rate_pct"),
+            "avg_move_on_hit_pct": feed.get("avg_move_on_hit_pct"),
+            "avg_move_on_miss_pct": feed.get("avg_move_on_miss_pct"),
+            "definition": ("Resolved directional calls only are hits or misses; a "
+                           "flat is a call whose move stayed inside its own "
+                           "volatility threshold. Same rules as the public feed."),
+        }
+    except Exception as exc:                                   # noqa: BLE001
+        log.warning("Signal track record unavailable for the paid route: %s", exc)
+    _signal_record_cache.update({"at": now, "value": value})
+    return value
+
+
 @app.route("/api/v1/signal", methods=["GET"])
 def api_signal():
     """
@@ -7693,6 +7749,10 @@ def api_signal():
     # вижда защо (двете цени, diff_pct, причина), а signals[] е само чистите.
     signals, rejected_signals, scan_info = _verify_signal_values(
         snapshot["signals"])
+    record = _signal_track_record_summary()
+    if record is not None:
+        record = dict(record, feed_url=request.host_url.rstrip("/")
+                      + "/public/signals/history")
     return _safe_jsonify({
         "service": "Kristo Intelligence — live agent signal",
         "price_usdc": KRISTO_SIGNAL_PRICE,
@@ -7702,8 +7762,12 @@ def api_signal():
         "signals": signals,
         "rejected_signals": rejected_signals,
         "scan_info": scan_info,
+        "track_record": record,
         "refresh_note": "Signals refresh automatically every 5 minutes.",
-        "disclaimer": "Not financial advice. Auto-execution is disabled "
+        "disclaimer": "Not financial advice. This engine's own measured record "
+                      "travels with this response in `track_record`, and it is a "
+                      "losing one: the misses are larger than the hits. Read it "
+                      "before acting on a signal. Auto-execution is disabled "
                       "(AGENT_AUTO_EXECUTE=false) — signals are informational.",
     })
 

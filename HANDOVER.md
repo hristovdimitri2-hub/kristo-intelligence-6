@@ -79,7 +79,7 @@ a Bulgarian word left in a document is a defect, not a style choice.
 | Retired receiver | `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` — **do not describe publicly why it was retired** (owner's instruction) |
 | Gas wallet | `0x5f6d3F20282A8958C6607D7E17dC8C83B1F0Ee74`, funded |
 | Demo payer | `0xE50c5212e8211639c49276dA190E248B83935763` — the only payer that has ever settled |
-| Test suite | **1473 collected** (1472 pass, 1 skipped) — re-run in full on 25.11.2026 to confirm the census route. `SUITE_TESTS_PASSED` and `SUITE_LAST_RUN` in `app/blueprints/discovery.py` and the README must agree with this number. |
+| Test suite | **1479 collected** (1478 pass, 1 skipped) — re-run in full on 25.11.2026 after the signal-record change. `SUITE_TESTS_PASSED` and `SUITE_LAST_RUN` in `app/blueprints/discovery.py` and the README must agree with this number. |
 | CDP Bazaar | **20 rows** on the live receiver: 12 HTTP + 8 MCP (7 correct single names + 1 duplicate `get_whale_flow#get_whale_flow`); **6 stale duplicate rows** still attributed to the retired receiver |
 | MCP Registry | `io.github.hristovdimitri2-hub/kristo-intelligence@6.3.1`, published 23.11 |
 | x402-list.com | `endpoint_count 7`, `status online`, compliance **A (14/14)**, `risk clean`, payment-ready until **2026-12-01**; FORTE verified tier **false** (see open tasks) |
@@ -185,7 +185,7 @@ for the stale table to be **updated** rather than silently dropped.
 
 ## Critical test files
 
-The suite is 1473 tests; these are the ones that guard the things that would
+The suite is 1479 tests; these are the ones that guard the things that would
 cost money or trust if they broke.
 
 | file | what it protects |
@@ -7421,6 +7421,64 @@ lost on the way", measure the layer he is not pointing at first — here,
 discovery and plumbing were both fine, and the money was simply absent. An
 absent market and a broken pipeline look identical from the dashboard and
 opposite from the ledger.
+
+---
+
+## §119. The engine's own record — and what it does to what we sell (25.11.2026)
+
+The signal engine has been scored against itself since 18.09, free to read at
+`/public/signals/history`, and nobody had read it beside the route that sells the
+signals. Read on 25.11.2026:
+
+| | |
+|---|---|
+| issued | **268** |
+| scored (≥24h, directional) | **97** |
+| hits | **1** |
+| misses | **12** |
+| flats (moved inside their own volatility threshold) | **84** |
+| unresolved | 33 |
+| average move on the one hit | **+3.86%** |
+| average move on a miss | **5.63% against** |
+| first checkpoint (n=30), 18.11 | **1.2%**, stored as `below_50_at_final_checkpoint` |
+| high-confidence band 0.6–0.8 | **1 right, 10 wrong** |
+
+**The defect was not the engine, it was the packaging.** The paid route
+(`/api/v1/signal`, $0.01) returned *action, confidence, price_usd, reasoning* and a
+disclaimer saying the output was informational. The free route beside it said the
+engine had been wrong ten times and right once, and that its losses were larger
+than its win. A buyer could act on the number we had already measured as
+unprofitable and could only find that out by looking somewhere else. Selling a
+stated market view is honest; selling it while the measurement sits one URL away
+is not.
+
+**Fixed the same day.** The paid response now carries `track_record`, built by the
+same `signal_track_record.build_feed()` that builds the public page, so the paid
+answer cannot disagree with the free record; fail-open, because a paid delivery
+must never be lost to a failed *disclosure*; cached 300s so a $0.01 route is not
+taxed by its own honesty. The record is also stated in the vitrine description
+(which is what CDP Bazaar records on the next paid call), in `README.md`, and in
+the MCP tool description in `server.json` — that last one inside the 134 bytes of
+headroom the registry's 4096-byte limit leaves.
+
+**What it does to the strategy.** Four candidates, each judged against a
+measurement rather than an opinion:
+
+- *Sell the feeds* — rejected. Lifetime external revenue is $0.054, and this
+  engine's own resolved record is 1 hit against 12 misses.
+- *Sell distribution* — rejected. 457 agents reached the paywall and 25
+  directories probe us daily; 0 of them paid.
+- *Sell the measurement* — in flight. The census has no competitor, because it
+  requires running a paywalled service for months and keeping the ledger.
+- *Sell judgement* (verification/evaluation of x402 sellers) — next, once the
+  census sells once. An ecosystem digest in the same week reports an operator
+  extending an *Evaluation* API; the category is being built now, and our
+  credential for it cannot be faked, because we published our own failure.
+
+**The rule this leaves behind:** before selling an output, score it — and put the
+score next to the price. A self-scoring record is the only credential in this
+market that cannot be bought, and the first honest thing we have found that a
+competitor cannot copy by writing better copy.
 
 
 
