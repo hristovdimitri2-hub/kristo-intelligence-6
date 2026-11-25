@@ -617,4 +617,60 @@ If a demand base rate is useful, tell me what shape fits your score and I will c
 Dimitri
 ```
 
+## Q. The public thread — the discovery measurement, ready to post (25.11.2026)
+
+**What this is, and what it is not.** Not outreach to a buyer: there is no
+recipient. It is the one channel this project has never touched — a public post —
+carrying only numbers we produced ourselves and already published in
+`docs/DISCOVERY_TRUTH.md`. It exists because the audience that reads x402 material
+(operators, the member companies' staff, the RWA and agentic-payments
+commentators) demonstrably reads *lists with numbers*, while our measured reports
+have reached almost nobody. Treat it as a test of that assumption, not as a plan:
+our own evidence says attention has never been the constraint, so nothing else in
+the strategy depends on it.
+
+**Why it is safe to post:** every figure is reproducible from
+`scripts/catalogue_truth_study.py`, the limits are stated inside the thread, and
+the last post publishes a mistake of ours rather than hiding it — the same
+discipline the paid products are sold on.
+
+**Dependency:** posting needs the owner's X account. The text below assumes
+nothing else.
+
+```
+1/ We measured whether x402 discovery tells the truth. 87,419 listed resources
+in CDP's public Bazaar. We read 10,000 and called 200 of them, unpaid, each
+using the method the row itself declares. The numbers, including one that was
+our own mistake.
+
+2/ Freshness: the median listing was last updated 5.95 days ago. 47% are older
+than a week. 29% are two to four weeks old. If that timestamp moves when a
+settlement touches a row, then most x402 listings have had no paid call in over
+a week.
+
+3/ Reachability: 95% answer a parsable 402 with an amount. One listing in twenty
+cannot be bought from at all - 404s, 400s, a 403, a 500, an unreachable host.
+
+4/ The one with a specification consequence. 0 of 10,000 rows carry a top-level
+method. 9,999 carry it only inside extensions.bazaar.info.input.method. 40%
+declare POST. An agent that reads the row and GETs the listed URL reaches 60% of
+the layer; the rest answer 405 - not broken, just never told how to call.
+
+5/ Truth: of the 190 that answered, 14.7% describe a different product than the
+endpoint now declares, and 3.7% advertise a different price. Worst case: a route
+listed at $1.49 that now charges $0.10. An agent budgeting from the listing
+overpays 15x.
+
+6/ Our first pass reported 21.5% of rows unreachable. That was our probe: 84 of
+the 200 rows declare POST, and a GET to a POST endpoint correctly returns 405.
+Corrected: 5.0%. We published both, because the mistake is the best argument for
+finding 4 - nothing in the row told a competent caller how to call.
+
+7/ Limits: one index, and the 10,000 rows are the first 50 pages of a
+recency-ordered listing - the freshest slice, so these figures are likely
+optimistic. Write-up and the script that reproduces every number:
+https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/DISCOVERY_TRUTH.md
+```
+
+
 
