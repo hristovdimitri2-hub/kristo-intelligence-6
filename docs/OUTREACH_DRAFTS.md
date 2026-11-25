@@ -1116,4 +1116,94 @@ Which leaves the question I have now asked twice without an answer: if I supply 
 Dimitri
 ```
 
+## X. Ernest — the band table, rebuilt from the public field, and dissolved (25.11.2026)
+
+**Where:** `ernest-earnordie@agentmail.to`.
+
+**What he sent.** He conceded `/mcp` completely ("you are right about /mcp and I drop
+it… no charge, no debt"), confirmed the working address, and delivered the band
+correction we asked for: a seven-band table over **34,886 routes** using payers as
+the denominator, concluding that the band which maximises recurring use is
+**$0.02–0.05** (49 calls/payer, $2.77 revenue/route), ~10× the $0.01–0.02 band and
+~90× the sub-cent band — and that this "independently confirms" our accounting. He
+also recorded the alias correction and withdrew the "$0.005 is the worst band"
+claim as an inference that did not survive the payer cut. Then the offer again:
+**$25 one-off / $15 a month** for a page ranking our routes against the field on
+payers, calls/payer and revenue/route, with the caveat that he has no payer
+*identity*.
+
+**Checked, and the three inputs are public.** Every row of CDP's listing carries
+`quality.l30DaysTotalCalls`, `quality.l30DaysUniquePayers` and
+`accepts[0].amount`. `_tools/band_table.py` pages the whole listing — **88,074 rows,
+74,713 with a Base USDC price and at least one call** — and rebuilds his table.
+**No purchase; the offer is declined on measurement, not on principle.**
+
+**Finding 1: the peak is not a band, it is one price point.**
+`$0.02` alone carries **2,242,922 calls — 59.6% of every call in the entire
+listing** — across 1,872 routes and 13,592 payers. Under the inclusive boundary
+those rows land in `$0.01–0.02` (154.0 calls/payer) and under the exclusive one in
+`$0.02–0.05` (144.6). **His 49 and our 154 are the same 1,872 rows**, and the
+headline moves a whole band on where the `>=` is written.
+
+**Finding 2, and it dissolves the question: no band is a market.** Grouping by host
+inside each price point:
+
+| price point | routes | calls | top host | share |
+|---|---|---|---|---|
+| $0.02 | 1,872 | 2,242,922 | `console.ax1.vc` (1 route) | **81.7%** (+11.3% for `ax1-new.vercel.app`) |
+| $0.005 | 6,016 | 897,903 | `www.api-xpay.com` (10 routes) | **82.1%** (+13.6% pocket.network) |
+| $0.01 | 4,204 | 196,133 | `api.zerion.io` (1 route) | 29.4% |
+| $0.003 | 46,845 | 61,842 | `agent-data.centorprat.workers.dev` | **44,507 of the 46,845 routes** |
+| $0.05 | 1,358 | 35,705 | `keyring-agent.blockchhub.link` | **72.4%** |
+
+The sub-cent band is one operator's catalogue; the "best" band is one operator's
+single route. **A band table over these rows measures a handful of large sellers'
+internal traffic, not what a price does to a buyer** — so the correction does not
+land where he aimed it: there is no band evidence to move our prices in either
+direction, and we would rather have that than a flattering answer.
+
+**Finding 3: the public field already places our own routes.** For
+`kristo-intelligence-api.onrender.com` the listing publishes **26 rows**, including
+the MCP aliases and the `#X#X` duplicates:
+
+| our row | price | CDP calls | CDP payers | our ledger, 30d |
+|---|---|---|---|---|
+| `/api/v1/signal` | $0.01 | 16 | 3 | 22 settled |
+| `/api/v1/verify-seller` | $0.05 | 14 | 3 | 19 |
+| `/api/sales` | $0.005 | 9 | 2 | 13 |
+| `/api/v1/whaleflow` | $0.01 | 7 | 2 | 14 |
+| `/api/bot-status` | $0.005 | 7 | 1 | 10 |
+| `/api/stats` | $0.005 | 6 | 2 | 9 |
+| `/api/arb/opportunities` | $0.005 | 3 | 1 | 5 |
+
+CDP is consistently **lower than our ledger and never higher** — the index sees a
+subset — and it publishes *counts* of unique payers but not *who* they are. That is
+the half that is genuinely not purchasable from either side, and it is why the
+product shape stays "the seller brings the log".
+
+**Subject:** `Re: /mcp — you're right, and here's the band correction you asked for`
+
+```
+Ernest,
+
+Thank you for dropping /mcp cleanly, and for the band table — it is the correction I asked for, and I checked it before answering. Two things came out of the check, and the second one dissolves the question.
+
+Your three inputs are public. Every row of the Bazaar listing carries quality.l30DaysTotalCalls, quality.l30DaysUniquePayers and accepts[0].amount, so I rebuilt your table myself over the whole listing: 88,074 rows, 74,713 of them with a Base USDC price and at least one call. That is why I am not buying the ranking — it is computable, and I computed it.
+
+First finding. The peak is not a band, it is one price point. $0.02 alone carries 2,242,922 calls — 59.6% of every call in the entire listing — across 1,872 routes and 13,592 payers. Put the boundary inclusively and those rows land in $0.01-0.02, at 154.0 calls per payer. Put it exclusively and they land in $0.02-0.05, at 144.6. Your 49 and my 154 are the same 1,872 rows. The headline moves a whole band on where the >= is written, which is the sign that it is not measuring a band.
+
+Second finding, and this is the one that matters. No band is a market. Grouping by host inside each price point: at $0.02, console.ax1.vc is 81.7% of the calls on a single route, with ax1-new.vercel.app another 11.3%. At $0.005, www.api-xpay.com is 82.1% on ten routes. At $0.05, keyring-agent.blockchhub.link is 72.4%. And at $0.003, agent-data.centorprat.workers.dev holds 44,507 of the 46,845 routes. The sub-cent band is one operator's catalogue; the band you recommend is one operator's single route. A table over those rows measures a few large sellers' internal traffic, not what a price does to a buyer.
+
+So the correction is real but it does not land where you aimed it. There is no band evidence to move my prices, in either direction, and I would rather have that answer than a flattering one. Your withdrawal of the "$0.005 is the worst band" claim stands, and so does my observation that the one route above $0.02 with the most calls that are not mine is not an anecdote — but it is a fact about my ledger, not a band effect.
+
+On the offer: the ranking is computable, and here is your own field applied to my rows. The listing publishes 26 rows for my host, including the MCP aliases and the #X#X duplicates. /api/v1/signal: 16 calls, 3 payers. /api/v1/verify-seller: 14 and 3. /api/sales: 9 and 2. /api/v1/whaleflow: 7 and 2. /api/bot-status: 7 and 1. /api/stats: 6 and 2. /api/arb/opportunities: 3 and 1. My ledger says 22, 19, 13, 14, 10, 9 and 5 settled calls for the same window. Your field is consistently lower than my books and never higher — it sees a subset — and it publishes how many unique payers there were without saying who they are.
+
+That last gap is the only part of this worth money, and neither of us can buy it from the other. You cannot tell whether those three payers on my signal row are mine or strangers. My ledger can. Which is why the shape stays what I said: the seller brings the log, and the measurement is produced from it.
+
+One question, so I can compare corpora rather than levels: your 34,886 routes against the listing's 88,074 — what is in your subset, or out of it? Your sub-cent band has 14,705 routes where I count 61,814, and that difference, not the boundary, is what makes our levels differ everywhere.
+
+Dimitri
+```
+
+
 

@@ -142,6 +142,15 @@ zero-dependency Python client (14 tests).
   hiding it by synthesising a pending response. Fixed to **v5** (`ccdfea67…`,
   11 → 13 tests), and our reader — run from the gist's own bytes — now returns
   **22 / 14 / 0 / 5** without their translation.
+- **Ernest conceded `/mcp` and sent the price-band correction; it dissolved under
+  measurement.** The three inputs he sells are public (`quality.l30DaysTotalCalls`,
+  `l30DaysUniquePayers`, `accepts[0].amount`), so the table was rebuilt over the
+  **whole listing — 88,074 rows** — and then grouped by host: **`$0.02` alone is
+  59.6% of every call in the listing, 81.7% of it one host on one route**, and the
+  sub-cent band is **one operator holding 44,507 of its 46,845 routes**. No band is
+  a market, so **no price move is justified in either direction**. The listing also
+  publishes 26 rows for our host, always *lower* than our ledger and never higher
+  (§131).
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already

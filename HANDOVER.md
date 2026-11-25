@@ -8194,6 +8194,61 @@ their adapter produces, reached without their translation. **Published in the gi
 API and match the bytes on disk, and **the reader was then run from the gist's own
 bytes** to prove the published pair works: 22 / 14 / 0 / 5.
 
+## §131. The price-band table is not a market, it is a handful of operators (25.11.2026)
+
+Ernest conceded `/mcp` completely — "you are right about /mcp and I drop it… no
+charge, no debt" — confirmed the working address, and delivered the band correction
+we had asked for: **34,886 routes**, payers as the denominator, concluding that the
+band which maximises recurring use is **$0.02–0.05** (49 calls/payer, $2.77 per
+route) and that this "independently confirms" our accounting. Reply sent as §X.
+
+**The three inputs he sells are public.** Every row of CDP's listing carries
+`quality.l30DaysTotalCalls`, `quality.l30DaysUniquePayers` and `accepts[0].amount`.
+`_tools/band_table.py` pages the **whole listing — 88,074 rows, 74,713 with a Base
+USDC price and at least one call** — and rebuilds the table for nothing.
+
+**Finding 1: the peak is a price point, not a band.** `$0.02` alone carries
+**2,242,922 calls, 59.6% of every call in the listing**, across 1,872 routes and
+13,592 payers. Inclusive boundary → those rows sit in `$0.01–0.02` at **154.0**
+calls/payer; exclusive → `$0.02–0.05` at **144.6**. **His 49 and our 154 are the
+same 1,872 rows**, and the headline moves a whole band on where the `>=` is written.
+
+**Finding 2, which dissolves the question: no band is a market.**
+
+| price point | routes | calls | top host | share |
+|---|---|---|---|---|
+| $0.02 | 1,872 | 2,242,922 | `console.ax1.vc` (1 route) | **81.7%** (+11.3% `ax1-new.vercel.app`) |
+| $0.005 | 6,016 | 897,903 | `www.api-xpay.com` (10 routes) | **82.1%** (+13.6% pocket.network) |
+| $0.01 | 4,204 | 196,133 | `api.zerion.io` (1 route) | 29.4% |
+| $0.003 | 46,845 | 61,842 | `agent-data.centorprat.workers.dev` | **44,507 of 46,845 routes** |
+| $0.05 | 1,358 | 35,705 | `keyring-agent.blockchhub.link` | **72.4%** |
+
+The sub-cent band is **one operator's catalogue**; the band he recommends is **one
+operator's single route**. A band table over these rows measures a few large
+sellers' internal traffic, not what a price does to a buyer. **So his correction
+does not land where he aimed it, and there is no band evidence to move our prices in
+either direction.** His withdrawal of "$0.005 is the worst band" stands; our own
+observation (the one route above `$0.02` with the most non-own calls) stands as a
+fact about our ledger, not as a band effect. **No price was changed, and none is
+justified by this.**
+
+**Finding 3: the field already places our routes, and it is consistently lower than
+our books.** The listing publishes **26 rows** for our host, aliases and `#X#X`
+duplicates included: signal 16 calls / 3 payers against **22 settled** in our ledger,
+verify-seller 14/3 against 19, sales 9/2 against 13, whaleflow 7/2 against 14,
+bot-status 7/1 against 10, stats 6/2 against 9, arb 3/1 against 5. **Never higher
+than our ledger, always lower** — the index sees a subset — and it publishes *how
+many* unique payers, never *who*. That last gap is the only part worth money and
+neither side can buy it from the other, which is why the shape stays "the seller
+brings the log".
+
+**The offer is declined again, on measurement rather than principle**, and the
+question that remains open is the one that would let the two corpora be compared at
+all: his 34,886 routes against the listing's 88,074 — what is in his subset, or out
+of it. His sub-cent band has 14,705 routes where the listing shows 61,814, and that
+difference, not the boundary, is what makes the levels differ everywhere.
+
+
 
 
 
