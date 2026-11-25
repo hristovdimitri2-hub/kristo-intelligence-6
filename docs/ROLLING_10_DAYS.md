@@ -106,7 +106,11 @@ zero-dependency Python client (14 tests).
 - **The MCP Bazaar row was refreshed** with a real $0.01 call (tx `0xbb454d92…`)
   after the log explained that two "failures" were the unready guard refusing
   before settlement, not a payment defect.
-- Messages sent: §N to Ernest, §O to Script Master Labs (HIVE402).
+- Messages sent: §N to Ernest, §O to Script Master Labs (HIVE402). Ernest replied
+  by pricing our own demand-side measurement back to us ($25 one-off / $15 a
+  month); §R declined it and named the boundary — repeat rate, paying-wallet share
+  and revenue per agent are not observable from outside a service — while keeping
+  the useful half: **the buyer of a demand-side ledger is the seller.**
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already

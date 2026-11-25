@@ -7842,6 +7842,47 @@ the third file is `vectors/settlement-pending/README.md`. His description was
 exact; our first look was at the wrong file. Recorded because the rule we hold
 others to — read the bytes, not the description — applies to our own reading too.
 
+## §125. Ernest priced the measurement back to us (25.11.2026)
+
+Ernest replied to §N with two offers: a one-time **7-day demand-side ledger of our
+own seven routes for $25**, or **$15/month** with weekly updates and a quarterly
+deep-dive. Five tracked items — daily unique agent visits per route, share of
+visits from paying wallets, repeat visitor rate (3+ visits), revenue per agent,
+route-specific conversion. He adds that he will send the first audit directly and
+that, if it is valuable, we can introduce him to other sellers.
+
+**The reply is §R, sent 25.11.** It declines the purchase and gives the reason
+that matters: **not one of his five metrics is observable from outside a
+service.** Repeat rate, paying-wallet share, revenue per agent and conversion live
+in the seller's request log. He can see our `402`s from outside; he cannot see who
+came back, who paid, or what they paid for. So the audit is either produced from
+data we hand over or it is a guess — and we already hold all five, for thirty days
+rather than seven, per route, plus the individual reading of all 135 payment
+attempts, which §N told him in the previous message.
+
+**What his email is actually worth, and it is not nothing:** he answered §N's
+first question by pricing it. **The buyer of a demand-side ledger is the seller** —
+the same conclusion we reached when the census was priced instead of given away,
+arriving now from the only other person in this market who sells measurement. Two
+independent confirmations of the product shape in one week.
+
+**Offered instead of a purchase:** he has the sellers or can find them; the
+measurement must come from each seller's own log; we have the method, the
+extraction and a published specimen. **No split was proposed on purpose** — we do
+not know yet whether those sellers exist, and naming a number before that is how
+the last six weeks were spent.
+
+**And a test that costs nothing, sent to him:** if he produces a seven-day ledger
+for our seven routes **without our logs**, we compare it line by line against our
+own count and publish the difference, whatever it shows. If it holds he has a case
+study written by a seller who can check him; if it does not, the boundary of his
+method is measured rather than asserted. The rule the whole project runs on, turned
+on a vendor.
+
+**Still open from §N:** whether the agents he sees look like buyers or monitors.
+That one decides whether the demand side is treated as a market at all.
+
+
 
 
 

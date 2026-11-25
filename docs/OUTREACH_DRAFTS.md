@@ -672,5 +672,69 @@ optimistic. Write-up and the script that reproduces every number:
 https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/DISCOVERY_TRUTH.md
 ```
 
+## R. Ernest — he priced the measurement back to us (25.11.2026)
+
+**Where:** reply in the same Gmail thread as §L2 and §N, to `ernest@nolimbsfighting.com`.
+
+**What he sent:** two offers — a one-time 7-day demand-side ledger of our own seven
+routes for **$25**, or **$15/month** with weekly updates and a quarterly deep-dive.
+Five tracked items: daily unique agent visits per route, share of visits from paying
+wallets, repeat visitor rate (3+ visits), revenue per agent, route-specific
+conversion. He adds that he will send the first audit directly and that, if it is
+valuable, we can introduce him to other sellers.
+
+**Why the answer is no, and what the no is worth.** We already hold all five, for
+thirty days rather than seven, per route, plus the individual reading of all 135
+payment attempts; §N told him so in the previous message. More decisive than that:
+**not one of his five metrics is observable from outside a service.** Repeat rate,
+paying-wallet share, revenue per agent and conversion live in the seller's request
+log. He can see our 402s; he cannot see who came back or who paid. So the audit is
+either produced from data we hand over or it is a guess — and paying for the
+formatting of our own logs is the one purchase that cannot teach us anything.
+
+**What is worth keeping from his email:** he answered §N's first question by
+pricing it. **The buyer of a demand-side ledger is the seller** — the same
+conclusion we reached when the census was priced instead of given away. That is a
+second, independent confirmation of the product shape, from the only other person
+in this market who sells measurement.
+
+**The shape offered instead of a purchase:** he has the sellers or can find them;
+the measurement must come from each seller's own log; we have the method, the
+extraction and a published specimen. No split is proposed here on purpose — we do
+not yet know whether the sellers exist, and naming a number before that is how the
+last six weeks were spent.
+
+**And a test that costs nothing:** if he can produce a seven-day ledger for our
+seven routes without our logs, we compare it line by line with our own count and
+publish the difference, whatever it shows. If it holds, he has a case study
+written by a seller who can check him; if it does not, the boundary of his method
+is measured rather than asserted. This is the same rule the whole project runs on,
+turned on a vendor.
+
+**Subject:** `Re: measurement ledger - proposal`
+
+```
+Ernest,
+
+Two answers: one is a no, the other is an offer.
+
+The no. I will not buy the ledger, and not because of the price. I already have all five metrics you list, for thirty days rather than seven, per route, and I read all 135 payment attempts one by one instead of counting them. The free sample of the shape is at https://kristo-intelligence-api.onrender.com/api/v1/demand-census/sample and the live document is the $0.25 route next to it. Paying $25 for a seven-day version of it would be buying back my own logs.
+
+There is a structural reason, and it is the part worth your time. Not one of your five metrics is observable from outside a service. Repeat visitor rate, share of visits from paying wallets, revenue per agent and per-route conversion all live in the seller's request log. You can see our 402s from outside; you cannot see who came back, who paid, or what they paid for. So an audit of my seven routes is either produced from data I give you, or it is a guess. That is not a criticism of your method, it is the boundary of it — and I would rather say so now than discover it after paying.
+
+Now the useful half of your email. You priced it, and that answers the question I asked you last time: the buyer of a demand-side ledger is the seller. That matches what I see from my side, and it is the second time this week the same shape has come back to me from someone else's numbers.
+
+So, no purchase, but a different shape if you want it. You sell this to sellers. The measurement has to come from each seller's own log. I have the method, the extraction and a published specimen; you have, or can find, the sellers. If you bring them and I supply the measurement, we can talk about how the money splits. I am deliberately not proposing numbers here, because I do not know yet whether those sellers exist, and I have spent enough of this month on products nobody buys.
+
+One test that costs you nothing. Produce a seven-day ledger for my seven routes without my logs, and I will compare it line by line against my own count and publish the difference, whatever it shows. If it holds up, you have a case study written by a seller who can check you. If it does not, we will both know where the boundary is. I would rather find that out this way than by paying for it.
+
+The offer of one free copy of the full census stands, if you want to see the document before judging it.
+
+And the question from my last message is still open, because it decides what I do next: do the agents you see look like buyers or like monitors? My own count says monitors — 457 agents reached a paywall and twelve payments came from nine wallets that are not mine, five and a half cents lifetime. If you see the same, say so plainly and I will stop treating the demand side as a market. If you see something else, tell me what, because then one of us is measuring the wrong thing.
+
+Dimitri
+```
+
+
 
 
