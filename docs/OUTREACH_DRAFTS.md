@@ -653,6 +653,75 @@ If a demand base rate is useful, tell me what shape fits your score and I will c
 Dimitri
 ```
 
+## P2. x402r — the failure population their arbitration layer will actually see (25.11.2026)
+
+**Where:** `hi@x402r.org` (the address their site publishes).
+
+**Why the letter changes shape for them.** Hosannaith sells a reliability score, so
+the census is an input to a score. x402r sells **refunds and arbitration**, so what
+matters to them is not how many agents arrive but **what goes wrong when one pays**:
+the shape of the dispute population. We hold 135 recorded payment attempts with their
+outcomes, read one at a time, and the class inside it that a refund protocol has to
+be designed for is the one where the seller is wrong — a re-presented signed
+authorization answered as a refusal after the payment landed. Our own spec artifact
+got exactly that case wrong until a second reader caught it, which makes it a case we
+can describe from the inside rather than a hypothetical.
+
+**Subject:** `Your refund protocol needs the failure population — measured at one live x402 paywall`
+
+```
+Hello,
+
+You build refunds and arbitration for x402. I run one of the endpoints your protocol would sit in front of, and I have read every payment attempt it has ever recorded, one at a time. That gives me the one number your design needs and cannot get from outside: what actually goes wrong when an agent pays.
+
+The service has run on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents.
+
+Then the part that is about you. I hold 135 recorded payment attempts with their outcomes, and I read all of them. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs. So the dispute population an arbitration layer should be designed for is small, and more usefully it is specific. The one class in it that is genuinely dangerous is not a refusal at all: the buyer re-presents the same signed authorization after a lost response, the facilitator answers "authorization already used" with no hash, and a seller that treats that code as terminal tells a buyer their payment failed when the payment landed. That is a refund claim with the seller in the wrong, produced by a few lines of code, and it is the case my own test artifact got wrong until a second reader caught it.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first, so you can judge it before buying: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this were an input to what you build than a competing product: you have the protocol and the settlement path, I have the ledger, and the ledger only exists because someone ran a paywall for months and kept the attempts. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 97 scored calls.
+
+If the failure population is useful to your design, tell me what shape fits and I will cut it that way. If it is not, say so and I will stop treating arbitration as a buyer.
+
+Dimitri
+```
+
+## P3. Tanilo x402 Guard — the base rate a spend cap is set without (25.11.2026)
+
+**Where:** `joe@tanilo.io` (the address their docs page publishes).
+
+**Why the letter changes shape for them.** Tanilo checks **price and spend caps
+before a payment goes out**, which means their product assumes agents spend. Our
+measured behaviour is the opposite: 457 distinct agents reached one live paywall in
+thirty days and twelve payments happened, nine of them from wallets that are not ours.
+The useful thing we can hand a spend-cap product is not a price list — the catalogue
+already has prices — but the **frequency and size of actual spend**, and the
+observation that a cap derived from catalogue prices will almost never fire, because
+the binding constraint is whether an agent pays at all.
+
+**Subject:** `A spend cap needs the price agents actually pay — measured at one live x402 paywall`
+
+```
+Joe,
+
+You build a guard that checks price and spend caps before an agent pays. I run one of the endpoints it would check, and I have the number a spend cap is usually set without: what agents actually pay, and how often they pay at all.
+
+The service has run on Base since August: seven paid routes across four price points, $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents.
+
+That second sentence is the one I would put in front of your product. A spend cap is a defence against a runaway agent, and the measured behaviour is the opposite of runaway: 457 distinct agents arrived at one paywall in thirty days, and twelve payments happened. A cap derived from catalogue prices will almost never fire, because the binding constraint is not how much an agent is allowed to spend — it is whether it pays anything at all. If your guard's value is measured by what it blocks, that base rate changes what it is worth; if its value is measured by what it lets through safely, it needs the same number from the other side.
+
+I also hold the failure side: 135 recorded payment attempts with their outcomes, read one at a time. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs. So a spend-cap product is not currently being defeated by buyers; it is being asked to guard a road with almost no traffic on it.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first, so you can judge it before buying: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this were an input to your guard than a competing product; you have the pre-payment path and the price checks, I have the ledger, and the ledger only exists because someone ran a paywall for months and kept the attempts. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 97 scored calls.
+
+If the spend base rate is useful, tell me what shape fits and I will cut it that way. If it is not, say so and I will stop treating pre-payment guards as a buyer.
+
+Dimitri
+```
+
 ## Q. The public thread — the discovery measurement, ready to post (25.11.2026)
 
 **What this is, and what it is not.** Not outreach to a buyer: there is no
@@ -1298,6 +1367,184 @@ We have added both points to OUR_OWN_READING.md under "What this does not show" 
 What we checked today, so that the rest of the row is not taken on trust. The four files at af6af9ee149f: v5 fixture 46,890 bytes / ccdfea67502fd220…, reader 13,234 / 8980ceaab81d…, OUR_OWN_READING.md 4,335 / b251b84a350d…, CROSS_RUN_RESULT.md 5,038 / 4630fe747ccb…. Our reader against vectors.json of fingerprint 94b07672bfd9 (61,084 bytes) gives 22 / 14 / 0 / 5. The 13 tests pass here as they pass there. Your sentence about our own check of your run is exact, and so is the part that matters most to us: the three outside were our defect and not a fault in the set.
 
 Nothing in the "What this run does not show" paragraph is wrong, and it is the reason the row is worth having.
+
+Dimitri
+```
+
+## Z. The Domain Discovery working group — joining the list, and the measurement report (25.11.2026)
+
+**Why this channel.** `NEXT_ACTIONS.md` §4 has carried "send the discovery-truth
+report to the Domain Discovery working group and join its mailing list" as the first
+thing that must happen, and it had no destination until now. The group is the x402
+Foundation's **Domain Discovery** working group: repo
+`github.com/x402-foundation/wg-domain-discovery` (issues enabled, Discussions not),
+public Slack `#wg-domain-discovery`, bi-weekly Monday calls with public notes, and a
+mailing list at `Domain-Discovery@lists.x402.org` whose own settings say
+subscriptions need no approval and any member can post (first posts are moderated).
+**Membership of the foundation is not required for any of it.** The repo already
+carries outsider measurements — #1 (a Bazaar index measurement) and #15 (three
+production discovery failure modes) — so a measurement report is the expected shape
+of a contribution there, and ours was posted as **issue #19**.
+
+**Subscribe message** — to `Domain-Discovery+subscribe@lists.x402.org`:
+
+**Subject:** `Subscribe`
+
+```
+(Requesting subscription to the Domain Discovery working group mailing list.)
+```
+
+## Z2. The working-group report as posted (issue #19, 25.11.2026)
+
+**Where:** `github.com/x402-foundation/wg-domain-discovery/issues/19`, opened
+25 November 2026, 16:42 UTC, 5 412 bytes, read back through the API.
+
+**What it carries, and what it does not.** It is `docs/DISCOVERY_TRUTH.md` cut to
+the working group's own shape: the measured findings, the method, the limits, and
+**our own probe error published with the finding it strengthens** (21.5% → 5.0%
+once each row's declared method was used). It claims nothing about the group's
+roadmap, asks for three specific things, and offers to re-run the measurement on a
+schedule and publish the delta.
+
+```
+I run a live x402 service on Base (seven paid routes, $0.005–$0.05, plus one $0.25 dataset) and I am not a member of the foundation. I read this working group's repo because the discovery layer is what decides whether a service like mine is reachable at all, and I measured the layer rather than describing it. Numbers below, method at the end, and one correction of my own error, published rather than quietly fixed.
+
+What was measured. CDP's public Bazaar listing, GET https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources, read on 25 November 2026: 87,419 rows reported (a later pass the same day already saw 88,074, so the field moves), of which the first 10,000 were read (50 pages of 200) and 200 were probed live, unpaid, once each, using the method the row itself declares.
+
+1. The listing does not say how to call what it lists
+
+GET 6,003 rows (60.0%), POST 3,992 (39.9%), PUT 4, absent 1. Rows carrying a top-level method: 0 of 10,000. The method exists only inside extensions.bazaar.info.input.method (9,999 rows). A row's type is http for 9,999 rows and mcp for 1, and carries no other routing hint.
+
+So an agent that reads the row and issues the obvious GET reaches 60% of the layer. The other 40% answer 405 Method Not Allowed — not because those endpoints are broken, but because the listing did not say how to call them.
+
+2. My own probe got it wrong first, and that is the argument for section 1
+
+My first pass probed every row with GET and counted 405 as a dead listing. It reported 21.5% of rows unreachable, which was a better story and a false one: 84 of the 200 probed rows declare POST, and a GET to a POST-only endpoint correctly answers 405. Re-probing with each row's declared method moved the failure rate from 21.5% to 5.0%.
+
+I put the correction in the report because it is the finding's own best evidence: nothing in the row told the probe how to call the endpoint, so a competent caller got the method wrong four times in five attempts — precisely the trap the 40% figure describes.
+
+3. Reachability: one listing in twenty cannot be bought from
+
+Of the 200 probed rows, 190 (95.0%) returned a parsable 402 with an amount. The other 10: HTTP 400 (4), 404 (2), 500 (1), 403 (1), unreachable (1), and one 402 whose challenge neither parser understood (counted as a failure, not guessed at).
+
+4. Truth: 14.7% misdescribe the product, 3.7% misstate the price
+
+Of the 190 rows that answered with a parsable 402, comparing the live challenge against what the catalogue stored: description differs in 28 of 190 (14.7%), price differs in 7 of 190 (3.7%), and for 4 rows both differ. Two shapes are damaging:
+
+aizamon.com/x402/v1/bot-fuel-day — catalogue 1,490,000 atomic ($1.49), live 100,000 ($0.10), row age 29 days.
+probeline.io/v1/implants/peri-implant — catalogue "peri-implant clinical status, 150,000", live "dental implant specifications, 50,000", row age 8 days.
+
+An agent budgeting from the listing is quoted fifteen times the real price in the first case; in the second, the URL now sells a different product while the catalogue still advertises the old one.
+
+5. Freshness: 47% of rows are more than a week old
+
+lastUpdated across the 10,000 rows read: 15.7% under 1 day, 24.0% 1-3 days, 13.4% 3-7 days, 17.8% 7-14 days, 28.8% 14-30 days, median 5.95 days, oldest 209.7.
+
+If lastUpdated moves when a settlement touches the row — which is what our own row does — then most x402 listings have had no paid call in over a week. That is a demand-side finding arriving from the catalogue's own timestamps.
+
+6. What I would ask the working group to consider
+
+1. Surface the call method at the row level, or require it. A listing that tells an agent where to pay but not how to call is 40% unusable by the obvious route. This is a small schema change with a measured payoff.
+2. Publish row freshness as a discovery field. lastUpdated already exists internally; exposing it lets an agent prefer a recently validated row over a four-week-old one.
+3. State a conformance expectation for indexers. A row is a snapshot of the last settled echo, so it cannot follow a seller's current declaration. Either indexers re-read on change, or the specification should say plainly that a catalogue row is a historical record and not a live claim.
+
+Limits, stated
+
+- One index (CDP's), not every catalogue.
+- The 10,000 rows read are the first 50 pages, and the listing appears ordered by recency, so this is the freshest slice of the listing: the freshness and quality figures are likely optimistic, not exaggerated.
+- 200 live probes state a rate to roughly ±5 percentage points; they do not characterise any individual seller.
+- 402 challenges were parsed from both the response body and the PAYMENT-REQUIRED header.
+
+Full report, with the per-row outcomes and the method: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/DISCOVERY_TRUTH.md
+
+I am happy to re-run this on a schedule and post the delta here if the group finds it useful, and to say plainly when a measurement of mine is wrong — as in section 2.
+```
+
+## Z3. The Domain Discovery mailing list — the report, and the three asks (25.11.2026)
+
+**What happened when we joined.** The subscribe request to
+`Domain-Discovery+subscribe@lists.x402.org` was answered within two minutes with a
+confirmation that Groups.io completes **by reply**; the reply was sent from the same
+mailbox and three welcome messages arrived (the group, its parent `main@`, and the
+x402 workspace), plus **an invitation to the working group's recurring meeting —
+public, every second Monday 10:00 America/Chicago, next 30 November, Zoom via LFX,
+with the public minutes document attached**. So the channel is real, open, and now
+has us on it; the meeting is a place our measurements can be said out loud, and the
+minutes are the record.
+
+**Why a list message on top of the issue.** The issue is the artifact; the list is
+how the group's members learn it exists, and the group's own settings say first posts
+are held for moderator approval, which is fine — it means a human reads it before it
+lands. The message is deliberately shorter than the issue, carries the three numbers
+with a specification consequence, states the limits, and offers the delta.
+
+**Subject:** `What the Bazaar listing actually says — 0 of 10,000 rows carry a call method, 14.7% misdescribe the product`
+
+```
+Hello,
+
+I joined this list today because the discovery layer decides whether a service like mine is reachable at all. I run a live x402 service on Base (seven paid routes, $0.005-$0.05, plus a $0.25 dataset) and I measured CDP's public Bazaar listing rather than describing it. The full report is posted as an issue in the working group's repo:
+
+https://github.com/x402-foundation/wg-domain-discovery/issues/19
+
+Three numbers from it, because they are the ones with a specification consequence.
+
+First: 0 of the first 10,000 rows carry a top-level "method". The method exists only inside extensions.bazaar.info.input.method, and across those rows it is 60.0% GET and 39.9% POST. An agent that reads the row and issues the obvious GET reaches 60% of the layer; the rest answer 405, not because those endpoints are broken but because the listing did not say how to call them.
+
+Second: 5.0% of 200 live-probed rows cannot be bought from at all — dead URLs, server errors, or a 402 whose challenge does not parse. My own first pass reported 21.5% and was wrong: it probed every row with GET and counted 405 as dead. I left that error in the report, because nothing in the row told the probe how to call the endpoint, so a competent caller got the method wrong four times in five attempts.
+
+Third: of the 190 rows that answered with a parsable challenge, 14.7% misdescribe the product and 3.7% misstate the price. One row quotes fifteen times the real price: 1,490,000 atomic units ($1.49) in the catalogue against 100,000 ($0.10) live, on a row 29 days old.
+
+I would ask for three things: surface the call method at the row level; publish row freshness as a discovery field; and state plainly whether a catalogue row is a live claim or a historical record of the last settled echo.
+
+Limits, stated so the numbers are not read as more than they are: one index (CDP's), the first 50 pages only — and the listing appears ordered by recency, so this is the freshest slice and the quality figures are likely optimistic rather than exaggerated — and 200 probes give a rate to about five percentage points, not a verdict on any individual seller.
+
+I will re-run this on a schedule and post the delta here if that is useful.
+
+Dimitri Hristov
+```
+
+## AA. Glama — the record their checklist wants cannot be created from our side (25.11.2026)
+
+**Where:** `support@glama.ai`, cc `frank@glama.ai`.
+
+**Why an email and not the Discord.** The `/mcp/servers/` record has blocked
+`punkpeye/awesome-mcp-servers` PR #13219 since 30 August, and our question to the
+maintainer (which listing counts for the checklist — the connector or the servers
+record?) has been unanswered since 24.11. The Discord message in §K cannot be posted
+from here (the account is not approved to send). Email is a channel we have, it is
+the one Glama answered from in September, and Frank is both Glama's founder and the
+maintainer who set the requirement — so copying him keeps the two halves of the
+answer from drifting apart.
+
+**Measured today, so the letter carries no stale numbers.** The connector page
+returns 200: ownership verified, Status Healthy, uptime 100.0% over 24 hours, last
+tested 2026-11-25 16:06, transport Streamable HTTP, **TDQS A 4.4/5.0, scored
+2026-11-25 08:35 across 7 tools**. The servers path for us **redirects (302) to the
+registry index** (`https://glama.ai/mcp/servers`, 638 KB fetched, the string
+"kristo" absent), and `/mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence`
+returns **404**. Both Add Server paths reject with "already listed as a hosted
+connector".
+
+**Subject:** `A hosted connector cannot have a /mcp/servers/ record — which listing counts for the badge?`
+
+```
+Hello,
+
+Our server has been listed on Glama since September as a hosted connector, and there is one thing about it I cannot resolve from any page you publish. I am writing because it has kept a listing in someone else's directory blocked for three months.
+
+What our listing is today, read from your pages this afternoon:
+
+- Connector: https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence — ownership verified, Status Healthy, uptime 100.0% over the last 24 hours, last tested 2026-11-25 16:06, transport Streamable HTTP, TDQS A 4.4/5.0, scored 2026-11-25 08:35 across 7 tools.
+- The servers path for us does not exist. https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 redirects (302) to https://glama.ai/mcp/servers, the registry index — I fetched 638 KB of it and the string "kristo" does not appear once. https://glama.ai/mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence returns 404.
+- Both Add Server paths reject the submission with "already listed as a hosted connector", so the record cannot be created from our side.
+- The badge URL given to new submitters, .../mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg, therefore renders "This MCP server is not listed on Glama".
+
+Why I am asking rather than guessing: the `quality` field is computed only for /mcp/servers/ records, so our score is incomplete in exactly the way the awesome-mcp-servers checklist asks about, and PR punkpeye/awesome-mcp-servers#13219 (open since 30 August 2026) cannot merge while that checklist expects the badge or the record. I asked the maintainer which listing counts and have had no answer, so I am asking the people who can actually create or refuse the record.
+
+The ask in one line: can our connector be given a /mcp/servers/ record, or can the badge for hosted connectors point at the connector path? If a hosted connector simply cannot have such a record, say so plainly and I will take that answer back to the maintainer instead of leaving the PR open for a fourth month.
+
+One thing for the record, so this is not read as a complaint: the TDQS breakdown on our connector is accurate and useful, and the two errors found in that entry earlier were mine, not yours.
 
 Dimitri
 ```

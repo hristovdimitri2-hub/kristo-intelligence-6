@@ -8288,6 +8288,81 @@ fixture's bytes are unchanged, so the revision he ran and re-checked stays valid
 **Reply sent** as `holistis/agent-receipt-verify#127` (opened 16:34Z, 3 538 bytes, read
 back through the API); draft in `docs/OUTREACH_DRAFTS.md` §Y.
 
+## §133. Four channels opened in one evening, and one number that was mis-assigned (25.11.2026)
+
+The owner asked for tasks to be ticked off rather than described, so this section is
+what was actually sent, joined, posted and measured — and the one line of our own
+paperwork that turned out to be wrong.
+
+**1. §P is finished, and each letter was cut for its own product.** The trust-layer
+list had three published addresses; two were still unsent. Both went on 25.11.2026:
+**x402r** (`hi@x402r.org`, §P2) and **Tanilo** (`joe@tanilo.io`, §P3). The letters are
+not the Hosannaith one with a new greeting. x402r sells refunds and arbitration, so
+what it needs from us is not how many agents arrive but **what goes wrong when one
+pays** — the dispute population, which we hold as 135 recorded attempts with their
+outcomes, and inside it the one dangerous class: a buyer re-presenting a signed
+authorization after a lost response, answered "already used" with no hash, where a
+seller that treats the code as terminal refuses a payment that landed. Tanilo sells a
+**pre-payment price and spend-cap check**, which assumes agents spend; the measured
+behaviour is the opposite (457 agents, 12 payments), so a cap derived from catalogue
+prices will almost never fire. **No bounce twenty minutes later**; the only bounces in
+the mailbox since 25.11 are the six known ones from the dead `nolimbsfighting.com`
+address.
+
+**2. The Domain Discovery working group is now a channel, not a plan.** This was item
+1 of `NEXT_ACTIONS.md` §4 and had no destination. It does now:
+
+- **Subscribed.** `Domain-Discovery+subscribe@lists.x402.org` answered in two minutes
+  with a confirmation that Groups.io completes **by reply** — so confirming needs a
+  sender that can reply, which `_tools/confirm_subscription.py` is. Three welcome
+  messages arrived (the group, its parent `main@`, the workspace) and, unasked, **an
+  invitation to the group's recurring meeting: public, every second Monday 10:00
+  America/Chicago — next 30 November, 18:00 EET — Zoom via LFX, with the public
+  minutes document attached.** No membership fee is involved at any point.
+- **Posted the measurement** as `x402-foundation/wg-domain-discovery#19` (5 412 bytes,
+  read back). The repo already carries outsider measurements (#1, #15), Discussions are
+  not enabled there, and the spec repo's own measurement issue (#4284, dynamic route
+  templates) is a **different** finding from ours — 0 of 10,000 rows carrying a
+  top-level method is not the same defect as `:city`-style templates.
+- **Posted it to the list** as §Z3 — shorter than the issue, three numbers with a
+  specification consequence, the limits, and an offer to publish the delta. The group's
+  settings say first posts are moderated, which is the outcome we want: a human reads it
+  before 95 members do.
+
+**3. Glama was asked by email, which is the first time the question reached the party
+that can answer it.** The `/mcp/servers/` record has blocked `awesome-mcp-servers`
+PR #13219 since 30 August, and the maintainer has not answered which listing counts.
+§AA went to `support@glama.ai`, cc `frank@glama.ai` (Glama's founder *and* the
+maintainer who set the requirement), carrying numbers measured the same afternoon: the
+connector page returns 200 with **TDQS A 4.4/5.0, scored 2026-11-25 08:35 across 7
+tools**, uptime 100.0%, last tested 16:06; the servers path for us **302-redirects to
+the registry index** (638 KB fetched, the string "kristo" absent); the connector-shaped
+servers path returns **404**; both Add Server paths refuse with "already listed as a
+hosted connector". The earlier Discord route (§K) is still the only thing we cannot do,
+because the account is not approved to send.
+
+**4. Olas was measured, and the line it carried was wrong.** The marketplace line said
+"Olas Mech — 14 323 settlements measured". Those 14,323 calls are
+**`cluster-protocol`'s**, from the §108 table, and had been mis-assigned to Olas in
+`NEXT_ACTIONS.md`. What Olas's own pages say on 25.11: **Base is supported and so is
+USDC** (`mech-client` lists Base as a marketplace chain, `marketplace.olas.network/base/ai-agents`
+resolves, anyone can run a mech with `pip install mech-server` → `mech setup -c base`,
+Python 3.10/3.11 + Docker, **no OLAS needed for USDC and no published staking
+minimum**). Three things stand against it: **Mech's own 402 is `olas-prepay` escrow,
+not x402** (no `X-PAYMENT`, no EIP-3009, no facilitator); a "tool" is a Python function
+inside the mech, not a passthrough to our URL; and the demand is thin and concentrated —
+**12,333,115 requests, 10,379,011 deliveries, 8 daily active mech agents, of which
+11,920,962 requests are Predict alone**, at 0.001 USDC per request. **Deferred with
+numbers, not dropped**: the gross at a thousand requests a month is about a dollar, and
+the smallest real step, if it is ever taken, is `mech setup -c base` on a throwaway
+wallet. (This also supersedes §112's "8.8 million agent-to-agent transactions".)
+
+**5. Two tools came out of the evening, both read-only.** `_tools/recent_mail.py` lists
+the newest messages in the mailbox (needed because `check_mail_delivery.py` answers only
+fixed questions; it also had to be made UTF-8-safe after dying on an emoji in a subject
+line under the cp1251 console), and `_tools/confirm_subscription.py` confirms a
+Groups.io subscription by replying to its unique address.
+
 
 
 

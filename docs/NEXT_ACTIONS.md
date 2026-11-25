@@ -42,10 +42,25 @@ Ordered plan, cheapest first:
    of listings cannot serve a request at all, 14.7% misdescribe the product and
    3.7% misstate the price, with a 15× overquote as the worst case. That, not a
    docs typo, is what the Domain Discovery working group is for.
+   **Done 25.11.2026:** posted as `x402-foundation/wg-domain-discovery#19` (5 412
+   bytes, read back through the API) and sent to the group's list as §Z3. The repo
+   already carries outsider measurements (#1, #15), so this is its expected shape;
+   GitHub Discussions is not enabled there, and the spec repo's own measurement
+   issue #4284 is about **dynamic route templates** (5.3% unusable), a different
+   finding from ours.
 2. **Join the Domain Discovery working group's public mailing list and Slack**
    (free) — the only place our measurements could shape a specification.
-3. **§P: the trust-layer vendors** (sent 25.11.2026 to Hosannaith, the closest
-   fit; the other named addresses are in the draft).
+   **Mailing list done 25.11.2026:** subscription confirmed (Groups.io confirms by
+   reply), three welcome messages, and **an invitation to the group's recurring
+   public meeting — every second Monday, 10:00 America/Chicago, next 30 November
+   (18:00 EET), Zoom via LFX**, with the public minutes document. Slack is the one
+   step left and it needs a Slack account.
+3. **§P: the trust-layer vendors** — **all three published addresses are now sent**
+   (25.11.2026): Hosannaith `cameron@hosannaith.com` (§P), x402r `hi@x402r.org`
+   (§P2, the failure population an arbitration layer will see), Tanilo
+   `joe@tanilo.io` (§P3, the base rate a spend cap is set without). No bounce 20
+   minutes after sending. Teppi, zauth, PEAC Protocol, OMATrust, AffixIO and Elara
+   publish no address; §O to HIVE402 waits for a reply.
 4. **Unchanged:** the census stays at $0.25, and December-vs-November is the
    first sellable change.
 
@@ -340,8 +355,25 @@ Our product is neither — a $0.005 lookup that an agent finds in a catalogue ha
 no reason to be called twice. More listings cannot fix that. An integration can.
 
 **Two places where a hire happens on Base:**
-- **Virtuals ACP** — offerings with escrow, `Virtual-Protocol/acp-cli`.
-- **Olas Mech** — 14 323 settlements measured, `t.me/olaschat`.
+- **Virtuals ACP** — offerings with escrow, `Virtual-Protocol/acp-cli`. The one question
+  that decides whether we can be there at all — can a hosted HTTP service be an ACP
+  offering, or does it need an agent wrapper? — is `Virtual-Protocol/acp-cli#111`, open
+  since 24.11, still unanswered.
+- **Olas Mech** — measured 25.11 from Olas's own pages, and the answer changed the line.
+  **Base is supported** and so is USDC: `mech-client` lists Base as a marketplace chain,
+  `marketplace.olas.network/base/ai-agents` resolves, and anyone can run a mech
+  (`pip install mech-server` → `mech setup -c base`, Python 3.10/3.11 + Docker, **no OLAS
+  needed for USDC payment and no published staking minimum**). Three things stand against
+  it: **Mech's own 402 is `olas-prepay` escrow, not x402** (no `X-PAYMENT`, no EIP-3009,
+  no facilitator); a "tool" is a Python function inside the mech, not a passthrough to our
+  URL; and the demand is thin and concentrated — **12,333,115 requests, 10,379,011
+  deliveries, 8 daily active mech agents, of which 11,920,962 requests are Predict alone**,
+  at 0.001 USDC per request (fee 15% per a third party's contract read). **Deferred with
+  numbers rather than dropped:** the build is small, but at a thousand requests a month
+  the gross is about a dollar. The smallest real step, if we ever take it, is
+  `mech setup -c base` on a throwaway wallet.
+  **Attribution correction:** the "14 323 settlements" this line used to carry are
+  `cluster-protocol`'s calls in the §108 table, not Olas's.
 
 ---
 
@@ -553,9 +585,9 @@ more than the sale — which argues for a higher price per job or a subscription
 | 2c | **Seller-side demand ledger as a service** | Product shape confirmed three times in one week (§118, §R, §127): the buyer of demand-side measurement is a seller, and what they buy is due diligence, not a forecast. We have the method, the extraction and a live dataset; **the channel is what we do not have** — which is what Ernest has. §U asked him to name his share. Two paths, no decision taken: supply him and take a cut, or sell directly to the few sellers we can reach. |
 | 3 | x402-list | Manual review; the FORTE tier cannot be bought yet (§101). |
 | 3b | **CDP ticket #881** | Ernest answered it publicly: there is **no delisting mechanism**, so a row moves only when a paid call re-indexes it, or it decays. His proposed "redirect the old /mcp URLs" does not apply — measured, the retired rows are on the **same host and path** as the live ones and differ only by the payTo they were indexed under (§128). The six can only age out. What DID change: `/mcp` now passes Coinbase's preflight 25/25, so the eight live MCP rows can be re-validated instead of decaying on a failed check. |
-| 4 | Glama | The `/mcp/servers/` record — Discord message ready in `OUTREACH_DRAFTS.md` §K. |
+| 4 | Glama | The `/mcp/servers/` record — **asked directly by email on 25.11.2026** (`support@glama.ai`, cc `frank@glama.ai`, draft §AA) with the facts measured that afternoon; the Discord message in §K cannot be posted from here (the account is not approved to send). |
 | 5 | Glama | Tool Count 4/5 — decision taken: do not chase it. Removing response fields to buy 0.1 of a third-party score is not worth changing a paid endpoint. |
-| 6 | Glama, the `/mcp/servers/` record | The connector is listed and rated A; the `/mcp/servers/` record does not exist and cannot be created from our side (both Add Server paths reject "already listed as a hosted connector"). `quality` is computed only for `/mcp/servers/`, so `awesome-mcp-servers` PR #13219 cannot merge. Discord message drafted in `OUTREACH_DRAFTS.md` §K; ticket #135407945 open since September. |
+| 6 | Glama, the `/mcp/servers/` record | The connector is listed and rated A; the `/mcp/servers/` record does not exist and cannot be created from our side (both Add Server paths reject "already listed as a hosted connector"). `quality` is computed only for `/mcp/servers/`, so `awesome-mcp-servers` PR #13219 cannot merge. **Re-measured 25.11.2026:** the connector page returns 200 with **TDQS A 4.4/5.0 scored that morning across 7 tools**, uptime 100%; `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` **302-redirects to the registry index** (638 KB fetched, no "kristo" in it) and `/mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence` returns **404**. That was put in front of Glama by email (§AA); ticket #135407945 open since September. |
 
 ---
 

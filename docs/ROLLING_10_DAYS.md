@@ -183,6 +183,25 @@ zero-dependency Python client (14 tests).
   earlier reader bound the payment by the transfer's `from` instead of the
   payment's own payer, which made the binding unfalsifiable. Both limits were added
   to `OUR_OWN_READING.md` and the gist republished (HEAD `6d1fe258a0fc`).
+- **Four channels opened in one evening, and one of our own lines corrected** (§133).
+  The last two §P letters went out, **cut for each product rather than renamed**:
+  x402r's arbitration layer needs the failure population (135 attempts read, and the
+  dangerous class is a payment that landed but was answered as refused), and Tanilo's
+  spend-cap guard needs the base rate of actual spend (457 agents arrived, 12 payments
+  happened, so a cap built from catalogue prices almost never fires). No bounce. The
+  **x402 Foundation's Domain Discovery working group** stopped being a plan and became
+  channels: the mailing-list subscription is **confirmed**, a **public meeting
+  invitation arrived — next 30 November, 18:00 EET, Zoom via LFX, with the public
+  minutes** — the discovery measurement went in as `wg-domain-discovery#19` and to the
+  list, and the repo already carries outsider measurements, so that is the expected
+  shape. **Glama was asked by email for the first time in three months**, with the
+  facts measured the same afternoon (connector 200, **TDQS A 4.4/5.0 scored that morning
+  across 7 tools**; the servers path for us 302s to the registry index; the
+  connector-shaped servers path 404s). And **Olas was measured, which corrected our own
+  line**: the "14 323 settlements" are `cluster-protocol`'s calls, not Olas's — Olas does
+  support Base and USDC with no OLAS needed, but Mech's 402 is `olas-prepay` escrow
+  rather than x402, and demand is 8 daily active agents with **11,920,962 of 12,333,115
+  requests from Predict alone**. Deferred with numbers.
 
 ---
 
@@ -191,11 +210,13 @@ zero-dependency Python client (14 tests).
 | idea | state | what it waits for |
 |---|---|---|
 | Demand census at $0.25 | live, zero sales so far | one buyer; December-vs-November delta on 20.12 |
-| Discovery-truth report | measured, written, committed | sending it to the Domain Discovery working group |
+| Discovery-truth report | **posted 25.11** as `wg-domain-discovery#19` and to the group's list; subscription confirmed, meeting 30.11 18:00 EET | the group's response to the three asks; joining the Slack (needs an account) |
 | Listing-truth monitoring as a product | identified, unoccupied by the nine vendors | a price decision by the owner |
 | Marx / Engels programme | requested 25.11 | stage 1 delivered; stages 2–3 are reading and synthesis |
-| §O to HIVE402, §P to Hosannaith | sent 25.11 | a reply; check 28.11 |
-| Remaining §P recipients | drafted with addresses | sending to x402r and Tanilo |
+| §O to HIVE402, §P to Hosannaith, x402r, Tanilo | **all sent** | replies; check 28.11 |
+| §P vendors with no published address | Teppi, zauth, PEAC, OMATrust, AffixIO, Elara | a route to any of them, if one exists |
+| Glama `/mcp/servers/` record | **asked by email 25.11** with measured facts; blocks PR #13219 since 30.08 | Glama's answer: create the record, point the badge at the connector, or refuse plainly |
+| Olas Mech | **measured 25.11 and deferred with numbers** (Base + USDC, no OLAS, but `olas-prepay` not x402; 8 daily active agents, 96.7% of requests one agent) | an owner decision to build a mech; nothing from us now |
 | Explee lead API | measured, priced | the owner creating the API key (+$30 free credit) |
 | §Q public thread | written, ready | the owner's X account |
 | Base Batches | open question | whether to apply, and how to frame numbers that fail a screen |
