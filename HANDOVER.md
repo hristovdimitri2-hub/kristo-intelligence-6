@@ -7810,6 +7810,12 @@ owner) for the cases, the two rails, the payer binding and the durable
 one-hash-one-delivery claim; `github.com/holistis` for the vector set, the
 adapter, the reference answers and the recorded output.
 
+**Announced where the conversation was.** A comment was posted on his PR #123
+(`holistis/agent-receipt-verify#123`, comment `7157146852`): the numbers, the
+date, the fingerprint, the link, and the caveat that the run is not independent.
+The posted body was read back through the API and compared byte for byte with the
+file that was sent — identical, so the em dashes and the hashes survived the wire.
+
 **The rewording commit, identified.** The "one small commit on `main`" he
 mentioned is **PR #123**, merged at 08:22:45Z on 25.11 as
 `3ca08999c545e6ed524bbb1380c0c2b53beb9149`: three files, four lines added, four
