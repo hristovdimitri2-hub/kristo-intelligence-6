@@ -818,6 +818,86 @@ One question, and it is worth more to me than the ledger. For the whale category
 Dimitri
 ```
 
+## T. Ernest — the real per-path ledger, and his conclusion survives it (25.11.2026)
 
+**Where:** same thread, `ernest@nolimbsfighting.com`. Sent after §S, because §S said
+the per-path split could not be produced from here and it turned out it could.
 
+**How it became measurable.** The `DATABASE_URL` in the Render env is the internal
+host and does not resolve outside Render. `GET /v1/postgres/{id}/connection-info`
+returns an **external** connection string for the same instance
+(`…oregon-postgres.render.com`), so the read-only queries ran after all. Nothing was
+written; the session opened with `default_transaction_read_only=on`; `ts` is `text`
+in production and needs `::timestamptz`.
 
+**What production says — settled calls, last 30 days, own key separated:**
+
+| path | all | not ours |
+|---|---|---|
+| `/api/v1/signal` | 22 | 3 |
+| `/api/v1/verify-seller` | 19 | 4 |
+| `/api/v1/whaleflow` | 14 | 1 |
+| `/api/sales` | 13 | 1 |
+| `/api/bot-status` | 10 | 0 |
+| `/api/stats` | 9 | 1 |
+| `/api/arb/opportunities` | 5 | 0 |
+| `/api/v1/trading-signals` | 3 | 1 |
+| `/api/v1/whale-alerts` | 2 | 0 |
+| `/api/v1/seller-check` | 2 | 0 |
+| `/api/v1/onchain-sales` | 2 | 0 |
+| `/api/v1/arbitrage-opportunities` | 2 | 0 |
+
+**His counts are not reproducible under any window** — 7, 14, 21, 30, 45 and 60 days
+all give different numbers from his. But six of his rows (the four aliases plus
+`stats` and `bot-status`, 2 each) are **exactly the smoke-test sweep of 10–11
+November**, one paid call per path on each of those two days. So the index behind
+his benchmark is reading our test traffic, and on the two rows that carry his
+recommendation (signal 8, verify-seller 4) it matches nothing we can produce, in
+either direction: **it undercounts unevenly.** That is a defect in a product he
+sells, and he was told.
+
+**And his conclusion survives our own books, which is the part that matters.**
+`verify-seller` is the **top route by calls that are not ours** — 4 of 19, `$0.04`
+of its `$0.95` — and took **two of the three `external`-class payments** in the
+window; `signal` took one; every other route at most one. So "this is the one route
+with real external interest" is what the ledger says too. **§L2's decision to drop
+it was wrong on the earlier read**, and right about the price: it is already `$0.05`.
+
+**The scale, stated so neither side over-reads it:** the whole 30-day total from
+anyone who is not us is **11 payments, `$0.072`, six addresses**. The demand is real
+and it is cents — so "flagship" is a positioning decision, not a demand finding.
+
+**Subject:** `Re: Your 7-route benchmark - which design a buyer would pay for`
+
+```
+Ernest,
+
+A correction to my last message, in your favour, and then the numbers.
+
+I said I could not produce the per-path split from where I am. That was true of the address in my environment, and I found the other one, so here it is — settled calls in the last 30 days, my own key separated:
+
+  /api/v1/signal                    22 all    3 not mine
+  /api/v1/verify-seller             19        4
+  /api/v1/whaleflow                 14        1
+  /api/sales                        13        1
+  /api/bot-status                   10        0
+  /api/stats                         9        1
+  /api/arb/opportunities             5        0
+  /api/v1/trading-signals            3        1
+  /api/v1/whale-alerts               2        0
+  /api/v1/seller-check               2        0
+  /api/v1/onchain-sales              2        0
+  /api/v1/arbitrage-opportunities    2        0
+
+Two things follow.
+
+First, your counts. I could not reproduce them under any window: 7, 14, 21, 30, 45 and 60 days all give different numbers from yours. But six of your rows — the four aliases plus stats and bot-status, two each — are exactly my own smoke-test sweep of 10 and 11 November, one paid call per path on each of those two days. So the index behind your benchmark is reading my test traffic, which is what I suspected. And on the two rows that carry your recommendation, signal at 8 and verify-seller at 4, it matches nothing I can produce in either direction, so it is undercounting unevenly. You may want to know that before you sell a ledger built on it.
+
+Second, and more important: your conclusion survives my numbers. verify-seller is the top route in my ledger by calls that are not mine — 4 of 19, and $0.04 of its $0.95 — and it took two of the three external-class payments in the window. Signal took one. Every other route took at most one. So "this is the one route with real external interest" is what my own books say as well, and last week I told you I was dropping it. I was wrong to drop it on that earlier read, and right that the price was never the problem: it is already $0.05.
+
+The honest scale, so neither of us over-reads it: the whole thirty-day total from anyone who is not me is 11 payments, $0.072, from six addresses. The demand is real and it is cents. Flagship is a positioning decision; no ledger will change that part.
+
+The offer stands as before.
+
+Dimitri
+```

@@ -140,6 +140,14 @@ for the stale table to be **updated** rather than silently dropped.
    `2026-11-26T15:06Z`. The env-var token has no expiry check, so
    `/.well-known/x402list.txt` keeps serving a stale proof until the variable is
    removed and the service redeployed (§93, §101).
+5b. **verify-seller is the one route with external demand, and it earns cents.**
+   §L2 dropped it as a business on Ernest's earlier read; our own production ledger
+   reverses that (§126/§T): 4 of its 19 settled calls in thirty days are not ours,
+   `$0.04` of its `$0.95`, and it took two of the three external-class payments.
+   Everything else took at most one, and the whole thirty-day non-our total is 11
+   payments / `$0.072` / six addresses. **Decision needed only if we act on it** —
+   positioning it as the flagship is free; a price above `$0.05` is the owner's
+   call, and no price fixes a demand measured in cents.
 6. **Abdellah / fixture 1.** He re-ran the 36-vector set against v3 and found the
    last two divergences (the authorization rail had no nonce binding). v4 closes
    them and is published as `3d76d803…` (37 862 bytes, 11 tests). **His draft-3
@@ -7923,8 +7931,8 @@ tx `0xcdcdcdcd…`, `payment_guards` rows dated 13.09. A true statement about a 
 database and a false one about the business, one message away from being sent. The
 production ledger could not be reached instead: the `DATABASE_URL` in the Render
 env is the **internal** host (`dpg-daj8ue0jo6nc73ctsh70-a`), which does not
-resolve from outside. The per-path external split therefore remains **unmeasured**,
-and it is the one number that would settle the verify-seller question.
+resolve from outside. The per-path external split therefore looked **unmeasurable**,
+and §S said so to him — which was wrong, and corrected the same hour (§T below).
 
 **The contradiction with §L2 is named in the reply rather than smoothed over.** On
 24.11 we told him we would stop treating verify-seller as a business, on his own
@@ -7938,6 +7946,50 @@ that is the narrow thing we have.
 sniperx payer-classified, or raw settlements on their `payTo`? One incumbent
 answered would teach us something about this market that cannot be measured from
 inside our own logs.
+
+### The split was measurable after all, and it changes one of our decisions (§T)
+
+`GET /v1/postgres/{id}/connection-info` returns an **external** connection string
+for the same instance (`…oregon-postgres.render.com`), so the read-only query ran
+minutes after §S claimed it could not. Session opened with
+`default_transaction_read_only=on`; `ts` is `text` and needs `::timestamptz`.
+
+**Settled calls, last 30 days, own key separated:**
+
+| path | all | not ours |
+|---|---|---|
+| `/api/v1/signal` | 22 | 3 |
+| `/api/v1/verify-seller` | 19 | 4 |
+| `/api/v1/whaleflow` | 14 | 1 |
+| `/api/sales` | 13 | 1 |
+| `/api/bot-status` | 10 | 0 |
+| `/api/stats` | 9 | 1 |
+| `/api/arb/opportunities` | 5 | 0 |
+| `/api/v1/trading-signals` | 3 | 1 |
+| the four remaining alias paths | 2 each | 0 |
+
+**His counts are not reproducible under any window** (7/14/21/30/45/60 days all
+differ), but six of his rows — the four aliases plus `stats` and `bot-status`, 2
+each — are **exactly the smoke-test sweep of 10–11 November**, one paid call per
+path on each day. So the index behind his benchmark reads our test traffic, and on
+the two rows that carry his recommendation (signal 8, verify-seller 4) it matches
+nothing we can produce in either direction: **it undercounts unevenly.** He was
+told; that is a defect in a product he sells.
+
+**And his conclusion survives our books.** `verify-seller` is the top route by
+calls that are not ours — 4 of 19, `$0.04` of its `$0.95` — and took **two of the
+three `external`-class payments** in the window; `signal` took one, everything else
+at most one. **§L2's decision to drop verify-seller as a business was wrong**, taken
+on his earlier read; the corrected position is that it is the one route where
+external demand actually appears — and that the demand is still **11 payments,
+`$0.072`, six addresses** across all routes in thirty days. Real, and cents.
+"Flagship" is therefore a positioning decision, not a demand finding, and the price
+is already `$0.05`, not the `$0.01` his category section used to argue against.
+
+**Sent as §T**, opening with the correction rather than burying it: the split was
+measurable, here it is, your counts are our tests, your conclusion is right, and I
+was wrong to drop the route.
+
 
 
 
