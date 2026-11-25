@@ -170,6 +170,19 @@ zero-dependency Python client (14 tests).
   the same gist, with the artifact's bytes unmoved. The fingerprint had been read
   in §95 as an unreadable private-gist address; it is the SHA-256 of the vector
   set itself.
+- **He then listed our own reading as a second row, and two sentences in it could
+  not be read back.** His `RESULTS.md` (file commit `cc986dd2`, PR #126) now carries
+  our reader's result — **22 / 14 / 0 / 5**, matching — with our limits as written.
+  The rest of the row was verified from his bytes: the four files of revision
+  `af6af9ee149f` hash to what it claims and the 13 tests pass here too. Two
+  corrections went back as **issue #127**: *"an earlier state of this reader"* was
+  never published (all four gist revisions that carry it serve the same 13 234
+  bytes) and the published reader cannot run against v4 at all
+  (`TypeError … 'recovering'`), so **19 / 14 / 3 / 5 is reported, not
+  reproducible**; and the outside count was **5 before it was 3**, because an
+  earlier reader bound the payment by the transfer's `from` instead of the
+  payment's own payer, which made the binding unfalsifiable. Both limits were added
+  to `OUR_OWN_READING.md` and the gist republished (HEAD `6d1fe258a0fc`).
 
 ---
 
@@ -186,7 +199,7 @@ zero-dependency Python client (14 tests).
 | Explee lead API | measured, priced | the owner creating the API key (+$30 free credit) |
 | §Q public thread | written, ready | the owner's X account |
 | Base Batches | open question | whether to apply, and how to frame numbers that fail a screen |
-| Fixture 1 / OmniDome | v4 answered his draft-3 set: 22 / 14 / 0, reproduced here | nothing from us; his rewording PR #123 is merged |
+| Fixture 1 / OmniDome | our own reader is a checked second row in his `RESULTS.md` (22 / 14 / 0 / 5); two wording corrections sent | him accepting or declining the wording (issue #127); nothing else from us |
 
 ## Must happen next
 
