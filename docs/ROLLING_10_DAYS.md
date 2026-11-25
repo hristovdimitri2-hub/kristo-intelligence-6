@@ -110,7 +110,10 @@ zero-dependency Python client (14 tests).
   by pricing our own demand-side measurement back to us ($25 one-off / $15 a
   month); §R declined it and named the boundary — repeat rate, paying-wallet share
   and revenue per agent are not observable from outside a service — while keeping
-  the useful half: **the buyer of a demand-side ledger is the seller.**
+  the useful half: **the buyer of a demand-side ledger is the seller.** His free
+  benchmark then arrived; §S checked it — the route table and prices are exact,
+  but the call counts are our own test traffic (**131 of 180 lifetime payments are
+  our own key**), which is the same blindness every index has, his included.
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already

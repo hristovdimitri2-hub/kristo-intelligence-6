@@ -7882,6 +7882,64 @@ on a vendor.
 **Still open from §N:** whether the agents he sees look like buyers or monitors.
 That one decides whether the demand side is treated as a market at all.
 
+## §126. Ernest's benchmark: the table is exact, the counts are our own tests (25.11.2026)
+
+The free benchmark from §L2 arrived — nine paths with live prices, a
+category-by-category comparison against named incumbents with 30-day call counts,
+and a verdict: **six of seven routes are commodity categories with the slot
+taken; verify-seller is the one differentiated route and should be the flagship at
+a price above $0.01.** Reply sent as §S.
+
+**What was checked, and what held.** All nine paths were asked unpaid: every one
+answers a live `402` with exactly the price he lists and the same `payTo`
+(`0xB4Fc…C844`). His table is exact. Two things did not hold:
+
+- **Nine paths, seven routes.** `whale-alerts`, `trading-signals`, `seller-check`
+  and `onchain-sales` are aliases, so verify-seller and seller-check are one
+  product counted in two rows (4 + 2 calls).
+- **He contradicts himself on the two prices that carry his recommendation.** His
+  header says `$0.05` for both; his category section says `$0.01`. They are
+  **`$0.05` live**, so "not $0.01, that reads as a toy" is advice about a price we
+  do not have — the route already sits five to ten times above the signal prices
+  he compares it with.
+
+**The finding that matters, and it is general.** Our published census: **180
+payments lifetime, 131 of them our own key ($1.785 of $1.983), 12 external
+($0.054, 9 wallets)**. So 22 calls in thirty days across our routes is the size of
+our own testing and the samplers, not of buyers — and the distribution he reports
+(two calls on six different routes) is what a smoke test looks like. **No index
+can separate a seller's test traffic from a buyer's**, so his incumbents' 139, 113
+and 5,538 calls are unclassified in exactly the same way: "you are invisible at 2
+against 5,538" may be comparing their test harness with ours. That is the best
+argument for the ledger he sells and the clearest statement of its boundary — the
+classification has to come from the seller's log, which is what §R said and what
+his numbers now demonstrate. The paid offer stays declined; the supply-partnership
+shape stays open.
+
+**A near-miss worth recording.** To answer him properly the per-path split was
+computed from `data/dashboard_state.db` and came back clean and decisive: *24
+settled calls, all on `/api/stats`*. It was a **test ledger** — payers `0xaaaa…`,
+tx `0xcdcdcdcd…`, `payment_guards` rows dated 13.09. A true statement about a test
+database and a false one about the business, one message away from being sent. The
+production ledger could not be reached instead: the `DATABASE_URL` in the Render
+env is the **internal** host (`dpg-daj8ue0jo6nc73ctsh70-a`), which does not
+resolve from outside. The per-path external split therefore remains **unmeasured**,
+and it is the one number that would settle the verify-seller question.
+
+**The contradiction with §L2 is named in the reply rather than smoothed over.** On
+24.11 we told him we would stop treating verify-seller as a business, on his own
+earlier analysis; he now recommends the opposite. Both cannot be right. What is
+true either way: the pre-payment *check* space is not empty — the spec repo's own
+third-party list names nine trust vendors, at least two of which sell pre-payment
+checks — while **payment-history verification is what nobody else sells**, and
+that is the narrow thing we have.
+
+**One question sent back to him, worth more than the ledger:** is the 5,538 on
+sniperx payer-classified, or raw settlements on their `payTo`? One incumbent
+answered would teach us something about this market that cannot be measured from
+inside our own logs.
+
+
 
 
 

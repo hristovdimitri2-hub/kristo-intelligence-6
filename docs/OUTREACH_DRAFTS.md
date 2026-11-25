@@ -735,6 +735,89 @@ And the question from my last message is still open, because it decides what I d
 Dimitri
 ```
 
+## S. Ernest — the benchmark, checked against our own ledger (25.11.2026)
+
+**Where:** reply in the same Gmail thread, to `ernest@nolimbsfighting.com`.
+
+**What he sent:** the free benchmark he owed from §L2 — nine paths with live
+prices, a category-by-category comparison against named incumbents with 30-day
+call counts, and the verdict that **six of seven routes are commodity categories
+with the slot taken**, while **verify-seller / seller-check is the only
+differentiated route** and should become the flagship at a price above $0.01.
+
+**Checked before replying, and this is the part that matters:**
+
+1. **His route table is exact.** All nine paths answer a live `402` with exactly
+   the price he lists and the same `payTo` (`0xB4Fc…C844`) — verified by asking
+   each one unpaid. Nine paths, but **seven routes**: `whale-alerts`,
+   `trading-signals`, `seller-check` and `onchain-sales` are aliases, so
+   verify-seller and seller-check are the same product counted in two rows (4 + 2
+   calls) and the seven-route framing is right while the arithmetic is split.
+2. **He contradicts himself on the two prices that carry his recommendation.** In
+   his header both are `$0.05`; in the category section both are `$0.01`. They are
+   **$0.05 live**. So the advice "not $0.01 — that reads as a toy" is aimed at a
+   price we do not have: the route is already five to ten times the incumbents he
+   compares it with.
+3. **His call counts cannot be external demand.** Our published census (24.11):
+   **180 payments lifetime, of which 131 — $1.785 of $1.983 — are our own key**,
+   and **12 are external ($0.054, 9 wallets)**. So 22 calls in a 30-day window
+   across our routes is the size of our own testing and the samplers, not of
+   buyers; the spread he reports — 2 calls on six different routes — is the
+   signature of a smoke test that hits each route once or twice.
+4. **The generalisation, which is the useful thing in the whole email:** no index
+   can separate a seller's test traffic from a buyer's. His incumbents' 139, 113
+   and 5,538 calls are unclassified in exactly the same way, so "you are invisible
+   at 2 against 5,538" may be comparing their test harness with ours. **This is
+   the best demonstration of his own product's boundary**: the classification he
+   needs is precisely what cannot be seen from outside — which is what §R said,
+   and it now has his own numbers as evidence.
+
+**Not measured, and said so:** the per-path external split would settle the
+recommendation properly, and it cannot be produced from this machine — the
+`DATABASE_URL` in the Render env is the **internal** host
+(`dpg-daj8ue0jo6nc73ctsh70-a`, DNS does not resolve from outside), and the local
+`data/dashboard_state.db` is a **test** ledger (payers `0xaaaa…`, tx `0xcdcd…`,
+`payment_guards` rows from 13.09), so it is not evidence about demand. Recorded
+because it was nearly used as evidence: the first per-route split this session
+computed came from that test file and said "24 settled calls, all on `/api/stats`"
+— a true statement about a test database and a false one about the business.
+
+**The contradiction with §L2, named rather than smoothed over.** On 24.11 we told
+him we would **stop treating verify-seller as a business**, acting on his earlier
+analysis (platforms absorb the cost, or run a sanctions screen). He now recommends
+making it the flagship. Both cannot be right, and the tie-breaker is the per-path
+external split above. What is true either way: the **pre-payment check** space is
+not empty — the spec repo's own third-party list names nine trust vendors, and at
+least two sell pre-payment checks (Tanilo's price/spend-cap guard, Hosannaith's
+reliability oracle). What nobody else sells is **payment-history** verification,
+which is the narrow thing we actually have.
+
+**Subject:** `Re: Your 7-route benchmark - which design a buyer would pay for`
+
+```
+Ernest,
+
+Thank you, and I checked it before answering, because that is the only way a benchmark is worth anything to either of us.
+
+What holds: your route table is exact. I asked all nine paths myself, unpaid, and every one answers a live 402 with exactly the price you list, all to the same payTo. Two corrections, both small and both load-bearing.
+
+One: the nine paths are seven routes. whale-alerts, trading-signals, seller-check and onchain-sales are aliases, so verify-seller and seller-check are one product counted in two rows. Your seven-route framing is right; the per-row counts split one route in two.
+
+Two: on the two routes that carry your recommendation your own email disagrees with itself. Your header says $0.05 for both; your category section says $0.01. They are $0.05, verified live just now. So "not $0.01, that reads as a toy" is advice about a price I do not have. verify-seller is already five to ten times the signal prices you compare it against.
+
+Now the counts, which is where I think your benchmark has a hole you can fix. My published census says: 180 payments lifetime, of which 131 — $1.785 of $1.983 — are my own key, and 12 are external, from nine wallets, $0.054. So 22 calls in thirty days across my routes is the size of my own testing and the samplers, not of buyers. The distribution you report gives it away: two calls on six different routes is what a smoke test looks like, not what demand looks like.
+
+And that is not a criticism of you, it is the thing your own product exists to fix. No index can separate a seller's test traffic from a buyer's. Your incumbents' 139, 113 and 5,538 calls are unclassified in exactly the same way mine are, so "you are invisible at 2 against 5,538" may be comparing their test harness with my test harness. Your benchmark is the best argument I have seen for the ledger you are selling — and also the clearest statement of its boundary: the classification has to come from the seller's log, which is what I said last time and what your numbers now demonstrate.
+
+So the paid offer stays declined, for the reason I gave, and the other shape stays open: bring a seller who will hand over a log, and I will supply the measurement.
+
+On the recommendation itself, one thing to say plainly. On 24 November I told you I would stop treating verify-seller as a business, acting on your earlier read — platforms absorb the cost or run a sanctions screen. You are now telling me it is the one route worth being the flagship. Both cannot be right. What would settle it is the per-path external split, and I cannot produce it from where I am: the ledger address in my environment is internal-only. What I can say is that lifetime external is twelve payments across all routes, so whatever the split is, the absolute numbers are small, and "flagship" would be a positioning decision rather than a demand finding. For what it is worth, the pre-payment check space is not empty either — the spec repository's own third-party list names nine trust vendors, and at least two sell pre-payment checks. What nobody else sells is payment-history verification. That is the narrow thing I have.
+
+One question, and it is worth more to me than the ledger. For the whale category: is the 5,538 on sniperx payer-classified, or is it raw settlements on their payTo? If you can answer that for one incumbent, I learn something about this market I cannot measure from inside my own logs.
+
+Dimitri
+```
+
 
 
 

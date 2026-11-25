@@ -548,7 +548,7 @@ more than the sale — which argues for a higher price per job or a subscription
 | # | Who | What |
 |---|---|---|
 | 1 | Abdellah | **Done, from our side (25.11):** his draft-3 set (`94b07672bfd9…`) was run through his own adapter against v4 (`3d76d803…`) and reproduced 22 + 14 + 0, byte-identical to his recorded output but for the filename line. Result published as `CROSS_RUN_RESULT.md` in the fixture-1 gist (§124). His rewording is PR #123 (`3ca08999c5…`, merged 25.11 08:22:45Z), fingerprint untouched. |
-| 2 | Ernest | The CDP ticket is filed by us (`coinbase/cdp-sdk#881`, 24.11, awaiting reply). His current thread is the pricing reply: §R declined the purchase on 25.11 and left two questions with him — can he produce a ledger from outside without our logs, and are the agents he sees buyers or monitors? |
+| 2 | Ernest | The CDP ticket is filed by us (`coinbase/cdp-sdk#881`, 24.11, awaiting reply). §R declined his $25/$15 ledger offer on 25.11; his free benchmark came back and **§S checked it**: route table and prices exact, but the call counts are our own test traffic (131 of 180 lifetime payments are our own key). Two questions are with him — is the sniperx 5,538 payer-classified, and are the agents he sees buyers or monitors? |
 | 3 | x402-list | Manual review; the FORTE tier cannot be bought yet (§101). |
 | 4 | Glama | The `/mcp/servers/` record — Discord message ready in `OUTREACH_DRAFTS.md` §K. |
 | 5 | Glama | Tool Count 4/5 — decision taken: do not chase it. Removing response fields to buy 0.1 of a third-party score is not worth changing a paid endpoint. |
