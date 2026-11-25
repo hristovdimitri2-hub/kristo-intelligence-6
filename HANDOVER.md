@@ -7829,6 +7829,20 @@ repository for confirmation **on chain**, so the sentence now says "verified".
 reports OK, and the fingerprint is still `94b07672bfd9…` — which is what made the
 re-run above possible against exactly the input he named.
 
+**Every one of those claims was then checked against the raw bytes, and all four
+hold.** `main` HEAD is the merge commit itself (`3ca08999c5…`, 08:22:45Z); the
+patch is three files at +1/−1 each — `vectors/settlement-pending/README.md`,
+`cross-run/README.md`, `kruisrun.py`; the phrase "the revision run here" now has
+**zero** occurrences in all three; `cross-run/README.md` line 10 reads "It was not
+verified by it."; and `vectors.json` still hashes to `94b07672bfd9…` with
+`SHA256SUMS` agreeing line for line. **One catch, and it was ours:** the first
+check looked for the third wording in the *top-level* `README.md`, counted zero
+occurrences, and nearly reported a discrepancy in his message. The patch showed
+the third file is `vectors/settlement-pending/README.md`. His description was
+exact; our first look was at the wrong file. Recorded because the rule we hold
+others to — read the bytes, not the description — applies to our own reading too.
+
+
 
 
 
