@@ -8339,7 +8339,11 @@ tools**, uptime 100.0%, last tested 16:06; the servers path for us **302-redirec
 the registry index** (638 KB fetched, the string "kristo" absent); the connector-shaped
 servers path returns **404**; both Add Server paths refuse with "already listed as a
 hosted connector". The earlier Discord route (§K) is still the only thing we cannot do,
-because the account is not approved to send.
+because the account is not approved to send. **Glama's Intercom answered in seven
+minutes** — ticket **#160097735**, "Submitted — we'll pick up your ticket soon" — which
+is an acknowledgement with a number, not an answer, and is recorded as such: the
+question that has blocked the PR since August is now inside their queue instead of on
+our side of it.
 
 **4. Olas was measured, and the line it carried was wrong.** The marketplace line said
 "Olas Mech — 14 323 settlements measured". Those 14,323 calls are
