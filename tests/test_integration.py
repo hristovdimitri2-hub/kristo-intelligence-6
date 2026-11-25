@@ -278,13 +278,21 @@ def test_x402_payment_proof_rejects_forged_tx(client, monkeypatch):
 
 
 def test_mcp_info_endpoint(client):
-    """Human/machine summary pointing at the SSE transport."""
+    """Human/machine summary pointing at the SSE transport.
+
+    25.11.2026: GET /mcp is a PAID resource now. Coinbase's endpoint validator
+    probes an indexed URL with a bare GET and requires 402 ("it needs to return
+    402 for unauthenticated requests to be discoverable"), and the eight
+    `/mcp#tool#tool` Bazaar rows are indexed against this path. The same document
+    is served free at /mcp.json, which is what this test asserts instead.
+    """
     resp = client.get("/mcp")
-    assert resp.status_code == 200
-    b = resp.get_json()
-    assert b["mcp"]["transport"] == "sse"
-    assert b["mcp"]["sse_endpoint"].endswith("/mcp/sse")
-    assert "Claude Desktop" in b["clients"]
+    assert resp.status_code == 402
+    assert resp.headers.get("PAYMENT-REQUIRED")
+
+    free = client.get("/mcp.json")
+    assert free.status_code == 200
+    assert free.get_json()["tools"], "the free manifest must still list the tools"
 
 
 def test_agents_json_serves_valid_json(client):

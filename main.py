@@ -169,6 +169,28 @@ X402_PRICE_MAP = {
     # browsing for it. Promotion into the vitrine stays open once it has been
     # paid for at least once.
     "/api/v1/demand-census": KRISTO_DEMAND_CENSUS_PRICE,
+    # The MCP transport's GET (25.11.2026), and the reason is a measured
+    # discovery defect rather than a new product.
+    #
+    # Coinbase's own endpoint validator — POST api.cdp.coinbase.com
+    # /platform/v2/x402/validate — probes an indexed resource with a bare GET and
+    # requires HTTP 402. Measured on 25.11: all eleven HTTP routes pass all 25
+    # checks, and `/mcp` failed at `returns_402` ("Endpoint returns 200 OK — it
+    # needs to return 402 for unauthenticated requests to be discoverable"),
+    # which skips the other 24. That matters because the eight `/mcp#tool#tool`
+    # rows in the Bazaar decay when they fail the periodic check.
+    #
+    # So GET /mcp is now the payable resource it was always indexed as: it
+    # answers the canonical challenge, and a paid GET delivers the MCP summary
+    # document the handler already returned. The same document stays FREE at
+    # /mcp.json, so nothing that reads it is worse off — and the price is the
+    # cheapest existing route price, not a new number.
+    #
+    # The POST half is deliberately NOT paywalled: specs/transports-v2/mcp.md
+    # requires an unpaid tool call to answer with a tool result carrying
+    # `isError: true` and the PaymentRequired payload, NOT with an HTTP 402. See
+    # the carve-out in `_x402_paywall`.
+    "/mcp": KRISTO_STATS_PRICE,
 }
 
 # ── Buyer-worded URL aliases (10.11.2026) ───────────────────────────────────
@@ -310,6 +332,9 @@ X402_RESOURCE_SERVICE_NAMES = {
     "/api/v1/seller-check": "Kristo seller check",
     "/api/v1/onchain-sales": "Kristo onchain sales",
     "/api/v1/demand-census": "Kristo demand census",
+    # The MCP surface's GET (25.11.2026), named after its job like every other
+    # paid route: what the caller gets is the tool catalogue and its terms.
+    "/mcp": "Kristo MCP tool catalogue",
 }
 X402_DEFAULT_SERVICE_NAME = "Kristo Intelligence"
 
@@ -419,6 +444,16 @@ CHALLENGE_DESCRIPTIONS = {
         "traffic that finds a paywall is mostly monitors, measured rather "
         "than assumed."
     ),
+    "/mcp": (
+        "The Model Context Protocol surface of this service: the transport "
+        "endpoints and the client list, with every MCP tool billed per call in "
+        "USDC on Base over x402. Useful when an agent needs to know which tools "
+        "this service exposes and what each one costs before it spends "
+        "anything. A tool call is paid through the MCP transport itself — an "
+        "unpaid call answers with the payment requirements — and this GET is "
+        "the summary document for the surface. The same manifest is free at "
+        "/mcp.json."
+    ),
 }
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
@@ -444,7 +479,14 @@ X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
                        # a row in REAL_X402_ROUTES. See the promotion rule and
                        # the three consequences spelled out beside its
                        # X402_PRICE_MAP entry.
-                       "/api/v1/demand-census"}
+                       "/api/v1/demand-census",
+                       # GET /mcp only (25.11.2026) — Coinbase's validator requires
+                       # a bare GET of an indexed resource to answer 402, and the
+                       # eight `/mcp#tool#tool` Bazaar rows are indexed against this
+                       # URL. `_x402_paywall` returns None for every non-GET method
+                       # here, because the MCP transport must keep answering an
+                       # unpaid tool call with a tool result, not with a 402.
+                       "/mcp"}
 
 # An alias is a paid route in every sense — it must be paywalled, priced,
 # funnelled and described exactly like the canonical path, or it becomes a free
@@ -489,6 +531,14 @@ X402_FREE_ENDPOINTS = {
     # so they fell through the allow-list unclassified — the same gap F-21 records.
     # They cost nothing to call and are free in fact; this makes them free on
     # paper too, and puts them where a future scope can see them.
+    #
+    # 25.11.2026: `/mcp` KEEPS its place here for the POST/DELETE transport, and
+    # its GET is the one method of a free-on-paper route that is paid. The
+    # exception lives in `_x402_paywall`'s free-endpoint check, with the reason:
+    # Coinbase's endpoint validator requires a bare GET of an indexed URL to
+    # answer 402, and the eight `/mcp#tool#tool` Bazaar rows are indexed against
+    # this path. The MCP tool call itself must still answer with a tool result
+    # (`isError: true`) rather than a 402 — that is the spec, not a preference.
     "/mcp", "/mcp/sse", "/mcp/message",
     "/api/v1/signal/sample",
     "/api/stats/sample",
@@ -2395,6 +2445,21 @@ _BAZAAR_OUTPUT_EXAMPLES = {
              "requests": 4213, "challenged": 1876, "delivered": 0,
              "ever_paid": False},
         ],
+    },
+    # What a PAID GET /mcp delivers: the summary document the handler already
+    # served for free, unchanged. Declared here because every path in
+    # X402_PAID_ENDPOINTS must publish the shape of its own output — a challenge
+    # with no output declaration is what `test_bazaar_output_example.py` exists to
+    # catch. The free twin is /mcp.json, which carries the full tool manifest.
+    "/mcp": {
+        "mcp": {
+            "transport": "sse",
+            "sse_endpoint": "https://kristo-intelligence-api.onrender.com/mcp/sse",
+            "manifest": "https://kristo-intelligence-api.onrender.com/api/mcp/manifest",
+        },
+        "clients": ["Claude Desktop", "Cursor", "Continue", "LangChain",
+                    "any MCP-compatible agent"],
+        "payment": "x402 (USDC on Base) — tools are paid endpoints",
     },
 }
 
@@ -5912,7 +5977,23 @@ def _x402_paywall():
         return resp, 405
 
     # Always-free endpoints — no paywall
-    if path in X402_FREE_ENDPOINTS:
+    #
+    # ONE EXCEPTION, and it is the MCP transport's GET (25.11.2026). `/mcp`
+    # stays in the free set because the transport methods must remain classified
+    # (F-21: a route in neither set is unclassified, and "unclassified" is not
+    # "free"), but its GET is a paid resource: Coinbase's validator probes an
+    # indexed URL with a bare GET and requires 402, and the eight
+    # `/mcp#tool#tool` Bazaar rows are indexed against this path. So the GET
+    # falls through to the paid branch below, and POST/DELETE stay free — which
+    # is also what specs/transports-v2/mcp.md requires: an unpaid tool call must
+    # answer with a tool result carrying `isError: true`, NOT with an HTTP 402.
+    #
+    # HEAD is included with GET because HEAD *is* a GET without a body: the paid
+    # branch already answers it with the challenge and never settles (x402lint P5),
+    # and leaving it free would make "what does this cost" answerable only by
+    # accident of method.
+    if path in X402_FREE_ENDPOINTS and not (path == "/mcp"
+                                            and request.method in ("GET", "HEAD")):
         return None
 
     # Paid endpoints — enforce free tier + x402 payment

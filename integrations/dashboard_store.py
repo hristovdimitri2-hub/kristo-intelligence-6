@@ -340,6 +340,11 @@ FUNNEL_ROUTES = [
     # missing here is invisible, and the first question about a brand-new $0.25
     # route is whether anyone reached the paywall for it.
     "/api/v1/demand-census",
+    # GET /mcp (25.11.2026). It belongs here for the reason above: it is now a
+    # paid route — the index probes it with a bare GET and requires 402 — so the
+    # first question about it is whether anyone reached the paywall for it. Its
+    # POST half is the MCP transport and is not paid; only the GET is a product.
+    "/mcp",
     # Buyer-worded aliases (10.11.2026). They front the same handlers at the same
     # prices, so a sale through one is a sale of the same product — and a paid
     # route missing from this list is invisible in the funnel, which is exactly

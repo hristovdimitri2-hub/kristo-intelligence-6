@@ -119,10 +119,20 @@ def test_mcp_delete_session_is_stateless_204(client):
 
 
 def test_get_mcp_info_unchanged_after_streamable_addition(client):
-    """GET /mcp (the human/machine info view) must be untouched."""
+    """GET /mcp is the paid resource the index probes (25.11.2026).
+
+    It used to serve the human/machine info view for free, and Coinbase's
+    endpoint validator failed the whole `/mcp` preflight at `returns_402` for
+    exactly that reason. The info view is unchanged and still free — at
+    /mcp.json — while the GET now answers the canonical challenge.
+    """
     r = client.get("/mcp")
-    assert r.status_code == 200
-    assert r.get_json()["mcp"]["sse_endpoint"].endswith("/mcp/sse")
+    assert r.status_code == 402
+    assert r.headers.get("PAYMENT-REQUIRED")
+
+    free = client.get("/mcp.json")
+    assert free.status_code == 200
+    assert free.get_json()["tools"], "the tool list must survive the move"
 
 
 def test_mcp_json_lists_exactly_the_tools_the_protocol_serves(client):
