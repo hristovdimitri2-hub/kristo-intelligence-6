@@ -8038,6 +8038,62 @@ is the channel, which is exactly what Ernest has and we do not. Two paths: suppl
 him and take a share, or sell directly to the few sellers we can reach. No price,
 no split and no channel decision has been made.
 
+## §128. GET /mcp was the one resource that could not be validated, and now it is (25.11.2026)
+
+Ernest reported that `/mcp` fails the 402 preflight and offered to write the fix up
+as a change-sheet for `$15`. **The defect is real, the cause and the fix were both
+wrong, and the repair took less time than the two emails.** Reply sent as §V.
+
+**Measured, in the order the claims fell.** (1) His two status codes are two
+different requests: `GET /mcp` → **200** (what the validator probes, and what
+fails), `POST /mcp` with a bare body → **400**. (2) The MCP tool result is **already
+fully conformant**, field by field: `isError: true`, `structuredContent` with the
+full PaymentRequired, `content[0].text` as the JSON of the same —
+`specs/transports-v2/mcp.md` requires exactly that, and Coinbase's seller docs call
+the tool result "MCP's equivalent of an HTTP 402 status and PAYMENT-REQUIRED
+header". **His proposed fix would have broken every documented x402 MCP client.**
+(3) The validator failure is real, and was reproduced with our own CDP credentials
+(`POST api.cdp.coinbase.com/platform/v2/x402/validate`, JWT from
+`secrets/cdp_api_key_secret.txt` through the repo venv): `/mcp` failed
+`returns_402` — "Endpoint returns 200 OK — it needs to return 402 for
+unauthenticated requests to be discoverable", expected 402 actual 200 — with the
+other 24 checks skipped, while `/api/v1/signal` passed 25/25.
+
+**The fix.** `GET /mcp` is now the paid resource it was always indexed as, at the
+**cheapest existing price** (`$0.005`, `KRISTO_STATS_PRICE` — no new number), with
+the canonical challenge including the bazaar block the last ten checks read; a paid
+GET delivers the document it always served. **`POST`/`DELETE` are untouched**, and
+the paywall says why in the code: the spec requires the *tool result* to carry the
+challenge, not the status line. The document stays free at `/mcp.json`.
+**Validator after: 25 of 25 PASS, `valid: true`.** Full suite **1486 passed**
+(1481 + five new tests that pin both halves).
+
+**The cascade, recorded because it is the useful part.** Adding a paid route broke
+**eight** tests: the dashboard funnel, the "says when to use it" rule, the job-name
+rule (`serviceName`), the HEAD-answers-the-challenge rule, two MCP-info tests that
+asserted the old free GET, and the two suite counters. Each was a repo invariant
+saying *a paid route is a product and must be integrated as one*; each was satisfied
+rather than exempted. `/mcp` was therefore added to `FUNNEL_ROUTES`, given
+`"Kristo MCP tool catalogue"` as its job name, and given a "when to use it" line in
+its challenge description.
+
+**One thing the owner should see, because it is the one rule that reserves a
+decision to him:** this adds a **new payable surface** (GET /mcp, `$0.005`). The
+price is an existing one and no existing price, `payTo`, receiver or envelope
+changed — but "a new paid route" is price-adjacent, and it is recorded here rather
+than buried.
+
+**Two more of his claims checked and corrected.** His new recommendation to push
+`/api/v1/whale-alerts` does not survive our ledger: whale-alerts is an alias of
+whaleflow — 14 settled calls in thirty days, **1** not ours — while `verify-seller`
+is 19 and **4** not ours and took two of the three external-class payments. And his
+#881 answer proposes redirecting "the old /mcp URLs": measured through the merchant
+endpoint, the live payTo carries 20 rows including 8 `/mcp#tool`, the retired payTo
+carries 6, and they are the **same host and path** (`…/mcp#verify_seller`, indexed
+10.11). A row is keyed by the address in the challenge, so nothing served today
+re-indexes a row onto another address; the six can only age out.
+
+
 
 
 

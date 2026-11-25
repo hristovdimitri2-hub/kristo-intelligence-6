@@ -959,3 +959,92 @@ And the one thing I still want, which is not a favour: is the 5,538 on sniperx p
 Dimitri
 ```
 
+## V. Ernest — the /mcp preflight, measured, fixed and re-validated (25.11.2026)
+
+**Where:** same thread, `ernest@nolimbsfighting.com`.
+
+**What he sent.** A finding: `/mcp` fails the 402 preflight, "it is only the status
+line that is wrong", with a Coinbase validator quote; the proposed fix (return HTTP
+402 with the challenge in the body and the base64 `PAYMENT-REQUIRED` header, JSON-RPC
+for the paid response only); a public answer to CDP ticket #881; market numbers
+(67.7% of paid rows paid once and 11% of revenue, 6.2% paid five or more times and
+89.1%); a new recommendation to push `/api/v1/whale-alerts`; and an offer to write
+the fix up as a change-sheet for **$15**.
+
+**Checked before answering, and it split three ways.**
+
+1. **His two status codes are two different requests.** `GET /mcp` → **200** (what
+   the validator probes, and what fails). `POST /mcp` with a bare body → **400**.
+   Neither is the tool result, so the diagnosis mixed the probe with the protocol.
+2. **The MCP tool result is already fully conformant** — measured live, field by
+   field: `isError: true`, `structuredContent` with the full PaymentRequired, and
+   `content[0].text` as the JSON of the same. `specs/transports-v2/mcp.md` requires
+   exactly that, and Coinbase's own seller docs call the tool result "MCP's
+   equivalent of an HTTP 402 status and PAYMENT-REQUIRED header". **His fix would
+   have broken every documented x402 MCP client** (`wrapMCPClientWithPayment`,
+   `create_x402_mcp_client`) — a standard MCP client reads the *tool result*, not
+   the status line, and it already worked against us.
+3. **The validator failure is real and reproduced with our own CDP credentials.**
+   Before: `/mcp` 25 checks, `returns_402` **FAIL** ("Endpoint returns 200 OK — it
+   needs to return 402 for unauthenticated requests to be discoverable",
+   expected 402 actual 200), other 24 skipped; `/api/v1/signal` 25/25 PASS.
+
+**The fix, shipped and proven.** `GET /mcp` is now a paid resource at the cheapest
+existing price (`$0.005`): the challenge carries the `PAYMENT-REQUIRED` header,
+`accepts[]`, `resource` and the bazaar block the last ten checks read, and a paid GET
+delivers the document it always served. `POST`/`DELETE` are untouched — the paywall
+exempts them explicitly, because the spec requires the tool result to carry the
+challenge. The document stays free at `/mcp.json`. **Validator after: 25 of 25 PASS,
+`valid: true`.**
+
+The cascade was real and worth recording: adding a paid route failed **eight** tests —
+the funnel, the "says when to use it" rule, the job-name rule, the HEAD-challenge
+rule, two MCP info tests, and the two suite counters. Each was a repo invariant
+saying "a paid route must be integrated as a product", and each was satisfied rather
+than exempted. Full suite **1486 passed** (was 1481; five new tests pin both halves:
+GET challenged, POST never challenged).
+
+**No to the $15 change-sheet**, and not because of the money: the fix took less time
+than the two emails, and the change-sheet as described would have taken the MCP
+surface backwards.
+
+**Two corrections to his market reading, from our own ledger.** `whale-alerts` is an
+alias of `whaleflow` — 14 settled calls in thirty days, **1** not ours; `verify-seller`
+is 19 and **4** not ours and took two of the three external-class payments. So the
+repeat-use route by our books is verify-seller, not whale-alerts. And the price band:
+our one route above `$0.02` is the one with the most calls that are not ours, which is
+the opposite of "the $0.005 band is worst"; with eleven non-own payments we cannot
+test a band at all.
+
+**And one correction to his #881 answer, measured.** There are no "old `/mcp` URLs" to
+redirect: the live payTo carries 20 rows including 8 `/mcp#tool`, the retired payTo
+carries 6, and they are the **same host and path** (`…/mcp#verify_seller`,
+`…/mcp#get_trading_signal`), indexed on 10.11. A row is keyed by the address in the
+challenge, so nothing served today re-indexes a row onto another address; the six can
+only age out — which is what he said first.
+
+**Subject:** `Re: Your /mcp endpoint fails the 402 preflight — measured, and it is one status code`
+
+```
+Ernest,
+
+You found a real defect, and the cause and the fix are both wrong. I can show you which is which, because I ran your validator myself.
+
+Your two status codes are two different requests. A GET of /mcp returned 200 — that is what the validator probes, and that is what fails. A POST of /mcp with a bare body returned 400. Neither is the tool result.
+
+The tool result, measured live just now: HTTP 200, with `isError: true`, `structuredContent` carrying the full PaymentRequired object, and `content[0].text` as the JSON of the same. That is not a challenge buried anywhere — it is the documented signal. specs/transports-v2/mcp.md, Payment Required Signaling: "When a tool requires payment, servers MUST return a tool result with isError: true containing the PaymentRequired data", in both structuredContent and content[0].text, with the payment returning at _meta["x402/payment"]. Your own docs say the same in prose: the tool result is MCP's equivalent of an HTTP 402 status and PAYMENT-REQUIRED header. So the fix you proposed — HTTP 402, JSON-RPC only for the paid response — would break every client written to that spec, including wrapMCPClientWithPayment and create_x402_mcp_client. A standard x402 MCP client does not read the status line. It reads the tool result, and it already works against us.
+
+Your validator failure is real, though, and I reproduced it with my own CDP credentials. Before: GET /mcp, 25 checks, returns_402 FAIL — "Endpoint returns 200 OK, it needs to return 402 for unauthenticated requests to be discoverable", expected 402 actual 200 — and the other 24 skipped. GET /api/v1/signal: 25 of 25 pass. So the defect is not the MCP challenge. It is that GET /mcp served a free document on the URL the index treats as a payable resource, which is exactly the URL the eight /mcp#tool#tool rows are indexed against.
+
+Fixed and re-validated. GET /mcp now answers the canonical challenge, PAYMENT-REQUIRED header, accepts[], resource and the bazaar block the last ten checks read, and a paid GET delivers the document it always served. POST and DELETE are untouched, because that is the transport and the spec puts the challenge in the tool result. The document is still free at /mcp.json, so nothing that reads it is worse off. Validator after the change: 25 of 25 pass, valid true.
+
+So no to the $15 change-sheet, and not because of the money. The fix took less time than the two emails, and the change-sheet as described would have taken the MCP surface backwards. If you want a change-sheet worth paying for, it is the one I cannot write: the payer classification behind your benchmark, which your index cannot produce and my ledger can.
+
+On the benchmark numbers, which are the best thing you have sent: 67.7% of paid rows paid once and 11% of revenue, 6.2% paid five or more times and 89.1%. That matches everything I measure and it is the strongest argument yet against building another route. Two corrections from my ledger, though. First, whale-alerts is an alias of whaleflow: 14 settled calls in thirty days, 1 of them not mine. verify-seller is 19 and 4 not mine, and it took two of the three external-class payments. So the repeat-use route by my books is verify-seller, not whale-alerts. Second, the price band: my one route above $0.02 is the one with the most calls that are not mine, which is the opposite of "the $0.005 band is worst". With eleven non-own payments I cannot test a band at all. You can, across 1,774 routes, if the classification holds — which your benchmark of my routes shows it does not.
+
+On #881, thank you for answering it publicly, and one correction, also measured. There are no "old /mcp URLs" to redirect. I pulled both sets from the merchant endpoint: the live payTo carries 20 rows including 8 /mcp#tool, the retired payTo carries 6, and they are the same host and path — .../mcp#verify_seller, .../mcp#get_trading_signal — indexed on 10 November. A row is keyed by the address in the challenge, so nothing I serve today re-indexes a row onto another address; a paid call writes the live rows. The six can only age out, which is what you said first.
+
+Dimitri
+```
+
+

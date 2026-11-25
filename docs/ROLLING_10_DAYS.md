@@ -120,7 +120,14 @@ zero-dependency Python client (14 tests).
   §L2 decision to drop it is reversed. §U corrected the introduction we do not have
   (**5 CRM leads, zero customer checkouts**) and asked him to name his share: the
   product shape — *the buyer of demand-side measurement is the seller* — is now
-  confirmed three times in one week.
+  confirmed three times in one week. He then reported that `/mcp` fails the 402
+  preflight; §V measured it with **Coinbase's own validator**: the tool result was
+  already conformant, his proposed fix would have broken the documented MCP
+  transport, and the real defect was that **GET /mcp served a free document on a
+  payable URL**. Fixed and re-validated: **25 of 25 checks pass** (was 1 fail and
+  24 skipped), `POST` untouched, the document still free at `/mcp.json`, suite
+  **1481 → 1486**. He offered the fix as a `$15` change-sheet; the fix took less
+  time than the emails.
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already
