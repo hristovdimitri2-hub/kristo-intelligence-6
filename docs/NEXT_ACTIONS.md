@@ -172,16 +172,25 @@ says:
 payload away and print only the transaction, so a changed product could be paid for
 and never inspected.
 
-**Gap found, and it needs the owner.** The text in the CDP Bazaar rows is the **402
-challenge description** (`CHALLENGE_DESCRIPTIONS`), not the vitrine description
-(`REAL_X402_ROUTES`). Verified against the index: the row for
-`/mcp#get_trading_signal` reproduces `CHALLENGE_DESCRIPTIONS["/api/v1/signal"]`
-verbatim. So the catalogue that agents actually search still describes the signal
-without its record, while the vitrine pages, README, `server.json` and the paid
-response all state it. Closing that gap means editing one description string inside
-the 402 envelope — a protected surface — so it is recorded here rather than done.
-Recommended: append the same one sentence to the challenge description and re-pay the
-route once so the Bazaar row is re-indexed.
+**Gap found, and closed with the owner's approval (25.11.2026).** The text in the CDP
+Bazaar rows is the **402 challenge description** (`CHALLENGE_DESCRIPTIONS`), not the
+vitrine description (`REAL_X402_ROUTES`). Verified against the index: the row for
+`/mcp#get_trading_signal` reproduced `CHALLENGE_DESCRIPTIONS["/api/v1/signal"]`
+verbatim. So the catalogue that agents actually search described the signal with no
+mention of its record, while the vitrine pages, README, `server.json` and the paid
+response all stated it.
+
+The owner approved editing that one string. The sentence appended is deliberately
+non-numeric — *"Its own measured record is published at `/public/signals/history` and
+it is a losing one."* — so it cannot go stale as more signals resolve. Verified on the
+live envelope, then one paid call ($0.01) re-indexed the row: **the CDP Bazaar row for
+`/api/v1/signal` now carries it.**
+
+**Still open, one command away:** the *MCP* row (`/mcp#get_trading_signal`) is a
+separate resource with its own settlement, so it still carries the old text. Refreshing
+it needs one paid MCP call (~$0.01) through `_tools`/`_forensics`' MCP payer. Recorded
+here rather than done in the same pass, because a separate resource needs a separate
+settlement and that is a different rail to test.
 
 
 ---
