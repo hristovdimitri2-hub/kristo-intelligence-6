@@ -146,7 +146,9 @@ by looking somewhere else. **Fixed:** the record now travels with the paid respo
 (`track_record`), built by the same `build_feed()` the public page uses so the two
 cannot disagree, fail-open so a paid delivery is never lost, cached 300s so a $0.01
 route is not taxed. It is also printed in the vitrine description, in `README.md`, and
-in the MCP tool description in `server.json`.
+in the MCP tool description served at `/mcp` — which is the text a CDP Bazaar row copies
+on the next paid call, and which was for several hours only in the generated
+`server.json` (see §121 in HANDOVER.md).
 
 ### Where the money can be, judged against what we measured
 
@@ -195,8 +197,9 @@ Bazaar rows is the **402 challenge description** (`CHALLENGE_DESCRIPTIONS`), not
 vitrine description (`REAL_X402_ROUTES`). Verified against the index: the row for
 `/mcp#get_trading_signal` reproduced `CHALLENGE_DESCRIPTIONS["/api/v1/signal"]`
 verbatim. So the catalogue that agents actually search described the signal with no
-mention of its record, while the vitrine pages, README, `server.json` and the paid
-response all stated it.
+mention of its record, while the vitrine pages, README and the paid response all stated
+it — and the MCP-served description did not state it either, which the row's own
+refresh later exposed (§121 in HANDOVER.md).
 
 The owner approved editing that one string. The sentence appended is deliberately
 non-numeric — *"Its own measured record is published at `/public/signals/history` and
@@ -209,6 +212,26 @@ separate resource with its own settlement, so it still carries the old text. Ref
 it needs one paid MCP call (~$0.01) through `_tools`/`_forensics`' MCP payer. Recorded
 here rather than done in the same pass, because a separate resource needs a separate
 settlement and that is a different rail to test.
+
+**Closed 25.11.2026, and the attempt found something worse than a stale row.** Before
+paying, the `bazaar` extension in the live challenge was read rather than assumed — and
+it carried the *pre-honesty* description, because the MCP text comes from
+`discovery._mcp_tools()` while the sentence had been written into `server.json`, a
+**generated** file whose source was never edited. So the paid refresh would have
+republished the same text politely. `discovery.py` now serves *"Its own measured record
+is public and losing: /public/signals/history — read it before acting on a signal."*,
+`server.json` is regenerated, and two tests compare source against artifact (§121 in
+HANDOVER.md).
+
+The refresh then failed twice and spent nothing, which looked like a payment defect. The
+log said otherwise: *"x402 payment NOT taken: endpoint=/api/v1/signal ip=127.0.0.1 — the
+route has nothing to deliver right now"*. The MCP tool forwards the buyer's header to
+the HTTP route, and that route refuses **before** settlement while its signal engine is
+cold after a deploy — so the answer was 45 seconds of waiting, twice. Third attempt
+delivered, tx `0xbb454d929ca7ef712d2ac7976b2799bee7799825653e4dcc9f7513cacb455bc4`,
+$0.01, and the index row now carries the sentence at `lastUpdated
+2026-11-25T08:00:53.795Z`. `scripts/mcp_paid_refresh.py` is committed with a `--verify`
+mode that compares the index row against what `/mcp` serves.
 
 
 ---
@@ -459,7 +482,7 @@ more than the sale — which argues for a higher price per job or a subscription
 | | |
 |---|---|
 | MCP Registry | `6.3.1` published, verified in the registry: 6 new descriptions, 0 old |
-| CDP Bazaar | all 7 MCP rows carry the current descriptions |
+| CDP Bazaar | rows carry the descriptions served on the last paid call, so a row is only as current as that call. The signal row was re-indexed 25.11.2026 and now carries the engine's measured record on both resources (`/api/v1/signal` and `/mcp#get_trading_signal`). |
 | Two unbuyable routes | `/api/arb/opportunities` and `/api/v1/signal` refused every buyer because the serving process never started its producers; fixed, both now sell |
 | Free samples | 7/7 return 200 |
 | Documentation | 95/95 markdown files in English, zero Cyrillic — **with one named exception since 24.11**, see below |
