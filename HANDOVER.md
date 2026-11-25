@@ -147,8 +147,8 @@ for the stale table to be **updated** rather than silently dropped.
    reproduced 22 + 14 + 0 — published as `CROSS_RUN_RESULT.md` in the same gist
    (§124).** Credit is agreed as `mitaka7210` (Slack) + `hristovdimitri2-hub`
    (gist owner); the 12 ambiguous vectors go to the spec thread with our name
-   (§102). What is still open is his one rewording commit on `main` and the hash
-   of it.
+   (§102). His rewording is PR #123 (`3ca08999c5…`, merged 25.11 08:22:45Z),
+   which left `vectors.json` and its fingerprint untouched (§124).
 7. **Jamenbin has not been told that fixture 1 moved** from the hash he verified
    (v1 `d76537a7…`) through v2, v3 and v4 (`3d76d803…`). The `REVISIONS` block
    records all of it, but he was never told directly (§96).
@@ -7809,6 +7809,20 @@ refusing and holding, and they are the natural candidates for a conformance case
 owner) for the cases, the two rails, the payer binding and the durable
 one-hash-one-delivery claim; `github.com/holistis` for the vector set, the
 adapter, the reference answers and the recorded output.
+
+**The rewording commit, identified.** The "one small commit on `main`" he
+mentioned is **PR #123**, merged at 08:22:45Z on 25.11 as
+`3ca08999c545e6ed524bbb1380c0c2b53beb9149`: three files, four lines added, four
+removed. Its body states the two findings and attributes them to `mitaka7210` —
+they are ours, from reading the published bytes of `vectors/settlement-pending`:
+(1) the phrase "the revision run here" stood in three places while the same
+revision is called "the revision of 23 November" elsewhere; (2) `cross-run/README.md`
+line 10 said "It was not confirmed by it", and "confirm" is used in that
+repository for confirmation **on chain**, so the sentence now says "verified".
+**Crucially, `vectors.json` and `SHA256SUMS` were not touched**, `sha256sum -c`
+reports OK, and the fingerprint is still `94b07672bfd9…` — which is what made the
+re-run above possible against exactly the input he named.
+
 
 
 
