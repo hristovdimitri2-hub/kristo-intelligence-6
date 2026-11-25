@@ -1228,5 +1228,79 @@ One question, so I can compare corpora rather than levels: your 34,886 routes ag
 Dimitri
 ```
 
+## Y. Abdellah — the second row in his results file, checked and corrected (25.11.2026)
+
+**Where:** `github.com/holistis/agent-receipt-verify/issues/127` (opened 25 November 2026,
+16:34 UTC).
+
+**What he sent.** He accepted the offer he had made himself — a column for **our own
+reading of `vectors.json` without his adapter** — and put it in `RESULTS.md` as a
+second row (PR #126, merged 15:21Z; the file commit `cc986dd2`, 15:35Z), with our
+limits as we wrote them, next to the first row kept as history. He added that he
+would change the wording if anything in it was off, which is the invitation this
+section answers.
+
+**Checked from his bytes, before answering.** The four files of gist revision
+`af6af9ee149f` hash to what the row claims: the v5 fixture 46 890 bytes /
+`ccdfea67502fd220…`, the reader 13 234 / `8980ceaab81d…`, `OUR_OWN_READING.md`
+4 335 / `b251b84a350d…`, `CROSS_RUN_RESULT.md` 5 038 / `4630fe747ccb…`. Our reader,
+run against `vectors.json` of fingerprint `94b07672bfd9` (61 084 bytes), gives
+**22 / 14 / 0 / 5**, and the 13 tests pass here as they pass on his machine. His own
+sentence about our check is exact.
+
+**Two corrections, both about what cannot be checked.**
+
+1. **"an earlier state of this reader" is not in the gist and cannot run.** Only one
+   state of `our_own_reading.py` was ever published — revisions `a8a47ff7596e`,
+   `de75d2ed8c97`, `79c15d8178c2` and `af6af9ee149f` all serve the same 13 234 bytes —
+   and those bytes stop against v4 of our artifact with `TypeError: decide() got an
+   unexpected keyword argument 'recovering'`, because v5 introduced the marker. So
+   **19 / 14 / 3 / 5 is a number we report, not one a reader can reproduce from
+   published bytes**, and the row should say so.
+2. **The outside count was 5 before it was 3.** An earlier, also unpublished, state of
+   our reader bound the payment by the transfer's `from` instead of the payment's own
+   payer, which made the binding unfalsifiable and answered **5** outside. The count
+   moved **5 → 3 → 0** across our own fixes. Offered to him as a limits sentence, and
+   added to our own document.
+
+**Republished, so our own doc carries the limit.**
+`OUR_OWN_READING.md` gained both points under "What this does not show" and the gist
+was PATCHed: HEAD `6d1fe258a0fca2e6432674605de4559e67a29e41`, the document now 5 230
+bytes / `c361f027ff926afc021f8d2844c1607ce4067bc113873191999b04f0d7389074`. The
+reader's and fixture's bytes are unchanged, so the revision he ran stays valid for
+them.
+
+**Subject:** `RESULTS.md second row: one sentence that cannot be checked, and one limit you may want to add`
+
+```
+Two corrections from the author of the run the second row records. Everything else in that row we checked today against your bytes and it is exact — these two are the only parts we would change.
+
+1. "an earlier state of this reader" cannot be found or run.
+
+The row says: "Their first run of an earlier state of this reader on the earlier revision v4 of their file (gist revision c1cd82cc059b) gave 19, 14, 3 and 5."
+
+The number is ours, but the state is not in the gist. Every revision that carries our_own_reading.py serves the same bytes — a8a47ff7596e, de75d2ed8c97, 79c15d8178c2 and af6af9ee149f all give 13,234 bytes, SHA-256 8980ceaab81d78e0d9be519f31dbb093da9247abaec72a9d84b9fb0aa3a6e8a9. And those bytes cannot be run against v4 at all, because v5 introduced the recovering marker:
+
+TypeError: decide() got an unexpected keyword argument 'recovering'
+
+against v4 as served by c1cd82cc059b (37,862 bytes, SHA-256 3d76d8030efc10cbbfcfe3a739078ee5fa4a8af417712a583b934789f37d170a). So 19 / 14 / 3 / 5 is a number we report, not one a reader can reproduce from published bytes. A wording that keeps your point and is checkable:
+
+"Before the published reader existed, an earlier state of it, run against revision v4 of their file (gist revision c1cd82cc059b, 37,862 bytes), gave 19, 14, 3 and 5. That state was never published, and the published reader cannot be run against v4: v5 of their file added the recovering marker, which v4's decide() does not accept."
+
+2. The outside count was 5 before it was 3, and the second defect may belong in the row.
+
+As written, the row has our reader wrong once. It was wrong twice before publication. Its first state read the transfer's "from" instead of the payment's own payer, which made the binding unfalsifiable and answered 5 outside. Fixed, it answered 3 — the v4 defect the row describes. With v5 in the artifact it answers 0. The count moved 5 → 3 → 0 across our own fixes, and 0 is the published pair's number. If you want it in the row, it is one sentence in the "What this run does not show" paragraph:
+
+"An earlier, unpublished state of their reader answered 5 outside, for a second defect of theirs: it bound the payment by the transfer's from rather than the payment's own payer, which made the binding unfalsifiable."
+
+We have added both points to OUR_OWN_READING.md under "What this does not show" and republished the gist: HEAD 6d1fe258a0fca2e6432674605de4559e67a29e41, the document now 5,230 bytes, SHA-256 c361f027ff926afc021f8d2844c1607ce4067bc113873191999b04f0d7389074. The reader's bytes are unchanged, so the revision you ran and re-checked (af6af9ee149f) stays valid for it; if you take the second sentence, point the document link at 6d1fe258a0fc.
+
+What we checked today, so that the rest of the row is not taken on trust. The four files at af6af9ee149f: v5 fixture 46,890 bytes / ccdfea67502fd220…, reader 13,234 / 8980ceaab81d…, OUR_OWN_READING.md 4,335 / b251b84a350d…, CROSS_RUN_RESULT.md 5,038 / 4630fe747ccb…. Our reader against vectors.json of fingerprint 94b07672bfd9 (61,084 bytes) gives 22 / 14 / 0 / 5. The 13 tests pass here as they pass there. Your sentence about our own check of your run is exact, and so is the part that matters most to us: the three outside were our defect and not a fault in the set.
+
+Nothing in the "What this run does not show" paragraph is wrong, and it is the reason the row is worth having.
+
+Dimitri
+```
+
 
 

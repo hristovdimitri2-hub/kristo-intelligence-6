@@ -78,6 +78,18 @@ drift apart again.
   ours; this reader is ours. What it removes is one *translation*, not the
   author's stake.
 - It is one dated revision of the artifact and one dated revision of the set.
+- **Only one state of the reader was ever published.** Every gist revision that
+  carries `our_own_reading.py` carries the same bytes (SHA-256
+  `8980ceaab81d78e0d9be519f31dbb093da9247abaec72a9d84b9fb0aa3a6e8a9`, 13 234
+  bytes), and those bytes cannot be run against v4 of the artifact at all: v5
+  added the `recovering` marker and v4's `decide()` does not take it, so that run
+  ends in `TypeError: decide() got an unexpected keyword argument 'recovering'`.
+  The 19 / 14 / 3 / 5 above is therefore a number we report, not one a reader can
+  reproduce from published bytes.
+- **An earlier state of the reader was wrong as well, before anything was
+  published.** It read the transfer's `from` instead of the payment's own payer,
+  which made the binding unfalsifiable and answered **5** outside. The outside
+  count moved 5 → 3 → 0 across our own fixes; 0 is the published pair's number.
 - The reader makes ten reading decisions (listed at the top of the file, numbered,
   including the two where our artifact has no equivalent state at all:
   `not_measured` chains and transfers with no readable `from`). A reader who

@@ -8248,6 +8248,46 @@ all: his 34,886 routes against the listing's 88,074 — what is in his subset, o
 of it. His sub-cent band has 14,705 routes where the listing shows 61,814, and that
 difference, not the boundary, is what makes the levels differ everywhere.
 
+## §132. His results file carries our row, and two sentences in it could not be checked (25.11.2026)
+
+**The row.** Abdellah took up his own offer and added **our own reading of
+`vectors.json` without his adapter** as a **second row** in `RESULTS.md` (PR #126, merged
+15:21Z; file commit `cc986dd2`, 15:35Z), keeping the first row as history, and invited us
+to correct the wording if anything was off. This section is that check.
+
+**Verified from his bytes before answering.** The four files of gist revision
+`af6af9ee149f` hash to the row's own numbers: v5 fixture 46 890 bytes /
+`ccdfea67502fd220…`, reader 13 234 / `8980ceaab81d…`, `OUR_OWN_READING.md` 4 335 /
+`b251b84a350d…`, `CROSS_RUN_RESULT.md` 5 038 / `4630fe747ccb…`. Our reader, run against
+`vectors.json` of fingerprint `94b07672bfd9` (61 084 bytes), gives **22 / 14 / 0 / 5**,
+and the 13 tests pass here as they pass on his machine. His sentence about our own check
+of his run is exact, and so is the attribution that matters most: **the three outside
+were our defect, not a fault in the set.**
+
+**Correction 1 — a number that cannot be reproduced from published bytes.** The row says
+our *first run of an earlier state of this reader* against v4 gave 19 / 14 / 3 / 5.
+**Only one state of the reader was ever published** — revisions `a8a47ff7596e`,
+`de75d2ed8c97`, `79c15d8178c2` and `af6af9ee149f` all serve the same 13 234 bytes — and
+those bytes stop against v4 (`3d76d803…`, 37 862 bytes, revision `c1cd82cc059b`) with
+`TypeError: decide() got an unexpected keyword argument 'recovering'`, because v5
+introduced the marker. So the number is ours to report, **not checkable**, and the row
+should say that instead of naming an earlier reader state that does not exist in bytes.
+
+**Correction 2 — the outside count was 5 before it was 3.** An earlier, also unpublished,
+state of our reader bound the payment by the transfer's `from` instead of the payment's
+own payer, which made the binding unfalsifiable and answered **5** outside. The count
+moved **5 → 3 → 0 across our own fixes**; 0 is the published pair's number. Offered to him
+as a limits sentence.
+
+**Our own document now carries both limits.** `OUR_OWN_READING.md` gained them under
+"What this does not show"; the gist was PATCHed to HEAD
+`6d1fe258a0fca2e6432674605de4559e67a29e41`, the document now 5 230 bytes /
+`c361f027ff926afc021f8d2844c1607ce4067bc113873191999b04f0d7389074`. The reader's and
+fixture's bytes are unchanged, so the revision he ran and re-checked stays valid for them.
+
+**Reply sent** as `holistis/agent-receipt-verify#127` (opened 16:34Z, 3 538 bytes, read
+back through the API); draft in `docs/OUTREACH_DRAFTS.md` §Y.
+
 
 
 
