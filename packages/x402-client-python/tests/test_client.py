@@ -36,7 +36,7 @@ def _challenge(**overrides):
         "network": "eip155:8453",
         "amount": "10000",
         "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "payTo": "0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844",
+        "payTo": "0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844",
         "maxTimeoutSeconds": 300,
         "extra": {"name": "USD Coin", "version": "2"},
     }
@@ -56,7 +56,7 @@ def test_the_v2_header_is_decoded_into_a_challenge():
     assert challenge["x402_version"] == 2
     assert challenge["amount_atomic"] == "10000"
     assert challenge["amount"] == 0.01
-    assert challenge["recipient"] == "0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844"
+    assert challenge["recipient"] == "0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844"
     assert challenge["chain_id"] == 8453
     assert challenge["accepted"]["scheme"] == "exact"
 
@@ -85,7 +85,7 @@ def test_the_legacy_body_shape_still_parses():
     challenge = parse_payment_challenge({
         "error": "payment_required",
         "x402_amount": "5000",
-        "x402_recipient": "0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844",
+        "x402_recipient": "0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844",
         "x402_chain_id": 8453,
     })
     assert challenge["rail"] == "legacy"
@@ -218,7 +218,7 @@ def test_the_legacy_rail_is_used_when_the_body_carries_the_terms(monkeypatch):
         (402, {}, json.dumps({
             "error": "payment_required",
             "x402_amount": "5000",
-            "x402_recipient": "0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844",
+            "x402_recipient": "0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844",
         })),
         (200, {}, '{"ok": true}'),
     ], signer)

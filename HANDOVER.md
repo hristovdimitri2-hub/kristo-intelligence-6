@@ -75,11 +75,11 @@ a Bulgarian word left in a document is a defect, not a style choice.
 | Canonical paid routes | **7**: `/api/stats`, `/api/sales`, `/api/arb/opportunities`, `/api/bot-status`, `/api/v1/signal`, `/api/v1/whaleflow`, `/api/v1/verify-seller` |
 | Legacy aliases | **5**, all live: `/api/v1/whale-alerts`, `/api/v1/trading-signals`, `/api/v1/seller-check`, `/api/v1/onchain-sales`, `/api/v1/arbitrage-opportunities` |
 | Prices | `/api/stats`, `/api/sales`, `/api/arb/opportunities`, `/api/bot-status` = **$0.005**; `/api/v1/signal`, `/api/v1/whaleflow` = **$0.01**; `/api/v1/verify-seller` = **$0.05**. Every one re-measured live on 24.11. |
-| Receiver (`payTo`) | `0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844` on `eip155:8453` |
+| Receiver (`payTo`) | `0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844` on `eip155:8453` (EIP-55 checksum; verified against the live 402 envelope and `eth_utils.to_checksum_address` on 25.11.2026) |
 | Retired receiver | `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` — **do not describe publicly why it was retired** (owner's instruction) |
 | Gas wallet | `0x5f6d3F20282A8958C6607D7E17dC8C83B1F0Ee74`, funded |
 | Demo payer | `0xE50c5212e8211639c49276dA190E248B83935763` — the only payer that has ever settled |
-| Test suite | **1444 collected** (1443 pass, 1 skipped). `SUITE_TESTS_PASSED` and `SUITE_LAST_RUN` in `app/blueprints/discovery.py` and the README must agree with this number. |
+| Test suite | **1473 collected** (1472 pass, 1 skipped) — re-run in full on 25.11.2026 to confirm the census route. `SUITE_TESTS_PASSED` and `SUITE_LAST_RUN` in `app/blueprints/discovery.py` and the README must agree with this number. |
 | CDP Bazaar | **20 rows** on the live receiver: 12 HTTP + 8 MCP (7 correct single names + 1 duplicate `get_whale_flow#get_whale_flow`); **6 stale duplicate rows** still attributed to the retired receiver |
 | MCP Registry | `io.github.hristovdimitri2-hub/kristo-intelligence@6.3.1`, published 23.11 |
 | x402-list.com | `endpoint_count 7`, `status online`, compliance **A (14/14)**, `risk clean`, payment-ready until **2026-12-01**; FORTE verified tier **false** (see open tasks) |
@@ -185,7 +185,7 @@ for the stale table to be **updated** rather than silently dropped.
 
 ## Critical test files
 
-The suite is 1444 tests; these are the ones that guard the things that would
+The suite is 1473 tests; these are the ones that guard the things that would
 cost money or trust if they broke.
 
 | file | what it protects |

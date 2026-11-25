@@ -28,7 +28,7 @@ import requests
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HOST = "kristo-intelligence-api.onrender.com"
-RECEIVER = "0xb4fcf8ef52b5dc275924aed2bae94fe6cb7fc844"
+RECEIVER = "0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844"
 RETIRED = "0xd4cda900839c0fed4374ee37ea0dbe8e4c6fd08f"
 UA = {"User-Agent": "placement-audit/1.0 (+kristo-intelligence)"}
 
@@ -36,7 +36,7 @@ UA = {"User-Agent": "placement-audit/1.0 (+kristo-intelligence)"}
 REGISTRY = [
     ("CDP Bazaar (current payTo)",
      "https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant"
-     "?payTo=0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844&limit=100&offset=0", None),
+     "?payTo=0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844&limit=100&offset=0", None),
     ("CDP Bazaar (retired payTo)",
      "https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant"
      "?payTo=0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f&limit=100&offset=0", None),

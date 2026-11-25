@@ -406,7 +406,7 @@ Hello,
 We operate an x402 seller at https://kristo-intelligence-api.onrender.com. We rotated our receiving wallet, and CDP's Bazaar index (/platform/v2/x402/discovery/merchant) still carries rows under the previous address. We cannot remove them ourselves; please delete the stale rows and confirm.
 
 Current payTo (live, should remain):
-0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844 -> 20 rows (12 HTTP + 8 MCP)
+0xB4FcF8ef52b5DC275924AeD2baE94FE6cb7fC844 -> 20 rows (12 HTTP + 8 MCP)
 
 Retired payTo (no longer controlled by us; every row has been stale since 10 November 2026):
 0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f -> 6 rows, all duplicate /mcp
