@@ -344,41 +344,64 @@ but `awesome-mcp-servers` PR #13219 needs the `quality` field, and Glama compute
 `quality` only for `/mcp/servers/` entries. That record does not exist and we cannot
 create it: both Add Server paths reject the endpoint because it is already a connector.
 
-**Verified 24.11.2026, so the message carries facts and not claims:**
+**Verified 25.11.2026, re-measured after the channel dump:**
 
 | URL | Result |
 |---|---|
-| `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` | 200 — ownership verified, tool definitions rated A, 7 tools |
-| `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` | 200, but renders the registry index (127 068 servers, zero "kristo") |
-| `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg` | 200, renders "This MCP server is not listed on Glama" |
+| `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` | 200 — ownership verified, tool definitions rated A, listed and healthy |
+| `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` | **302 → `/mcp/servers`** (on 24.11 it was a 200 that rendered the registry index; it is now an explicit redirect, and still no record) |
+| `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg` | 200, and the SVG's only text node is **"This MCP server is not listed on Glama"** — while the connector badge renders the real grade |
 | `/mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence` | 404 |
+
+**Why the message below is much shorter than the previous draft.** The channel
+answers requests shaped like CodersTalk's and Clifty's: name the record, say what to
+keep, one ask, no essay. Frank's own words there: *"Most tickets are handled by
+agents. There are over 200 tickets created daily. If something requires human
+intervention, it takes time."* Ours needs human intervention — only Glama can create
+the record — so the message is built to be actioned in one reading.
 
 **Message to post:**
 
 ```
-Kristo Intelligence — the /mcp/servers/ record for a hosted endpoint does not exist, and we cannot create it
+Hi — a /mcp/servers/ record that cannot be created from our side, and it is the only thing blocking our listing PR.
 
-Our server is a hosted x402 endpoint: https://kristo-intelligence-api.onrender.com/mcp — 7 tools, streamable HTTP, Base mainnet.
+Our server is a hosted x402 endpoint (7 tools, streamable HTTP): https://kristo-intelligence-api.onrender.com/mcp
 
-It is listed and healthy as a connector, and we would like to keep that record exactly as it is:
+It is listed and healthy as a connector, and we want to keep that record exactly as it is:
 https://glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence
-(ownership verified, tool definitions rated A, 7 tools, TDQS 4.4/5.0)
 
-The problem is the /mcp/servers/ record. It does not exist:
-- /mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 renders the registry index — no "kristo" on the page
+What is missing is the /mcp/servers/ entry for the same server:
+- /mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 redirects to /mcp/servers — no record
 - /mcp/servers/com.onrender.kristo-intelligence-api/kristo-intelligence returns 404
-- both Add Server paths reject with "already listed as a hosted connector"
+- both Add Server paths reject it: "already listed as a hosted connector"
+- the servers badge renders "This MCP server is not listed on Glama" while the connector badge renders the real grade
 
-Why it matters: awesome-mcp-servers PR #13219 cannot merge because the listing's `quality` field shows "?", and quality is computed only for /mcp/servers/ entries. Ticket #135407945 has been open since September.
+So it can only be created on your side. Either of these is fine for us:
+1. create the /mcp/servers/ entry for the repo, pointing at the same hosted endpoint, or
+2. compute the `quality` field for the connector listing.
 
-What we are asking for, either way:
-1. create the /mcp/servers/ record for the repo, pointing at the same hosted endpoint — keep the connector, add the server record alongside it; or
-2. compute `quality` for the connector listing.
-
-The repo carries a Dockerfile and a stdio bridge (Dockerfile.glama, scripts/mcp_stdio_bridge.py), verified end to end: initialize → tools/list returns all 7 tools with full schemas, so the introspection check should pass. Nothing else is pending on our side.
+`quality` is what punkpeye/awesome-mcp-servers#13219 is waiting on, and ticket #135407945 has been open since September. Nothing is pending on our side: the repo ships Dockerfile.glama and scripts/mcp_stdio_bridge.py, verified end to end — initialize, then tools/list returns all 7 tools with full schemas.
 
 Thank you.
 ```
+
+**Optional second message, and it is not about us.** In the same channel dump,
+BeneODev asked (25.11, 12:45) whether the large card badge and the small score badge
+are treated the same way, and whether keeping the large one still counts as the
+backlink the PR needs. **That is the same question we spent two days measuring**, so
+the measurable half can be answered without guessing at Glama's policy — and the
+policy half is explicitly left to Frank:
+
+```
+BeneODev — on the badge question, from someone who measured both paths: they are not interchangeable for a hosted endpoint. If the server is listed under /mcp/connectors/..., then /mcp/servers/<owner>/<repo>/badges/score.svg renders "This MCP server is not listed on Glama" even though you are listed, because that path has no record behind it. The connector badge (/mcp/connectors/.../badges/score.svg) renders the real grade. We hit exactly this — the template badge would have put "not listed" in a README whose whole pitch is "check that a seller is real" — so the README carries the connector badge instead. Whether the PR still counts as a backlink is Frank's call, not something either of us can measure from outside.
+```
+
+**And on PR #13219 itself, nothing new is owed.** Frank posted the backlink notice
+on 24.11; we answered it the same day — description carries the listing link, prices
+corrected, and the badge-URL problem explained — and asked the one question that
+matters: whether a `/mcp/servers/` listing is a hard requirement. That question is
+still open, it is the same one the Discord message asks, and repeating it on the PR
+a day later would be noise rather than pressure.
 
 ---
 
