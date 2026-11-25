@@ -12,6 +12,16 @@ A section is named by its letter. `--section O` matches the heading
 `## O. ...` and takes everything up to the next `## ` heading. `--cc` may be
 given more than once, which is how a person's address and the published
 company inbox are both reached without choosing between them.
+
+WHAT "sent" MEANS, AND WHAT IT DOES NOT. `smtplib.send_message` reports only that
+the outgoing server ACCEPTED the message. A rejection at the far end arrives later
+as a bounce, in a different mailbox, from a different sender — so a green "sent to
+…" line is not evidence of delivery. That gap cost five messages on 25.11.2026:
+every reply to `ernest@nolimbsfighting.com` was accepted here and rejected there
+("554 5.7.1 : Recipient address rejected: user … does not exist"), and the
+conversation carried on without them. `_tools/check_mail_delivery.py` reads the
+mailbox back over IMAP to see what actually arrived; run it after any batch of
+outreach, and add anything that bounced to `BOUNCED` below.
 """
 import argparse
 import os
@@ -23,6 +33,15 @@ from email.message import EmailMessage
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRAFT = os.path.join(REPO, "docs", "OUTREACH_DRAFTS.md")
 ENV = os.path.join(REPO, ".env")
+
+#: Addresses that are known to reject mail, with the reason and the replacement.
+#: Checked before anything is sent, because a bounce is invisible from here.
+BOUNCED = {
+    "ernest@nolimbsfighting.com": (
+        "554 5.7.1 Recipient address rejected: user ernest@nolimbsfighting.com "
+        "does not exist (measured 24-25.11.2026, 7 bounces). He writes from "
+        "ernest-earnordie@agentmail.to and replies there; send to that."),
+}
 
 
 def load_env(path):
@@ -69,6 +88,14 @@ def main():
     args = ap.parse_args()
 
     subject, body = extract(DRAFT, args.section)
+
+    for address in [args.to] + list(args.cc):
+        reason = BOUNCED.get(address.strip().lower())
+        if reason:
+            raise SystemExit(
+                "refusing to send to %s — this address is known to reject mail:\n  %s"
+                % (address, reason))
+
     print("to:      %s" % args.to)
     if args.cc:
         print("cc:      %s" % ", ".join(args.cc))
@@ -110,6 +137,9 @@ def main():
         s.login(user, password)
         s.send_message(msg)
     print("sent to %s as %s" % (", ".join([args.to] + args.cc), user))
+    print("NOTE: the server accepted it; that is not proof of delivery. A rejection "
+          "at the far end arrives later as a bounce — read the mailbox back with "
+          "_tools/check_mail_delivery.py before trusting this line.")
     return 0
 
 

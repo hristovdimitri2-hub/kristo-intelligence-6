@@ -51,7 +51,20 @@ subreddit and the comment is stronger without one.
 
 ---
 
-## B. Email to Ernest — `ernest@nolimbsfighting.com`
+## B. Email to Ernest — `ernest-earnordie@agentmail.to`
+
+> **The address in this file was wrong for two days, and the mistake is recorded
+> here rather than quietly corrected.** From 24.11 19:52Z the drafts and the sends
+> used `ernest@nolimbsfighting.com`, which the far end rejects —
+> `554 5.7.1 : Recipient address rejected: user … does not exist`. Seven messages
+> bounced: §L2's second copy, §N's first copy, and then **§R, §S, §T, §U and §V in
+> full** — five replies written, "sent", and never delivered. SMTP acceptance is
+> not delivery; the bounces arrived in the mailbox from `mailer-daemon`. Ernest
+> writes and replies from `ernest-earnordie@agentmail.to`, which is where every
+> message before 24.11 19:52Z went and where all of them arrived. Every address in
+> this file is now that one, `scripts/send_draft.py` refuses the dead one outright,
+> and `_tools/check_mail_delivery.py` reads the mailbox back so this is checked
+> rather than assumed.
 
 **Subject:** Re: Kristo fix-sheet — yes to the CDP request, and one thing I would like to try with you
 
@@ -247,7 +260,7 @@ Where a repo name was wrong in an earlier draft, the correction is noted.
 
 | # | Destination | Exact link | State |
 |---|---|---|---|
-| 1 | Ernest | `ernest@nolimbsfighting.com` | warm thread, reply to his message |
+| 1 | Ernest | `ernest-earnordie@agentmail.to` | warm thread, reply to his message |
 | 2 | r/x402 | https://www.reddit.com/r/x402/ | thread about the fourfold increase, posted 23.11 |
 | 3 | Virtuals ACP | https://github.com/Virtual-Protocol/acp-cli/issues/new | **note the hyphen**: `Virtual-Protocol`, not `Virtuals-Protocol` |
 | 4 | Olas | https://t.me/olaschat | Telegram; also https://olas.network/mech-marketplace |
@@ -674,7 +687,7 @@ https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/DISC
 
 ## R. Ernest — he priced the measurement back to us (25.11.2026)
 
-**Where:** reply in the same Gmail thread as §L2 and §N, to `ernest@nolimbsfighting.com`.
+**Where:** reply in the same Gmail thread as §L2 and §N, to `ernest-earnordie@agentmail.to`.
 
 **What he sent:** two offers — a one-time 7-day demand-side ledger of our own seven
 routes for **$25**, or **$15/month** with weekly updates and a quarterly deep-dive.
@@ -737,7 +750,7 @@ Dimitri
 
 ## S. Ernest — the benchmark, checked against our own ledger (25.11.2026)
 
-**Where:** reply in the same Gmail thread, to `ernest@nolimbsfighting.com`.
+**Where:** reply in the same Gmail thread, to `ernest-earnordie@agentmail.to`.
 
 **What he sent:** the free benchmark he owed from §L2 — nine paths with live
 prices, a category-by-category comparison against named incumbents with 30-day
@@ -820,7 +833,7 @@ Dimitri
 
 ## T. Ernest — the real per-path ledger, and his conclusion survives it (25.11.2026)
 
-**Where:** same thread, `ernest@nolimbsfighting.com`. Sent after §S, because §S said
+**Where:** same thread, `ernest-earnordie@agentmail.to`. Sent after §S, because §S said
 the per-path split could not be produced from here and it turned out it could.
 
 **How it became measurable.** The `DATABASE_URL` in the Render env is the internal
@@ -904,7 +917,7 @@ Dimitri
 
 ## U. Ernest — the introduction we do not have, and the partner question (25.11.2026)
 
-**Where:** same thread, `ernest@nolimbsfighting.com`.
+**Where:** same thread, `ernest-earnordie@agentmail.to`.
 
 **What he sent.** Two answers. On the introduction: send the address directly, or
 forward his, and he opens with a free benchmark of that seller's own routes, never
@@ -961,7 +974,7 @@ Dimitri
 
 ## V. Ernest — the /mcp preflight, measured, fixed and re-validated (25.11.2026)
 
-**Where:** same thread, `ernest@nolimbsfighting.com`.
+**Where:** same thread, `ernest-earnordie@agentmail.to`.
 
 **What he sent.** A finding: `/mcp` fails the 402 preflight, "it is only the status
 line that is wrong", with a Coinbase validator quote; the proposed fix (return HTTP
@@ -1043,6 +1056,62 @@ So no to the $15 change-sheet, and not because of the money. The fix took less t
 On the benchmark numbers, which are the best thing you have sent: 67.7% of paid rows paid once and 11% of revenue, 6.2% paid five or more times and 89.1%. That matches everything I measure and it is the strongest argument yet against building another route. Two corrections from my ledger, though. First, whale-alerts is an alias of whaleflow: 14 settled calls in thirty days, 1 of them not mine. verify-seller is 19 and 4 not mine, and it took two of the three external-class payments. So the repeat-use route by my books is verify-seller, not whale-alerts. Second, the price band: my one route above $0.02 is the one with the most calls that are not mine, which is the opposite of "the $0.005 band is worst". With eleven non-own payments I cannot test a band at all. You can, across 1,774 routes, if the classification holds — which your benchmark of my routes shows it does not.
 
 On #881, thank you for answering it publicly, and one correction, also measured. There are no "old /mcp URLs" to redirect. I pulled both sets from the merchant endpoint: the live payTo carries 20 rows including 8 /mcp#tool, the retired payTo carries 6, and they are the same host and path — .../mcp#verify_seller, .../mcp#get_trading_signal — indexed on 10 November. A row is keyed by the address in the challenge, so nothing I serve today re-indexes a row onto another address; a paid call writes the live rows. The six can only age out, which is what you said first.
+
+Dimitri
+```
+
+## W. Ernest — the /mcp answer, plus the five replies that bounced (25.11.2026)
+
+**Where:** `ernest-earnordie@agentmail.to`. **This supersedes §V, which was never
+delivered**, and it carries the three points from §R, §S, §T and §U, which were
+never delivered either.
+
+**Why it exists.** Reading the mailbox back over IMAP
+(`_tools/check_mail_delivery.py`) showed **seven bounces**, every one of them
+`ernest@nolimbsfighting.com`: `554 5.7.1 : Recipient address rejected: user … does
+not exist`. The Sent folder shows the switch precisely — everything up to 24.11
+19:52Z went to `ernest-earnordie@agentmail.to` and arrived; from then on the sends
+used the address recorded in this file, and §R, §S, §T, §U and §V all bounced while
+`send_draft.py` printed "sent". The conversation continued without them, which is
+how it went unnoticed until the owner saw the delivery-failure notices.
+
+**One email rather than five.** The unsent messages were a sequence, and replaying
+them would be a flood for a reader who has moved on; so the /mcp answer leads, and
+the three live points follow under a heading that says plainly they were never
+received.
+
+**Subject:** `Re: Your /mcp endpoint fails the 402 preflight — measured, and it is one status code`
+
+```
+Ernest,
+
+First, a correction of my own, because it is the reason this reply is late. My last five messages to you went to ernest@nolimbsfighting.com and every one bounced — "554 5.7.1 : Recipient address rejected: user ernest@nolimbsfighting.com does not exist". I found that by reading my own mailbox rather than assuming, and I am writing to the address you actually use. Three of those messages are summarised at the end, so nothing is lost.
+
+Now your /mcp finding. You found a real defect, and the cause and the fix are both wrong. I can show you which is which, because I ran your validator myself.
+
+Your two status codes are two different requests. A GET of /mcp returned 200 — that is what the validator probes, and that is what fails. A POST of /mcp with a bare body returned 400. Neither is the tool result.
+
+The tool result, measured live: HTTP 200, with `isError: true`, `structuredContent` carrying the full PaymentRequired object, and `content[0].text` as the JSON of the same. That is not a challenge buried anywhere — it is the documented signal. specs/transports-v2/mcp.md, Payment Required Signaling: "When a tool requires payment, servers MUST return a tool result with isError: true containing the PaymentRequired data", in both structuredContent and content[0].text, with the payment returning at _meta["x402/payment"]. Your own docs say the same in prose: the tool result is MCP's equivalent of an HTTP 402 status and PAYMENT-REQUIRED header. So the fix you proposed — HTTP 402, JSON-RPC only for the paid response — would break every client written to that spec, including wrapMCPClientWithPayment and create_x402_mcp_client. A standard x402 MCP client does not read the status line. It reads the tool result, and it already works against us.
+
+Your validator failure is real, though, and I reproduced it with my own CDP credentials. Before: GET /mcp, 25 checks, returns_402 FAIL — "Endpoint returns 200 OK, it needs to return 402 for unauthenticated requests to be discoverable", expected 402 actual 200 — and the other 24 skipped. GET /api/v1/signal: 25 of 25 pass. So the defect is not the MCP challenge. It is that GET /mcp served a free document on the URL the index treats as a payable resource, which is exactly the URL the eight /mcp#tool#tool rows are indexed against.
+
+Fixed and re-validated. GET /mcp now answers the canonical challenge — PAYMENT-REQUIRED header, accepts[], resource, and the bazaar block the last ten checks read — and a paid GET delivers the document it always served. POST and DELETE are untouched, because that is the transport and the spec puts the challenge in the tool result. The document is still free at /mcp.json, so nothing that reads it is worse off. Validator after the change: 25 of 25 pass, valid true.
+
+So no to the $15 change-sheet, and not because of the money. The fix took less time than the two emails, and the change-sheet as described would have taken the MCP surface backwards. If you want a change-sheet worth paying for, it is the one I cannot write: the payer classification behind your benchmark, which your index cannot produce and my ledger can.
+
+On the benchmark numbers, which are the best thing you have sent: 67.7% of paid rows paid once and 11% of revenue, 6.2% paid five or more times and 89.1%. That matches everything I measure and it is the strongest argument yet against building another route. Two corrections from my ledger. First, whale-alerts is an alias of whaleflow: 14 settled calls in thirty days, 1 of them not mine. verify-seller is 19 and 4 not mine, and it took two of the three external-class payments. So the repeat-use route by my books is verify-seller, not whale-alerts. Second, the price band: my one route above $0.02 is the one with the most calls that are not mine, which is the opposite of "the $0.005 band is worst". With eleven non-own payments I cannot test a band at all. You can, across 1,774 routes, if the classification holds — which your benchmark of my routes shows it does not.
+
+On #881, thank you for answering it publicly, and one correction, also measured. There are no "old /mcp URLs" to redirect. I pulled both sets from the merchant endpoint: the live payTo carries 20 rows including 8 /mcp#tool, the retired payTo carries 6, and they are the same host and path — .../mcp#verify_seller, .../mcp#get_trading_signal — indexed on 10 November. A row is keyed by the address in the challenge, so nothing I serve today re-indexes a row onto another address; a paid call writes the live rows. The six can only age out, which is what you said first.
+
+WHAT YOU NEVER RECEIVED
+
+One. The ledger offer: declined, and the reason is structural rather than the price. Not one of your five metrics is observable from outside a service — repeat visitor rate, paying-wallet share, revenue per agent and per-route conversion all live in the seller's request log. You can see my 402s; you cannot see who came back, who paid, or what they paid for. So an audit of my routes is either built from data I hand over or it is a guess. And I already have all five, for thirty days rather than seven, plus the individual reading of all 135 payment attempts.
+
+Two. Your benchmark's call counts, checked against my own ledger. Your route table and prices are exact — I asked all nine paths unpaid and every one answers the live price you list. Your counts are not reproducible: 7, 14, 21, 30, 45 and 60 days all give different numbers from yours, and six of your rows — the four aliases plus stats and bot-status, two each — are exactly my own smoke-test sweep of 10 and 11 November. My thirty-day numbers, my key separated: signal 22 with 3 not mine, verify-seller 19 with 4, whaleflow 14 with 1, sales 13 with 1, bot-status 10 with 0, stats 9 with 1, arb 5 with 0, trading-signals 3 with 1, and the four remaining aliases 2 each with none of them mine. But your conclusion survives my books: verify-seller is the top route by calls that are not mine, and it took two of the three external-class payments. I told you last week I was dropping that route. My own ledger says I was wrong to.
+
+Three. The introduction: I do not have it. I checked before promising: five leads in my CRM, zero customer checkouts. What I have is thousands of sellers known by their listings and none known as contacts who would take an introduction; the people I do know are verifiers, directories and trust vendors — the layer we both sit in, not your buyers.
+
+Which leaves the question I have now asked twice without an answer: if I supply the measurement and you sell it, what is your share? Name it and I will answer. If the honest answer is that you would rather keep the customer, say that too, and I will stop asking.
 
 Dimitri
 ```

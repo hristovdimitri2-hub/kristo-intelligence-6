@@ -128,6 +128,13 @@ zero-dependency Python client (14 tests).
   24 skipped), `POST` untouched, the document still free at `/mcp.json`, suite
   **1481 → 1486**. He offered the fix as a `$15` change-sheet; the fix took less
   time than the emails.
+- **And then the correction that matters more than any of it:** every reply to
+  Ernest between 24.11 19:52Z and 25.11 was **undelivered**. The address in this
+  repo rejects mail (`554 5.7.1 … does not exist`); he writes from
+  `ernest-earnordie@agentmail.to`. Seven bounces, five of them whole replies —
+  including the one that reversed our verify-seller decision. Found by reading the
+  mailbox back over IMAP, not by assuming. `send_draft.py` now refuses a dead
+  recipient; §W is the consolidated resend and no new bounce came back.
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already

@@ -8093,6 +8093,55 @@ carries 6, and they are the **same host and path** (`…/mcp#verify_seller`, ind
 10.11). A row is keyed by the address in the challenge, so nothing served today
 re-indexes a row onto another address; the six can only age out.
 
+## §129. Five replies were "sent" and never arrived, because the address was dead (25.11.2026)
+
+**The owner caught it, not us.** He forwarded the Gmail delivery-failure notices:
+`554 5.7.1 : Recipient address rejected: user ernest@nolimbsfighting.com does not
+exist`. Read back over IMAP (`_tools/check_mail_delivery.py`), the mailbox holds
+**seven bounces**, every one of them that address, and the Sent folder shows the
+switch precisely:
+
+- up to **24.11 19:52Z** every message went to **`ernest-earnordie@agentmail.to`**
+  and arrived — that is the address he writes and replies from, and the one that
+  carried the whole earlier thread;
+- from then on the sends used the address recorded in `OUTREACH_DRAFTS.md`, and
+  **§R, §S, §T, §U and §V bounced in full**, plus a duplicate of §N. The script
+  printed "sent" every time, because `smtplib.send_message` reports only that the
+  outgoing server accepted the message; the rejection happened at the far end and
+  arrived later, in a different mailbox, from `mailer-daemon`.
+
+**The substantive cost.** Five written replies — the refusal of the `$25/$15`
+ledger, the benchmark check against our own ledger, the corrected per-path split
+that **reversed our verify-seller decision**, the correction that we have no
+introductions to give, and the whole `/mcp` measurement and fix — were never read.
+Ernest kept writing as though the conversation had continued, which is exactly why
+nobody noticed.
+
+**The fixes, all three of them.**
+1. `scripts/send_draft.py` now refuses a known-dead recipient before sending
+   (`BOUNCED`), with the reason and the replacement, and its success line says
+   plainly that server acceptance is not delivery.
+2. Every Ernest address in `docs/OUTREACH_DRAFTS.md` is the working one, and §B
+   carries the note explaining what was wrong for two days rather than a silent
+   correction.
+3. `_tools/check_mail_delivery.py` reads the mailbox back over IMAP — which
+   recipients bounced, and which address a correspondent actually writes from. The
+   rule the whole project runs on ("measure, do not assume") applied to our own
+   outbox, one day late.
+
+**Resent as §W**, one consolidated email rather than a replay of five: the `/mcp`
+answer leads, and the three live points from the undelivered messages follow under
+a heading that says they were never received. Sent to
+`ernest-earnordie@agentmail.to`; the mailbox was read back afterwards and **no new
+bounce arrived** — the first delivery check in this project's history that was
+actually performed.
+
+**Checked at the same time, and it is good news:** the only address that bounced is
+Ernest's. **§O to Script Master Labs and §P to Hosannaith raised no DSN**, so the
+mail pipeline itself is fine and the failure was one wrong address, not a broken
+sender.
+
+
 
 
 
