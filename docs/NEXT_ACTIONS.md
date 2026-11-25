@@ -97,8 +97,9 @@ activity feed marks their own settlements `SELF-PROOF`, which is our discipline,
 theirs to be taught; and their trust formula already prices **demand at 20 of 100**,
 which is the exact component the census measures and no index can see.
 
-Draft §O answers their question with our numbers rather than with a pitch. Sent to
-`ScriptMasterLabs@gmail.com`, the contact address published on HIVE402.
+Draft §O answers their question with our numbers rather than with a pitch. Sent
+25.11.2026 to `tim@scriptmasterlabs.com`, the LLC's canonical organization address,
+with the product's published inbox `ScriptMasterLabs@gmail.com` on Cc.
 
 ### One defect the deploy exposed (25.11.2026)
 

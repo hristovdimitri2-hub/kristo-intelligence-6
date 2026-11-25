@@ -7510,7 +7510,14 @@ Three properties made them the next recipient rather than a larger catalogue:
 Draft **§O** answers their question with our numbers (12 external payments, 9
 wallets, $0.054 lifetime, 135 attempts of which none was a funded buyer), states the
 $0.25 price rather than proposing one, and offers the shape to be cut to their
-demand component or as its own line. Sent to `ScriptMasterLabs@gmail.com`.
+demand component or as its own line.
+
+**Sent 25.11.2026** to `tim@scriptmasterlabs.com` — the LLC's canonical
+organization address, published in its schema.org record and used as its refund
+contact — with the product's own published inbox `ScriptMasterLabs@gmail.com` on
+Cc. Two addresses because they are two different doors and there was no reason to
+choose: the named person's address on the company domain, and the general contact
+link in the HIVE402 footer.
 
 The tooling changed with it: `scripts/send_section_n.py` is replaced by
 `scripts/send_draft.py`, which takes the section letter and the recipient on the

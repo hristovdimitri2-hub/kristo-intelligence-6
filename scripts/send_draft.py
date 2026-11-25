@@ -9,7 +9,9 @@ Secrets are read from .env and never printed.
     python send_draft.py --section N --to someone@example.com --send
 
 A section is named by its letter. `--section O` matches the heading
-`## O. ...` and takes everything up to the next `## ` heading.
+`## O. ...` and takes everything up to the next `## ` heading. `--cc` may be
+given more than once, which is how a person's address and the published
+company inbox are both reached without choosing between them.
 """
 import argparse
 import os
@@ -61,11 +63,15 @@ def main():
     ap.add_argument("--section", required=True,
                     help="draft letter as it appears in '## <letter>.'")
     ap.add_argument("--to", required=True, help="recipient address")
+    ap.add_argument("--cc", action="append", default=[],
+                    help="carbon copy; may be repeated")
     ap.add_argument("--send", action="store_true", help="actually send")
     args = ap.parse_args()
 
     subject, body = extract(DRAFT, args.section)
     print("to:      %s" % args.to)
+    if args.cc:
+        print("cc:      %s" % ", ".join(args.cc))
     print("subject: %s" % subject)
     print("chars:   %d" % len(body))
 
@@ -74,6 +80,8 @@ def main():
     msg = EmailMessage()
     msg["From"] = "draft@localhost"
     msg["To"] = args.to
+    if args.cc:
+        msg["Cc"] = ", ".join(args.cc)
     msg["Subject"] = subject
     msg.set_content(body, charset="utf-8")
 
@@ -101,7 +109,7 @@ def main():
         s.starttls()
         s.login(user, password)
         s.send_message(msg)
-    print("sent to %s as %s" % (args.to, user))
+    print("sent to %s as %s" % (", ".join([args.to] + args.cc), user))
     return 0
 
 
