@@ -99,6 +99,15 @@ The two things that survive every measurement are the ones the analyst named: da
 a buyer cannot get elsewhere, and the measurement itself. This document is the
 second one.
 
+**What the ecosystem's own launches say.** A Base ecosystem digest for 24 November
+2026 reports a scanner whose security work is paid for continuously out of token
+fees, and an operator extending an *evaluation* API — judgement sold as a service.
+Neither is our measurement and both come from a secondary source, so treat them as
+a pattern rather than as evidence: they are the shape this section argues for, and
+the opposite shape to a listing that can report calls or views and no revenue. What
+gets paid for repeatedly is a recurring service or a judgement. What does not get
+paid for is a feed of numbers that anyone can crawl.
+
 ## 5. Method, so the numbers can be checked
 
 - Requests, user agents, paths, referers and statuses: `request_log`, which retains

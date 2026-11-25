@@ -95,6 +95,24 @@ the correct string from the envelope. Six of our own files carried the bad spell
 all are corrected. The method point matters more than the typo: to find a defect in a
 public claim, read the live response rather than the note describing it.
 
+### The recurring product, and why the archive started now (25.11.2026)
+
+A one-off snapshot at $0.25 prices the specimen, not the asset. What cannot be bought
+anywhere else is the **change between months** — which agents are new, which came
+back, which stopped, what they paid — and a change needs two snapshots to exist.
+
+`request_log` retains 30 days, so a month that is not snapshotted cannot be
+reconstructed afterwards. The archive therefore has to start before the product can be
+sold. `snapshots/archive/` now holds the dated baseline
+(`demand_census_2026-11-24.json`, 1,494 agents, byte-identical to the served copy),
+and the first sellable issue is **December 2026 against November 2026**.
+`snapshots/archive/README.md` records the rule and the exact command.
+
+One command a month is enough at this scale. Nothing is automated, no new route and no
+new price exists yet, and a monthly route would need a price in `config.py`, which
+requires the owner's explicit approval — so it is deliberately not built until there is
+a second snapshot and therefore something real to sell.
+
 
 ---
 
