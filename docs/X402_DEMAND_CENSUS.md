@@ -119,6 +119,28 @@ second one.
 seen, cadence, route preference, attempt outcome — and the per-wallet payment
 history. That is the dataset. The aggregate is this document.
 
+## 6. How to buy the part that is not here
+
+The table is sold rather than published, because a dataset nobody pays for is the
+mistake this document is about.
+
+- **Buy:** `GET /api/v1/demand-census` — **$0.25** in USDC on Base (`eip155:8453`),
+  x402 v2. An unpaid call answers `402` with the offer; a paid one returns the
+  document. It carries the **1,494-row per-agent table** (`user_agent`, `first_seen`,
+  `last_seen`, `requests`, `challenged`, `delivered`, `ever_paid`), all 135 payment
+  attempts by outcome, the payment history by payer class, and the measurement
+  window. `totals` is derived from the rows, so a buyer can re-add the table and
+  check it against the summary it arrived with.
+- **Look before paying:** `GET /api/v1/demand-census/sample` — free, no credential,
+  the same document shape with a synthetic agent list. It exists so the fields, the
+  size and the provenance lines can be judged before the price is paid; the
+  aggregate figures in it are the ones already published here.
+- **The served copy is the measured copy:** the snapshot is dated
+  `2026-11-24T20:42:29Z` and served from disk unchanged. It is produced offline by
+  `scripts/build_demand_census.py`, which reads the production ledger
+  (`request_log`, `onchain_sales`, `payment_attempts`) read-only; the route itself
+  only serves the file.
+
 ---
 
 *Kristo Intelligence — `kristo-intelligence-api.onrender.com` — a live x402 service
