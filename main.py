@@ -346,7 +346,8 @@ CHALLENGE_DESCRIPTIONS = {
         "DEGEN: action, confidence and one-line reasoning — refreshed under 5 "
         "minutes from live market data. Useful when an agent has to act on a "
         "market view and needs a stated action and its reason rather than raw "
-        "prices."
+        "prices. Its own measured record is published at /public/signals/history "
+        "and it is a losing one."
     ),
     "/api/v1/whaleflow": (
         "Whale flow and whale transfers on Base: USDC transfers ≥ $5M with "
