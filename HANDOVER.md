@@ -8141,6 +8141,60 @@ Ernest's. **§O to Script Master Labs and §P to Hosannaith raised no DSN**, so 
 mail pipeline itself is fine and the failure was one wrong address, not a broken
 sender.
 
+## §130. Our own reader of the vector set found a defect in our own artifact (25.11.2026)
+
+Abdellah confirmed the cross-run from the raw bytes on his side — same tally, same
+single-line difference — put our line in his results file with our name, the date
+and the fingerprint, **and offered a new column: "if you ever write your own
+reading of vectors.json without our adapter, I would list that as its own
+column."** That offer is the whole reason this section exists.
+
+**What was built.** `docs/omnidome_fixture1/our_own_reading.py` — our reader, not
+their adapter: it parses draft 3 itself and applies **our** decision logic, imported
+from our published fixture, with all ten of its reading decisions written down and
+numbered so each can be disputed. Their adapter translates the vectors into our
+file's shape; a reader of ours removes that translation from the answer.
+
+**What it found, on its first run: 19 same / 14 allowed / 3 outside / 5 open.**
+Three vectors came out OUTSIDE what the set allows — our logic answered REFUSE
+where the set says DELIVER, HOLD and HOLD:
+
+| vector | reference | our v4 | reason |
+|---|---|---|---|
+| `retry-adopted-by-nonce-deliver` | DELIVER | REFUSE | `terminal:invalid_transaction_state` |
+| `retry-adopted-by-nonce-hold` | HOLD | REFUSE | same |
+| `retry-chain-not-measured-hold` | HOLD | REFUSE | same |
+
+One case, and it matters: the facilitator answers `invalid_transaction_state`,
+*"authorization already used"*, with no hash, because the buyer re-presented the
+**same signed authorization** after a lost response. **Our artifact treated that as
+terminal and refused a payment that had landed.** Production never did —
+`_find_settlement_by_nonce` (`main.py:3671`) searches the chain for the transaction
+that consumed `(payer, nonce)`. **The adapter had been hiding the gap by
+synthesising a pending response for exactly those vectors** — a reasonable
+translation choice, invisible in its output, and precisely what a second reader is
+for.
+
+**The fix is v5 of the artifact.** `SyntheticChain.receipt_by_nonce(payer, nonce)`
+plus `decide(..., recovering=True)`, a marker the **caller** sets because the caller
+is what performed the lookup. With it, an "already used" code asks the chain which
+receipt consumed the pair: one that did is this payment and the ordinary rules
+decide; nothing found is a **HOLD, never a refusal**. Without it the code stays
+terminal — the set's own `message-says-pending-code-does-not` vector is the same
+code with no retry and requires REFUSE, so the two cases are one flag apart and both
+are pinned by tests. **11 → 13 tests, all passing under both runners.** The REVISIONS
+block carries the whole story, and the v4 entry now names v4's hash since it is
+superseded.
+
+**Result after the fix, from our own reader: 22 / 14 / 0 / 5** — the same tally
+their adapter produces, reached without their translation. **Published in the gist**
+(HEAD `79c15d8178c21d89b08a2b9a9afcec90912922f4`) as three files: the v5 fixture
+(`ccdfea67502fd2204502dfe72b4bc5e83ed8ece67b1ed19c690d580e91d0d666`, 46 890 bytes),
+`our_own_reading.py`, and `OUR_OWN_READING.md`. All three were read back through the
+API and match the bytes on disk, and **the reader was then run from the gist's own
+bytes** to prove the published pair works: 22 / 14 / 0 / 5.
+
+
 
 
 

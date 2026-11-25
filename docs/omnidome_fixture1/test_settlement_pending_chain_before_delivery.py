@@ -94,12 +94,41 @@ to declare. Superseded revisions, and why each was superseded:
         reference refuses - both on the authorization rail, because the file
         had no nonce to bind to.
 
-    this revision adds the nonce binding (assertion 8) and its two tests, and
-    says plainly where the nonce comes from: the chain, not the response. It
-    adds this REVISIONS entry and nothing else of substance, so its hash is the
-    one a verifier computes from the bytes in front of them. Run it, hash it,
-    and if the hash is not the one the thread names, say so - that is the whole
-    point of shipping the bytes rather than the claim.
+    v4  SHA-256 3d76d8030efc10cbbfcfe3a739078ee5fa4a8af417712a583b934789f37d170a
+        11 tests, 37 862 bytes. Adds the nonce binding (assertion 8) and its two
+        tests, and says plainly where the nonce comes from: the chain, not the
+        response.
+
+    this revision adds the RETRY RECOVERY rule (assertions 12 and 13) and
+    nothing else of substance. Why it exists, because the reason is more
+    interesting than the change: a reader of OUR OWN was written for the
+    published vector set - ours, not the set author's adapter, which had been
+    translating the vectors into this file's shape - and that reader found three
+    vectors on which this file answered REFUSE where the set says DELIVER, HOLD
+    and HOLD. All three are the same case: the facilitator answers
+    `invalid_transaction_state`, "authorization already used", with no hash,
+    because the buyer has re-presented the SAME signed authorization after a lost
+    response. This file treated that code as terminal. Production has never
+    treated it that way: `_find_settlement_by_nonce` (main.py:3671) searches the
+    chain for the transaction that consumed (payer, nonce). The adapter had been
+    hiding the gap by synthesising a pending response for those vectors, which is
+    exactly what an adapter does and exactly why a second reader is worth writing.
+
+    The rule, in the caller's hands on purpose: `decide(..., recovering=True)` is
+    passed by a caller that KNOWS the same authorization has come back, because it
+    is the caller that performed the lookup. With it, an "already used" code asks
+    the chain which receipt consumed (payer, nonce): a receipt that did is this
+    payment and the ordinary rules decide; nothing found is a HOLD, never a
+    refusal, because the nonce tells us the authorization was spent and refusing
+    would assert more than we know. Without the marker the code stays terminal -
+    the set's own `message-says-pending-code-does-not` vector is the same code
+    with no retry and requires exactly that, so the two cases are one flag apart
+    and both are now pinned.
+
+    This entry cannot name its own hash, for the reason v4's entry could not: any
+    byte added to write the hash down changes it. Run it, hash it, and if the hash
+    is not the one the thread names, say so - that is the whole point of shipping
+    the bytes rather than the claim.
 
 RUN IT
 ------
@@ -131,12 +160,28 @@ SETTLEMENT_PENDING_CODE = "settlement_pending"
 
 #: Spec §9 terminal codes. A response carrying one of these is a failure and
 #: must never be adopted, even when it also carries a transaction hash.
+#:
+#: ONE OF THEM IS NOT ALWAYS TERMINAL, and this is v5's whole change. See
+#: `ALREADY_USED_CODE`.
 TERMINAL_CODES = (
     "insufficient_funds",
     "invalid_exact_evm_payload_signature",
     "unexpected_settle_error",
     "invalid_transaction_state",
 )
+
+#: What a facilitator answers when the EIP-3009 authorization has ALREADY been
+#: used: `invalid_transaction_state`, "authorization already used", no hash.
+#:
+#: It is in the terminal list above and it stays there — a facilitator that says
+#: this is not telling us the payment failed, it is telling us the nonce is
+#: spent. Those are different statements, and treating the second as the first
+#: refuses a buyer whose payment landed and whose response was lost: the classic
+#: retry after a timeout. Production has answered this since the beginning by
+#: searching the chain for the transaction that consumed (payer, nonce) —
+#: `_find_settlement_by_nonce`, main.py:3671 — and the fixture did not carry that
+#: rule, which is how it came to refuse three vectors of the published set.
+ALREADY_USED_CODE = "invalid_transaction_state"
 
 #: Base mainnet USDC. The only token a valid transfer may move.
 USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
@@ -244,6 +289,24 @@ class SyntheticChain:
         if r is None:
             return 0
         return max(0, self.head - r.block_number + 1)
+
+    def receipt_by_nonce(self, payer: Optional[str], nonce: Optional[str]) -> Optional[Receipt]:
+        """The receipt that consumed THIS authorization, or None.
+
+        The chain is the only place this can be answered: the `AuthorizationUsed`
+        event is indexed by (authorizer, nonce), so a transaction that consumed
+        the pair IS the payment, whatever the facilitator's response said. This is
+        what production does when it is told the authorization was already used.
+        """
+        if payer is None or nonce is None:
+            return None
+        wanted = (str(payer).lower(), str(nonce).lower())
+        for receipt in self._receipts.values():
+            consumed = {(str(a).lower(), str(n).lower())
+                        for a, n in receipt.authorizations}
+            if wanted in consumed:
+                return receipt
+        return None
 
 
 def _is_tx_hash(value: Any) -> bool:
@@ -446,6 +509,7 @@ def decide(
     required: int = REQUIRED_CONFIRMATIONS,
     payer: Optional[str] = PAYER,
     nonce: Optional[str] = None,
+    recovering: bool = False,
 ) -> Decision:
     """Map one settle response to one verdict.
 
@@ -469,6 +533,16 @@ def decide(
     be the one that consumed it. Pass `nonce=None` on the proof rail: no
     authorization was signed there, so there is no nonce to bind to and the
     durable claim is again what does the work.
+
+    `recovering` is set by the CALLER when the same signed authorization has come
+    back — the retry after a lost response — and it is the caller who knows,
+    because it is the caller that performed the lookup. With it, an
+    `invalid_transaction_state` code ("authorization already used") is treated as
+    a statement about the nonce rather than about the payment: the chain is asked
+    which receipt consumed (payer, nonce), and that receipt then goes through the
+    ordinary rules. Without it the code is terminal, which is what the set's
+    `message-says-pending-code-does-not` vector requires: same code, no retry,
+    and a message that mentions pending does not make it pending.
     """
     if not isinstance(resp, dict):
         return Decision(DENY, None, False, ["not_a_dict"])
@@ -489,6 +563,21 @@ def decide(
                                adopted=True, payer=payer, nonce=nonce)
 
     if code in TERMINAL_CODES:
+        # ── v5: "already used" is a statement about the nonce, not about the
+        # payment. When the payment names a payer and a nonce, the chain is asked
+        # whether this authorization was consumed; a receipt that consumed it IS
+        # this payment, and the ordinary chain rules then decide. Without a
+        # receipt there is nothing to recover, and the answer is a hold rather
+        # than a refusal: the money may still be found, and refusing tells the
+        # buyer their payment failed when we do not know that.
+        if code == ALREADY_USED_CODE and recovering and nonce is not None:
+            found = (chain.receipt_by_nonce(payer, nonce)
+                     if payer is not None else None)
+            if found is not None:
+                return _decide_on_chain(chain, found.tx_hash, pay_to, price_atomic,
+                                        required, adopted=True, payer=payer,
+                                        nonce=nonce)
+            return Decision(PENDING, None, True, ["already_used_no_receipt"])
         return Decision(DENY, tx if _is_tx_hash(tx) else None, False, ["terminal:" + code])
 
     return Decision(DENY, tx if _is_tx_hash(tx) else None, False, ["unknown_error:" + code])
@@ -617,6 +706,78 @@ def chain_with(
 
 
 # ── Tests. One per assertion in the request. ──────────────────────────────
+def test_an_already_used_authorization_is_recovered_from_the_chain():
+    """Assertion 12 (v5): "already used" is about the nonce, not the payment.
+
+    The facilitator answers `invalid_transaction_state` with no hash, because the
+    authorization it was handed has been spent. The buyer's payment is on chain.
+    Searching by (payer, nonce) finds the receipt that consumed it, and the
+    ordinary chain rules then decide — so a retry after a lost response delivers
+    instead of refusing.
+    """
+    already_used = {
+        "success": False,
+        "errorReason": ALREADY_USED_CODE,
+        "errorMessage": "authorization already used",
+        "transaction": "",
+        "network": "eip155:8453",
+    }
+    chain = chain_with(tx=TX2, authorization=(PAYER, NONCE))
+    store = EffectStore()
+    d = handle(already_used, chain, store, effect=lambda: {"ok": True},
+               nonce=NONCE, recovering=True)
+    assert d.verdict == ALLOW, d.reasons
+    assert d.delivered is True, "a recovered payment was not delivered"
+    assert d.tx_hash == TX2, "the recovered hash is the chain's, not the response's"
+    assert store.effects_applied == 1, "the recovery ran the effect more than once"
+
+    # The same code against a receipt that consumed somebody else's nonce is not
+    # this payment, and must not deliver.
+    other = chain_with(tx=TX2, authorization=(OTHER_PAYER, OTHER_NONCE))
+    d = decide(already_used, other, payer=PAYER, nonce=NONCE, recovering=True)
+    assert d.verdict != ALLOW, "somebody else's receipt was delivered as ours"
+
+    # WITHOUT the retry marker the same code stays terminal: the caller did not
+    # look anything up, so there is nothing to recover and the code decides.
+    d = decide(already_used, chain, payer=PAYER, nonce=NONCE)
+    assert d.verdict == DENY, (
+        "an already-used code with no retry must stay terminal, or a terminal "
+        "failure carrying a stale nonce would be delivered")
+
+
+def test_an_already_used_authorization_without_a_receipt_is_held_not_refused():
+    """Assertion 13 (v5): nothing to recover yet is a hold, never a refusal.
+
+    Refusing would tell the buyer their payment failed. We do not know that: the
+    money may still be found, and the spec's terminal list is about the settle
+    response, not about what the chain will show.
+    """
+    already_used = {
+        "success": False,
+        "errorReason": ALREADY_USED_CODE,
+        "errorMessage": "authorization already used",
+        "transaction": "",
+        "network": "eip155:8453",
+    }
+    d = decide(already_used, SyntheticChain(head=1000, receipts={}),
+               payer=PAYER, nonce=NONCE, recovering=True)
+    assert d.verdict == PENDING, d.reasons
+    assert d.verdict != DENY, "an unmeasured chain was turned into a refusal"
+    assert d.verdict != ALLOW, "nothing was found and the call was allowed anyway"
+
+    # A nonce we hold but cannot search by is still a hold: the nonce tells us the
+    # authorization was spent, and refusing would assert more than we know.
+    d = decide(already_used, SyntheticChain(head=1000, receipts={}),
+               payer=None, nonce=NONCE, recovering=True)
+    assert d.verdict == PENDING, d.reasons
+
+    # With no retry marker the terminal answer stands, which is the vector set's
+    # own `message-says-pending-code-does-not` case.
+    d = decide(already_used, SyntheticChain(head=1000, receipts={}),
+               payer=PAYER, nonce=NONCE)
+    assert d.verdict == DENY, d.reasons
+
+
 def test_pending_is_not_failure_not_completion_not_delivery():
     """Assertion 1: a pending broadcast is held, not failed, not delivered."""
     d = decide(pending_resp(), SyntheticChain(head=1000, receipts={}))

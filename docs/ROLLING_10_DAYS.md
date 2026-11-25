@@ -135,6 +135,13 @@ zero-dependency Python client (14 tests).
   including the one that reversed our verify-seller decision. Found by reading the
   mailbox back over IMAP, not by assuming. `send_draft.py` now refuses a dead
   recipient; §W is the consolidated resend and no new bounce came back.
+- **Our own reader of his vector set, which he offered a column for, found a
+  defect in our own artifact** (§130): three vectors where our logic refused a
+  payment that had landed, because the fixture treated *"authorization already
+  used"* as terminal while production recovers it by nonce. His adapter had been
+  hiding it by synthesising a pending response. Fixed to **v5** (`ccdfea67…`,
+  11 → 13 tests), and our reader — run from the gist's own bytes — now returns
+  **22 / 14 / 0 / 5** without their translation.
 - **Assessed the x402 Foundation** (Digital Garage joined): membership is $25,000
   and up, the free tier is academic-only, but working groups and the spec repo are
   open — and **"sell judgement" was found to be crowded, with nine vendors already
