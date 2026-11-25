@@ -6,6 +6,50 @@ order to work through it. Full text of every message is in `docs/OUTREACH_DRAFTS
 
 ---
 
+## Measured 25.11.2026 — the target list changed, and why
+
+The owner forwarded Digital Garage's press release: the first Japanese business
+company to join the **x402 Foundation** as a General Member. x402 is now a Series
+of LF Projects, LLC, launched with around 40 members. Three facts, all read off
+the foundation's own pages:
+
+- **We cannot buy our way in.** Premier $200,000; General **$25,000/yr** (under
+  250 employees); Associate is **$0 but limited to academic and nonprofit
+  institutions**, and we are neither.
+- **Participation is free.** The TSC and working-group meetings are open to the
+  public, there is a public Slack and public mailing lists, and
+  `github.com/x402-foundation/x402` (6,826 stars, 895 open issues, pushed
+  24.11.2026) takes issues and PRs. The working groups are **Domain Discovery**,
+  Identity, Tax and Card Acceptance — Domain Discovery is our subject.
+- **"Sell judgement" is not open space.** The repo's own
+  `docs/dev-tools/third-party-extensions.md` keeps a *Third-party utilities*
+  table and **nine vendors already occupy it**: Hosannaith, Teppi, zauth, Tanilo
+  x402 Guard, PEAC Protocol, OMATrust, AffixIO, Elara, x402r. Every one measures
+  the **supply** side. None measures the demand side — checked in their READMEs,
+  not inferred from the table.
+
+So the correction to §119/§120: judgement is crowded, and the buyer of the demand
+side is not the ordinary seller. It is the **trust-layer vendors and marketplace
+operators** — businesses that already exist, already need a base rate for whether
+anyone pays, and cannot get it by crawling. Full reasoning in `HANDOVER.md` §122.
+
+Ordered plan, cheapest first:
+
+1. **Carry the measured discovery finding into the spec repo** (free). The Bazaar
+   extension doc documents the echo requirement and async cataloguing, but not
+   what we measured twice: a catalogue row is a snapshot of the **last settled
+   echo**, so a row keeps publishing text the seller has since changed, and only a
+   new paid call updates it. Our own row advertised a pre-change description until
+   we paid $0.01 through it (`tx 0xbb454d…`).
+2. **Join the Domain Discovery working group's public mailing list and Slack**
+   (free) — the only place our measurements could shape a specification.
+3. **§P: the trust-layer vendors** (sent 25.11.2026 to Hosannaith, the closest
+   fit; the other named addresses are in the draft).
+4. **Unchanged:** the census stays at $0.25, and December-vs-November is the
+   first sellable change.
+
+---
+
 ## The one priority
 
 **The market audit of 24.11 changed what the priority is. Read this first.**

@@ -562,3 +562,59 @@ I am already carried in your catalog through the CDP Bazaar source. If a demand-
 Dimitri
 ```
 
+## P. The trust-layer vendors — the base rate their scores do not contain (25.11.2026)
+
+**Why this is a different target list from A–O.** Nine vendors already sell trust
+about x402 **sellers**, and the x402 Foundation's own
+`docs/dev-tools/third-party-extensions.md` lists them (Hosannaith, Teppi, zauth,
+Tanilo x402 Guard, PEAC Protocol, OMATrust, AffixIO, Elara, x402r). Every one of
+them measures or protects the supply side. **None measures the demand side** —
+checking their READMEs individually, Hosannaith's only match for "demand" is
+"sells a verified reliability score on demand", and Teppi's only match for
+"payer" is a field in a receipt. A reliability score with no base rate for
+whether anyone pays cannot separate a correctly payable endpoint from a
+commercially dead one, and two sellers with identical uptime can differ by every
+dollar they have ever earned.
+
+So the letter sells the census as **an input to their score**, not as a rival
+score, and it sells to a business that already needs the number. Sent first to
+Hosannaith, the closest fit (a reliability oracle on Base, and the founder's own
+address is published on the site rather than a noreply mailbox).
+
+**Recipients and the address each one actually publishes:**
+
+| vendor | what they sell | published address |
+|---|---|---|
+| Hosannaith | reliability oracle: uptime, correct-402, latency | `cameron@hosannaith.com` (site; repo also lists `security@hosannaith.com`) |
+| x402r | refund and arbitration protocol | `hi@x402r.org` (site) |
+| Tanilo x402 Guard | pre-payment price and spend-cap check | `joe@tanilo.io` (docs page) |
+| Teppi | seller's paid-delivery record before signing | none published — GitHub issue or their docs form |
+| zauth | monitoring, verification, refund SDK | none published |
+| HIVE402 (Script Master Labs) | probe intelligence + demand-weighted trust score | already written to (§O), awaiting reply |
+| PEAC Protocol, OMATrust, AffixIO, Elara | receipts, signed offers, policy gate | none published |
+
+**Subject:** `Your seller score has no demand base rate — measured, from a live paywall`
+
+```
+Cameron,
+
+You sell a reliability score for x402 endpoints: uptime, correct-402 behaviour, latency. I run one of the endpoints you would score, so I can hand you the number your score cannot currently contain — and I would rather sell it to you than keep it to myself.
+
+I have run a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs.
+
+Why that matters to a reliability oracle. Uptime and correct-402 tell you whether an endpoint CAN take money. They cannot tell you whether anyone pays, and the base rate is brutal: at one live endpoint, 457 distinct agents arrived and twelve payments happened, from nine wallets. A score built without that base rate ranks almost every seller identically near the top — correctly payable, correctly fast, and commercially dead. Two sellers with identical uptime can differ by every dollar they have ever earned, and a buyer choosing between them is choosing on exactly that.
+
+I am not asking for a favour or offering a partnership deck. The measurement is a document: GET /api/v1/demand-census returns the full per-agent table — 1,494 rows, the arrival and return behaviour of each user agent, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first, so you can judge it before buying: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly, because they are why I am writing to you rather than to a catalogue.
+
+First, I would rather this became an input to your score than a competing one. I do not have your uptime coverage and I am not going to build it; you do not have a single demand measurement and, from your side, it is not obtainable — it takes running a paywall for months and keeping the attempt ledger, which most sellers delete.
+
+Second, I hold myself to the standard I am selling. My own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 97 scored calls. I publish it because a record that only appears when it is good is not a record.
+
+If a demand base rate is useful, tell me what shape fits your score and I will cut it that way. If it is not, say so and I will stop treating the trust layer as a buyer.
+
+Dimitri
+```
+
+

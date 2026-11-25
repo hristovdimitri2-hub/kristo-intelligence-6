@@ -7594,6 +7594,105 @@ from it. `scripts/mcp_paid_refresh.py` is committed with a `--verify` mode that
 compares the index row against what `/mcp` serves, so the next description change
 can be published and confirmed without re-deriving the handshake.
 
+## §122. The x402 Foundation, and what the member list actually opens (25.11.2026)
+
+The owner forwarded Digital Garage's press release (19.11.2026): the first
+Japanese business company to join the **x402 Foundation** as a General Member.
+x402 is now "a Series of LF Projects, LLC", operationally launched with around 40
+members, and the facts that decide what we can do are published rather than
+inferred.
+
+### Membership is closed to us; participation is not
+
+- **Premier: $200,000** — a Governing Board seat. Members include Visa,
+  Mastercard, American Express, PayPal, Stripe, Adyen, Fiserv, Circle, Coinbase,
+  Cloudflare, Google, AWS, Shopify, Ripple, Solana, Stellar, Sui, Monad, MoonPay.
+- **General: $25,000/yr** (under 250 employees), $50,000 (250–2,500), $75,000
+  (2,500+). Members include Digital Garage, Block, Fireblocks, Ledger, NEAR,
+  Polygon, Quant, LayerZero, zerohash, Kakaopay.
+- **Associate: $0, and limited to academic and nonprofit institutions.** We are
+  neither, so this tier does not exist for us.
+
+So the member list is not a door we can walk through. Three free doors are open,
+and the foundation says so itself:
+
+- **The TSC and working-group meetings are open to the public**, with a public
+  Slack workspace and public mailing lists.
+- **The spec repository takes issues and PRs** — `x402-foundation/x402`, 6,826
+  stars, 895 open issues, pushed 24.11.2026, with SDKs in TypeScript, Python, Go,
+  Java and Rust.
+- **The working groups are Domain Discovery, Identity, Tax and Card Acceptance.**
+  Domain Discovery is our subject: which endpoints exist, which are payable, and
+  how a catalogue derives its price and its description.
+
+### The correction: "sell judgement" is not open space
+
+`docs/dev-tools/third-party-extensions.md` in that repo keeps a **"Third-party
+utilities"** table, scoped in its own words to *"pre-payment guards, fetch
+wrappers, monitoring middleware, standalone paid verification endpoints, or
+verification of detached signed artifacts"*. It already lists nine:
+
+| vendor | what it sells |
+|---|---|
+| Hosannaith | reliability oracle — uptime, correct-402, latency scores |
+| Teppi | a seller's paid-delivery record before signing, signed receipts |
+| zauth | monitoring, verification and refund SDK |
+| Tanilo x402 Guard | price and spend cap checked against the buyer's own terms |
+| PEAC Protocol | verifiable receipts for x402 payments |
+| OMATrust | key authorizations for signed offers and receipts |
+| AffixIO | client-side policy gate on the pre-payment hook |
+| Elara | post-quantum record verification bound to the payment id |
+| x402r | non-custodial refund and arbitration protocol |
+
+§119 and §120 said *"sell judgement next, once the census sells once"*. That was
+written without looking, and this is the correction: **judgement is crowded.**
+Every one of those nine measures or protects the **supply** side — is this seller
+up, does it deliver, did it honour the price, can I get a refund.
+
+**Not one measures the demand side.** None can answer *"how many distinct buyers
+actually paid anyone this month, and what do the refusals look like"*, because
+answering it requires running a live paywalled service for months and keeping the
+attempt ledger. Checked the READMEs individually rather than trusting the table:
+Hosannaith's only match for "demand" is "sells a verified reliability score on
+demand"; Teppi's only match for "payer" is a field in a receipt. Neither has a
+base rate for whether anyone pays.
+
+### The correction to who buys
+
+The same table names the buyer. Those nine sell trust *about sellers* and have no
+demand input: an uptime oracle with no base rate cannot distinguish a correctly
+payable endpoint from a commercially dead one, and two sellers with identical
+uptime can differ by every dollar they have ever earned. HIVE402 already prices
+**demand at 20 of 100** in its published trust method and has to infer it.
+
+So the purchasers of a demand-side measurement are the **trust-layer vendors and
+the marketplace operators** — businesses that already exist, already need the
+number, and cannot obtain it by crawling. Not the ordinary seller, who mostly
+cannot be reached and mostly does not pay. That is a different target list from
+every previous outreach in this file, and it comes with named addresses.
+
+### The plan, in order of cost
+
+1. **Free, and first: carry the measured discovery finding into the spec repo.**
+   `docs/extensions/bazaar.mdx` (36 KB) already documents that a buyer must echo
+   the `bazaar` extension, that non-conforming content is dropped, and that
+   cataloguing is asynchronous. It does **not** document what we measured twice
+   on the live service: **a catalogue row is a snapshot of the last settled echo,
+   so a row keeps publishing text the seller has since changed, and the only way
+   to update it is to pay through the endpoint again.** Our own row advertised a
+   pre-change description until we paid $0.01 through it
+   (`tx 0xbb454d…`, `lastUpdated 2026-11-25T08:00:53.795Z`). For a discovery
+   layer whose stated purpose is machine-readable truth, that is a real gap, and
+   it is in scope for a seller-facing document.
+2. **The Domain Discovery working group's public mailing list and Slack** — free,
+   and the only place where our measurements could shape a specification.
+3. **The money, in parallel: §P, to the trust-layer vendors and marketplace
+   operators** — offering the census as calibration data rather than as a
+   competing score.
+4. **Unchanged: the census stays at $0.25**, and the sellable change remains
+   December 2026 against November 2026.
+
+
 
 
 
