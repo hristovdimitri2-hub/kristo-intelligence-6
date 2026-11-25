@@ -142,10 +142,13 @@ for the stale table to be **updated** rather than silently dropped.
    removed and the service redeployed (§93, §101).
 6. **Abdellah / fixture 1.** He re-ran the 36-vector set against v3 and found the
    last two divergences (the authorization rail had no nonce binding). v4 closes
-   them and is published as `3d76d803…` (37 862 bytes, 11 tests); his re-run is
-   pending. Credit is agreed as `mitaka7210` (Slack) + `hristovdimitri2-hub`
+   them and is published as `3d76d803…` (37 862 bytes, 11 tests). **His draft-3
+   set (`94b07672bfd9…`) was then run through his own adapter, unmodified, and
+   reproduced 22 + 14 + 0 — published as `CROSS_RUN_RESULT.md` in the same gist
+   (§124).** Credit is agreed as `mitaka7210` (Slack) + `hristovdimitri2-hub`
    (gist owner); the 12 ambiguous vectors go to the spec thread with our name
-   (§102).
+   (§102). What is still open is his one rewording commit on `main` and the hash
+   of it.
 7. **Jamenbin has not been told that fixture 1 moved** from the hash he verified
    (v1 `d76537a7…`) through v2, v3 and v4 (`3d76d803…`). The `REVISIONS` block
    records all of it, but he was never told directly (§96).
@@ -7749,9 +7752,63 @@ freshness monitoring**, which is not "is this seller up" but "does the catalogue
 still describe what this seller sells". Any paid route for that needs a price in
 `config.py`, which is the owner's decision and has not been asked for.
 
+## §124. The fingerprint was never a gist ID, and the cross-run reproduces (25.11.2026)
 
+Abdellah asked for a re-run against exactly `94b07672bfd9`, published where the
+first result was published. **`94b07672bfd9` was resolved by measurement, and it
+is not a gist revision at all.** It is the SHA-256 of
+`vectors/settlement-pending/vectors.json` in
+`github.com/holistis/agent-receipt-verify`: draft 3, 61 084 bytes, 41 vectors of
+which 36 are asserted, full hash
+`94b07672bfd9be9335d52ac3bedd4f59bc663b30b2978d32f4bfcb1d83c1bbfe`, matching the
+`SHA256SUMS` file next to it. §95 read the same twelve characters as the address
+of a private gist that returns 404 anonymously and left it as "the full link is
+needed"; the full link was never needed. **The number is the fingerprint of the
+vector set, which is exactly what "run it against that fingerprint" means** — the
+frozen input, not a document about it.
 
+**The run, reproduced rather than trusted.** His adapter
+`vectors/settlement-pending/cross-run/kruisrun.py` was fetched and run
+**unmodified** (SHA-256 `97d537f5…`) against his frozen vectors and against our
+gist revision `c1cd82cc059b` (`3d76d803…`, 37 862 bytes, 11 tests), held to that
+hash by the adapter's own `--sha256` gate. Python 3.12.10, `-I`, no network call
+in the run itself. Result:
 
+```
+same answer as the reference:                     22
+a different answer that the vector allows:        14
+outside what the vector allows:                    0
+open vectors (nothing asserted):                   5
+```
+
+**His recorded output is faithful, and that is measured, not asserted.** Our
+output and his `cross-run/uitvoer.txt` are both 31 lines and differ on **exactly
+one line** — the one that echoes whichever filename it was handed on the command
+line. All 19 divergent vectors and their reasons match byte for byte. He was not
+asked to confirm his own number; his script was run.
+
+**Published where fixture 1 lives:** a second file was added to the same gist —
+`CROSS_RUN_RESULT.md`, the write-up committed as
+`docs/omnidome_fixture1/CROSS_RUN_RESULT.md`. **The artifact's bytes did not
+move**: read back through the GitHub API after the edit, the file is still 37 862
+bytes and still hashes to `3d76d803…`, and the pinned revision `c1cd82cc059b`
+still resolves to it. New gist HEAD `ab695407b220b176207e29789de41aec6291c91d`.
+A comment was rejected on purpose: a comment is not an address one can cite next
+to a hash, and editing the file itself would have broken the very pinning the
+cross-run depends on.
+
+**Limits, stated in the document and repeated here.** It is not independent: the
+vectors and the adapter are his, the file is ours, the machine was ours. It is
+not a verification of our production code — the file is a decision table with the
+transport removed. The numbers rest on his adapter's reading of the 41 vectors;
+what we measured is that the run is reproducible from the frozen inputs. The 14
+allowed differences are the places where the spec does not decide between
+refusing and holding, and they are the natural candidates for a conformance case.
+
+**Credit, as agreed:** `mitaka7210` (x402 Slack) and `hristovdimitri2-hub` (gist
+owner) for the cases, the two rails, the payer binding and the durable
+one-hash-one-delivery claim; `github.com/holistis` for the vector set, the
+adapter, the reference answers and the recorded output.
 
 
 

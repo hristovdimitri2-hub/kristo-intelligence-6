@@ -547,7 +547,7 @@ more than the sale — which argues for a higher price per job or a subscription
 
 | # | Who | What |
 |---|---|---|
-| 1 | Abdellah | Re-running the 36-vector set against v4 (`3d76d803…`, 11 tests). Expected 22 + 14 + 0. |
+| 1 | Abdellah | **Done, from our side (25.11):** his draft-3 set (`94b07672bfd9…`) was run through his own adapter against v4 (`3d76d803…`) and reproduced 22 + 14 + 0, byte-identical to his recorded output but for the filename line. Result published as `CROSS_RUN_RESULT.md` in the fixture-1 gist (§124). He sends the hash of his one rewording commit on `main`. |
 | 2 | Ernest | Writing the CDP support request for the 7 duplicate rows. |
 | 3 | x402-list | Manual review; the FORTE tier cannot be bought yet (§101). |
 | 4 | Glama | The `/mcp/servers/` record — Discord message ready in `OUTREACH_DRAFTS.md` §K. |
