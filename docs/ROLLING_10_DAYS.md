@@ -118,6 +118,14 @@ zero-dependency Python client (14 tests).
   14.7% misdescribe the product and one overquotes by **15×**. Our own first
   number (21.5% unreachable) was our probe's error and is published corrected to
   5.0%.
+- **Reproduced Abdellah's cross-run instead of trusting its number.** His frozen
+  draft-3 vector set (`94b07672bfd9…`) through **his own adapter, unmodified**,
+  against our fixture revision `3d76d803…`: 22 same, 14 allowed differences, 0
+  outside — and the output is byte-identical to the one his repository recorded,
+  except the line that echoes the filename. Published as `CROSS_RUN_RESULT.md` in
+  the same gist, with the artifact's bytes unmoved. The fingerprint had been read
+  in §95 as an unreadable private-gist address; it is the SHA-256 of the vector
+  set itself.
 
 ---
 
@@ -134,6 +142,7 @@ zero-dependency Python client (14 tests).
 | Explee lead API | measured, priced | the owner creating the API key (+$30 free credit) |
 | §Q public thread | written, ready | the owner's X account |
 | Base Batches | open question | whether to apply, and how to frame numbers that fail a screen |
+| Fixture 1 / OmniDome | v4 answered his draft-3 set: 22 / 14 / 0, reproduced here | nothing from us; his rewording PR #123 is merged |
 
 ## Must happen next
 
