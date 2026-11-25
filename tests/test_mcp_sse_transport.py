@@ -147,6 +147,17 @@ def test_every_mcp_tool_advertises_the_paywall_real_price():
     route is repriced, a hardcoded manifest starts advertising a number the 402
     challenge contradicts. An agent that trusts it underfunds its authorization
     and gets rejected.
+
+    WHAT THE LIST IS, now that it is no longer the whole price map. It is the
+    public VITRINE, and a route can be paid and priced without being catalogued
+    yet — the paywall-only stage the whale-flow spec calls condition 4
+    ("unlisted until it passes a paid canary"). `/api/v1/demand-census` is in
+    that stage as of 24.11.2026, and it cannot be an MCP tool even if we wanted
+    it to be: the official registry rejects a publisher extension over 4096
+    bytes and server.json has room for no eighth row (see
+    tests/test_server_json_registry_limits.py). The assertion is therefore the
+    one that still means what it always meant — every tool offered is a route
+    the paywall charges for, at that route's own price.
     """
     import main
     from app.blueprints import discovery
@@ -155,9 +166,13 @@ def test_every_mcp_tool_advertises_the_paywall_real_price():
     routes = [t["x402"]["endpoint"].rsplit("https://example.invalid", 1)[-1]
               for t in tools]
 
-    # Every paid route in the price map is offered, and nothing else.
-    assert sorted(routes) == sorted(main.X402_PRICE_MAP)
-    assert len(tools) == 7
+    # The catalogue is exactly the vitrine, and every row in it is priced.
+    assert sorted(routes) == sorted(r["endpoint"]
+                                    for r in main.REAL_X402_ROUTES)
+    assert len(tools) == len(main.REAL_X402_ROUTES)
+    assert set(routes) <= set(main.X402_PRICE_MAP), (
+        "a tool is offered for a route the paywall has no price for: %s"
+        % sorted(set(routes) - set(main.X402_PRICE_MAP)))
 
     for tool in tools:
         route = tool["x402"]["endpoint"].rsplit("https://example.invalid", 1)[-1]

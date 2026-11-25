@@ -22,7 +22,7 @@ instead of argued, and the answer is in `HANDOVER.md` §118. In one paragraph:
 - **The money is not there.** Lifetime: 180 payments, $1.983. Of that, **$1.785
   is our own demo key** (131 payments, confirmed by decoding the Base receipts of
   the fifteen most recent sales). Genuinely external, lifetime: **12 payments,
-  $0.055.**
+  $0.054 from 9 wallets.**
 - **No sale was lost to a bug.** All 135 `payment_attempts` are accounted for: 98
   settled, and every refusal is either our own testing or adversarial conformance
   fuzzing (`0x1111…1111`, `payload_undecodable`, `amount below price: 1 < 5000`).

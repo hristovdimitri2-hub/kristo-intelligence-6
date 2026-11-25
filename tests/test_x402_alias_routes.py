@@ -243,7 +243,14 @@ def test_every_route_is_NAMED_after_its_job_not_only_after_the_company(client):
     the route does and that no two routes hide behind one generic label."""
     app_client, main = client
     paid = sorted(main.X402_PAID_ENDPOINTS)
-    assert len(paid) == 12
+    # The paid surface, derived from the three things that can put a route in
+    # it: the vitrine, the buyer-worded aliases, and a route that is priced and
+    # paywalled but not catalogued yet — the demand census, 24.11.2026. A count
+    # written as a literal here would have had to be edited by hand the moment a
+    # new kind of route appeared, which is how a guard stops describing reality.
+    assert set(paid) == ({r["endpoint"] for r in main.REAL_X402_ROUTES}
+                         | set(main.X402_PATH_ALIASES)
+                         | set(main.X402_PRICE_MAP))
     names = {}
     for route in paid:
         res = _challenge(app_client, route)["resource"]
@@ -307,6 +314,14 @@ def test_two_routes_were_left_without_an_alias_on_purpose(client):
         "/api/bot-status must not pose as a generic bot health check")
     assert set(main.X402_PATH_ALIASES) == set(ALIASES), (
         "the alias set changed — say why in this file and in X402_PATH_ALIASES")
-    assert len(main.X402_PAID_ENDPOINTS) == 12, (
-        "7 canonical routes + 5 aliases is the paid surface; %d found"
-        % len(main.X402_PAID_ENDPOINTS))
+    # The paid surface is the vitrine + the aliases + whatever is priced and not
+    # yet catalogued. The identity is asserted rather than a literal count: a
+    # number here goes stale the moment a route is added in any of the three
+    # ways, and the failure then reads as "the alias test is broken" instead of
+    # "the paywall and the catalogue disagree".
+    catalogued = {r["endpoint"] for r in main.REAL_X402_ROUTES}
+    uncatalogued = set(main.X402_PRICE_MAP) - catalogued
+    assert len(main.X402_PAID_ENDPOINTS) == (
+        len(catalogued) + len(main.X402_PATH_ALIASES) + len(uncatalogued)), (
+        "the vitrine, the aliases and the uncatalogued priced routes are the "
+        "paid surface; %d found" % len(main.X402_PAID_ENDPOINTS))

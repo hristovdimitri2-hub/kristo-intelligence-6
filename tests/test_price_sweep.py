@@ -285,8 +285,15 @@ def test_a_single_price_field_never_overstates_the_routes(client):
     having sent too much — which is NOT refunded.
     """
     test_client, main = client
-    floor = min(float(p) for p in main.X402_PRICE_MAP.values())
-    ceiling = max(float(p) for p in main.X402_PRICE_MAP.values())
+    # The advertised range is the VITRINE's range, not the whole price map's.
+    # Every surface that quotes one computes it from REAL_X402_ROUTES (see
+    # `_cheapest_route_price` / `_dearest_route_price` in the discovery
+    # blueprint), and the price map also carries routes that are charged but not
+    # catalogued yet — the demand census at $0.25 is one as of 24.11.2026. A
+    # range taken from the map would advertise a price for a route the page
+    # never lists.
+    floor = min(float(r["price_usdc"]) for r in main.REAL_X402_ROUTES)
+    ceiling = max(float(r["price_usdc"]) for r in main.REAL_X402_ROUTES)
     assert floor < ceiling, "this test only means something while prices differ"
 
     seen = 0
@@ -329,8 +336,10 @@ def test_the_micro_tier_does_not_contradict_itself(client):
     micro = next(t for t in payload["payment"]["tiers"]
                  if t["id"] == "micro_request")
 
-    floor = min(float(p) for p in main.X402_PRICE_MAP.values())
-    ceiling = max(float(p) for p in main.X402_PRICE_MAP.values())
+    # Same source as the surfaces themselves: the catalogue's range. See the
+    # note in test_a_single_price_field_never_overstates_the_routes.
+    floor = min(float(r["price_usdc"]) for r in main.REAL_X402_ROUTES)
+    ceiling = max(float(r["price_usdc"]) for r in main.REAL_X402_ROUTES)
     assert micro["price_usdc"] == floor
     assert micro["price_max_usdc"] == ceiling
     # The prose must agree with the fields in the same object.
@@ -411,13 +420,22 @@ def test_the_registry_server_json_is_generated_from_the_price_map(client):
     # is where these numbers are read now: the block used to repeat them a second
     # time in a `paid_endpoints` list, and that repetition is what took the extension
     # past the registry's 4KB limit and silently blocked publishing (test_server_json_
-    # registry_limits.py). The comparison below is unchanged - still every advertised
-    # endpoint against the whole map - so a dropped or repriced tool still fails.
+    # registry_limits.py). The comparison is per advertised row rather than
+    # against the whole map, because the registry cannot carry an eighth tool:
+    # the extension has ~330 bytes of room left and a tool row does not fit, so
+    # a route can be priced and paywalled without appearing here (the demand
+    # census, 24.11.2026). What must still hold, and is what this test has
+    # always been about, is that no row advertises a price the 402 refuses —
+    # plus, immediately below, that the rows are exactly the tools /mcp serves,
+    # which is where a dropped row is caught.
     meta = doc["_meta"][PUBLISHER_KEY]
     published = {row["endpoint"]: round(float(row["price_usd"]), 6)
                  for row in meta["tools"]}
-    expected = {endpoint: round(float(price), 6)
-                for endpoint, price in main.X402_PRICE_MAP.items()}
+    unknown = sorted(set(published) - set(main.X402_PRICE_MAP))
+    assert not unknown, (
+        "server.json advertises routes the paywall has no price for: %s" % unknown)
+    expected = {endpoint: round(float(main.X402_PRICE_MAP[endpoint]), 6)
+                for endpoint in published}
     assert published == expected, "server.json prices drifted from X402_PRICE_MAP"
     assert meta["pricing"]["min_usd"] == min(expected.values())
     assert meta["pricing"]["max_usd"] == max(expected.values())

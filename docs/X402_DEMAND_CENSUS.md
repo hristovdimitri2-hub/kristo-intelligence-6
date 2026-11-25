@@ -28,7 +28,7 @@ $0.005–$0.05:
 | payments received, lifetime | 180 |
 | revenue, lifetime | **$1.983** |
 | of which paid by the operator's own test wallet | **$1.785** (131 payments) |
-| genuinely external money, lifetime | **12 payments, $0.055** |
+| genuinely external money, lifetime | **12 payments, $0.054** |
 
 Read that again carefully, because it is the whole story: **457 machines found the
 product, and twelve wallets — ever — paid for it.** The problem is not discovery.
@@ -88,7 +88,7 @@ Three independent measurements now agree, from three different directions:
 |---|---|---|
 | seller-side census of a public index | a third-party analyst, paid work | the top 10 rows take 92% of spend; the median row earns $0.01 per 30 days |
 | views of one marketplace listing | a marketplace, 7 days | 6,323 views, **0** payments |
-| demand-side ledger of a live service | this document | 457 agents at the paywall, 12 external payments, 5.5 cents, 84 days |
+| demand-side ledger of a live service | this document | 457 agents at the paywall, 12 external payments, 5.4 cents, 84 days |
 
 The consistent reading: **being listed, being found, being crawled and being
 healthy are all solved problems, and none of them is a sale.** An x402 seller with

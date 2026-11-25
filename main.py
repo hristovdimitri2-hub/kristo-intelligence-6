@@ -57,6 +57,7 @@ from config import (
     KRISTO_SIGNAL_PRICE,
     KRISTO_WHALEFLOW_PRICE,
     KRISTO_VERIFY_SELLER_PRICE,
+    KRISTO_DEMAND_CENSUS_PRICE,
 )
 
 # ── Real-time market data integration ─────────────────────────────────────
@@ -144,6 +145,30 @@ X402_PRICE_MAP = {
     # address a caller names rather than serving a cached snapshot. See the
     # reasoning at KRISTO_VERIFY_SELLER_PRICE in config.py.
     "/api/v1/verify-seller": KRISTO_VERIFY_SELLER_PRICE,
+    # Demand census (24.11.2026, owner-approved): the per-agent table read out
+    # of our own production ledger, sold as a snapshot.
+    #
+    # IT IS DELIBERATELY NOT IN REAL_X402_ROUTES, and that is this repo's own
+    # rule rather than a shortcut. A route is promoted into the public vitrine
+    # only after a paid canary settles on-chain — condition 4 of
+    # docs/WHALE_FLOW_SPEC.md, which is exactly why the whale-flow entry above
+    # carries a promotion note dated 13.09 and a tx hash. This route has never
+    # been sold once, so it starts where every other route started: paywalled,
+    # priced, and out of the catalogue.
+    #
+    # Three consequences, all of them deliberate. (1) The advertised price
+    # range stays the range of the routes the catalogue actually lists, because
+    # every served price range is computed from REAL_X402_ROUTES
+    # (`_cheapest_route_price` / `_dearest_route_price`). (2) It cannot be an
+    # MCP tool either: the tool list is the vitrine and the official MCP
+    # Registry's publisher extension has a hard 4096-byte cap with ~330 bytes
+    # left in server.json, so an eighth tool row would break publishing rather
+    # than ship the route. (3) docs/X402_DEMAND_CENSUS.md tells the world the
+    # aggregate is public and the per-agent table is kept — so this is the one
+    # product here whose buyer is expected to arrive knowing its name instead of
+    # browsing for it. Promotion into the vitrine stays open once it has been
+    # paid for at least once.
+    "/api/v1/demand-census": KRISTO_DEMAND_CENSUS_PRICE,
 }
 
 # ── Buyer-worded URL aliases (10.11.2026) ───────────────────────────────────
@@ -244,6 +269,11 @@ X402_RESOURCE_TAGS = {
                              "x402-seller", "onchain-audit", "base"],
     "/api/v1/onchain-sales": ["onchain-sales", "usdc-settlements",
                               "payment-history", "revenue", "base"],
+    # Its own words, and they are the words of its own job: this is the only
+    # row on the service that is about the DEMAND for x402 data rather than
+    # about a market, so "x402" is the one generic word it may share.
+    "/api/v1/demand-census": ["demand-census", "x402-demand", "agent-traffic",
+                              "paywall-analytics", "x402"],
 }
 X402_DEFAULT_RESOURCE_TAGS = ["crypto", "whale-tracking", "x402", "arbitrage",
                               "signals"]
@@ -279,6 +309,7 @@ X402_RESOURCE_SERVICE_NAMES = {
     "/api/v1/arbitrage-opportunities": "Kristo DEX arbitrage spread",
     "/api/v1/seller-check": "Kristo seller check",
     "/api/v1/onchain-sales": "Kristo onchain sales",
+    "/api/v1/demand-census": "Kristo demand census",
 }
 X402_DEFAULT_SERVICE_NAME = "Kristo Intelligence"
 
@@ -377,6 +408,16 @@ CHALLENGE_DESCRIPTIONS = {
         "reading when an agent wants proof that this service is paid for what "
         "it sells."
     ),
+    "/api/v1/demand-census": (
+        "X402 demand census: the per-agent table behind this service's own "
+        "paywall — every user agent that ever reached a 402, when it first and "
+        "last arrived, how many requests it made, and whether it was ever "
+        "associated with a settled payment, alongside aggregate counts and the "
+        "exact window the data covers. Worth reading before you price a route, "
+        "because it answers the question every x402 seller is guessing at: the "
+        "traffic that finds a paywall is mostly monitors, measured rather "
+        "than assumed."
+    ),
 }
 
 # ── NEXUS Discovery Engine URL ──────────────────────────────────────────────
@@ -396,7 +437,13 @@ FREE_TIER_LIMIT = max(0, int(os.getenv("KRISTO_FREE_TIER_LIMIT", "0")))
 # Endpoints that require x402 payment (after free tier exhausted)
 X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
                        "/api/arb/opportunities", "/api/v1/signal",
-                       "/api/v1/whaleflow", "/api/v1/verify-seller"}
+                       "/api/v1/whaleflow", "/api/v1/verify-seller",
+                       # The demand census (24.11.2026). Paywalled and priced
+                       # exactly like the routes above; what it does NOT have is
+                       # a row in REAL_X402_ROUTES. See the promotion rule and
+                       # the three consequences spelled out beside its
+                       # X402_PRICE_MAP entry.
+                       "/api/v1/demand-census"}
 
 # An alias is a paid route in every sense — it must be paywalled, priced,
 # funnelled and described exactly like the canonical path, or it becomes a free
@@ -458,6 +505,13 @@ X402_FREE_ENDPOINTS = {
     # "unclassified" is not the same as "free" (F-21).
     "/api/v1/seller-audit",
     "/api/arb/opportunities/sample",
+    # The demand census's free twin. It is here for the same reason every other
+    # paid route has one, and the reason is stronger at this price: a buyer
+    # deciding whether $0.25 is worth it must be able to see the exact document
+    # shape — and the window, the totals and the row count it will get — without
+    # paying first. The sample is hand-written and contains no real agent, so it
+    # discloses the schema and nothing about who calls us.
+    "/api/v1/demand-census/sample",
 }
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -2084,7 +2138,18 @@ def _get_dynamic_price(ip: str, endpoint: str = "") -> float:
     """
     canonical = X402_PATH_ALIASES.get(endpoint, endpoint)
     base = X402_PRICE_MAP.get(canonical, BASE_FEE_AMOUNT_USDC)
-    if canonical == "/api/v1/verify-seller":
+    # THE DEMAND CENSUS MAKES THIS DISCOUNT LIVE FOR THE FIRST TIME, SO IT IS
+    # EXEMPTED RATHER THAN LEFT TO CUT 25x OFF THE DEAREST PRODUCT WE SELL.
+    #
+    # Until 24.11.2026 `min(0.01, base)` matched every base price, because every
+    # route was $0.003-$0.05 — the discount was dead code, and the published
+    # npm client README says so in as many words ("there is no volume discount").
+    # At $0.25 the expression stops being a no-op and the 11th paid call would
+    # buy the census for $0.01, a 96% cut, four cents below the seller audit.
+    # That is the same failure the verify-seller line above was written for, and
+    # it is worth being blunt about: the first route dear enough to trigger it
+    # is exactly the route a discount must not undercut.
+    if canonical in ("/api/v1/verify-seller", "/api/v1/demand-census"):
         return base
     with _lock:
         paid_count = _paid_calls_usage.get(ip, 0)
@@ -2262,6 +2327,74 @@ _BAZAAR_OUTPUT_EXAMPLES = {
         ],
         "served_from_cache": False,
     },
+    # The demand census. The example has to be the SHAPE of the document and
+    # nothing else, because it rides in every unpaid 402 and is world-readable:
+    # the agent row below is invented, and the payer label is generic. The
+    # numbers are illustrative; the KEY NAMES are the contract, and they are the
+    # same ones the generator writes, so a paid call cannot arrive shaped
+    # differently from what the challenge promised.
+    "/api/v1/demand-census": {
+        "generated_at": "2026-11-24T21:00:00+00:00",
+        "method": "example only: see the live document's `method` field",
+        # One window per source table, each with the count and the span of the
+        # SAME rows. It was flat here until a test compared this example with
+        # the generator's output at depth: a schema shown to a buyer that nests
+        # differently from the document it describes is a wrong answer, however
+        # right the numbers in it are.
+        "window": {
+            "requests": {
+                "requests": 1249664,
+                "first_ts": "2026-10-25T12:15:28.357479+00:00",
+                "last_ts": "2026-11-24T20:31:21.280635+00:00",
+                "days": 30.34,
+            },
+            "sales": {
+                "payments": 180,
+                "first_ts": "2026-09-02T13:28:41.430116+00:00",
+                "last_ts": "2026-11-24T12:56:53.438134+00:00",
+                "days": 83.0,
+            },
+            "attempts": {
+                "attempts": 135,
+                "first_ts": "2026-11-08T18:09:55.083728+00:00",
+                "last_ts": "2026-11-24T12:56:50.360120+00:00",
+                "days": 15.78,
+            },
+        },
+        "totals": {
+            "requests": 1249664,
+            "distinct_user_agents": 1494,
+            "agents_challenged_on_paid_routes": 457,
+            "agents_delivered_on_paid_routes": 17,
+            "agents_ever_paid": 17,
+        },
+        "payments": {
+            "count": 180,
+            "total_usdc": 1.983,
+            "by_payer_class": [
+                {"payer_class": "own_key", "payer_label": "operator_demo",
+                 "count": 131, "total_usdc": 1.785},
+                {"payer_class": "external", "payer_label": "",
+                 "count": 12, "total_usdc": 0.054},
+            ],
+        },
+        "attempts": {
+            "count": 135,
+            "distinct_payers": 9,
+            "by_outcome": [
+                {"outcome": "settled", "count": 98, "distinct_payers": 7},
+                {"outcome": "rejected", "count": 30, "distinct_payers": 3},
+                {"outcome": "settle_failed", "count": 7, "distinct_payers": 2},
+            ],
+        },
+        "agents": [
+            {"user_agent": "ExampleBot/1.0",
+             "first_seen": "2026-11-01T00:00:00+00:00",
+             "last_seen": "2026-11-24T20:00:00+00:00",
+             "requests": 4213, "challenged": 1876, "delivered": 0,
+             "ever_paid": False},
+        ],
+    },
 }
 
 # An alias publishes the SAME output example as the route it fronts — not a copy
@@ -2334,6 +2467,20 @@ _BAZAAR_EXAMPLE_REQUIRED = {
         "verdict",
         "notes",
         "served_from_cache",
+    ],
+    # The census document is written by our own generator, so its top-level keys
+    # are a schema we control rather than an observation about a live response.
+    # Every key named here is written unconditionally by
+    # scripts/build_demand_census.py for every snapshot, which is the standard
+    # this map sets: claim `required` only where a missing key would be a bug.
+    "/api/v1/demand-census": [
+        "generated_at",
+        "window",
+        "totals",
+        "payments",
+        "attempts",
+        "agents",
+        "method",
     ],
 }
 
@@ -5409,15 +5556,127 @@ def _x402_unservable_payload(endpoint: str):
     }
 
 
+# ── The demand census snapshot (GET /api/v1/demand-census) ─────────────────
+# THE DOCUMENT IS BUILT OFFLINE, NEVER PER REQUEST. Counting it live means
+# three aggregates over the 1.2M-row `request_log`, plus `onchain_sales` and
+# `payment_attempts` — the reads scripts/inbound_traffic_audit.py measures in
+# tens of seconds, because they are a full GROUP BY over the retention window.
+# Doing that on a 0.1-CPU instance once per buyer is how a $0.25 product
+# becomes a self-inflicted outage. So the route reads one file, written by
+# `scripts/build_demand_census.py`, and nothing else.
+#
+# The path is overridable like every price, so a deployment that mounts a disk
+# or writes the snapshot somewhere else does not need a code change.
+#
+# WHY `snapshots/` AND NOT `data/`. This snapshot is a DELIVERABLE: it ships with
+# the deploy, and without it the route answers 503. `.gitignore` ignores `data/`
+# as a "local runtime data directory" (line 39), which is right for the SQLite
+# files and caches that live there and exactly wrong for this one — its absence
+# from the repository is the whole difference between a product and an outage.
+# The first build wrote it to `data/`, so the file existed on the build machine
+# and could never have reached the running service.
+_DEMAND_CENSUS_SNAPSHOT_PATH = os.environ.get(
+    "KRISTO_DEMAND_CENSUS_SNAPSHOT",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "snapshots", "demand_census.json"))
+
+#: A snapshot larger than this is not a snapshot, it is an incident. The read
+#: refuses rather than allocating whatever happens to be on disk.
+_DEMAND_CENSUS_MAX_BYTES = 32 * 1024 * 1024
+
+#: (mtime_ns, size) -> parsed document. Keyed on the file's own identity rather
+#: than on a timer, so a rebuilt snapshot is picked up by the very next request
+#: and a byte-identical one is never re-parsed.
+_DEMAND_CENSUS_CACHE: dict = {}
+_DEMAND_CENSUS_LOCK = threading.Lock()
+
+
+class _DemandCensusUnavailable(Exception):
+    """The snapshot is missing, unreadable, oversized or not a JSON object.
+
+    A distinct type so the request path can answer it as a clean, honest
+    service error and an unreadable file can never reach the generic 500
+    handler — a paid route that 500s tells the buyer nothing about whether to
+    retry.
+    """
+
+
+def _demand_census_snapshot() -> dict:
+    """The snapshot document, or raise `_DemandCensusUnavailable`.
+
+    Reads at most once per (mtime, size) pair. A paid batch of calls all want
+    the same bytes, and the file cannot change between two requests without its
+    identity changing first, so re-reading it per call would spend the
+    instance's CPU on the one thing that provably has not moved.
+    """
+    path = _DEMAND_CENSUS_SNAPSHOT_PATH
+    try:
+        stat = os.stat(path)
+    except OSError as exc:
+        raise _DemandCensusUnavailable(
+            "no census snapshot on disk at %s (%s); it is written by "
+            "scripts/build_demand_census.py"
+            % (path, type(exc).__name__)) from exc
+    if stat.st_size > _DEMAND_CENSUS_MAX_BYTES:
+        raise _DemandCensusUnavailable(
+            "the census snapshot at %s is %d bytes, over the %d-byte limit for "
+            "a snapshot" % (path, stat.st_size, _DEMAND_CENSUS_MAX_BYTES))
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    with _DEMAND_CENSUS_LOCK:
+        cached = _DEMAND_CENSUS_CACHE.get(path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise _DemandCensusUnavailable(
+            "the census snapshot at %s is not readable JSON (%s)"
+            % (path, type(exc).__name__)) from exc
+    if not isinstance(document, dict):
+        raise _DemandCensusUnavailable(
+            "the census snapshot at %s is not a JSON object" % path)
+    with _DEMAND_CENSUS_LOCK:
+        _DEMAND_CENSUS_CACHE[path] = (stamp, document)
+    return document
+
+
+def _demand_census_ready() -> bool:
+    """Whether a payable request could be answered at all."""
+    try:
+        _demand_census_snapshot()
+    except _DemandCensusUnavailable:
+        return False
+    return True
+
+
 #: Paid routes whose product comes from an in-process cache filled by a
 #: background producer, mapped to (producer name, error code). Only routes
 #: whose "nothing yet" is indistinguishable from "nothing found" belong here:
 #: a route that reads durable storage does not, because a restart does not
 #: empty it and "no whale over the threshold in 24h" is a real answer.
+#:
+#: The census belongs here for the same reason as the two above and not because
+#: it is cached: on a fresh deploy the file simply is not there, and "the
+#: document does not exist" would otherwise be indistinguishable from a 200
+#: carrying an empty agent list. The difference from the other two is WHO fills
+#: it — an operator-run script, not a loop in this process — which is why the
+#: refusal below does not try to kick a producer into life.
 _X402_UNREADY_PRODUCERS = {
     "/api/v1/signal": ("the signal engine", "no_signal_to_deliver"),
     "/api/arb/opportunities": ("the arbitrage scanner",
                                "no_opportunities_to_deliver"),
+    "/api/v1/demand-census": ("the demand census snapshot",
+                              "no_census_to_deliver"),
+}
+
+#: What the generic "has not run yet" sentence cannot say about a route whose
+#: producer is an offline script rather than a thread.
+_UNREADY_PRODUCER_NOTES = {
+    "/api/v1/demand-census": (
+        "The census is generated offline, from the production ledger, by "
+        "scripts/build_demand_census.py; this deployment has not been given a "
+        "snapshot yet."),
 }
 
 #: Producers the unready guard has already tried to start in THIS process.
@@ -5445,6 +5704,11 @@ def _kick_unready_producer(canonical: str) -> None:
     still receives the 503 with Retry-After, and the authorization is never
     presented to a facilitator. It converts "never" into "shortly".
     """
+    if canonical == "/api/v1/demand-census":
+        # Nothing to kick, and pretending otherwise would be a lie about what
+        # will change: the snapshot comes from an operator-run script against
+        # the production database, so no thread started here can produce it.
+        return
     if canonical in _unready_kick_attempted:
         return
     _unready_kick_attempted.add(canonical)
@@ -5502,6 +5766,12 @@ def _x402_unready_payload(endpoint: str):
             generated_at = _latest_signals.get("generated_at")
         produced = generated_at is not None
         evidence = {"signal_generated_at": generated_at}
+    elif canonical == "/api/v1/demand-census":
+        # "Has the producer run" is, for this route, "is the snapshot on disk":
+        # the file is written whole or not at all, so its presence IS the
+        # evidence and there is no partial state to read.
+        produced = _demand_census_ready()
+        evidence = {"demand_census_snapshot": _DEMAND_CENSUS_SNAPSHOT_PATH}
     else:  # /api/arb/opportunities
         from services.arb_radar import get_scan_info
         try:
@@ -5527,16 +5797,18 @@ def _x402_unready_payload(endpoint: str):
     # Refuse — but do not refuse FOREVER. A process that never started its
     # producers must start them, or this route is unsellable rather than late.
     _kick_unready_producer(canonical)
+    note = _UNREADY_PRODUCER_NOTES.get(canonical) or ""
+    note = note + " " if note else ""
     return {
         "ok": False,
         "error": error,
         "message": (
             "No payment was taken and none will be: this route has nothing to "
             "deliver yet — %s has not completed a run since this process "
-            "started, which normally lasts a minute or two after a deploy. "
+            "started, which normally lasts a minute or two after a deploy. %s"
             "Nothing was settled, so the authorization you signed has not been "
             "used and your balance is unchanged — resend the same request "
-            "shortly." % producer
+            "shortly." % (producer, note)
         ),
         "producer": producer,
         "retry_after_seconds": 60,
@@ -7046,6 +7318,49 @@ def api_bot_status():
     status["uptime_started"] = status.get("uptime_started", "")
     status["wallet"] = wallet_info
     return _safe_jsonify(status)
+
+
+# ── Demand census (GET /api/v1/demand-census, $0.25) ────────────────────────
+# The only product here whose answer is a document about the MARKET FOR x402
+# services rather than a read of a market. It is therefore the one handler that
+# is deliberately a FILE READ: no database client is opened on this path, so a
+# request cannot start a scan and the cost of serving is bounded by the size of
+# one document. `_demand_census_snapshot` owns the caching and the failure
+# modes; this is only the HTTP shape.
+@app.route("/api/v1/demand-census")
+def api_demand_census():
+    """Serve the pre-built demand census, or refuse cleanly. Never a 500.
+
+    THE 503 IS NOT A 500 AND IT IS NOT A SILENT 200. A paid route that answers
+    `{"agents": []}` because its snapshot is missing has taken money for a
+    non-answer, and a 500 tells the buyer nothing about whether to retry. So a
+    snapshot that is absent, unreadable, oversized or not an object gets its
+    own error name, a `Retry-After`, and a sentence saying the document was not
+    delivered. In production the paywall's unready guard has already refused
+    this request BEFORE settlement (see `_X402_UNREADY_PRODUCERS`); this branch
+    is the belt to that braces, for a file that disappears in the moment
+    between the guard and the handler.
+    """
+    _record_request("api_demand_census", True)
+    try:
+        document = _demand_census_snapshot()
+    except _DemandCensusUnavailable as exc:
+        log.warning("demand census unavailable: %s", exc)
+        resp = jsonify({
+            "ok": False,
+            "error": "demand_census_unavailable",
+            "message": (
+                "The demand census snapshot could not be served: %s. The "
+                "document was not delivered and is rebuilt by the operator "
+                "rather than by the request." % exc
+            ),
+            "retryable": True,
+            "request_id": getattr(g, "request_id", ""),
+        })
+        resp.status_code = 503
+        resp.headers["Retry-After"] = "3600"
+        return resp
+    return _safe_jsonify(document)
 
 
 # ── Telegram Webhook (for bot messages & inline button callbacks) ─────────

@@ -92,9 +92,22 @@ def _served_description(client, path):
     return r.get_json()["resource"]["description"]
 
 
-def test_there_are_twelve_paid_paths_to_check(client):
-    """If this number changes, the three guards below changed meaning too."""
-    assert len(_paid_paths()) == 12, _paid_paths()
+def test_the_paid_paths_are_everything_the_paywall_charges_for(client):
+    """The three guards below loop over this set, so the set IS their scope.
+
+    Asserted as the union of the three things that can put a route in it — the
+    vitrine, the aliases, and a route that is priced and paywalled but not yet
+    catalogued (the demand census, 24.11.2026) — rather than as a count that has
+    to be edited by hand. A route missing from the paywall would never be
+    checked here, and a route in the paywall that is priced nowhere would be
+    checked against a price that does not exist.
+    """
+    import main
+    paths = set(_paid_paths())
+    expected = ({r["endpoint"] for r in main.REAL_X402_ROUTES}
+                | set(main.X402_PATH_ALIASES)
+                | set(main.X402_PRICE_MAP))
+    assert paths == expected, sorted(paths ^ expected)
 
 
 def test_every_paid_listing_says_when_to_use_it(client):

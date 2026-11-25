@@ -80,8 +80,16 @@ def test_the_price_comes_from_the_single_source():
     assert route[0]["price_usdc"] == KRISTO_VERIFY_SELLER_PRICE
 
 
-def test_it_is_the_dearest_route_we_sell():
-    """The invariant that survived the 07.11 repricing.
+#: The one route priced above the seller audit, and the reason it does not
+#: disturb the invariant below: it is a snapshot document built offline from our
+#: own ledger, not a per-call chain read, so the two are not alternatives a
+#: buyer weighs. Named here rather than excluded silently, so a third route
+#: above the audit cannot appear without this test being read.
+ABOVE_THE_AUDIT = "/api/v1/demand-census"
+
+
+def test_it_is_the_dearest_route_that_reads_the_chain_per_call():
+    """The invariant that survived the 07.11 repricing — and the 24.11 one.
 
     The price moved from $1.00 to $0.10, so "above a dollar" is no longer the
     contract and asserting it would just pin a number. What must stay true is
@@ -89,18 +97,30 @@ def test_it_is_the_dearest_route_we_sell():
     on-chain work on an address the caller supplies, so it must never drift down
     into the $0.003-$0.005 tier where a bulk scan would be cheap enough to abuse.
 
+    THE 24.11.2026 EXCEPTION, stated rather than hidden. The demand census at
+    $0.25 is now dearer, and it changes nothing about the reasoning above: it
+    answers a question about our own ledger from a file, so it does no per-call
+    RPC work and there is nothing for the abuse floor to protect. What would
+    matter is a second route that DOES read the chain per call and undercuts
+    this one, which is exactly what the comparison below still forbids.
+
     Derived from the live maps rather than written down, so a future change to
     either the price or the other routes has to keep this relation true.
     """
     mine = main.X402_PRICE_MAP["/api/v1/verify-seller"]
     others = [p for endpoint, p in main.X402_PRICE_MAP.items()
-              if endpoint != "/api/v1/verify-seller"]
+              if endpoint not in ("/api/v1/verify-seller", ABOVE_THE_AUDIT)]
     assert others, "the comparison is meaningless with no other route"
     assert mine > max(others), (
-        "verify-seller at $%.4f is no longer the dearest route; the dearest "
-        "other route is $%.4f" % (mine, max(others)))
+        "verify-seller at $%.4f is no longer the dearest per-call route; the "
+        "dearest other route is $%.4f" % (mine, max(others)))
     # And still far above a cent, so a 1000-address sweep costs real money.
     assert mine >= 0.05
+    # The exception is asserted by name, so it cannot quietly become two.
+    dearer = sorted(endpoint for endpoint, price in main.X402_PRICE_MAP.items()
+                    if price > mine)
+    assert dearer == [ABOVE_THE_AUDIT], (
+        "routes dearer than the seller audit changed: %s" % dearer)
 
 
 def test_the_route_is_paid_and_its_sample_is_not():

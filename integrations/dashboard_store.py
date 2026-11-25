@@ -333,6 +333,13 @@ FUNNEL_ROUTES = [
     "/api/arb/opportunities",
     "/api/v1/whaleflow",
     "/api/v1/verify-seller",
+    # The demand census (24.11.2026). Paywalled and priced like the routes above
+    # but deliberately NOT in REAL_X402_ROUTES — it has not been through the
+    # paid-canary promotion every vitrine route passed. It belongs in the funnel
+    # all the same, and for the reason this comment already gives: a paid route
+    # missing here is invisible, and the first question about a brand-new $0.25
+    # route is whether anyone reached the paywall for it.
+    "/api/v1/demand-census",
     # Buyer-worded aliases (10.11.2026). They front the same handlers at the same
     # prices, so a sale through one is a sale of the same product — and a paid
     # route missing from this list is invisible in the funnel, which is exactly

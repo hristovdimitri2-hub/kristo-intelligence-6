@@ -196,9 +196,15 @@ def test_validation_html_carries_x402_trust_section(client):
     # всеки основен платен endpoint има Trust страница
     assert "/endpoint/139372" in html
     # ...но не и остарялата единна цена: страницата трябва да покрива диапазона
+    # The page quotes the CATALOGUE's range, because the catalogue is what it
+    # lists. Reading the whole price map here would demand a price on the page
+    # for a route the page does not list — the demand census is paid and priced
+    # but paywall-only as of 24.11.2026, and `_cheapest_route_price` /
+    # `_dearest_route_price` have always been computed over REAL_X402_ROUTES.
     import main as _m
-    floor = "$%.3f" % min(_m.X402_PRICE_MAP.values())
-    ceiling = "$%.3f" % max(_m.X402_PRICE_MAP.values())
+    _prices = [float(route["price_usdc"]) for route in _m.REAL_X402_ROUTES]
+    floor = "$%.3f" % min(_prices)
+    ceiling = "$%.3f" % max(_prices)
     assert floor in html and ceiling in html
     assert "$0.003 per call" not in html
 

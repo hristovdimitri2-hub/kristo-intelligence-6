@@ -184,6 +184,33 @@ KRISTO_WHALEFLOW_PRICE = float(os.getenv("KRISTO_WHALEFLOW_PRICE", "0.01"))
 KRISTO_VERIFY_SELLER_PRICE = float(
     os.getenv("KRISTO_VERIFY_SELLER_PRICE", "0.05"))     # /api/v1/verify-seller
 
+# ── The demand census: the measurement itself, at $0.25 ───────────────────
+# Owner-approved on 24.11.2026 as a NEW route and a NEW price. Nothing here
+# changes an existing price, the receiver, the commission or the 402 envelope.
+#
+# WHY THIS IS NOT PRICED WITH THE DATA ROUTES. Everything else in this file is a
+# per-call lookup of something the market already publishes — a price, a spread,
+# a transfer log. The census is the opposite: it is the demand side of a live
+# x402 service, counted from our own ledger over the whole retention window,
+# including the per-agent table (who arrived, when they first and last came,
+# how often they were challenged and whether they ever paid). docs/
+# X402_DEMAND_CENSUS.md publishes the aggregate and states in its section 5 that
+# the per-agent table is the part we keep — that table is this product, and a
+# dataset nobody else in this market can produce is not worth $0.005.
+#
+# WHY $0.25 SPECIFICALLY. The band was chosen against the same external audit
+# that repriced the seller audit (see the note above): across 34,890 Bazaar
+# endpoints over 30 days the sub-$0.005 band averages ~$0.03 gross per endpoint
+# while the $0.02-$0.06 band averages ~$2.25, and volume does not rise as price
+# falls — the cheap bands are simply where the inactive endpoints are. The
+# census is read once to decide whether demand exists at all, so it sits above
+# the per-call data tier rather than inside it, and at $0.25 it is the dearest
+# single call this service sells.
+#
+# Overridable like every other price, and it does not touch one.
+KRISTO_DEMAND_CENSUS_PRICE = float(
+    os.getenv("KRISTO_DEMAND_CENSUS_PRICE", "0.25"))     # /api/v1/demand-census
+
 # ── Human products (NOT x402 routes) ──────────────────────────────────────
 # The Telegram VIP-analysis unlock is paid in USDC like a route but is a HUMAN
 # product, so it is deliberately NOT in X402_PRICE_MAP. It lives here anyway so

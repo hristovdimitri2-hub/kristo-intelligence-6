@@ -103,7 +103,9 @@ def test_declared_properties_match_the_public_example(client):
             f"{sorted(example)}")
 
 
-def test_declared_required_keys_are_proven_present_in_the_delivery(client, monkeypatch):
+def test_declared_required_keys_are_proven_present_in_the_delivery(client,
+                                                                   monkeypatch,
+                                                                   tmp_path):
     """`required` may only list keys MEASURED present in a real delivery.
 
     vet402 reads `.required` from the example object and treats a key missing
@@ -112,9 +114,29 @@ def test_declared_required_keys_are_proven_present_in_the_delivery(client, monke
     rule: that rule was right about unprovable keys and wrong about provable
     ones — /api/v1/verify-seller returns all nine keys its example names, on a
     cold read and on a cached read alike.
+
+    THE DEMAND CENSUS IS PRODUCED BY A FILE, NOT BY A THREAD. It is the one
+    paid route whose product an operator builds offline, so there is no producer
+    to stub; the snapshot IS the producer. It is written here with the
+    generator's own `build_document` over fixture rows rather than with a shape
+    invented for this assertion, so what the loop below measures is a real
+    generator output, delivered by the real handler, against the keys the 402
+    declared.
     """
     import main
     import services.seller_audit as sa
+
+    from scripts import build_demand_census as census
+
+    snapshot = tmp_path / "demand_census.json"
+    snapshot.write_text(json.dumps(census.build_document(
+        {"agents": [{"user_agent": "fixture/1.0", "requests": 1,
+                     "first_seen": "2026-11-24 00:00:00",
+                     "last_seen": "2026-11-24 00:00:00",
+                     "challenged": 0, "delivered": 0}]},
+        ["/api/stats"], "2026-11-24T00:00:00+00:00")), encoding="utf-8")
+    monkeypatch.setattr(main, "_DEMAND_CENSUS_SNAPSHOT_PATH", str(snapshot))
+    monkeypatch.setattr(main, "_DEMAND_CENSUS_CACHE", {})
 
     # 1. The declaration must not contradict itself: every required key has to
     #    be one the same example declares as a property.

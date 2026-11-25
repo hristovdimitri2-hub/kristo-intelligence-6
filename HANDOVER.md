@@ -7345,17 +7345,26 @@ Checked live, 24.11:
 | payer class | payments | USDC | first → last |
 |---|---|---|---|
 | `own_key` — our demo wallet `0xe50c…5763` | **131** | **1.785** | 7 Oct → 24 Nov |
-| `sampler` — `market_crawler_*` wallets | 20 | 0.100 | 9 Sep → 17 Nov |
+| `sampler` — 4 `market_crawler_*` wallets | 20 | 0.077 | 9 Sep → 17 Nov |
 | `canary` — `chet_payapi_verification`, `lumiere_paycheck_tester`, `settled_scout` | 17 | 0.067 | 2 Sep → 16 Nov |
-| `external` — unclassified, 12 distinct wallets | 12 | **0.055** | 6 Sep → 16 Nov |
+| `external` — unclassified, 9 wallets | 12 | **0.054** | 6 Sep → 16 Nov |
+| **total** | **180** | **1.983** | |
+
+The four rows sum to the total exactly: 131 + 20 + 17 + 12 = 180 payments, and
+1.785 + 0.077 + 0.067 + 0.054 = 1.983 USDC. The first version of this table said
+`sampler` 0.100 and `external` 0.055, which summed to 2.007 against a stated total
+of 1.983 — a two-cent hole nobody would have found by reading it. It was caught by
+the generator in `scripts/build_demand_census.py`, which recomputes the same split
+from the same table and reconciles it; the per-class figures here are now the
+generator's.
 
 Independently corroborated: every one of the fifteen most recent sale receipts
 was decoded from Base and the USDC `Transfer.from` is `0xe50c…5763` in all
 fifteen. The `tx.from` differs each time because that is the facilitator's
 relayer, not the payer.
 
-**Genuinely external money, lifetime: 12 payments, $0.055.** Two of those are
-`0xEe523a51…` ($0.013 on 16 Nov) and `0x171d8021…` ($0.01 on 16 Nov).
+**Genuinely external money, lifetime: 12 payments, $0.054, from 9 wallets.** Two
+of those are `0xEe523a51…` ($0.013 on 16 Nov) and `0x171d8021…` ($0.01 on 16 Nov).
 
 ### The missing middle: 135 attempts, and none of them was a lost sale
 
@@ -7405,7 +7414,7 @@ What the numbers actually say is harder:
   endpoint: a paywall that machines check and do not buy from.
 - Lifetimes, three independent measurements now agree: Ernest's CDP census (top
   10 rows = 92% of spend, median row $0.01/30d), PayAPI (6,323 views, 0
-  payments), and our own ledger (457 agents, 12 external payments, 5.5 cents).
+  payments), and our own ledger (457 agents, 12 external payments, 5.4 cents).
 
 **The rule this leaves behind:** when the owner says "something must have got
 lost on the way", measure the layer he is not pointing at first — here,
