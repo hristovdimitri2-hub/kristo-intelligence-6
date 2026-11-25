@@ -48,6 +48,49 @@ Ordered plan, cheapest first:
 4. **Unchanged:** the census stays at $0.25, and December-vs-November is the
    first sellable change.
 
+## Tested 25.11.2026 — the tool that reaches the named buyer, and what it costs
+
+The §122 conclusion produced a target class (trust-layer vendors, marketplace
+operators, the 40 x402 members) and immediately hit the real gap: we have the
+**companies** — the member list is public — and almost no **people**. §P reached
+Hosannaith only because its founder publishes his address; of nine trust-layer
+vendors, two publish an address at all.
+
+**Explee** (explee.com, Explee LTD, London) is an AI outbound agent, and it is the
+first tool in this whole search that closes exactly that gap with a documented,
+public API. Measured from its own OpenAPI spec rather than from its marketing:
+
+- `POST /public/api/v1/search/companies-by-domains` — up to 1,000 domains, **0.5
+  credits per company found, 0 credits for domains not found**
+- `POST /public/api/v1/search/people-by-domains` — the same domains plus up to 20
+  job titles with **semantic matching** ("Head of Sales" matches "VP Sales"),
+  `people_per_company` up to 1,000
+- `POST /public/api/v1/find-and-enrich` — **1.5 credits per found email** (basic
+  preset) or 5 (premium), up to 500 contacts per call
+- Auth is `X-API-Key`; a live call without one answers **401**, so there is no
+  anonymous access. The key is issued at `explee.com/app-auto-gtm/api-keys`.
+
+Their published rate is **$0.04 per email** (750 emails for $30), which prices one
+credit at ≈$0.027. So the whole class is cheap: the **40 x402 member domains →
+company profiles ≈ 20 credits ≈ $0.53**, and three decision-makers with verified
+emails at each ≈ 180 credits ≈ **$4.80** — inside the $30 of free credit.
+
+**How to use it, and how not to.** Search and enrich only: find the named person at
+a named company. **Not** the campaign machinery (`autogtm`), because the letters
+are the asset precisely because they are researched and honest — §P argues from our
+own losing record — and a volume campaign would spend the one credential we have.
+Cold-writing to Visa, Circle and PayPal is also a different act from their florist
+customers; the "~1 meeting per $30" on their landing page will not transfer.
+
+**The smallest test first:** `search/companies-by-domains` on three known domains
+(≈$0.04), then one people search for payments and partnership titles at those
+companies. If their 105M-company database is thin on financial institutions, that
+costs pennies and closes the question.
+
+**Blocked on one owner action:** create the API key — signup plus the free $30
+credit at `explee.com/app-auto-gtm/api-keys`. After that, everything above is a
+script.
+
 ---
 
 ## The one priority
