@@ -512,13 +512,13 @@ Ernest,
 
 You asked which of the two things I should build. I built the second one before answering, and this is the result.
 
-I run a live x402 service on Base. Seven routes, $0.005 to $0.05. Over 84 days it answered 1,246,641 requests in the last thirty (that is my retention limit, not a quiet period), was found by 457 distinct user agents, and was paid by twelve wallets that are not mine. Total external revenue, lifetime: five and a half cents. I published the aggregate and the method. The per-agent table is the part I kept.
+I run a live x402 service on Base. Seven routes, $0.005 to $0.05, and as of today one data product at $0.25. Over 84 days it answered 1,246,641 requests in the last thirty (that is my retention limit, not a quiet period), was found by 457 distinct user agents, and was paid twelve times by nine wallets that are not mine. Total external revenue, lifetime: five and a half cents. I published the aggregate and the method. The per-agent table is the part I kept.
 
 What makes this different from your census is direction. Your numbers describe what sellers earn. These describe what the demand side does at the moment it meets a price: which agents arrive, how often they come back, which route they choose, whether they ever present a credential, and what that credential says when they do. I read all 135 recorded payment attempts one by one. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs. That is the part I could not see from any index, and I suspect it was missing from yours too.
 
 Two things I want to know, and neither is a favour.
 
-One: you sell this measurement. Is a demand-side ledger worth anything to you or to your clients, and if so in what shape? I am not offering it as a favour and I am not asking for a free read. I would rather price it than give it away, because a dataset nobody pays for is the same mistake I have just finished documenting.
+One: you sell this measurement. Is a demand-side ledger worth anything to you or to your clients, and if so in what shape? I stopped asking and answered it instead: the per-agent table is live as a paid route at $0.25 a copy (GET /api/v1/demand-census on the service above). A dataset nobody pays for is the same mistake I have just finished documenting, so I priced it rather than giving it away. If you want to see what a buyer actually receives before you judge it, say so and I will send you one at no cost — you are the one person here whose read of it I want.
 
 Two: the agents are overwhelmingly monitors and crawlers, not buyers. If that matches what you see, say so plainly and I will stop treating the demand side as a market. If it does not match, I want to know what you see instead, because then one of us is measuring the wrong thing.
 

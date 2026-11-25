@@ -1,8 +1,8 @@
 # Next actions — consolidated
 
-**Compiled 24.11.2026, 15:20 EET.** This supersedes `docs/ACTION_BOARD.md`
-(03.11.2026), which is kept as history. One page, in the order to work through
-it. Full text of every message is in `docs/OUTREACH_DRAFTS.md`.
+**Compiled 24.11.2026, 15:20 EET; updated 25.11.2026.** This supersedes
+`docs/ACTION_BOARD.md` (03.11.2026), which is kept as history. One page, in the
+order to work through it. Full text of every message is in `docs/OUTREACH_DRAFTS.md`.
 
 ---
 
@@ -64,6 +64,37 @@ route needs an entry in `X402_PRICE_MAP` and a price constant in `config.py`, an
 the standing rule forbids touching those without explicit approval. That decision
 is the owner's, and it is the next step if the public specimen draws interest.
 
+### Shipped, 25.11.2026 — the census is live at $0.25
+
+The owner approved the one exception to the price rule. `GET /api/v1/demand-census`
+now answers `402` at **$0.25** on `eip155:8453` and delivers the per-agent table;
+`GET /api/v1/demand-census/sample` stays free like every other paid route's preview.
+Two deliberate choices: it is **paywall-only** and absent from `REAL_X402_ROUTES`,
+because promotion to the vitrine requires a paid canary, and it is **exempt from the
+volume discount**, which would otherwise have sold it for $0.01 from the 11th call.
+
+Verified against the running service after the deploy, not against the source: census
+`402` at 250000 atomic units, the seven pre-existing prices unchanged
+(5000/5000/5000/5000/10000/10000/50000), `payTo` equal to the canonical EIP-55
+checksum, sample `200`.
+
+**The message to Ernest went out on 25.11.2026** from the owner's Gmail, naming the
+price instead of proposing one. `scripts/send_section_n.py` sends the §N body
+extracted from `docs/OUTREACH_DRAFTS.md` verbatim, so the sent text and the record
+cannot drift apart.
+
+### One defect the deploy exposed (25.11.2026)
+
+Reading the live `402` envelope caught what the local suite could not: the receiver
+address written throughout our own notes,
+`0xB4FcF8ef52b5DC275924AeD2BAe94FE6cb7fC844`, is **not a valid EIP-55 checksum**.
+The live service had it right all along — `…D2baE94…`, confirmed against
+`eth_utils.to_checksum_address` — so no payment was ever at risk, since the 20 bytes
+are identical and any library that validates a checksum would only ever have received
+the correct string from the envelope. Six of our own files carried the bad spelling;
+all are corrected. The method point matters more than the typo: to find a defect in a
+public claim, read the live response rather than the note describing it.
+
 
 ---
 
@@ -104,7 +135,7 @@ no reason to be called twice. More listings cannot fix that. An integration can.
 | # | What | Where | Note |
 |---|---|---|---|
 | 6 | **The CDP ticket** | support, as a reply in the Ernest thread | Ernest wrote it; we re-measured every row and corrected one claim. Text in `OUTREACH_DRAFTS.md` §L. Add your name. |
-| 7 | **Reply to Ernest** | the same Gmail thread | Accepts his free benchmark of the seven routes; asks how he wants a referral introduced. Text in `OUTREACH_DRAFTS.md` §L2. |
+| 7 | **Reply to Ernest** | the same Gmail thread | Accepts his free benchmark of the seven routes; asks how he wants a referral introduced. Text in `OUTREACH_DRAFTS.md` §L2. **Still unsent as of 25.11:** §N went first and asks him two direct questions, so this belongs in the answer he sends back — or in a nudge if the thread is quiet for four days. |
 
 **Why the ticket changed.** Ernest's second request said all MCP descriptions were
 stale. Seven of eight were refreshed on 24 November by paying through each tool;
