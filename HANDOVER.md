@@ -79,7 +79,7 @@ a Bulgarian word left in a document is a defect, not a style choice.
 | Retired receiver | `0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f` — **do not describe publicly why it was retired** (owner's instruction) |
 | Gas wallet | `0x5f6d3F20282A8958C6607D7E17dC8C83B1F0Ee74`, funded |
 | Demo payer | `0xE50c5212e8211639c49276dA190E248B83935763` — the only payer that has ever settled |
-| Test suite | **1479 collected** (1478 pass, 1 skipped) — re-run in full on 25.11.2026 after the signal-record change. `SUITE_TESTS_PASSED` and `SUITE_LAST_RUN` in `app/blueprints/discovery.py` and the README must agree with this number. |
+| Test suite | **1481 collected** — full run on 25.11.2026: **1481 passed**. One test can skip instead of pass (`test_dashboard_card_render` needs `node` on PATH), which is why earlier runs of the same suite reported 1 skipped. `SUITE_TESTS_PASSED` and `SUITE_LAST_RUN` in `app/blueprints/discovery.py` and the README must agree with the collected count. |
 | CDP Bazaar | **20 rows** on the live receiver: 12 HTTP + 8 MCP (7 correct single names + 1 duplicate `get_whale_flow#get_whale_flow`); **6 stale duplicate rows** still attributed to the retired receiver |
 | MCP Registry | `io.github.hristovdimitri2-hub/kristo-intelligence@6.3.1`, published 23.11 |
 | x402-list.com | `endpoint_count 7`, `status online`, compliance **A (14/14)**, `risk clean`, payment-ready until **2026-12-01**; FORTE verified tier **false** (see open tasks) |
@@ -185,7 +185,7 @@ for the stale table to be **updated** rather than silently dropped.
 
 ## Critical test files
 
-The suite is 1479 tests; these are the ones that guard the things that would
+The suite is 1481 tests; these are the ones that guard the things that would
 cost money or trust if they broke.
 
 | file | what it protects |

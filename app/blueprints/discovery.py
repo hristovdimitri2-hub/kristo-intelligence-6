@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1479
+SUITE_TESTS_PASSED = 1481
 SUITE_LAST_RUN = "2026-11-25"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -1935,8 +1935,10 @@ def _mcp_tools(base_url):
             "Read-only; no parameters. Returns "
             "this service's flagship trading-agent signals for ETH, ONDO, "
             "KAITO and DEGEN: action, confidence, price_usd and the model's "
-            "reasoning. Use it when you need a directional call rather than "
-            "raw market data; use get_whale_flow for large-transfer flow and "
+            "reasoning. Its own measured record is public and losing: "
+            "/public/signals/history — read it before acting on a signal. "
+            "Use it when you need a directional call rather than raw market "
+            "data; use get_whale_flow for large-transfer flow and "
             "get_arbitrage_opportunities for cross-DEX spreads. ",
         ),
         _tool(

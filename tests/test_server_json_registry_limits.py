@@ -104,6 +104,41 @@ def test_the_block_does_not_repeat_the_challenge_sentence():
         "block past 4KB" % text.count(phrase))
 
 
+def test_the_committed_file_is_what_the_generator_produces():
+    """The file on disk must be the generator's output, byte for byte.
+
+    WHY. `server.json` is generated from `_mcp_tools()` so that a price or a
+    description cannot be typed twice and drift. On 25.11.2026 it drifted anyway,
+    in the one direction the generator cannot defend against: the honest
+    sentence about the signal engine's measured record was written into
+    `server.json` BY HAND and never into `discovery.py`. Publishing the row then
+    echoed the old text, and `--check` was the only thing that could have
+    noticed — a command a human has to remember to run.
+
+    Every other test in this file reads the committed artifact, so all of them
+    were true of a file that no longer matched its source. This one compares the
+    two, which is the only assertion that could have caught it.
+    """
+    import importlib.util
+    import os
+
+    spec = importlib.util.spec_from_file_location(
+        "build_registry_server_json",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "scripts", "build_registry_server_json.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    expected = json.dumps(module.build(), indent=2, ensure_ascii=False) + "\n"
+    committed = io.open(SERVER_JSON, encoding="utf-8", newline="").read()
+
+    assert committed == expected, (
+        "server.json is out of date with scripts/build_registry_server_json.py. "
+        "Run `python -X utf8 scripts/build_registry_server_json.py` and commit the "
+        "result — a hand-edit here is invisible to every other test in this file "
+        "and to `mcp-publisher validate`.")
+
+
 def test_the_server_identity_and_version_are_present():
     """A publish with no version, or a name outside our namespace, would fail."""
     doc, _meta = _load()

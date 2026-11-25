@@ -111,6 +111,30 @@ def test_open_world_is_true_and_that_is_the_honest_value():
     assert '"openWorldHint": True' in DISCOVERY_SRC
 
 
+def test_the_signal_tool_names_its_own_losing_record():
+    """The one place a buyer decides whether to pay must carry the score.
+
+    Why this test exists rather than a note in the handover: the honest sentence
+    was added to `server.json` — a GENERATED artifact — and not to
+    `discovery.py`, which is what `/mcp` serves and what the buyer echoes into
+    the CDP Bazaar row on the next paid call. So the live tool list, and every
+    row copied from it, kept selling a directional call with no mention that the
+    engine had been right once and wrong twelve times. Nothing failed: the
+    generator's `--check` was the only thing that noticed, and it was not run.
+    The lesson is the assertion — a claim about what we advertise is only true of
+    the surface that serves it.
+    """
+    tools = {t["name"]: t.get("description") or "" for t in _tools_via_mcp()}
+    text = tools["get_trading_signal"]
+
+    assert "/public/signals/history" in text, (
+        "the signal tool does not point at its own public record, so an agent "
+        "comparing the price against the product cannot see the score")
+    assert "losing" in text, (
+        "the signal tool names the record without saying what it says; the "
+        "measured verdict is the part that was missing")
+
+
 def test_the_registry_artifact_was_not_given_the_annotations():
     """`server.json` is a different, hand-trimmed artifact with a hard 4096-byte
     registry limit and only ~207 bytes of headroom. The directories read the LIVE

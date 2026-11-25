@@ -61,7 +61,7 @@
         },
         {
           "name": "get_trading_signal",
-          "description": "Read-only; no parameters. Returns this service's flagship trading-agent signals for ETH, ONDO, KAITO and DEGEN: action, confidence, price_usd and the model's reasoning. Its measured record is public and losing: /public/signals/history. Use it when you need a directional call rather than raw market data; use get_whale_flow for large-transfer flow and get_arbitrage_opportunities for cross-DEX spreads. ",
+          "description": "Read-only; no parameters. Returns this service's flagship trading-agent signals for ETH, ONDO, KAITO and DEGEN: action, confidence, price_usd and the model's reasoning. Its own measured record is public and losing: /public/signals/history — read it before acting on a signal. Use it when you need a directional call rather than raw market data; use get_whale_flow for large-transfer flow and get_arbitrage_opportunities for cross-DEX spreads. ",
           "endpoint": "/api/v1/signal",
           "price_usd": 0.01
         },
