@@ -8520,11 +8520,21 @@ ours and real: 7,870 bytes, 7 skills (`signal`, `stats`, `arb-opportunities`,
 `bot-status`, `sales`, `whale-flow`, `verify-seller`), `preferredTransport` JSONRPC, and
 an `x402` block carrying the live terms and the discovery links. Two things it states
 plainly: **`Owner not verified`** and **Trust Score 0**, because the score counts
-*verified tasks the agent solves*, and ours has solved none. Claiming needs a signed-in
-account — the claim page offers sign-in, and the CLI's `init` prints a code to approve
-on the site — so it is not automatable from here; the claim link is in the owner's
-report. Our **service** is not listed there (`/services/kristo-intelligence-api.onrender.com`
-returns 404), so nothing about the x402 surface is asserted by a third party there yet.
+*verified tasks the agent solves*, and ours has solved none.
+
+**Both changed on 26.11.2026.** The owner signed in as `hristovdimitri2-hub`, the claim
+token `TiWnGbTIyWNrNa6ClzsTEp-T8V6CiVldBLTr0a2RORs` was served at
+`/.well-known/sealkeeper-claim.txt` (**43 bytes, last byte `s`, no trailing newline**,
+sha256 `fc8b6323f60b46d62d01df7dfd693a3068fa1e777c2d91c0905386912f907d00`), and **all
+three records now read `Owner verified`, Claimed 26 Nov**, with proof linking to that
+URL. The live page reads **Trust Score 200** (delta 0, "0 in the last 7 days") while
+also showing 0 verified tasks — so both the earlier "Trust Score 0" reading and the
+prediction that claiming would leave it at 0 are superseded. Which of the two was
+wrong cannot be told from the bytes we kept, so it is recorded as measured, not
+explained. **A second correction:** an earlier note here said our service was not
+listed because `/services/kristo-intelligence-api.onrender.com` returned 404 — the URL
+shape was wrong (dots become dashes), not the coverage. SealKeeper lists **three**
+records for the domain, and the first two pass every check.
 One discrepancy is left standing rather than smoothed: the email that announced the
 listing says **56 of 57 task checks passed over 14 days (98.2%)**, while the page it
 links to shows **145 of 145 checks** and **7 of 7 skills answered**. Both were read; the
