@@ -1,6 +1,6 @@
 # AP2 RADAR — какво се промени от миналия път
 
-Проверено: 2026-11-24 18:00 UTC · read-only, публични артефакти, без идентичности.
+Проверено: 2026-11-26 04:45 UTC · read-only, публични артефакти, без идентичности.
 
 ## Промени по мониторирани repos
 
@@ -100,22 +100,136 @@
 
 ### developerfred/x402-conformance-probe
 
-- (API грешка: HTTP 403)
+- `e6904c30d5` 2026-11-02 — feat: x402 conformance probe with 20 endpoints, fixtures, report, test endpoint, and paid retry
+  - файл: .gitignore
+  - файл: REPORTED.md
+  - файл: discover.ts
+  - файл: endpoints-discovered.json
+  - файл: fixtures/averray-verify-verify-runs.json
+  - файл: fixtures/browserbase-x402-endpoint.json
+- `25883ed0b0` 2026-11-02 — feat: add REPORTED.md with issue links for all defects
+  - файл: REPORTED.md
+- `9918c61ab1` 2026-11-02 — feat: expand to 30 endpoints, add response time/body size columns, CI workflow, Vercel deploy
+  - файл: .github/workflows/conformance.yml
+  - файл: .gitignore
+  - файл: fixtures/averray-verify-verify-runs.json
+  - файл: fixtures/browserbase-x402-endpoint.json
+  - файл: fixtures/coinmarketcap-dex-search.json
+  - файл: fixtures/exa-search-api.json
+- `e0fb7d3161` 2026-11-02 — feat: add landing page and vercel config so production site has full documentation
+  - файл: index.html
+- `8344b30a8b` 2026-11-02 — feat: track vercel.json in repo (remove from gitignore)
+  - файл: .gitignore
+  - файл: vercel.json
+- `8d9bf500bc` 2026-11-02 — feat: melhorar diagramação do REPORTED.md e templates de issue no GitHub
+  - файл: .github/ISSUE_TEMPLATE/config.yml
+  - файл: .github/ISSUE_TEMPLATE/x402-conformance-defect.md
+  - файл: REPORTED.md
+  - файл: discover-all.ts
+  - файл: endpoints-discovered.json
+  - файл: generate-config.ts
 
 
 ### alchemyplatform/alchemy-x402
 
-- (API грешка: HTTP 403)
+- `1cf2ff51ae` 2026-03-10 — Merge branch 'main' into chris/architecture-required
+  - файл: .changeset/config.json
+  - файл: .changeset/switch-changelog-github.md
+  - файл: .github/workflows/publish.yml
+  - файл: CHANGELOG.md
+  - файл: MAINTAINERS.md
+  - файл: package.json
+- `99aa16e2b4` 2026-03-10 — Merge pull request #24 from alchemyplatform/chris/architecture-required
+  - файл: README.md
+- `fdd3b3934d` 2026-03-11 — gp/revert changes - i give up for now (#36)
+  - файл: .github/workflows/publish.yml
+  - файл: package.json
+- `2960f9edef` 2026-03-11 — chore: add changeset for v0.6.3 (#37)
+  - файл: .changeset/update-readme-solana-support.md
+  - файл: .claude/skills/changeset/SKILL.md
+  - файл: MAINTAINERS.md
+- `a6337cf358` 2026-03-11 — chore: release v0.6.3
+  - файл: .changeset/update-readme-solana-support.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+- `a4b4575e38` 2026-03-11 — chore: add husky pre-commit hook with lint-staged (#38)
+  - файл: .husky/pre-commit
+  - файл: package.json
+  - файл: pnpm-lock.yaml
+- `d6527e270e` 2026-03-11 — fix(ci): restore GitHub release creation in publish workflow (#39)
+  - файл: .changeset/fix-github-release.md
+  - файл: .github/workflows/publish.yml
+- `24e04a21eb` 2026-03-11 — chore: release v0.6.4
+  - файл: .changeset/fix-github-release.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+- `fef4a164ec` 2026-03-11 — fix(ci): upgrade GitHub Actions to Node.js 24-compatible versions (#40)
+  - файл: .github/workflows/ci.yml
+  - файл: .github/workflows/publish.yml
+- `b88e5d2c09` 2026-03-11 — gp/test OIDC again (#41)
+  - файл: .changeset/puny-doodles-thank.md
+  - файл: .github/workflows/publish.yml
+- `9f40ecd33e` 2026-03-11 — chore: release v0.6.4
+  - файл: .changeset/puny-doodles-thank.md
+- `97584c3122` 2026-03-11 — fix: add missing version bump and validate changeset files in CI (#42)
+  - файл: .changeset/fix-missed-version-bump.md
+  - файл: .github/workflows/ci.yml
+- `34163bc903` 2026-03-11 — chore: release v0.6.5
+  - файл: .changeset/fix-missed-version-bump.md
+  - файл: CHANGELOG.md
+  - файл: package.json
+- `3c691c6580` 2026-03-11 — fix: add repository URL to package.json for npm provenance verification (#43)
+  - файл: .changeset/fix-repository-url.md
+  - файл: package.json
+- `b5253ae81d` 2026-03-11 — chore: release v0.6.6
+  - файл: .changeset/fix-repository-url.md
+  - файл: CHANGELOG.md
+  - файл: package.json
 
 
 ### tanaka-77/mart402-agent-kit
 
-- (API грешка: HTTP 403)
+- `d8884449d5` 2026-07-22 — Initial commit
+  - файл: LICENSE
+  - файл: README.md
+- `d58c305a44` 2026-07-22 — Create pay_and_parse.py
+  - файл: examples/python/pay_and_parse.py
+- `eaa122b2e8` 2026-07-22 — Create extract.ts
+  - файл: examples/typescript/extract.ts
+- `4809a6f695` 2026-07-22 — Create config.json
+  - файл: examples/mcp/config.json
+- `bf9ea7c93d` 2026-07-22 — Create selftest.yml
+  - файл: .github/workflows/selftest.yml
+- `d5800b9f65` 2026-07-22 — Update README.md
+  - файл: README.md
 
 
 ### node4dev/x402-agent-toolkit
 
-- (API грешка: HTTP 403)
+- `26ff86cf8d` 2026-04-19 — Initial commit
+- `753973ea1d` 2026-04-22 — feat: full rewrite for x402 v2 (v0.1.1)
+  - файл: README.md
+  - файл: package-lock.json
+  - файл: package.json
+  - файл: src/config.ts
+  - файл: src/index.ts
+  - файл: src/tools/sendToken.ts
+- `e5a1d938d3` 2026-04-22 — docs: trim README for public repo
+  - файл: README.md
+- `5403073e76` 2026-04-22 — feat: accept PRIVATE_KEY with or without 0x prefix
+  - файл: src/wallet.ts
+- `31ce483671` 2026-04-25 — updated with additional tool
+  - файл: README.md
+  - файл: package.json
+  - файл: src/index.ts
+  - файл: src/tools/x402Quote.ts
+  - файл: src/tools/x402Request.ts
+- `a15366a2bb` 2026-04-25 — Merge pull request #1 from node4dev/feat/x402-quote-tool
+  - файл: README.md
+  - файл: package.json
+  - файл: src/index.ts
+  - файл: src/tools/x402Quote.ts
+  - файл: src/tools/x402Request.ts
 
 
 ### haoruilee/awesome-agent-native-services
