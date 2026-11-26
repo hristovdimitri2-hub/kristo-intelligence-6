@@ -2790,7 +2790,7 @@ def glama_connector_claim():
     return _repo_json_file("glama-connector-claim.json")
 
 
-@discovery_bp.route("/.well-known/sealkeeper.txt")
+@discovery_bp.route("/.well-known/sealkeeper-claim.txt")
 def sealkeeper_claim():
     """SealKeeper's domain-control token, served BYTE FOR BYTE.
 
@@ -2809,6 +2809,12 @@ def sealkeeper_claim():
     404 while the file does not exist, rather than an empty 200: a claim file
     that answers 200 with nothing is the state that makes a verifier's "not
     verified" look like our bug.
+
+    THE PATH IS THEIRS, NOT OURS. The claim window prints the exact address it
+    will read — `/.well-known/sealkeeper-claim.txt` — and the first version of
+    this route used `/.well-known/sealkeeper.txt`, which is a different URL and
+    would have 404ed to their checker while looking perfectly correct here. The
+    path is copied from their screen, not guessed from the pattern.
     """
     import logging
     import os as _os

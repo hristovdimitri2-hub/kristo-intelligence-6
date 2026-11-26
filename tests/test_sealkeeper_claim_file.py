@@ -31,7 +31,7 @@ def client(monkeypatch):
 
 def test_the_route_answers_and_never_invents_a_token(client):
     """200 with the file, 404 without it — never an empty 200."""
-    r = client.get("/.well-known/sealkeeper.txt")
+    r = client.get("/.well-known/sealkeeper-claim.txt")
     if os.path.exists(CLAIM):
         assert r.status_code == 200, r.status_code
         assert r.get_data() == io.open(CLAIM, "rb").read(), (
