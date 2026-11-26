@@ -8917,10 +8917,13 @@ excludes — verified with `git check-ignore` before anything was stored.
 
 **A tooling mistake of mine, recorded because it is the second time this project has paid
 for it.** Repairing a script with a PowerShell `Get-Content -Raw` / `WriteAllText` pair
-re-encoded the file as cp1251 and turned the Cyrillic path segment `проекти` into
-`РїСЂРѕРµРєС‚Рё`, so the script died on a file that exists. The fix was to do the edit in
-Python with explicit UTF-8. This is the same trap the notes have warned about since
-September, and it was walked into anyway.
+re-encoded the file as cp1251 and turned the Cyrillic segment of the repository path into
+mojibake (fourteen characters where the folder name has seven), so the script died on a
+file that exists. The fix was to do the edit in Python with explicit UTF-8, and the
+characters are deliberately not reproduced here because this file must contain no
+Cyrillic at all — the first version of this paragraph did, and the language audit caught
+it. This is the same trap the notes have warned about since September, and it was walked
+into anyway.
 
 
 
