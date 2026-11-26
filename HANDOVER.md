@@ -8849,6 +8849,79 @@ That was the 24.11 census snapshot, and it is one payment short. The direction i
 unflattering one — we understated our own revenue — and it is still inaccurate, so §P now
 carries the correction and every later letter states the figure as of its send date.
 
+## §141. HubSpot: the free CRM arrived with our whole inbox, and our own CRM held five leads that were all us (26.11.2026)
+
+**Why this section exists.** The owner asked to be signed up for HubSpot's free tier,
+which is real (1,000 contacts, 2 users, free forever, from HubSpot's own knowledge base,
+last updated 19.11.2026). Two things came out of doing it, and neither is about HubSpot.
+
+**The sales email was genuine, and that was checked rather than assumed.** Headers from
+the message itself: `dkim=pass header.i=@hubspot.com`, `spf=pass … smtp.mailfrom=bschmid@hubspot.com`
+from 209.85.220.41, `dmarc=pass (p=REJECT) header.from=hubspot.com`. It is cold outreach
+from a real employee, not phishing — and the free tier is self-serve, so no conversation
+with him is needed. `_tools/mail_headers.py` is the tool, written because a `From:` line
+is a claim and the authentication results are the evidence.
+
+**Finding 1: the onboarding connected the mailbox, and HubSpot imported 74 addresses from
+it.** Measured through the API (`_tools/hubspot.py`): `hs_analytics_source = OFFLINE/EMAIL_INTEGRATION`
+for **74 of 76** contacts, created between **07:13Z and 07:18Z**, plus two of HubSpot's own
+seeded records. The import mixed our real targets (Ernest, Frank, Chet, Cameron, Tim, Joe,
+NLnet, the investors) with newsletters, receipts, banks and government offices —
+`kilocode@substack.com`, `receipts@openrouter.ai`, `dx@render.com`, `campaigns@marketing.olx.bg`,
+`priemna@mon.bg`, `investment.products@dskbank.bg`. A CRM holding the owner's entire inbox
+is not a pipeline.
+
+**The curation rule, and it is objective.** `_tools/hubspot_curate.py` reads the Sent
+folder and classifies: **an address we have ever written to is our outreach list; an
+address that only ever wrote to us is inbound noise.** Nothing is guessed from a domain
+name. A second rule was needed after the first run: "we wrote to them" also caught the tax
+office, customs, a courier and two banks, because the owner writes to those too — so a
+named list of **private-admin domains** is excluded explicitly. Result: **22 kept, 54
+deleted**, restorable from HubSpot's recycle bin for 90 days.
+
+**Finding 2, and it is the one that matters: all five "leads" in our own CRM are us.**
+Read from `/api/admin/leads`: three are synthetic addresses
+(`checkout-plan-verify@example.invalid`, `preflight-check@example.invalid`,
+`readiness-check@example.invalid`), and two are the owner's own —
+`hristovdimitri2@outlook.com`, and `hristovdimitri2@gmail.com`, which is `qualified`,
+`payment_status: paid`, **amount_usd 34.8**, through our own live Stripe checkout
+(`cs_live_a14DQkU4yfws5IMIZ1v5cs8UVbw0gh8kwjzvXJzfGn16dkscLZrBsojexK`). **The CRM has
+never held a real customer lead**, exactly as the settlement classifier found that most
+payments were ours. So the five were **deliberately not imported**: filling a new CRM with
+three fake addresses and two of the owner's own would repeat the self-dealing pattern the
+54 deletions had just removed.
+
+**What was done instead** (`_tools/hubspot_setup.py`, dry-run first):
+- HubSpot's sample deal — `HubSpot - New Deal (Sample Deal)`, **1000 US$**, not ours — **deleted**;
+- **11 real deals created**, one per outreach target actually written to: the nine
+  trust-layer vendors (§P–§P9), HIVE402 (§O), and Ernest. Each carries the section, the
+  date and the address it went to, so the CRM is self-documenting. **Amounts are left
+  empty on purpose** — nobody has agreed a price with us, and typing a number would be
+  inventing one.
+- Ernest sits in the second stage because he replies; the other ten sit in the first
+  because the letters are unanswered.
+
+**One thing is blocked on a scope, and it is worth stating precisely.** Renaming the six
+pipeline stages through the API failed with `MISSING_SCOPES`: it needs
+**`crm.schemas.deals.write`**, which the service key does not have (it has
+`crm.objects.deals.read/write` and `crm.objects.contacts.read/write`, which are enough to
+create deals but not to edit the pipeline schema). The intended labels are *Nuevo
+prospecto / Contactado / Conversando / Probó el producto / Cliente / Sin respuesta* —
+the fourth one because "Negociación" describes a motion we do not run: we send a letter
+with a price, and the next event is either silence or a paid call.
+
+**Account facts, for the record:** portal **149868228**, `dataHostingLocation: eu1`
+(EU data residency, which is why the token begins `pat-eu1-`), currency USD, time zone
+US/Eastern. The token is in `secrets/hubspot_token.txt`, which `.gitignore` rule 53
+excludes — verified with `git check-ignore` before anything was stored.
+
+**A tooling mistake of mine, recorded because it is the second time this project has paid
+for it.** Repairing a script with a PowerShell `Get-Content -Raw` / `WriteAllText` pair
+re-encoded the file as cp1251 and turned the Cyrillic path segment `проекти` into
+`РїСЂРѕРµРєС‚Рё`, so the script died on a file that exists. The fix was to do the edit in
+Python with explicit UTF-8. This is the same trap the notes have warned about since
+September, and it was walked into anyway.
+
 
 
 
