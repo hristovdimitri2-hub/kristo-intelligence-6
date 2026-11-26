@@ -8411,6 +8411,129 @@ turned it into ticket #160212386**, an acknowledgement, not an answer.
 **Also done:** the five commits of 25.11 and the 26.11 04:45 radar run were pushed
 (`a986069..cb286ee`), so the public repo is in sync with the local one.
 
+**The submission path, measured rather than assumed (26.11.2026).** The question "if he
+says resubmit, can we?" was answered from the pages themselves, and the answer is no:
+`https://glama.ai/mcp/servers/add` **301s** to `/mcp/servers?query=author%3Aadd` (the
+string is parsed as a search, so the route does not exist); on `/mcp/servers` the
+**`Add Server` control is `<button type="button">`** with no `href`, no `<form>`, no
+`method`/`action`, no `fetch(` and no `/api/` call anywhere in the route chunk
+(`/client/_route-Bor-yEdX.js`, 25,765 bytes) — it is a client-side modal, and the route
+table contains no add path. The public API is GET-only
+(`https://glama.ai/api/mcp/openapi.json`: `/v1/servers`, `/v1/instances`,
+`/v1/attributes`, `/v1/connectors`, `/v1/telemetry/usage`), and `/api/mcp/v1/servers`
+now returns **401** ("requires an API key"). So a fresh submission needs the owner's
+browser, or Glama creating the record. What we do have is measured: the connector is
+**in Glama's public search index** (`?query=kristo` returns
+`/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence` and the
+hosted endpoint, and **no** `/mcp/servers/…` row for us), and its badge returns **200**
+rendering *"MCP connector rated A on Glama — ownership verified, tool definitions rated
+A, endpoint responding at last check, 7 tools"*. The gap is exactly one record type,
+not the listing.
+
+## §135. The failure is now a document, and the two open threads closed themselves (26.11.2026)
+
+**Why this section exists.** `docs/NEXT_ACTIONS.md` had one item marked **Next** and
+nothing blocking it: publish the engine's failure as a first-class document rather than
+a footnote, because that is the trust asset the measurement product is sold on. It is
+done, and it was written from the live bytes rather than from this file.
+
+**`docs/SIGNAL_RECORD.md` (new, 26.11.2026).** Read from
+`GET /public/signals/history` at **2026-11-26T05:29Z**, free and unauthenticated. The
+record: **272 issued**, 132 carried by the feed, **99 scored** — **1 hit, 12 misses, 86
+flats** — 33 unresolved, 138 `not_scored_non_directional`, **hit rate 1.0%**. Average
+move on a hit **+3.862%** against **−5.625%** on a miss; mean 24h move over the 99
+scored **−0.570%**; positive/negative split **49/50**. The one hit is `eth:2026-11-15`,
++3.8621% against a 3.153% threshold. The twelve misses run −3.08% to −12.02%.
+
+**The outcome rule was verified, not described.** For all 99 scored records the feed's
+own `move_pct` was compared against its own `vol_threshold`: beyond the threshold with
+the call is a `hit`, beyond it against the call is a `miss`, inside it is a `flat` —
+**0 violations**. Thresholds run 1.82%–10.75%, median 2.66%; sources are `coingecko`
+and `dexscreener`; only two confidence values exist in the corpus, 0.45 and 0.78.
+
+**Two findings the document had to carry, and one limit it states against itself.**
+Confidence does not sort outcomes: the **0.6–0.8** band holds the single hit and **10 of
+the 12 misses**; the **0.4–0.6** band holds 63 scored and **0** hits. And the frozen
+thresholds are not what hides an edge — at fixed bars the misses outnumber the hits
+everywhere (0.5%: 25/28, 1%: 14/21, 2%: 8/18, 3%: 3/16, 5%: 1/7). The limit: the
+published totals do not close — 132 records + 138 non-directional = 270 against an
+`issued` of 272 — so the document says the feed does not publish where the other two
+are and **does not guess**. That is the same rule the rest of this file follows.
+
+**What it proves, in the words the product now uses.** (1) The measurement instrument is
+honest: rules frozen **2026-09-18** before the results were known, a free public feed,
+failures published beside wins. (2) A commodity feed is not an edge: six of the seven
+sold endpoints return facts a buyer can check, and the seventh — the only prediction —
+scores **1.0%**. The document therefore records the decision it forces: the prediction
+is never sold as edge, the record travels with the product (`track_record` in the paid
+response, and the sentence in the Bazaar challenge on both the HTTP and the MCP row).
+The next declared checkpoint is **100 scored signals**, so this document is superseded by
+that checkpoint and not by an argument.
+
+**Ernest dropped `/mcp` completely, in writing, and the correction went the other way
+(25.11 14:57Z).** His own words: *"You're right on /mcp and I'm dropping it. The MCP
+transport spec does put PaymentRequired in the tool result with isError:true, my
+HTTP-402 prescription would have broken compliant clients… Validator 25/25 is the
+proof. No charge, nothing owed."* The defect that mattered was **`GET /mcp` serving a
+free document on the URL our eight rows are indexed against**, which we found and fixed
+ourselves (§128). So the one external party who attacked the surface retracted the
+attack and confirmed the fix — and the $15 change-sheet is declined on that basis, not
+on price.
+
+**His band correction, and why it still does not move a price.** He reran his corpus
+with **payers as the denominator** — 34,886 routes — and the band that maximises repeat
+use came out **$0.02–0.05** (49 calls/payer, $2.77 revenue/route), ~10× the $0.01–0.02
+band and ~90× the sub-cent band. He also withdrew his earlier "$0.005 is the worst band"
+as an inference that does not survive the payer cut, and recorded our alias correction
+(whale-alerts = whaleflow, **verify-seller is the repeat route**). Our reply (§X, sent
+25.11 15:09Z) had already rebuilt his table from the public field — **88,074 rows,
+74,713 with a Base USDC price and at least one call** — and dissolved it: `$0.02` alone
+is **2,242,922 calls, 59.6% of the whole listing**, on 1,872 routes, and inside every
+band the top host holds most of the calls. **The $25/$15 offer is declined because the
+ranking is computable and was computed**; the half that is not purchasable from either
+side is payer *identity*, which lives in the seller's request log and nowhere else.
+
+**Abdellah closed the wording corrections as completed (25.11 20:13Z).** Issue **#127**
+closed via commit **`d48eaa1`**, with his comment confirming both points are in
+`RESULTS.md` in our own words — the earlier reader state and why the published reader
+cannot run against v4, and the earlier defect that answered 5 outside — with the row and
+its link pointing at gist revision **`6d1fe258a0fc`** and the check-name sentence at
+`af6af9ee149f`. Nothing is owed on either side; the thread is closed by him, not by us.
+
+**Both x402 Foundation lists confirmed, and the first post is in moderation.** The
+subscription confirmations arrived 25.11 16:45Z for **`main@lists.x402.org`** (the parent
+list) and for **`Domain-Discovery@lists.x402.org`**, so §Z is complete on both. §Z3 —
+*"What the Bazaar listing actually says"* — was sent **25.11 16:46:47Z** to the working
+group list, one minute after the confirmation; a first post from a new member is held
+for moderation, so no reply is late yet. The working group's own invitation arrived the
+same evening: **bi-weekly Mondays 10:00 America/Chicago**, next meeting **30.11 18:00
+EET** on LFX/Zoom, public minutes. We can read and post to the list; we cannot attend a
+Zoom call, so anything we want in that meeting has to be on the list before it.
+
+**A new channel found us rather than the other way round: SealKeeper (26.11 05:09Z).**
+`sealkeeper.run` checks public **A2A** agents and lists them with a Trust Score; it
+found **one agent on our host** and wrote to say so. Measured from its own page:
+**Bronze SEAL**, **Active**, uptime **100% — 145 of 145 checks**, **7 of 7 skills
+answered**, agent id `6md9PRCHBvz6dl2oRggAtRCXhwft_qJfjRu8qHKetUc`, protocol **A2A 0.3.0**
+version 1.0.0, card `/.well-known/agent-card.json`, endpoint **`/a2a`**. The card is
+ours and real: 7,870 bytes, 7 skills (`signal`, `stats`, `arb-opportunities`,
+`bot-status`, `sales`, `whale-flow`, `verify-seller`), `preferredTransport` JSONRPC, and
+an `x402` block carrying the live terms and the discovery links. Two things it states
+plainly: **`Owner not verified`** and **Trust Score 0**, because the score counts
+*verified tasks the agent solves*, and ours has solved none. Claiming needs a signed-in
+account — the claim page offers sign-in, and the CLI's `init` prints a code to approve
+on the site — so it is not automatable from here; the claim link is in the owner's
+report. Our **service** is not listed there (`/services/kristo-intelligence-api.onrender.com`
+returns 404), so nothing about the x402 surface is asserted by a third party there yet.
+One discrepancy is left standing rather than smoothed: the email that announced the
+listing says **56 of 57 task checks passed over 14 days (98.2%)**, while the page it
+links to shows **145 of 145 checks** and **7 of 7 skills answered**. Both were read; the
+difference is not explained by either page, so it is recorded instead of averaged.
+
+**Also confirmed:** the Discord notice of 25.11 16:55Z is a generic digest ("2 new
+messages", channels `outages` and `#support (Glama)`), not a question addressed to us —
+checked rather than assumed.
+
 
 
 

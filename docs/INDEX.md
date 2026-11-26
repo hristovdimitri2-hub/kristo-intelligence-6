@@ -4,7 +4,7 @@
 external auditor, or a person coming back after a month. Read this before you go
 looking for files.
 
-**Last change:** 16.11.2026.
+**Last change:** 26.11.2026.
 
 ---
 
@@ -26,8 +26,8 @@ https://raw.githubusercontent.com/hristovdimitri2-hub/kristo-intelligence-6/main
 ```
 
 **How to tell that a copy is stale:**
-- `HANDOVER.md` must be **over 4 300 lines** and must reach **§66**.
-- If it reaches §39 or §57 — the copy is stale, do not judge by it.
+- `HANDOVER.md` must be **over 8 400 lines** and must reach **§135**.
+- If it reaches §39, §57 or §66 — the copy is stale, do not judge by it.
 - If you see a file `HANDOVER.md.` (with a dot) — that is a manual copy through the
   web editor, it is not a version. The live repo does not contain it.
 

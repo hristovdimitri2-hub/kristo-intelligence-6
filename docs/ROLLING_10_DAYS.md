@@ -8,7 +8,7 @@ the last ten days, what is still hanging in the air, and what happens next.
 day leaves. Curated prose is expected here; the factual base is reproducible with
 `python scripts/rolling_10_days.py`, which prints the commits grouped by day.
 
-**Window: 16.11.2026 – 25.11.2026** (152 commits).
+**Window: 16.11.2026 – 26.11.2026** (174 commits).
 
 ---
 
@@ -203,6 +203,60 @@ zero-dependency Python client (14 tests).
   rather than x402, and demand is 8 daily active agents with **11,920,962 of 12,333,115
   requests from Predict alone**. Deferred with numbers.
 
+### 26 Nov — the failure became a document, and two threads closed themselves
+
+Wrote `docs/SIGNAL_RECORD.md`, which was the one item `NEXT_ACTIONS.md` marked
+"Next": the engine's failure as a first-class document instead of a footnote. Every
+number was read from the live feed at **05:29Z**, not from notes — **272 issued, 132
+carried by the feed, 99 scored: 1 hit, 12 misses, 86 flats, hit rate 1.0%**, average
+move **+3.862% on a hit against −5.625% on a miss**, mean 24h move **−0.570%**,
+positive/negative **49/50**. The outcome rule was **verified against the bytes** rather
+than described (move beyond the per-signal volatility threshold with the call is a hit,
+against it is a miss, inside it is a flat — **0 violations of 99**), and the frozen
+thresholds were removed as an explanation by testing fixed bars, where misses outnumber
+hits everywhere (0.5%: 25/28 … 5%: 1/7). Two findings it had to carry: confidence does
+not sort outcomes (the 0.6–0.8 band holds the only hit **and 10 of the 12 misses**), and
+the published totals **do not close** — 132 records + 138 non-directional = 270 against
+an `issued` of 272 — so the document says so and does not guess. Next checkpoint is
+**100 scored**, so it is superseded by that and not by an argument.
+
+**Ernest dropped `/mcp` completely and the correction went the other way.** His words:
+*"You're right on /mcp and I'm dropping it… my HTTP-402 prescription would have broken
+compliant clients… Validator 25/25 is the proof. No charge, nothing owed."* The defect
+that mattered was `GET /mcp` serving a free document on the URL our eight rows are
+indexed against — found and fixed by us (§128). So the **$15 change-sheet is declined on
+the merits**, not on price. He also delivered the band correction we asked for, with
+**payers** as the denominator over 34,886 routes (repeat-use peak `$0.02–0.05`, 49
+calls/payer) and withdrew his "$0.005 is the worst band"; our reply had already rebuilt
+the table from the public field — **88,074 rows**, and `$0.02` alone is **59.6% of every
+call in the listing** — so the **$25 / $15-a-month ranking is declined because it is
+computable**. The one half neither side can buy is payer *identity*, which lives in the
+seller's request log.
+
+**Abdellah closed our corrections as completed** (issue **#127**, commit **`d48eaa1`**):
+both points are in his `RESULTS.md` in our own words, the row pointing at gist revision
+`6d1fe258a0fc`. Nothing owed in either direction.
+
+**Both x402 Foundation lists confirmed** — `main@` (the parent) and
+`Domain-Discovery@` — and **§Z3 was sent 16:46:47Z on 25.11**, one minute after the
+confirmation, so it is in the first-post moderation queue. The working group's own
+invitation arrived the same evening: bi-weekly Mondays, **next meeting 30.11 18:00 EET**
+(LFX/Zoom, public minutes). We can post to the list; we cannot attend a call.
+
+**A directory found us instead.** **SealKeeper** (26.11 05:09Z) checks public A2A agents
+and listed ours on its own: **Bronze SEAL, uptime 100% — 145 of 145 checks, 7 of 7
+skills answered**, card `/.well-known/agent-card.json`, endpoint `/a2a`, A2A 0.3.0. It
+also states **`Owner not verified`** and **Trust Score 0**, because the score counts
+verified tasks the agent solves. Claiming needs a signed-in account, so it is not
+automatable from here; the link is with the owner. Our **service** is not listed there.
+
+**Glama's submission path was measured, not assumed.** `/mcp/servers/add` **301s** to a
+search query; the `Add Server` control is a client-side **`<button>`** with no `href`,
+`<form>`, `method`, `action`, `fetch(` or `/api/` call in its route chunk; the public API
+is **GET-only** (`/api/mcp/v1/servers` now **401**). A fresh submission needs the
+**owner's browser** or Glama creating the record. The connector itself is in the public
+search index and its badge returns **200**, rendering *"rated A on Glama"*.
+
 ---
 
 ## Hanging in the air
@@ -210,27 +264,33 @@ zero-dependency Python client (14 tests).
 | idea | state | what it waits for |
 |---|---|---|
 | Demand census at $0.25 | live, zero sales so far | one buyer; December-vs-November delta on 20.12 |
-| Discovery-truth report | **posted 25.11** as `wg-domain-discovery#19` and to the group's list; subscription confirmed, meeting 30.11 18:00 EET | the group's response to the three asks; joining the Slack (needs an account) |
+| Discovery-truth report | **posted 25.11 16:46:47Z** as `wg-domain-discovery#19` and to the group's list; **both lists confirmed** (`main@` and `Domain-Discovery@`), so the post sits in the first-post moderation queue | the group's response to the three asks; the meeting of 30.11 18:00 EET, which we cannot attend — anything we want in it goes to the list first |
+| Signal engine record | **`docs/SIGNAL_RECORD.md` written 26.11 from the live feed** (272 issued, 99 scored, 1 hit / 12 misses / 86 flats, 1.0%) | the next declared checkpoint, **100 scored signals** — it supersedes the document |
+| SealKeeper (A2A directory) | **listed on its own since 26.11**: Bronze SEAL, uptime 100% (145/145), 7/7 skills, but `Owner not verified` and Trust Score 0 | the owner claiming it — the claim page needs a signed-in account, so it is not automatable from here |
 | Listing-truth monitoring as a product | identified, unoccupied by the nine vendors | a price decision by the owner |
 | Marx / Engels programme | requested 25.11 | stage 1 delivered; stages 2–3 are reading and synthesis |
 | §O to HIVE402, §P to Hosannaith, x402r, Tanilo | **all sent** | replies; check 28.11 |
 | §P vendors with no published address | Teppi, zauth, PEAC, OMATrust, AffixIO, Elara | a route to any of them, if one exists |
-| Glama `/mcp/servers/` record | **Frank answered 25.11: the record was removed at our own request — verified in our Sent folder, asked twice (1 and 3 Nov), withdrawn in writing 17 Nov (§134).** Badge went from a grade on 4 Nov to "not listed" on 26 Nov, so the row died after the withdrawal. Reply §AB sent; ask narrowed to three actionable outcomes | Glama's answer to §AB (#160212386): resubmit, create the record, or state that a hosted endpoint can only live under `/mcp/connectors/` — which unblocks PR #13219 either way |
+| Glama `/mcp/servers/` record | **Frank answered 25.11: the record was removed at our own request — verified in our Sent folder, asked twice (1 and 3 Nov), withdrawn in writing 17 Nov (§134).** Badge went from a grade on 4 Nov to "not listed" on 26 Nov, so the row died after the withdrawal. Reply §AB sent; ask narrowed to three actionable outcomes. **Submission path measured 26.11: it is browser-only** (`/mcp/servers/add` 301s to a search query; `Add Server` is a client-side button with no form, route or fetch; the public API is GET-only and `/api/mcp/v1/servers` is 401) | Glama's answer to §AB (#160212386) — resubmit, create the record, or state that a hosted endpoint can only live under `/mcp/connectors/` — which unblocks PR #13219 either way. **If the answer is "resubmit", it needs the owner's browser** |
 | Olas Mech | **measured 25.11 and deferred with numbers** (Base + USDC, no OLAS, but `olas-prepay` not x402; 8 daily active agents, 96.7% of requests one agent) | an owner decision to build a mech; nothing from us now |
 | Explee lead API | measured, priced | the owner creating the API key (+$30 free credit) |
 | §Q public thread | written, ready | the owner's X account |
 | Base Batches | open question | whether to apply, and how to frame numbers that fail a screen |
-| Fixture 1 / OmniDome | our own reader is a checked second row in his `RESULTS.md` (22 / 14 / 0 / 5); two wording corrections sent | him accepting or declining the wording (issue #127); nothing else from us |
+| Fixture 1 / OmniDome | **closed by him 25.11 20:13Z: issue #127 completed via `d48eaa1`**, both wording corrections in his `RESULTS.md` in our own words, the row pointing at gist revision `6d1fe258a0fc` | nothing from us |
 
 ## Must happen next
 
-1. Decide whether the discovery-truth report goes to the Domain Discovery working
-   group, and join its public mailing list — the only place our measurements could
-   shape the specification.
-2. Remove `X402LIST_VERIFICATION_TOKEN` after 26.11 15:06Z.
+1. ~~Decide whether the discovery-truth report goes to the Domain Discovery working
+   group, and join its public mailing list~~ — **done 25.11**: posted as issue #19 and to
+   the list, both lists confirmed, the post in moderation.
+2. Remove `X402LIST_VERIFICATION_TOKEN` after 26.11 15:06Z — **today, 17:10 EET**.
 3. Send the remaining §P recipients; check for replies on 28.11.
 4. Snapshot the census again on 20.12 — a month not snapshotted is gone.
 5. PayAPI: three rejected listings to delete; the page still shows September.
-6. Glama `/mcp/servers/` record still missing — it blocks PR #13219.
+6. Glama `/mcp/servers/` record still missing — it blocks PR #13219, and the
+   submission path is now measured as **browser-only**, so it needs the owner.
 7. Olas is still the one of the first six that was never contacted.
 8. Oracle/Foresight revival is blocked on the GLM balance, which is an owner action.
+9. **Owner actions, all three one click each:** claim the SealKeeper agent, resubmit on
+   Glama if Frank says to, and remove the x402-list token if the scheduled script has not
+   already run.
