@@ -2790,6 +2790,42 @@ def glama_connector_claim():
     return _repo_json_file("glama-connector-claim.json")
 
 
+@discovery_bp.route("/.well-known/sealkeeper.txt")
+def sealkeeper_claim():
+    """SealKeeper's domain-control token, served BYTE FOR BYTE.
+
+    Their SEAL specification (version 9, 1 November 2026) records a verified
+    owner's proof as `{"url", "sha256"}` — *"the URL SealKeeper reads the claim's
+    token at every day and the SHA-256 of that token in lowercase hex"*. So the
+    body of this response must be EXACTLY the token they issued:
+
+      * a trailing newline changes the SHA-256 and the claim silently stops
+        verifying, which is why the file is streamed with no processing at all —
+        not `.read().strip()`, not `jsonify()`, not a template;
+      * the file is `sealkeeper-claim.txt` in the repository root, so the bytes
+        that are served are the bytes that were committed and can be hashed by
+        anyone with a checkout:  `sha256sum sealkeeper-claim.txt`.
+
+    404 while the file does not exist, rather than an empty 200: a claim file
+    that answers 200 with nothing is the state that makes a verifier's "not
+    verified" look like our bug.
+    """
+    import logging
+    import os as _os
+
+    repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))))
+    path = _os.path.join(repo_root, "sealkeeper-claim.txt")
+    try:
+        with open(path, "rb") as handle:
+            return Response(handle.read(), mimetype="text/plain")
+    except Exception as exc:                      # missing or unreadable
+        logging.getLogger(__name__).info(
+            "sealkeeper-claim.txt not served yet: %s", exc)
+        return Response("claim file not present\n", status=404,
+                        mimetype="text/plain")
+
+
 @discovery_bp.route("/api/mcp/manifest")
 def api_mcp_manifest():
     """MCP (Model Context Protocol) manifest for AI agent M2M payments."""
