@@ -639,6 +639,17 @@ GitHub profile. So the list was never unreachable — the search was. `scripts/v
 now prints those fields, with the provenance of each address, and every address in this
 table is a published field rather than a guess.
 
+**Second correction, same day, and it applies to the six letters already sent (§P4–§P9).**
+Their shared paragraph says *"It was paid twelve times, by nine wallets that are not
+mine… Lifetime external revenue: five and a half cents."* The measured truth on 26.11 is
+**thirteen payments, ten wallets, $0.064**: a thirteenth external payment arrived on
+**25.11 at 17:27:01Z** (`0x6c57df…40f3`, $0.01 for `/api/v1/whaleflow`) and had not been
+counted, and the $0.25 census canary that briefly inflated the figure was our own gas
+wallet and never external at all. The letters therefore **understated** our external
+revenue by one payment — the safe direction, and still wrong. **Every later letter states
+the figure as of its own send date**, and the number to use is 13 / $0.064 / 10 wallets
+until the next settlement.
+
 **Subject:** `Your seller score has no demand base rate — measured, from a live paywall`
 
 ```

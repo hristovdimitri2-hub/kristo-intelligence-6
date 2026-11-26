@@ -30,7 +30,7 @@ before this census route itself existed (it was added on 24.11 at $0.25, and fro
 | payments received, lifetime | 180 |
 | revenue, lifetime | **$1.983** |
 | of which paid by the operator's own test wallet | **$1.785** (131 payments) |
-| genuinely external money, lifetime | **12 payments, $0.054** |
+| genuinely external money, lifetime | **12 payments, $0.054** at this snapshot — **13 payments, $0.064 from 10 wallets as of 26.11.2026**, the thirteenth being `0x6c57df…40f3` paying $0.01 for `/api/v1/whaleflow` on 25.11 at 17:27:01Z |
 
 Read that again carefully, because it is the whole story: **457 machines found the
 product, and twelve wallets — ever — paid for it.** The problem is not discovery.

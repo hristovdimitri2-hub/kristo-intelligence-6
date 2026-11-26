@@ -5,6 +5,18 @@ police this itself: the term in circulation is "self-dealing", and a seller
 publishing `/.well-known/honest-revenue.json` is the accepted answer. This is
 ours, in prose, with the raw split.
 
+**Corrected 2026-11-26, and the correction is in the unflattering direction for
+our classifier, not for the number.** Two things moved. A thirteenth external
+payment arrived — `0x6c57df…40f3`, **$0.01 for `/api/v1/whaleflow` on 25.11 at
+17:27:01Z**, through the proof rail — so external is **13 payments / $0.064 / 10
+wallets**, not 12 / $0.054 / 9. And the $0.25 census canary was paid from our
+**gas wallet**, which was not in the classifier's own-key list, so
+`/api/v1/settlement-classes` briefly published **external: 14 / $0.314 / 11
+payers** with our own money counted as demand — a 5× overstatement of
+third-party revenue, now fixed, with the rule written into the classifier: *any
+address whose private key we hold is us*. The tables below are left as the
+19.11 snapshot they are.
+
 ## The split
 
 The dashboard reports 171 settlements and $1.883 USDC. That figure is real but

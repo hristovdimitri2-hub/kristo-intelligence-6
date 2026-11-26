@@ -303,6 +303,24 @@ failed and eight of them were hardcoded counts of seven; the ninth was real — 
 OpenAPI description was 439 characters, inside the band where x402lint's length warning
 starts, and is now 330.
 
+**The promotion's own canary then exposed a public number that lied in our favour.** The
+$0.25 census payment came from our **gas wallet**, which was not in the payer classifier's
+own-key list, so `/api/v1/settlement-classes` published **external: 14 settlements /
+$0.314 / 11 payers** — our own money counted as demand, a **5× overstatement of
+third-party revenue** — and `/api/v1/seller-audit` listed the gas wallet as a paying
+address. Found by reading the free endpoint rather than trusting it. Fixed the same
+morning: the classifier now carries all three addresses whose keys we hold (demo, gas,
+receiver), each **derived from its key file**, with the rule written beside them — *any
+address whose private key we hold is us* — and the startup reclassification corrected the
+stored history too. Verified live: external **13 / $0.064 / 10 payers**, `own_key`
+137 / $2.08 / 2 payers, and the **clean total unchanged at 187 settlements / $2.288** —
+the total was never wrong, only the split. Correcting it also uncovered the payment the
+wrong number had been hiding: **the thirteenth external payment, `0x6c57df…40f3`, $0.01
+for `/api/v1/whaleflow` on 25.11 at 17:27:01Z through the proof rail**, three seconds
+after the whaleflow Bazaar row was refreshed. One consequence is written down rather than
+fixed: the six letters sent that morning quote the 24.11 snapshot (12 payments, 9
+wallets), which is one payment short — understating our own revenue, and still wrong.
+
 ---
 
 ## Hanging in the air

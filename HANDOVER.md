@@ -8797,6 +8797,58 @@ that can be acted on, adds the sentence that pre-empts Frank's own "repo updates
 notes that **BeneODev asked the same badge question on 25.11 and it is unanswered** — so the
 question is not only ours. Nothing is sent until the owner posts it.
 
+## §140. The CDP status log was irrelevant, and following it found our own money published as demand (26.11.2026)
+
+**The log itself: nothing for us.** The CDP status channel is exchange-side — delayed
+sends and receives on ETH/ERC20, Stacks, Osmosis, Hedera, ALEO, Injective and VARA,
+degraded global derivatives trading, and a scheduled **Coinbase.com** maintenance on
+5 December 07:00–11:00 PST. Our rail is **Base + USDC + EIP-3009 settled by a
+facilitator**, and none of those incidents touches it. Checked rather than assumed, and
+the honest answer is that the log was a dead end.
+
+**What the check turned up instead.** Reading the free `/api/v1/settlement-classes` — our
+own public statement about our own revenue — showed **external: 14 settlements / $0.314 /
+11 payers**. The figure was 12 / $0.054 / 9 wallets two days earlier, and a 5× jump in
+third-party revenue with no corresponding news is the kind of thing that has to be
+explained before it is believed. It was explained by **our own payment**: the $0.25 census
+canary (§137) was paid from the **gas wallet**, the gas wallet was **not** in the
+classifier's `KNOWN_PAYERS`, and the classifier therefore fell through to `external` —
+the class whose published meaning is demand. `/api/v1/seller-audit` was wrong the same
+way: it listed the gas wallet as one of "2 distinct paying addresses".
+
+**The fix, and the rule behind it.** `KNOWN_PAYERS` now carries **three** own addresses —
+the demo key, the gas wallet and the receiver itself — and all three were **derived from
+the key files** (`secrets/gas_wallet_key.txt`, `secrets/receiver_key.txt`,
+`secrets/demo_private_key.txt`) rather than copied from a log. The retired receiver
+`0xd4cd…d08f` is deliberately absent because its key is lost and it cannot pay. The rule
+is written beside them so this is not a list of accidents: **any address whose private key
+we hold is us.** `main.py` already reclassifies stored rows at startup, so the deploy
+corrected the history as well as the classifier.
+
+**Verified live after the deploy** (deploy live 06:55:42Z), against the free endpoints:
+
+| | before | after |
+|---|---|---|
+| `/api/v1/settlement-classes` external | 14 settlements / **$0.314** / 11 payers | **13 / $0.064 / 10 payers** |
+| `own_key` | 136 / $1.83 / 1 payer | **137 / $2.08 / 2 payers** |
+| `/api/v1/seller-audit` | gas wallet counted as a paying address | gas wallet in `known_verifications` as `own_key`; the only external payer left is `0x6c57df…` |
+| clean_number | 187 settlements / $2.288 | unchanged — **the total was never wrong, only the split** |
+
+**And the thing the wrong number had been hiding: the thirteenth external payment.** The
+free `/api/dashboard/data` lists every paying wallet with timestamps, and the difference
+between 12 and 13 is **`0x6c57df777d63df392dd8c5f49441d5085ed940f3`, $0.01 for
+`/api/v1/whaleflow` on 25.11 at 17:27:01Z, through the proof rail (`payment_guard`)**. The
+whaleflow Bazaar row's `lastUpdated` is **17:26:58Z** — three seconds earlier — so an
+unknown wallet bought a route and the index refreshed the row as a direct result. The
+classifier calls it `external`, which is the right stance: a real customer until proven
+otherwise. **Genuinely external, lifetime: 13 payments, $0.064, 10 wallets.**
+
+**One consequence that has to be written down rather than fixed.** The six letters sent
+this morning (§P4–§P9) say *"paid twelve times, by nine wallets… five and a half cents"*.
+That was the 24.11 census snapshot, and it is one payment short. The direction is the
+unflattering one — we understated our own revenue — and it is still inaccurate, so §P now
+carries the correction and every later letter states the figure as of its send date.
+
 
 
 

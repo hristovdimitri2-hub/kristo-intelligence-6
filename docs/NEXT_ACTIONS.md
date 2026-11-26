@@ -138,10 +138,26 @@ instead of argued, and the answer is in `HANDOVER.md` §118. In one paragraph:
   never submitted to probe us daily, all seven paid routes and all five alias
   routes answer a valid `402`, MCP serves seven tools. Discovery and plumbing are
   both intact.
-- **The money is not there.** Lifetime: 180 payments, $1.983. Of that, **$1.785
-  is our own demo key** (131 payments, confirmed by decoding the Base receipts of
-  the fifteen most recent sales). Genuinely external, lifetime: **12 payments,
-  $0.054 from 9 wallets.**
+- **The money is not there.** Lifetime: 187 payments, $2.288. Of that, **$2.08 is
+  our own wallets** (137 payments: the demo key, and the $0.25 census canary the gas
+  wallet paid on 26.11). Genuinely external, lifetime: **13 payments, $0.064 from 10
+  wallets** — corrected on 26.11 from "12 payments, $0.054 from 9 wallets", because the
+  classifier had been counting our own gas wallet as demand and a thirteenth external
+  payment had arrived (see the bullet below).
+- **The newest external payment, and what it did.** `0x6c57df…40f3` paid **$0.01 for
+  `/api/v1/whaleflow` on 25.11 at 17:27:01Z** through the **proof rail**
+  (`payment_guard`), and the whaleflow Bazaar row's `lastUpdated` is **17:26:58Z** — three
+  seconds earlier. An unknown wallet bought a route and the index refreshed the row as a
+  result. The classifier calls it `external`, which is the correct stance: a real customer
+  until proven otherwise.
+- **A defect in a public claim, found and fixed on 26.11.** Paying the census canary from
+  the gas wallet exposed that the gas wallet was **not** in `KNOWN_PAYERS`, so
+  `/api/v1/settlement-classes` published **external: 14 settlements / $0.314 / 11 payers**
+  where the truth was **13 / $0.064 / 10** — our own $0.25 counted as demand, inflating
+  published third-party revenue **5×**. `/api/v1/seller-audit` was wrong the same way. Both
+  are corrected on the live service, and the rule is now written in the classifier: *any
+  address whose private key we hold is us* (demo, gas, receiver; the retired receiver is
+  absent because its key is lost).
 - **No sale was lost to a bug.** All 135 `payment_attempts` are accounted for: 98
   settled, and every refusal is either our own testing or adversarial conformance
   fuzzing (`0x1111…1111`, `payload_undecodable`, `amount below price: 1 < 5000`).
