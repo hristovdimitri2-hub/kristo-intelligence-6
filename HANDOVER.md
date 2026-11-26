@@ -8740,6 +8740,26 @@ as a *record* were deliberately **not** touched: `docs/GRANT_SENTIENT_APPLICATIO
 `docs/X402_DEMAND_CENSUS.md` gained a clause saying which window its figures describe
 rather than being silently rewritten.
 
+**Verified live after the deploy, not assumed** (deploy `dep-dc3t7jlbedkc73cqjueg`, live
+06:38:57Z; suite 1485 passed, 1 skipped, exit 0):
+
+| surface | measured |
+|---|---|
+| `/llms.txt` | lists `GET /api/v1/demand-census — x402 Demand Census ($0.250 USDC per call)` **and** its free sample |
+| `/agents.json` | 2 occurrences of the route, sample advertised |
+| `/.well-known/x402.json` | 4 occurrences — present in both `resources[]` and the derived `endpoints[]` |
+| `/openapi.json` | the route with `x-payment-info.price.amount = 0.250`; served description **357 characters** |
+| `/api/mcp/manifest`, `/mcp.json` | the route, and `get_demand_census` among **8** tools |
+| `/mcp.json` | `price_per_call_usdc = 0.005`, **`price_max_usdc = 0.25`** |
+| `/.well-known/agent-card.json` | **8** skills, ending `demand-census` |
+| a live cheap 402's OpenAPI entry | `amount = 0.005`, **`amount_max = 0.250`** — the range change the owner approved, in the field a client reads |
+
+**The next thing to check, and it is not done:** whether the CDP Bazaar now creates a row
+for the census. The route is declared in all four catalogues as of this deploy, which is
+what the index's own discovery needs, and the 20-row merchant listing had none for it
+before. A row would also be the first independent evidence that the promotion reached the
+index that agents actually search.
+
 
 
 

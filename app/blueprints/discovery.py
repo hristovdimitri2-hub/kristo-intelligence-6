@@ -3593,12 +3593,14 @@ def openapi_spec():
             # is the state the price sweep caught: `assert None == '0.250'`.
             "/api/v1/demand-census": {"get": _paid_op(
                 "x402 demand census — the per-agent demand table",
-                # 330 characters, deliberately under the 400 where x402lint's
-                # desc-length warning starts. The first draft was 439 and the
-                # contract test caught it: "descriptions in the 400-500 danger
-                # zone: [('/api/v1/demand-census', 'get', 'description', 439)]".
-                # The full text is in llms.txt and the 402 challenge, neither of
-                # which has the cap.
+                # The sentence below is 330 characters and `_paid_op` appends
+                # its "Takes no parameters" note, so the SERVED description is
+                # 357 — both measured live on 26.11, and both clear of the 400
+                # where x402lint's desc-length warning starts. The first draft
+                # was 439 and the contract test refused it: "descriptions in the
+                # 400-500 danger zone: [('/api/v1/demand-census', 'get',
+                # 'description', 439)]". The full text is in llms.txt and the 402
+                # challenge, neither of which has the cap.
                 "The demand side of a live x402 service from its own ledger: "
                 "every agent that reached a 402, when it first and last "
                 "arrived, how many requests it made and whether it ever paid, "
