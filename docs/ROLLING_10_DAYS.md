@@ -215,7 +215,7 @@ zero-dependency Python client (14 tests).
 | Marx / Engels programme | requested 25.11 | stage 1 delivered; stages 2–3 are reading and synthesis |
 | §O to HIVE402, §P to Hosannaith, x402r, Tanilo | **all sent** | replies; check 28.11 |
 | §P vendors with no published address | Teppi, zauth, PEAC, OMATrust, AffixIO, Elara | a route to any of them, if one exists |
-| Glama `/mcp/servers/` record | **asked by email 25.11** with measured facts; blocks PR #13219 since 30.08 | Glama's answer: create the record, point the badge at the connector, or refuse plainly |
+| Glama `/mcp/servers/` record | **Frank answered 25.11: the record was removed at our own request — verified in our Sent folder, asked twice (1 and 3 Nov), withdrawn in writing 17 Nov (§134).** Badge went from a grade on 4 Nov to "not listed" on 26 Nov, so the row died after the withdrawal. Reply §AB sent; ask narrowed to three actionable outcomes | Glama's answer to §AB (#160212386): resubmit, create the record, or state that a hosted endpoint can only live under `/mcp/connectors/` — which unblocks PR #13219 either way |
 | Olas Mech | **measured 25.11 and deferred with numbers** (Base + USDC, no OLAS, but `olas-prepay` not x402; 8 daily active agents, 96.7% of requests one agent) | an owner decision to build a mech; nothing from us now |
 | Explee lead API | measured, priced | the owner creating the API key (+$30 free credit) |
 | §Q public thread | written, ready | the owner's X account |

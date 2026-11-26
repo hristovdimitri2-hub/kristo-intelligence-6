@@ -8367,6 +8367,50 @@ fixed questions; it also had to be made UTF-8-safe after dying on an emoji in a 
 line under the cp1251 console), and `_tools/confirm_subscription.py` confirms a
 Groups.io subscription by replying to its unique address.
 
+## §134. Glama's answer was right: the removal request was ours, and the withdrawal was never read (26.11.2026)
+
+Frank Fiegel answered §AA on 25.11 at 19:49 EET: *"As for the removed server, it seems
+someone from your team requested its removal."* **He is right**, and the only way to
+know it was to read our own Sent folder rather than argue from memory — which is what
+`_tools/sent_mail.py` (new, read-only, the same IMAP credentials, `[Gmail]/Enviados`)
+was written for.
+
+**What our own mail says, in order:**
+
+| when | to | what we asked |
+|---|---|---|
+| 1 Nov 15:49 | `support@glama.ai` | "either publish/unstuck the existing record, **or remove the stale duplicate** so we can resubmit" |
+| 3 Nov 09:16 | Frank | "Could you clear that old entry — **or reopen it** — so the resubmission can go through?" |
+| 3 Nov 11:36 | Frank | "the stale record still seems to live in the backend. **Could you purge it completely?**" |
+| **17 Nov 08:32** | `support@glama.ai` | "**I will not resubmit or remove anything.** … Please review and activate the existing listing so I can claim it." |
+
+So removal was option B of two, asked twice, and **withdrawn in writing on 17 November**.
+If the record went after that date it went on a superseded request. The point is not to
+argue — it is that a withdrawal which was never read is the reason the record is missing,
+and it had never been checked before because the inbox shows what arrives, not what was
+sent.
+
+**What the record's life looks like from outside.** On 3 Nov ~11:10 the public page
+disappeared ("Server removed — contact support"); on **4 Nov the badge still rendered a
+grade**, so the backend row was alive; on 26 Nov the same badge renders **"This MCP
+server is not listed on Glama"**, and the servers path 302s to the index with the string
+"kristo" absent from it. **The row died somewhere between those two readings** — a
+distinction we could only make because the badge was measured on both days instead of
+being assumed from the page.
+
+**The reply (§AB, sent 26.11 06:55 EET) owns it and narrows the ask to the only three
+outcomes that can be acted on:** (1) is a fresh submission for the repo accepted now —
+it ships `Dockerfile.glama` and `scripts/mcp_stdio_bridge.py`, built and run as a
+container answering `initialize`, `tools/list`, `ping` and `tools/call`, protocol on
+stdout and logging on stderr; (2) or will Glama create the record itself, pointing at
+the hosted endpoint, so `quality` can be computed; (3) or is the plain answer that a
+hosted endpoint can only ever live under `/mcp/connectors/` — which we will carry to the
+directory maintainer as a documented limitation and stop asking. **Glama's Intercom
+turned it into ticket #160212386**, an acknowledgement, not an answer.
+
+**Also done:** the five commits of 25.11 and the 26.11 04:45 radar run were pushed
+(`a986069..cb286ee`), so the public repo is in sync with the local one.
+
 
 
 

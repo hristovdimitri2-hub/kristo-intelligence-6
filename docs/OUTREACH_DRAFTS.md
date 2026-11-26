@@ -1549,5 +1549,73 @@ One thing for the record, so this is not read as a complaint: the TDQS breakdown
 Dimitri
 ```
 
+## AB. Glama — the removal was ours, the withdrawal was not read, and the ask narrows (26.11.2026)
 
+**Where:** `frank@glama.ai`, cc `support@glama.ai` (draft §AA's thread; Frank answered
+on 25.11 at 19:49 EET that the server was removed because "someone from your team
+requested its removal").
+
+**He is right, and the dates matter.** Read out of our own sent mail rather than
+memory:
+
+| when | to | what we asked |
+|---|---|---|
+| 1 Nov 15:49 | `support@glama.ai` | "Could you please **either publish/unstuck the existing record, or remove the stale duplicate** so we can resubmit?" |
+| 3 Nov 09:16 | Frank | "Could you clear that old entry — **or reopen it** — so the resubmission can go through?" |
+| 3 Nov 11:36 | Frank | "the stale record still seems to live in the backend. **Could you purge it completely?** I'll resend the moment it's gone." |
+| **17 Nov 08:32** | `support@glama.ai` | "Thanks for catching that — **I will not resubmit or remove anything.** … Please review and activate the existing listing so I can claim it." |
+
+So removal was **option B of two**, asked for twice, and then **withdrawn in writing on
+17 November**. If the record was deleted after that date, it was deleted on a
+superseded request. That is stated as a fact of the correspondence, not as a complaint
+— the request was ours to make and ours to withdraw.
+
+**What changed in the meantime, measured 26.11.2026.** The badge for
+`/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg` now returns
+200 rendering **"This MCP server is not listed on Glama"**, where on 4 November it
+rendered a grade — so the backend record that survived the 3 November unpublishing is
+now gone. The servers path 302s to the index and "kristo" is absent from it. The
+connector is untouched: 200, ownership verified, Healthy, **uptime 100.0%, last tested
+2026-11-26 04:51, TDQS A 4.4/5.0 across 7 tools**.
+
+**Why the letter is short and specific.** Two things we need cannot be measured from
+outside: whether a fresh submission now passes (the duplicate that caused "MCP server
+already exists for this repository" should be gone), and whether `quality` would then be
+computed for the servers record. So the letter asks exactly that, offers to submit
+immediately, and gives him the cheapest exit — if a hosted endpoint can only ever live
+under `/mcp/connectors/`, we take that as the answer and carry it to the directory
+maintainer instead of asking again.
+
+**Subject:** `Re: A hosted connector cannot have a /mcp/servers/ record — which listing counts for the badge?`
+
+```
+Frank,
+
+Thank you for coming back on this, and you are right — the removal request was ours. Two points of accuracy, because the dates decide what is superseded.
+
+From our own sent mail:
+
+- 1 November, 15:49 to support@glama.ai: "Could you please either publish/unstuck the existing record, or remove the stale duplicate so we can resubmit?"
+- 3 November, 09:16 to you: "Could you clear that old entry - or reopen it - so the resubmission can go through?"
+- 3 November, 11:36 to you, after the page disappeared: "the stale record still seems to live in the backend. Could you purge it completely? I'll resend the moment it's gone."
+- 17 November, 08:32 to support@glama.ai, and this is the one that matters: "Thanks for catching that - I will not resubmit or remove anything. Please review and activate the existing listing so I can claim it."
+
+So removal was option B of two, asked for twice, and withdrawn in writing on 17 November. If the record was deleted after that date, it was deleted on a superseded request. That is on us to have put on the table, and I am not arguing about it - I am only making sure the record of what was asked is accurate.
+
+What we measure today, 26 November:
+
+- https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6/badges/score.svg returns 200 and renders "This MCP server is not listed on Glama". On 4 November the same URL rendered a grade, so the backend record was alive then and is gone now.
+- https://glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 redirects (302) to the registry index, and the string "kristo" does not appear on that page.
+- The connector is unchanged and healthy: ownership verified, Status Healthy, uptime 100.0% over the last 24 hours, last tested 2026-11-26 04:51, transport Streamable HTTP, TDQS A 4.4/5.0, scored 2026-11-25 08:35 across 7 tools.
+
+The question is now narrow, and it is the only one left. We need a /mcp/servers/ record for two reasons: the `quality` field is computed only there, and the awesome-mcp-servers checklist requires that badge. So:
+
+1. Now that the duplicate is gone, would a fresh submission for github.com/hristovdimitri2-hub/kristo-intelligence-6 be accepted? The repository ships Dockerfile.glama and scripts/mcp_stdio_bridge.py - a standard-library-only stdio bridge, no secrets, no database - and we have built and run it as a container, answering initialize, tools/list (all tools with their schemas), ping and tools/call, with protocol frames on stdout and logging on stderr.
+2. Or would you rather create/restore the record yourself, pointing at the hosted endpoint https://kristo-intelligence-api.onrender.com/mcp, so `quality` can be computed for it?
+3. If the answer is that a hosted endpoint can only ever live under /mcp/connectors/, say so plainly and I will stop asking you and take it to the directory maintainer as a documented limitation. That is a perfectly good outcome - it just has to be stated, because "the record should exist but does not" is the one state we cannot act on.
+
+Thank you for answering a question that has been open since September, whichever way it lands.
+
+Dimitri
+```
 
