@@ -38,14 +38,15 @@ def test_dynamic_x402_discovery_and_one_free_agent_demo(v6_client):
     assert payload["service"] == "Kristo Intelligence v6"
     assert payload["payment"]["settlement_status"] == "discovery_only"
     # 13.09: discovery advertises the REAL routes — the originals plus Whale
-    # Flow, promoted after its paid canary (tx 0xc30268e3…4cce03), plus the
-    # $1.00 seller-verification route added 07.11.
-    assert len(payload["agents"]) == 7
+    # Flow, promoted after its paid canary (tx 0xc30268e3…4cce03), the
+    # seller-verification route added 07.11, and the $0.25 demand census,
+    # promoted 26.11 after its own canary settled (tx 0x4293b30c…0ac97).
+    assert len(payload["agents"]) == 8
     assert all("/playground" not in str(agent["endpoint"]) for agent in payload["agents"])
     assert {agent["endpoint"] for agent in payload["agents"]} == {
         "/api/v1/signal", "/api/stats", "/api/arb/opportunities",
         "/api/bot-status", "/api/sales", "/api/v1/whaleflow",
-        "/api/v1/verify-seller",
+        "/api/v1/verify-seller", "/api/v1/demand-census",
     }
 
     first = client.post(

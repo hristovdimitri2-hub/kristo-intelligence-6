@@ -102,7 +102,7 @@ def test_the_sse_transport_reports_the_same_annotations():
     chunk = src[idx:idx + 4000]
     assert "_mcp_tools" in chunk or "tools/list" in chunk, (
         "the dispatcher no longer handles tools/list for both transports")
-    assert len(post) == 7
+    assert len(post) == 8
 
 
 def test_open_world_is_true_and_that_is_the_honest_value():

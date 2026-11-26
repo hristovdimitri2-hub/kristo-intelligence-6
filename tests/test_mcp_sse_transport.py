@@ -120,7 +120,7 @@ def test_sse_full_round_trip_like_the_official_client(monkeypatch, tmp_path):
             assert names == ["get_market_stats", "get_onchain_sales",
                              "get_bot_status", "get_trading_signal",
                              "get_whale_flow", "get_arbitrage_opportunities",
-                             "verify_seller_receiver"]
+                             "verify_seller_receiver", "get_demand_census"]
             for t in tools["result"]["tools"]:
                 assert "price_usdc" in t["x402"]
 
@@ -151,13 +151,19 @@ def test_every_mcp_tool_advertises_the_paywall_real_price():
     WHAT THE LIST IS, now that it is no longer the whole price map. It is the
     public VITRINE, and a route can be paid and priced without being catalogued
     yet — the paywall-only stage the whale-flow spec calls condition 4
-    ("unlisted until it passes a paid canary"). `/api/v1/demand-census` is in
-    that stage as of 24.11.2026, and it cannot be an MCP tool even if we wanted
-    it to be: the official registry rejects a publisher extension over 4096
-    bytes and server.json has room for no eighth row (see
-    tests/test_server_json_registry_limits.py). The assertion is therefore the
-    one that still means what it always meant — every tool offered is a route
-    the paywall charges for, at that route's own price.
+    ("unlisted until it passes a paid canary"). `/api/v1/demand-census` sat in
+    that stage from 24.11.2026 until 26.11.2026, when its paid canary settled and
+    the owner approved its promotion, and it is an eighth MCP tool from that day.
+    It was recorded here as impossible because the official registry rejects a
+    publisher extension over 4096 bytes and server.json looked to have room for
+    no eighth row — that turned out to be true of the bytes and false of the
+    block, which was carrying repetition: two discovery URLs already present in
+    the document's own `remotes`, and cross-reference tails repeated across tool
+    descriptions. Trimming those made room (see
+    tests/test_server_json_registry_limits.py, which still enforces the limit and
+    the headroom). The assertion is therefore the one that still means what it
+    always meant — every tool offered is a route the paywall charges for, at that
+    route's own price, and the catalogue is exactly the vitrine.
     """
     import main
     from app.blueprints import discovery

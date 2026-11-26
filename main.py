@@ -148,26 +148,24 @@ X402_PRICE_MAP = {
     # Demand census (24.11.2026, owner-approved): the per-agent table read out
     # of our own production ledger, sold as a snapshot.
     #
-    # IT IS DELIBERATELY NOT IN REAL_X402_ROUTES, and that is this repo's own
-    # rule rather than a shortcut. A route is promoted into the public vitrine
-    # only after a paid canary settles on-chain — condition 4 of
-    # docs/WHALE_FLOW_SPEC.md, which is exactly why the whale-flow entry above
-    # carries a promotion note dated 13.09 and a tx hash. This route has never
-    # been sold once, so it starts where every other route started: paywalled,
-    # priced, and out of the catalogue.
+    # PROMOTED INTO REAL_X402_ROUTES ON 26.11.2026. Until then this comment said
+    # the opposite and gave the reason: a route is promoted into the public
+    # vitrine only after a paid canary settles on-chain — condition 4 of
+    # docs/WHALE_FLOW_SPEC.md — and this route had never been sold once. The
+    # canary settled on 26.11 (tx 0x4293b30c…0a97, block 62409944, $0.25, paid by
+    # OUR OWN gas wallet, which is stated in the promotion note beside its
+    # REAL_X402_ROUTES entry because it proves the plumbing and not demand). The
+    # owner approved the promotion with that stated.
     #
-    # Three consequences, all of them deliberate. (1) The advertised price
-    # range stays the range of the routes the catalogue actually lists, because
-    # every served price range is computed from REAL_X402_ROUTES
-    # (`_cheapest_route_price` / `_dearest_route_price`). (2) It cannot be an
-    # MCP tool either: the tool list is the vitrine and the official MCP
-    # Registry's publisher extension has a hard 4096-byte cap with ~330 bytes
-    # left in server.json, so an eighth tool row would break publishing rather
-    # than ship the route. (3) docs/X402_DEMAND_CENSUS.md tells the world the
-    # aggregate is public and the per-agent table is kept — so this is the one
-    # product here whose buyer is expected to arrive knowing its name instead of
-    # browsing for it. Promotion into the vitrine stays open once it has been
-    # paid for at least once.
+    # What the promotion costs, so it is not rediscovered as a surprise: the
+    # advertised price range is computed from REAL_X402_ROUTES
+    # (`_cheapest_route_price` / `_dearest_route_price`), so the range served in
+    # every 402 envelope moves from $0.005–$0.05 to $0.005–$0.25. The second
+    # consequence recorded here — that it could not be an MCP tool because the
+    # Registry's publisher extension has a hard 4096-byte cap — is still true of
+    # the BYTES: the eighth tool row fits only because the redundant entries were
+    # trimmed, and tests/test_server_json_registry_limits.py is what keeps that
+    # honest.
     "/api/v1/demand-census": KRISTO_DEMAND_CENSUS_PRICE,
     # The MCP transport's GET (25.11.2026), and the reason is a measured
     # discovery defect rather than a new product.
@@ -475,10 +473,10 @@ X402_PAID_ENDPOINTS = {"/api/sales", "/api/stats", "/api/bot-status",
                        "/api/arb/opportunities", "/api/v1/signal",
                        "/api/v1/whaleflow", "/api/v1/verify-seller",
                        # The demand census (24.11.2026). Paywalled and priced
-                       # exactly like the routes above; what it does NOT have is
-                       # a row in REAL_X402_ROUTES. See the promotion rule and
-                       # the three consequences spelled out beside its
-                       # X402_PRICE_MAP entry.
+                       # exactly like the routes above. It HAS a row in
+                       # REAL_X402_ROUTES since 26.11.2026, when its paid canary
+                       # settled; see the promotion note beside that entry for
+                       # what the canary was and what the promotion costs.
                        "/api/v1/demand-census",
                        # GET /mcp only (25.11.2026) — Coinbase's validator requires
                        # a bare GET of an indexed resource to answer 402, and the
@@ -3523,6 +3521,48 @@ REAL_X402_ROUTES: List[dict] = [
         "endpoint": "/api/v1/verify-seller",
         "method": "GET",
         "price_usdc": KRISTO_VERIFY_SELLER_PRICE,
+    },
+    # ── Demand census — PROMOTED to the public vitrine (26.11.2026) ────────
+    # The rule this repo wrote for itself is condition 4 of
+    # docs/WHALE_FLOW_SPEC.md: a route is promoted only after a paid canary
+    # settles on-chain. The canary settled on 26.11.2026 and is verifiable by
+    # anyone:
+    #   tx 0x4293b30c56d34856631be0f41856fc0ad5385a4a2d76c09c6784ef47cec80a97
+    #   block 62409944 · $0.25 USDC · to the bound receiver
+    #   → exactly the census price, and both balances were read before and
+    #     after the settlement and moved by exactly $0.25.
+    #
+    # ONE DIFFERENCE FROM THE OTHER PROMOTIONS IN THIS LIST, STATED SO IT
+    # CANNOT BE MISREAD: the payer was OUR OWN gas wallet, not a third party.
+    # It proves the route can be paid end to end; it does NOT prove demand, and
+    # the description below does not claim that it does. Whale-flow's canary was
+    # paid by Chet / PayAPI's verifier; this one was not. The owner approved the
+    # promotion on 26.11 with that fact stated, and it is the reason the census
+    # stayed out of the catalogue from 24.11 until then.
+    #
+    # THE PROMOTION HAS A PRICE, AND IT IS PAID IN THE 402: every served price
+    # range is computed from this list, so the advertised range moves from
+    # $0.005–$0.05 to $0.005–$0.25 on every route, not only on this one. That
+    # was the reason for the delay and it is recorded here rather than
+    # discovered later by someone reading a challenge.
+    {
+        "id": "demand-census",
+        "name": "x402 Demand Census",
+        "description": (
+            "The demand side of a live x402 service, counted from its own "
+            "ledger: every user agent that reached a 402, when it first and "
+            "last arrived, how many requests it made and whether it ever paid "
+            "— plus every payment attempt by outcome and the payment history by "
+            "payer class. The aggregate and the method are public in "
+            "docs/X402_DEMAND_CENSUS.md; this is the per-agent table, which is "
+            "the part no other seller in this market produces. Read it when the "
+            "question is whether demand exists at all, rather than what a price "
+            "is."
+        ),
+        "category": "intelligence",
+        "endpoint": "/api/v1/demand-census",
+        "method": "GET",
+        "price_usdc": KRISTO_DEMAND_CENSUS_PRICE,
     },
 ]
 

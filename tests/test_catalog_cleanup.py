@@ -27,8 +27,12 @@ SKU_FRAGMENTS = (
 REAL_ENDPOINTS = {
     "/api/v1/signal", "/api/stats", "/api/arb/opportunities",
     "/api/bot-status", "/api/sales", "/api/v1/whaleflow",
-    # Seller verification (07.11): the $1.00 route that audits any receiver.
+    # Seller verification (07.11): the route that audits any receiver, $0.05.
     "/api/v1/verify-seller",
+    # Demand census (24.11): the per-agent demand table, $0.25 — the dearest
+    # single call here. It joined the vitrine on 26.11.2026, when its paid
+    # canary settled and the owner approved the promotion.
+    "/api/v1/demand-census",
 }
 
 
@@ -56,7 +60,7 @@ def test_discovery_lists_exactly_the_real_routes(client):
     assert resp.status_code == 200
     payload = resp.get_json()
     agents = payload["agents"]
-    assert len(agents) == 7
+    assert len(agents) == 8
     assert {a["endpoint"] for a in agents} == REAL_ENDPOINTS
     assert all(a["method"] == "GET" for a in agents)
     _assert_no_sku_leak(resp.get_data(as_text=True), "x402.json")

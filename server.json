@@ -37,7 +37,7 @@
         "chain_id": 8453,
         "network": "base",
         "min_usd": 0.005,
-        "max_usd": 0.05,
+        "max_usd": 0.25,
         "note": "Every unpaid call answers HTTP 402 with the canonical x402 challenge; the amount in that response is the price. No free tier, no signup, no API keys."
       },
       "tools": [
@@ -49,19 +49,19 @@
         },
         {
           "name": "get_onchain_sales",
-          "description": "Read-only; no parameters. Returns the real on-chain payment history to this service's fee receiver on Base: total_volume_usd, total_sales, by_token, up to 100 history rows (tx hash, payer, amount, block, timestamp), source=\"real_blockchain\". Authoritative for provable revenue. wallet_address, usdc_balance and market_data are convenience copies for one-call use; get_bot_status owns wallet state and get_market_stats owns market data. ",
+          "description": "Read-only; no parameters. Returns the real on-chain payment history to this service's fee receiver on Base: total_volume_usd, total_sales, by_token, up to 100 history rows (tx hash, payer, amount, block, timestamp), source=\"real_blockchain\". Authoritative for provable revenue; wallet_address, usdc_balance and market_data are convenience copies for one-call use. ",
           "endpoint": "/api/sales",
           "price_usd": 0.005
         },
         {
           "name": "get_bot_status",
-          "description": "Read-only; no parameters. Returns the service's Telegram integration status as JSON: telegram_bot_running, telegram_token_configured, last_heartbeat, uptime_started, messages_sent, active_users, commands_processed, vip_invites_sent, and the full wallet state. Authoritative for wallet state, and for whether this service's monitoring is alive: check the heartbeat before trusting other outputs. get_onchain_sales carries a two-field copy of the wallet, and get_market_stats owns market data. ",
+          "description": "Read-only; no parameters. Returns the service's Telegram integration status as JSON: telegram_bot_running, telegram_token_configured, last_heartbeat, uptime_started, messages_sent, active_users, commands_processed, vip_invites_sent, and the full wallet state. Authoritative for wallet state, and for whether this service's monitoring is alive: check the heartbeat before trusting other outputs. ",
           "endpoint": "/api/bot-status",
           "price_usd": 0.005
         },
         {
           "name": "get_trading_signal",
-          "description": "Read-only; no parameters. Returns this service's flagship trading-agent signals for ETH, ONDO, KAITO and DEGEN: action, confidence, price_usd and the model's reasoning. Its own measured record is public and losing: /public/signals/history — read it before acting on a signal. Use it when you need a directional call rather than raw market data; use get_whale_flow for large-transfer flow and get_arbitrage_opportunities for cross-DEX spreads. ",
+          "description": "Read-only; no parameters. Returns this service's flagship trading-agent signals for ETH, ONDO, KAITO and DEGEN: action, confidence, price_usd and the model's reasoning. Its own measured record is public and losing: /public/signals/history — read it before acting on a signal. Use it when you need a directional call rather than raw market data. ",
           "endpoint": "/api/v1/signal",
           "price_usd": 0.01
         },
@@ -82,11 +82,15 @@
           "description": "Read-only; REQUIRES `receiver`. Audits ANY receiver's incoming USDC on Base: distinct payers, repeat payers, concentration, probes vs customers. Decides whether a seller is safe to pay. Reports partial/failed, never a zero it did not measure.",
           "endpoint": "/api/v1/verify-seller",
           "price_usd": 0.05
+        },
+        {
+          "name": "get_demand_census",
+          "description": "Read-only; no parameters. The demand side of a live x402 service from its own ledger: every agent that reached a 402, arrival and return counts, every payment attempt by outcome, and payers by class. The dearest read here; the aggregate is public.",
+          "endpoint": "/api/v1/demand-census",
+          "price_usd": 0.25
         }
       ],
       "discovery": {
-        "mcp": "https://kristo-intelligence-api.onrender.com/mcp",
-        "mcp_sse": "https://kristo-intelligence-api.onrender.com/mcp/sse",
         "mcp_manifest": "https://kristo-intelligence-api.onrender.com/api/mcp/manifest",
         "x402": "https://kristo-intelligence-api.onrender.com/.well-known/x402",
         "openapi": "https://kristo-intelligence-api.onrender.com/openapi.json",

@@ -480,10 +480,11 @@ def test_public_dashboard_stats_are_free_and_use_official_catalog(client):
     assert response.status_code == 200
     payload = response.get_json()
     # 13.09: public product list = the REAL x402 routes (demo SKUs unlisted),
-    # now including Whale Flow after its paid canary.
-    assert payload["products_summary"]["total_products"] == 7
+    # now including Whale Flow after its paid canary and the demand census after
+    # its own canary settled on 26.11.2026.
+    assert payload["products_summary"]["total_products"] == 8
     assert payload["products_summary"]["kind"] == "real_x402_routes"
-    assert len(payload["products"]) == 7
+    assert len(payload["products"]) == 8
     assert "/api/v1/whaleflow" in {p["endpoint"] for p in payload["products"]}
     assert "recent_requests" not in payload
     # This used to assert every price sat in the $0.001-$0.25 band, which was a

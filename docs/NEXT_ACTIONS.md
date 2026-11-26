@@ -296,11 +296,12 @@ make itself, and never for a feed it can crawl.
 3. **December** — the second census snapshot creates the first real delta product.
    **The $0.25 route's paid canary was taken on 26.11 and settled on chain** (tx
    `0x4293b30c…0a97`, block 62409944, $0.25, both balances moved exactly), but the payer
-   was **our own gas wallet**, so it proves the plumbing and not demand — and the
-   promotion rule this repo wrote for itself requires a canary of the kind whale-flow had,
-   paid by a third party. **The route therefore stays out of the vitrine**, and the
-   promotion decision is with the owner because it moves the advertised price range on
-   every route from `$0.005–$0.05` to `$0.005–$0.25` (§137).
+   was **our own gas wallet**, so it proves the plumbing and not demand. **The owner
+   approved the promotion the same morning with the range change stated, and the census is
+   in the vitrine from 26.11** (§138): it is in all four generated catalogues, it is the
+   eighth MCP tool, it is the eighth A2A skill, and the advertised range on every route is
+   now `$0.005–$0.25`. What it needs next is the thing the promotion was for: **one
+   third-party payment at $0.25**, which is the only thing that turns a canary into a sale.
 
 ### The paid canary, and the one place the record does NOT yet appear (25.11.2026)
 

@@ -17,7 +17,9 @@ agent, its cadence, its exact attempts and its outcomes — is the part we keep.
 ## 1. The headline
 
 Over 84 days, a live x402 service selling seven DeFi data routes at
-$0.005–$0.05:
+$0.005–$0.05 — the window these figures describe, and the state of the catalogue
+before this census route itself existed (it was added on 24.11 at $0.25, and from
+26.11 the paid catalogue runs to $0.25):
 
 | | |
 |---|---|

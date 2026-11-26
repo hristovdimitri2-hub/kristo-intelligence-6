@@ -286,13 +286,30 @@ deliberate, not an oversight, because the promotion rule keeps it out. And the i
 "census". The one decision it leaves is the owner's, because promoting the route moves
 the advertised price range on *every* route from `$0.005–$0.05` to `$0.005–$0.25`.
 
+**He said yes, and the promotion turned out to be bigger than two lines.** The census is
+in `REAL_X402_ROUTES` from 26.11, with the canary's tx and block in the note and the
+honest line that **the payer was our own gas wallet** — so the route is catalogued for
+being payable, not for being wanted. Four surfaces generated from that list gained it by
+themselves; two that are hand-written had to be edited by hand and **both were caught by
+tests rather than by reading** (`/.well-known/x402`'s `resources[]`, and `/mcp.json`'s
+tool list, which named seven while the protocol served eight). The hard limit arrived
+immediately: an eighth MCP tool took the Registry's publisher extension to **4094 bytes
+against a 4096-byte cap** with a 200-byte headroom rule, so the block was trimmed under
+its own written rule — *"trim repetition, not facts"* — by removing two discovery URLs
+already present in the document's own `remotes` and three cross-reference tails repeated
+across tool descriptions. **3,827 bytes, 269 of headroom, eight tools**, measured. The
+price is now visible on every route: the advertised range is `$0.005–$0.25`. Nine tests
+failed and eight of them were hardcoded counts of seven; the ninth was real — the first
+OpenAPI description was 439 characters, inside the band where x402lint's length warning
+starts, and is now 330.
+
 ---
 
 ## Hanging in the air
 
 | idea | state | what it waits for |
 |---|---|---|
-| Demand census at $0.25 | live; **first paid call settled 26.11** (tx `0x4293b30c…0a97`, block 62409944, $0.25, both balances moved exactly) — but the payer was **our own gas wallet**, so it is a plumbing canary and not a sale, and the route therefore stays out of the vitrine | **a promotion decision by the owner** (it would put the census into all four catalogues but move the advertised range on every route from `$0.005–$0.05` to `$0.005–$0.25`), and one third-party buyer — who today has to arrive already knowing the route's name |
+| Demand census at $0.25 | **promoted into the vitrine 26.11 with the owner's yes** (§138): in all four catalogues, the eighth MCP tool and the eighth A2A skill; the advertised range on every route is now `$0.005–$0.25`. The canary that unlocked it was paid by **our own gas wallet**, so the route is catalogued for being payable, not for being wanted | **one third-party payment at $0.25** — the only thing that turns a canary into a sale; December-vs-November delta on 20.12 |
 | Discovery-truth report | **posted 25.11 16:46:47Z** as `wg-domain-discovery#19` and to the group's list; **both lists confirmed** (`main@` and `Domain-Discovery@`), so the post sits in the first-post moderation queue | the group's response to the three asks; the meeting of 30.11 18:00 EET, which we cannot attend — anything we want in it goes to the list first |
 | Signal engine record | **`docs/SIGNAL_RECORD.md` written 26.11 from the live feed** (272 issued, 99 scored, 1 hit / 12 misses / 86 flats, 1.0%) | the next declared checkpoint, **100 scored signals** — it supersedes the document |
 | SealKeeper (A2A directory) | **listed on its own since 26.11**: Bronze SEAL, uptime 100% (145/145), 7/7 skills, but `Owner not verified` and Trust Score 0 | the owner claiming it — the claim page needs a signed-in account, so it is not automatable from here |

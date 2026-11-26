@@ -116,9 +116,15 @@ def build(version: str = VERSION) -> dict:
                              "price. No free tier, no signup, no API keys."),
                 },
                 "tools": tool_rows,
+                # `mcp` and `mcp_sse` used to be listed here as well, and they
+                # are the document's own `remotes` two keys above — the same two
+                # URLs, in the same block that the registry measures against a
+                # hard 4096-byte limit. They were removed on 26.11.2026 to make
+                # room for the eighth tool row (the demand census, promoted that
+                # day), because the limit test's own rule is "trim repetition,
+                # not facts" and this was pure repetition. What is left is the
+                # discovery surface a caller cannot already read from the root.
                 "discovery": {
-                    "mcp": BASE_URL + "/mcp",
-                    "mcp_sse": BASE_URL + "/mcp/sse",
                     "mcp_manifest": BASE_URL + "/api/mcp/manifest",
                     "x402": BASE_URL + "/.well-known/x402",
                     "openapi": BASE_URL + "/openapi.json",

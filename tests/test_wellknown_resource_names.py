@@ -29,6 +29,11 @@ EXPECTED_PATHS = [
     "/api/v1/signal",
     "/api/v1/whaleflow",
     "/api/v1/verify-seller",
+    # Appended 26.11.2026, when the demand census was promoted into the vitrine.
+    # Appended and not inserted: the order of the seven above is frozen by this
+    # test, and a promotion has no business reshuffling what directories already
+    # list.
+    "/api/v1/demand-census",
 ]
 
 
@@ -37,7 +42,7 @@ def test_resources_are_named_objects(client):
     assert r.status_code == 200
     data = r.get_json()
     resources = data["resources"]
-    assert len(resources) == 7, f"expected 7 resources: {resources}"
+    assert len(resources) == 8, f"expected 8 resources: {resources}"
     for res in resources:
         assert isinstance(res, dict), f"resource must be an object: {res!r}"
         assert set(res) >= {"url", "name", "description"}, res

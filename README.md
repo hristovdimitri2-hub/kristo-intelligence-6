@@ -83,7 +83,7 @@ authorization window, or an already-used transaction).
 
 ### Prices
 
-These seven routes are the complete paid surface. The table is checked against the
+These eight routes are the complete paid surface. The table is checked against the
 live price map by `tests/test_visibility_seo.py`, so the README cannot drift away
 from the amounts the 402 challenges actually demand:
 
@@ -96,11 +96,20 @@ from the amounts the 402 challenges actually demand:
 | `GET /api/bot-status` | 0.005 |
 | `GET /api/arb/opportunities` | 0.005 |
 | `GET /api/v1/verify-seller` | 0.05 |
+| `GET /api/v1/demand-census` | 0.25 |
 
 `/api/v1/verify-seller` is the one route that takes input: pass
 `?receiver=0x…` to audit any Base address's incoming USDC before you pay it.
 It is priced above the rest because it reads a live window of chain logs per
 call rather than serving a cached snapshot.
+
+`/api/v1/demand-census` is the dearest call here and the only one that sells a
+**measurement rather than data**: the per-agent demand table behind this
+service's own paywall — every user agent that reached a 402, when it first and
+last arrived, how many requests it made and whether it ever paid, plus every
+payment attempt by outcome. The aggregate and the method are public in
+[`docs/X402_DEMAND_CENSUS.md`](docs/X402_DEMAND_CENSUS.md); the per-agent table
+is the part that is sold.
 
 Every one of them has a **free `/sample` twin** returning the real response
 shape with example data — see the discovery list below. Try the shape before
@@ -189,6 +198,7 @@ anything:
 | `GET /api/bot-status/sample` | `/api/bot-status` |
 | `GET /api/arb/opportunities/sample` | `/api/arb/opportunities` |
 | `GET /api/v1/verify-seller/sample` | `/api/v1/verify-seller` |
+| `GET /api/v1/demand-census/sample` | `/api/v1/demand-census` |
 
 ## Repository layout
 

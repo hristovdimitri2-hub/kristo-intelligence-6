@@ -1454,6 +1454,11 @@ def _a2a_sample_builders() -> dict:
         "/api/bot-status": bot_status_sample,
         "/api/arb/opportunities": arb_sample,
         "/api/v1/verify-seller": verify_seller_sample,
+        # The census was promoted into REAL_X402_ROUTES on 26.11.2026 and its
+        # free sample existed from 24.11; without this row the catalogue would
+        # have skipped the route it was promoted for, which is exactly the
+        # "advertised and then 404ing" case this dict exists to prevent.
+        "/api/v1/demand-census": demand_census_sample,
     }
 
 
@@ -1685,12 +1690,13 @@ def agent_card():
         "description": (
             "Pay-per-call data API for AI agents on Base: live DeFi trading "
             "signals, whale flow (USDC transfers of $5M or more), cross-DEX "
-            "arbitrage radar, on-chain sales history and market stats. Six "
-            "routes, each bought per call with USDC over x402 — no subscription "
-            "and no API key. This A2A endpoint answers a request for a product "
-            "with that product's free sample and its exact terms; the live data "
-            "itself is bought at the HTTP route, because that is what the "
-            "paywall sells."
+            "arbitrage radar, on-chain sales history, market stats and the "
+            "demand census behind this service's own paywall. %d routes, each "
+            "bought per call with USDC over x402 — no subscription and no API "
+            "key. This A2A endpoint answers a request for a product with that "
+            "product's free sample and its exact terms; the live data itself is "
+            "bought at the HTTP route, because that is what the paywall sells."
+            % len(products)
         ),
         "url": "%s/a2a" % base_url,
         "version": A2A_AGENT_VERSION,
@@ -1914,9 +1920,8 @@ def _mcp_tools(base_url):
             "receiver on Base: total_volume_usd, total_sales, by_token, up "
             "to 100 history rows (tx hash, payer, amount, block, "
             "timestamp), source=\"real_blockchain\". Authoritative for "
-            "provable revenue. wallet_address, usdc_balance and market_data "
-            "are convenience copies for one-call use; get_bot_status owns "
-            "wallet state and get_market_stats owns market data. ",
+            "provable revenue; wallet_address, usdc_balance and market_data "
+            "are convenience copies for one-call use. ",
         ),
         _tool(
             "get_bot_status", "/api/bot-status",
@@ -1927,8 +1932,7 @@ def _mcp_tools(base_url):
             "commands_processed, vip_invites_sent, and the full wallet "
             "state. Authoritative for wallet state, and for whether this "
             "service's monitoring is alive: check the heartbeat before "
-            "trusting other outputs. get_onchain_sales carries a two-field "
-            "copy of the wallet, and get_market_stats owns market data. ",
+            "trusting other outputs. ",
         ),
         _tool(
             "get_trading_signal", "/api/v1/signal",
@@ -1938,8 +1942,7 @@ def _mcp_tools(base_url):
             "reasoning. Its own measured record is public and losing: "
             "/public/signals/history — read it before acting on a signal. "
             "Use it when you need a directional call rather than raw market "
-            "data; use get_whale_flow for large-transfer flow and "
-            "get_arbitrage_opportunities for cross-DEX spreads. ",
+            "data. ",
         ),
         _tool(
             "get_whale_flow", "/api/v1/whaleflow",
@@ -1992,6 +1995,23 @@ def _mcp_tools(base_url):
                 "required": ["receiver"],
                 "additionalProperties": False,
             },
+        ),
+        # Added 26.11.2026, when the census was promoted into the vitrine. The
+        # description is DELIBERATELY the shortest here: `tools` is the bulk of
+        # the MCP Registry's publisher extension, that block has a hard
+        # 4096-byte limit the registry enforces and our own validator does not,
+        # and this row only fits because redundant entries were trimmed from the
+        # extension in the same change. The long form of the same facts lives in
+        # llms.txt, the OpenAPI description and the route's own 402, where
+        # nothing is billed by the byte. tests/test_server_json_registry_limits.py
+        # measures the block, so this cannot quietly become the row that broke
+        # publishing.
+        _tool(
+            "get_demand_census", "/api/v1/demand-census",
+            "Read-only; no parameters. The demand side of a live x402 service "
+            "from its own ledger: every agent that reached a 402, arrival and "
+            "return counts, every payment attempt by outcome, and payers by "
+            "class. The dearest read here; the aggregate is public.",
         ),
     ]
 
@@ -2869,6 +2889,13 @@ def api_mcp_manifest():
                 {"path": "/api/v1/verify-seller", "method": "GET",
                  "cost_usdc": _route_price("/api/v1/verify-seller"),
                  "description": "Audit any USDC receiver on Base before paying it (requires ?receiver=0x…)"},
+                # Added 26.11.2026 with the promotion. This list is hand-written,
+                # so a route promoted into REAL_X402_ROUTES does not appear here
+                # by itself — caught by test_visibility_seo, which walks every
+                # machine spec and requires each paid route in each of them.
+                {"path": "/api/v1/demand-census", "method": "GET",
+                 "cost_usdc": _route_price("/api/v1/demand-census"),
+                 "description": "The per-agent demand table behind this service's own paywall ($0.25, the dearest call here)"},
                 {"path": "/api/mcp/manifest", "method": "GET", "cost_usdc": 0.0,
                  "description": "This manifest (free)"},
                 {"path": "/dashboard", "method": "GET", "cost_usdc": 0.0,
@@ -2926,11 +2953,11 @@ def well_known_x402_scan():
     Each resource is an OBJECT with url/name/description — the exact shape
     x402 Doctor's well-known-names check reads ("Serve the resources as
     {"url": …, "name": …, "description": …} objects"): directories such as
-    the XRPL AI Hub list resources BY name+description, and seven bare URL
+    the XRPL AI Hub list resources BY name+description, and eight bare URL
     strings would show up unnamed. URLs and order are unchanged.
 
     Since 19.11 the file also carries `endpoints[]` (x402lint S6), the same
-    seven routes in the per-resource shape with an `accepts[]` amount in token
+    eight routes in the per-resource shape with an `accepts[]` amount in token
     atomic units. `resources[]` stays because x402scan reads it.
 
     This is the discovery endpoint that https://www.x402scan.com/resources/register
@@ -2956,7 +2983,7 @@ def well_known_x402_scan():
     )
     # Objects, not bare strings (x402 Doctor well-known-names): each entry
     # names the resource so directories can list it as "Kristo — …" instead of
-    # a generic label. Order and URLs are the exact seven paid routes.
+    # a generic label. Order and URLs are the exact eight paid routes.
     _resources = [
             {
                 "url": f"{base_url}/api/stats",
@@ -3001,6 +3028,20 @@ def well_known_x402_scan():
                 "description": ("Audit any USDC receiver on Base before paying "
                                 "it: distinct payers, repeat payers, "
                                 "concentration, probes vs customers."),
+            },
+            # Added 26.11.2026 with the promotion into REAL_X402_ROUTES. This
+            # list is hand-written, so `endpoints[]` below (built from it) gains
+            # the route automatically while `resources[]` had to be edited — the
+            # reason test_visibility_seo walks every machine spec and requires
+            # each paid route to appear in each of them.
+            {
+                "url": f"{base_url}/api/v1/demand-census",
+                "name": "Kristo — x402 Demand Census",
+                "description": ("The per-agent demand table behind this "
+                                "service's own paywall: every agent that "
+                                "reached a 402, arrival and return counts, and "
+                                "every payment attempt by outcome. The dearest "
+                                "call here."),
             },
     ]
     # x402lint S6 "well-known-x402" (measured 19.11): this file answered 200
@@ -3200,6 +3241,22 @@ def mcp_json():
                     {"name": "days", "in": "query", "required": False,
                      "default": 7},
                 ],
+            },
+            # Added 26.11.2026 with the census's promotion into the vitrine. This
+            # list is hand-written rather than derived from _mcp_tools, which is
+            # how it came to omit the eighth tool while the protocol served it —
+            # caught by test_mcp_streamable, which compares the two by name.
+            {
+                "name": _mcp_name("/api/v1/demand-census"),
+                "description": ("The demand side of a live x402 service from its "
+                                "own ledger: every agent that reached a 402, "
+                                "arrival and return counts, every payment "
+                                "attempt by outcome. The dearest read here."),
+                "endpoint": f"{base_url}/api/v1/demand-census",
+                "method": "GET",
+                "cost_usdc": _route_price("/api/v1/demand-census"),
+                "free_sample": f"{base_url}/api/v1/demand-census/sample",
+                "free_tier_eligible": bool(FREE_TIER_LIMIT),
             },
         ],
         "free_endpoints": [
@@ -3527,6 +3584,28 @@ def openapi_spec():
                                    "maximum": 30, "default": 7},
                     },
                 ],
+            )},
+            # Promoted into the vitrine on 26.11.2026, when its paid canary
+            # settled (tx 0x4293b30c…0a97, $0.25, paid by our own gas wallet —
+            # stated in main.py beside the REAL_X402_ROUTES entry, because it
+            # proves the plumbing and not demand). Without this row the OpenAPI
+            # listing would have carried the route with no x-payment-info, which
+            # is the state the price sweep caught: `assert None == '0.250'`.
+            "/api/v1/demand-census": {"get": _paid_op(
+                "x402 demand census — the per-agent demand table",
+                # 330 characters, deliberately under the 400 where x402lint's
+                # desc-length warning starts. The first draft was 439 and the
+                # contract test caught it: "descriptions in the 400-500 danger
+                # zone: [('/api/v1/demand-census', 'get', 'description', 439)]".
+                # The full text is in llms.txt and the 402 challenge, neither of
+                # which has the cap.
+                "The demand side of a live x402 service from its own ledger: "
+                "every agent that reached a 402, when it first and last "
+                "arrived, how many requests it made and whether it ever paid, "
+                "plus every payment attempt by outcome. The aggregate and the "
+                "method are public; this is the per-agent table. The dearest "
+                "call here.",
+                _route_price("/api/v1/demand-census"),
             )},
             "/api/v1/agents": {"get": _free_op(
                 "Agent catalog (free)",

@@ -8677,6 +8677,69 @@ recommendation: promote it, because a product nobody can find cannot earn the th
 payment that would justify promoting it — but the range change is visible on the cheapest
 route too, and that is the owner's call, not mine.
 
+## §138. The owner said yes: the census is in the vitrine, and the change was bigger than two lines (26.11.2026)
+
+**The decision, and what it cost.** The owner approved the promotion the same morning
+with the range change stated. The change is not two lines, and the reason is worth
+recording: the census had been kept out of the catalogue deliberately, so four
+hand-written surfaces existed that had never had to carry it, and two hard limits
+appeared the moment it entered.
+
+**What was changed.**
+
+1. **`REAL_X402_ROUTES`** — the eighth entry, with a promotion note carrying the tx
+   (`0x4293b30c…0a97`), block **62409944**, the price, and the sentence that matters:
+   **the payer was our own gas wallet**, so it proves the plumbing and not demand. The
+   comment that said the opposite (and the one in `X402_PAID_ENDPOINTS`) now records the
+   promotion and its cost instead.
+2. **The four catalogues that are generated from the list** gained the route by
+   themselves: `/llms.txt`, `/agents.json`, `/.well-known/x402.json`, `/openapi.json` —
+   the last one only after a `_paid_op` entry was added, because without it the OpenAPI
+   listing carried the route with **no `x-payment-info`** and the price sweep caught it as
+   `assert None == '0.250'`.
+3. **Two hand-written surfaces that do not follow the list** had to be edited by hand, and
+   both were caught by tests rather than by reading: `/.well-known/x402`'s `resources[]`
+   (`test_visibility_seo` walks every machine spec and requires each paid route in each of
+   them) and `/mcp.json`'s `tools[]` (`test_mcp_streamable` compares it against what the
+   protocol actually serves — it named seven while the protocol served eight).
+4. **The MCP tool list** gained `get_demand_census`, and the A2A card gained its eighth
+   skill through `_a2a_sample_builders`, which is the lookup that exists precisely so a
+   promoted route cannot be advertised without a sample.
+
+**The hard limit, and the bytes it took.** `main.py` had recorded that an eighth MCP tool
+"would break publishing rather than ship the route", because the MCP Registry rejects a
+publisher-provided extension over **4096 bytes** and our own validator does not check it.
+That turned out to be **true of the bytes and false of the block**: adding the row took the
+extension to **4094 bytes, two bytes of headroom**, and the limit test requires 200. So the
+block was trimmed, under its own written rule — *"trim repetition, not facts"*:
+
+- `mcp` and `mcp_sse` were listed in `discovery` although the document's own `remotes`
+  already carries both URLs;
+- three tool descriptions ended in cross-reference tails that repeated across tools
+  ("get_onchain_sales carries a two-field copy of the wallet, and get_market_stats owns
+  market data"), and those were shortened to each tool's own facts.
+
+Result: **3,827 bytes, 269 of headroom, eight tools** — measured, not estimated. The
+census tool's description is deliberately the shortest in the list and says so in the code,
+and the long form of the same facts stays in `llms.txt`, the OpenAPI description and the
+402, none of which is billed by the byte.
+
+**What the promotion costs, and it is now visible.** The advertised range in every 402
+envelope is `$0.005–$0.25` instead of `$0.005–$0.05`. That is the trade the owner
+approved, and it is the reason the route waited two days.
+
+**Nine test failures, all of them guards doing their job.** Eight were hardcoded counts of
+seven routes (`test_catalog_analytics`, `test_integration`, `test_mcp_read_only_annotations`,
+`test_whaleflow`, `test_v6_launch`, `test_catalog_cleanup`, `test_price_sweep`) — updated to
+eight, with the reason recorded in each. The ninth was real: the first draft of the OpenAPI
+description was **439 characters**, inside the 400–500 band where x402lint's length warning
+starts, and the contract test refused it; it is now 330. Two documents that state a range
+as a *record* were deliberately **not** touched: `docs/GRANT_SENTIENT_APPLICATION.md` and
+`docs/GRANT_SUBMISSION_PACK.md` are marked "kept as the record of what was sent"
+(submitted 20.11.2026), so the `$0.005–$0.050` in them is what was true on that date.
+`docs/X402_DEMAND_CENSUS.md` gained a clause saying which window its figures describe
+rather than being silently rewritten.
+
 
 
 
