@@ -1833,8 +1833,8 @@ the record does not exist to update.
 
 **What we measured before writing it** (26.11.2026), so every claim in it is current:
 
-- the connector is healthy: `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence`, ownership verified, TDQS **A 4.4/5.0**, 7 tools, uptime 100%;
-- `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` serves the **registry index** (644,058 bytes, **zero** occurrences of "kristo" and zero of "hristovdimitri2");
+- the connector is healthy: `/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence`, ownership verified, TDQS **A 4.4/5.0**, **8 tools** (it was 7 when this draft was written; the demand-census promotion added the eighth), uptime 100%;
+- `/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6` serves the **registry index** (**641,587 bytes** on 26.11 — the size drifts, so the message quotes "641 KB today" rather than a fixed figure — **zero** occurrences of "kristo" and zero of "hristovdimitri2");
 - the score badge renders **"This MCP server is not listed on Glama"**;
 - the **card** badge returns 200 and 9,384 bytes but contains **no text nodes at all** — it is a pure-path SVG, so its grade cannot be read from the bytes, which is why the README keeps the score badge;
 - `glama.json` with `"maintainers": ["hristovdimitri2-hub"]` has been in the repo root since **17.09.2026** (commit `9e7acb3`) and **did not restore the record** — the maintainer file binds an existing record, it does not create one. That is the measured answer to the approach another user described in the same channel.
@@ -1844,9 +1844,9 @@ the record does not exist to update.
 ```
 Hi Frank — following up on ticket #160212386 with what we measured today, so the ask is one line.
 
-Our connector is healthy and unchanged: glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence — ownership verified, TDQS A 4.4/5.0, 7 tools, uptime 100%.
+Our connector is healthy and unchanged: glama.ai/mcp/connectors/com.onrender.kristo-intelligence-api/kristo-intelligence — ownership verified, TDQS A 4.4/5.0, 8 tools, uptime 100%.
 
-The server record glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 does not exist. It was removed in early November at our own written request, and we withdrew that request in writing on 17 November. glama.json with "maintainers": ["hristovdimitri2-hub"] has been in the repo root since 17 September and did not restore it. Today that servers URL serves the registry index (644 KB, no occurrence of "kristo") and the score badge renders "This MCP server is not listed on Glama".
+The server record glama.ai/mcp/servers/hristovdimitri2-hub/kristo-intelligence-6 does not exist. It was removed in early November at our own written request, and we withdrew that request in writing on 17 November. glama.json with "maintainers": ["hristovdimitri2-hub"] has been in the repo root since 17 September and did not restore it. Today that servers URL serves the registry index (641 KB today, no occurrence of "kristo") and the score badge renders "This MCP server is not listed on Glama".
 
 Add Server rejects the submission with "already listed as a hosted connector", so we cannot recreate it ourselves — and this is not a repo update we can make, because the record does not exist to update.
 
