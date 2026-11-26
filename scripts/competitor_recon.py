@@ -125,6 +125,32 @@ KNOWN_PAYERS = {
     # is us paying ourselves. Both are "not a customer", and the owner should be
     # able to tell them apart without reading this file.
     "0xe50c5212e8211639c49276da190e248b83935763": "own_key",
+    # ── OUR OTHER TWO WALLETS (26.11.2026) ─────────────────────────────────
+    #
+    # HERE BECAUSE THE SAME DEFECT HAPPENED AGAIN, IN THE OTHER DIRECTION, AND
+    # THE PUBLIC NUMBER WAS THE THING THAT LIED. The gas wallet paid the $0.25
+    # demand-census canary on 26.11 (tx 0x4293b30c…0a97). It was not in this
+    # dict, so the classifier fell through to `external` — the class whose
+    # published meaning is demand — and `/api/v1/settlement-classes` reported
+    # **external: 14 settlements / $0.314 / 11 payers** where the truth was
+    # **13 / $0.064 / 10**. A single self-payment inflated our published
+    # third-party revenue by **5×**, which is precisely what the `own_key` class
+    # was created for in November and precisely the dishonesty this file exists
+    # to prevent. `/api/v1/seller-audit` was wrong in the same way: it counted
+    # the gas wallet as one of "2 distinct paying addresses".
+    #
+    # THE RULE, so this is not a list of accidents: **any address whose private
+    # key we hold is us.** Two are held — the gas wallet (`secrets/gas_wallet_key.txt`)
+    # and the receiver itself (`secrets/receiver_key.txt`) — plus the demo key
+    # above. The retired receiver 0xd4cdA900839c0feD4374EE37EA0dbe8E4C6fd08f is
+    # NOT listed because its key is lost and it therefore cannot pay; if that
+    # ever changes, it belongs here.
+    #
+    # The gas wallet address is public and appears in every settlement it pays;
+    # only the key stays in `secrets/`. Verified by deriving the address from the
+    # key file rather than copying it from a log.
+    "0x5f6d3f20282a8958c6607d7e17dc8c83b1f0ee74": "own_key",
+    "0xb4fcf8ef52b5dc275924aed2bae94fe6cb7fc844": "own_key",
     # ── THIRD-PARTY VERIFIERS (12.11.2026) ─────────────────────────────────
     #
     # HERE FOR THE SAME REASON `own_key` IS, and the mistake was the same shape:
