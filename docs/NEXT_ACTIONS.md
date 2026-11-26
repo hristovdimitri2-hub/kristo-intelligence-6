@@ -293,8 +293,14 @@ make itself, and never for a feed it can crawl.
    bar test that removes the thresholds as an explanation, the two things it proves and
    the three it does not. It also states its own limit: the published totals do not close
    (132 + 138 against 272) and the document does not guess where the other two are.
-3. **December** — the second census snapshot creates the first real delta product, and
-   the $0.25 route gets its first paid canary, which is what promotes it to the vitrine.
+3. **December** — the second census snapshot creates the first real delta product.
+   **The $0.25 route's paid canary was taken on 26.11 and settled on chain** (tx
+   `0x4293b30c…0a97`, block 62409944, $0.25, both balances moved exactly), but the payer
+   was **our own gas wallet**, so it proves the plumbing and not demand — and the
+   promotion rule this repo wrote for itself requires a canary of the kind whale-flow had,
+   paid by a third party. **The route therefore stays out of the vitrine**, and the
+   promotion decision is with the owner because it moves the advertised price range on
+   every route from `$0.005–$0.05` to `$0.005–$0.25` (§137).
 
 ### The paid canary, and the one place the record does NOT yet appear (25.11.2026)
 

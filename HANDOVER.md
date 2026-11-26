@@ -8608,6 +8608,66 @@ because it sells a different product.) None has answered yet. The one party in t
 category who has answered anything is **Ernest**, and his answer was to drop his claim
 and deliver the correction we asked for.
 
+## §137. The census took its first payment, from us — and that is not a sale (26.11.2026)
+
+**What was done.** `GET /api/v1/demand-census` — the $0.25 dataset, the dearest single
+call this service sells — was paid for the first time, with
+`scripts/phase1_paid_call.py --path /api/v1/demand-census --show-body`. It settled
+on-chain and delivered:
+
+- tx **`0x4293b30c56d34856631be0f41856fc0ad5385a4a2d76c09c6784ef47cec80a97`**,
+  **block 62409944**, status `0x1`, relayed by `0x68efafe862d89ce66dd3d7b07d5a3747a0871164`
+- the USDC `Transfer` log inside it: **$0.25 from `0x5f6d…Ee74` to `0xB4Fc…C844`** — the
+  bound receiver
+- **both balances moved by exactly $0.25** and were read before and after: receiver
+  **1.005 → 1.255**, gas wallet **1.347292 → 1.097292**
+- the delivered document carried the full census: `agents`, `attempts`,
+  `generated_at`, `method`, `payments`, `totals`, `window` — the same seven keys as the
+  snapshot file, so the paid path is proven end to end on the live rail.
+
+**Why this is not a sale, and why that decides the promotion.** The payer was **our own
+gas wallet**. Mechanically the canary passed; commercially nothing was sold, and the
+promotion rule this repo wrote for itself is explicit — `main.py` beside the
+`X402_PRICE_MAP` entry says the census is *"deliberately not in `REAL_X402_ROUTES`"*
+because *"a route is promoted into the public vitrine only after a paid canary settles
+on-chain — condition 4 of `docs/WHALE_FLOW_SPEC.md`"*, and the precedent that satisfied
+that condition was **whale-flow, paid by a third party** (`0x7e6b…`, Chet / PayAPI's
+verifier, 13.09). A payment from our own wallet proves the plumbing and proves nothing
+about demand, so **the route stays out of the vitrine** and the promotion remains open
+for the first third-party payment. Recording this rather than promoting on a self-payment
+is the whole point of having written the rule down.
+
+**The finding that came out of the attempt, and it is the useful part.** The census is
+**absent from every machine-readable catalogue this service publishes** — measured today:
+`/openapi.json` (9,931 bytes), `/llms.txt` (13,230), `/agents.json` (4,533) and
+`/api/mcp/manifest` (2,639) contain **zero** occurrences of "demand". That is *not* an
+oversight: it is the promotion rule working as designed (the same entry records that an
+eighth MCP tool row would breach the Registry publisher extension's 4,096-byte cap, which
+has ~330 bytes left). So the only product here with no competitor is discoverable by
+exactly one route: a buyer who already knows its name. That is why §P and §P4–§P9 name
+the route and its price in the first paragraph of every letter.
+
+**And the index did not create a row for it.** The merchant endpoint for our `payTo`
+returned **20 rows before the payment and 20 rows after** it, none of them carrying
+"census" — the 20 are the thirteen live paths, the aliases and the seven `/mcp#tool` rows,
+and their `lastUpdated` values are unchanged (newest 2026-11-25T17:26:58Z). Stated as
+measured, with the inference labelled as one: **a settled payment updates a row that
+exists; on this evidence it does not create one**, and a new row has to come from the
+index's own discovery of a declared resource. The census is declared in none of the four
+catalogues above, so there is nothing for that discovery to find. The two facts fit
+together, and neither is a claim yet.
+
+**The decision this leaves with the owner, because it is not mine to take silently.**
+Promoting the census into `REAL_X402_ROUTES` would put it into all four catalogues and is
+a two-line change — but every served price range is computed from that list
+(`_cheapest_route_price` / `_dearest_route_price`), so the **advertised range on every
+route would move from `$0.005–$0.05` to `$0.005–$0.25`**. That is a commercial claim
+served inside every 402 envelope, and the standing rule is that prices and the 402
+envelope are not changed without an explicit yes. So it is reported, not done. My
+recommendation: promote it, because a product nobody can find cannot earn the third-party
+payment that would justify promoting it — but the range change is visible on the cheapest
+route too, and that is the owner's call, not mine.
+
 
 
 

@@ -273,20 +273,33 @@ sent 07:46 EET**, all six accepted, all six in the Sent folder, no bounce at the
 writing. So the whole category — **nine of nine** — has now been asked directly, and the
 correction is written into §P and into NEXT_ACTIONS rather than quietly dropped.
 
+**The census took its first payment, and it was ours.** `/api/v1/demand-census` — the
+$0.25 dataset, the dearest call the service sells — was paid once, settled on chain (tx
+`0x4293b30c…0a97`, block 62409944, $0.25 from our gas wallet to the bound receiver, both
+balances read before and after and moved by exactly $0.25), and it delivered the full
+document. **It is not a sale**, because the payer was our own wallet, so the route stays
+out of the vitrine: the repo's own promotion rule requires a paid canary and its
+precedent was paid by a third party. Two measured findings came out of the attempt. The
+census is **absent from all four machine-readable catalogues we publish** — and that is
+deliberate, not an oversight, because the promotion rule keeps it out. And the index
+**did not create a row for it**: 20 rows before the payment and 20 after, none carrying
+"census". The one decision it leaves is the owner's, because promoting the route moves
+the advertised price range on *every* route from `$0.005–$0.05` to `$0.005–$0.25`.
+
 ---
 
 ## Hanging in the air
 
 | idea | state | what it waits for |
 |---|---|---|
-| Demand census at $0.25 | live, zero sales so far | one buyer; December-vs-November delta on 20.12 |
+| Demand census at $0.25 | live; **first paid call settled 26.11** (tx `0x4293b30c…0a97`, block 62409944, $0.25, both balances moved exactly) — but the payer was **our own gas wallet**, so it is a plumbing canary and not a sale, and the route therefore stays out of the vitrine | **a promotion decision by the owner** (it would put the census into all four catalogues but move the advertised range on every route from `$0.005–$0.05` to `$0.005–$0.25`), and one third-party buyer — who today has to arrive already knowing the route's name |
 | Discovery-truth report | **posted 25.11 16:46:47Z** as `wg-domain-discovery#19` and to the group's list; **both lists confirmed** (`main@` and `Domain-Discovery@`), so the post sits in the first-post moderation queue | the group's response to the three asks; the meeting of 30.11 18:00 EET, which we cannot attend — anything we want in it goes to the list first |
 | Signal engine record | **`docs/SIGNAL_RECORD.md` written 26.11 from the live feed** (272 issued, 99 scored, 1 hit / 12 misses / 86 flats, 1.0%) | the next declared checkpoint, **100 scored signals** — it supersedes the document |
 | SealKeeper (A2A directory) | **listed on its own since 26.11**: Bronze SEAL, uptime 100% (145/145), 7/7 skills, but `Owner not verified` and Trust Score 0 | the owner claiming it — the claim page needs a signed-in account, so it is not automatable from here |
 | Listing-truth monitoring as a product | identified, unoccupied by the nine vendors | a price decision by the owner |
 | Marx / Engels programme | requested 25.11 | stage 1 delivered; stages 2–3 are reading and synthesis |
 | §O to HIVE402, §P to Hosannaith, x402r, Tanilo | **all sent** | replies; check 28.11 |
-| §P vendors with no published address | Teppi, zauth, PEAC, OMATrust, AffixIO, Elara | a route to any of them, if one exists |
+| §P4–§P9 — the six vendors the table called unreachable | **addresses found in the npm registry and all six sent 26.11 07:46 EET** (Teppi, zauth, PEAC, OMATrust, AffixIO; Elara via a GitHub profile, the weakest route) | replies; check 28.11 |
 | Glama `/mcp/servers/` record | **Frank answered 25.11: the record was removed at our own request — verified in our Sent folder, asked twice (1 and 3 Nov), withdrawn in writing 17 Nov (§134).** Badge went from a grade on 4 Nov to "not listed" on 26 Nov, so the row died after the withdrawal. Reply §AB sent; ask narrowed to three actionable outcomes. **Submission path measured 26.11: it is browser-only** (`/mcp/servers/add` 301s to a search query; `Add Server` is a client-side button with no form, route or fetch; the public API is GET-only and `/api/mcp/v1/servers` is 401) | Glama's answer to §AB (#160212386) — resubmit, create the record, or state that a hosted endpoint can only live under `/mcp/connectors/` — which unblocks PR #13219 either way. **If the answer is "resubmit", it needs the owner's browser** |
 | Olas Mech | **measured 25.11 and deferred with numbers** (Base + USDC, no OLAS, but `olas-prepay` not x402; 8 daily active agents, 96.7% of requests one agent) | an owner decision to build a mech; nothing from us now |
 | Explee lead API | measured, priced | the owner creating the API key (+$30 free credit) |
