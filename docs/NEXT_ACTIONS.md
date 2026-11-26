@@ -650,6 +650,12 @@ more than the sale — which argues for a higher price per job or a subscription
 - **Reply checks.** §O Script Master Labs — **29.11 10:00 EET**; **§P, §P2–§P9 (all nine
   trust-layer vendors) — 28.11**; the working-group post §Z3 sits in moderation, so no
   reply is late yet.
+- **§Z3 moderation, with a date on it.** The post was sent 25.11 16:46:47Z and the list
+  has not distributed it — checked 26.11 by looking for our own copy in the inbox, which
+  is what a member receives when a message is let through. A first post from a new member
+  is held by design, so nothing is wrong yet; **if it is still not distributed on 27.11,
+  ask `Domain-Discovery+owner@lists.x402.org` whether it is held**, because the working
+  group meets on 30.11 and anything not on the list by then misses the meeting.
 - **Mon 30.11 18:00 EET — x402 Domain Discovery WG** (bi-weekly, LFX/Zoom, public
   minutes). We can post to the list but cannot attend a call, so anything we want in
   that meeting goes to `Domain-Discovery@lists.x402.org` **before** it.

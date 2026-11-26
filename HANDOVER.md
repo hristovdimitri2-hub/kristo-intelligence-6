@@ -8601,6 +8601,15 @@ useful, say so and we stop treating that category as a buyer.
 were none at the time of writing. The lesson of 25.11 stands — an accepted message is not
 a delivered one — so the reply check is set for **28.11**, together with §P and §P2/§P3.
 
+**One imprecision in all six letters, recorded rather than left in the sent mail.** Every
+letter says *"In the last thirty days it answered 1,246,641 requests and was reached by
+457 distinct user agents"* without naming **which** thirty days. Those figures are the
+census snapshot of **24.11.2026**, so the window is the thirty days ending that day. The
+statement is true of that window and would read as true of the current one, which is the
+kind of drift this project corrects even when it is small: **every future letter states
+the window's end date**, and the correction is written here because the six already sent
+cannot be recalled.
+
 **State of the target list:** all **nine** vendors in the Foundation's own extension list
 have now been written to directly — Hosannaith, x402r and Tanilo on 25.11, and Teppi,
 zauth, PEAC, OMATrust, AffixIO and Elara today. (HIVE402 is counted separately under §O
