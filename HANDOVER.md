@@ -8760,6 +8760,43 @@ what the index's own discovery needs, and the 20-row merchant listing had none f
 before. A row would also be the first independent evidence that the promotion reached the
 index that agents actually search.
 
+## §139. Glama's channel answers people, and the one approach we had already tried (26.11.2026)
+
+**What the owner brought in.** The `#support (Glama)` channel, where the useful facts are
+not about us: Frank answered TheGodHand's GitHub-app permission question **in the channel
+on 22.11 with "Fixed it"**, while stating on 24.11 that *"most tickets are handled by
+agents. There are over 200 tickets created daily… Most updates to repos etc need to be
+handled by you though."* A user named CodersTalk had a **duplicate listing cleaned up on
+request** (keep `com.keepplain/keepplain`, remove the hand-submitted `keep-plain`, move the
+logo and verified status), and another, evil and, was trying to **hide a project that had
+been scraped onto the site** and could not find the setting.
+
+**The one thing in that log that looked like a way around our problem, and it is not.**
+Suseendar Muralitharan reported on 17.11 that he could not claim
+`/mcp/servers/suseendar1414/pursestring` even though he had **added `glama.json` to the
+repo root naming himself as maintainer**. We have had exactly that file since
+**17.09.2026** — commit `9e7acb3`, `{"$schema": "https://glama.ai/mcp/schemas/server.json",
+"maintainers": ["hristovdimitri2-hub"]}` — and it did not restore our record, because the
+maintainer file **binds an existing record rather than creating one**. Checked rather than
+assumed, and it closes the last self-serve route: there is nothing we can commit that
+brings the record back.
+
+**Measured again on 26.11, because the numbers in the channel are not ours:** the servers
+path serves the registry index — **644,058 bytes, zero occurrences of "kristo" and zero of
+"hristovdimitri2"** — while the connector stays healthy (ownership verified, TDQS **A
+4.4/5.0**, 7 tools, uptime 100%). The score badge renders **"This MCP server is not listed
+on Glama"**. The **card** badge returns 200 and **9,384 bytes with no text nodes at all**:
+it is a pure-path SVG, so its grade cannot be read from the bytes — which is exactly why
+the README keeps the score badge, whose "rated A" is readable and verifiable.
+
+**What was done about it: §AC, a Discord message for the owner to post.** The channel is
+the one place Frank answers personally, the ticket queue is agent-handled at 200+ a day,
+and our account cannot send there (§K). The message is short, states the three outcomes
+that can be acted on, adds the sentence that pre-empts Frank's own "repo updates are yours"
+(*this is not a repo update we can make, because the record does not exist to update*), and
+notes that **BeneODev asked the same badge question on 25.11 and it is unanswered** — so the
+question is not only ours. Nothing is sent until the owner posts it.
+
 
 
 
