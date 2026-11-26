@@ -8935,6 +8935,43 @@ Cyrillic at all — the first version of this paragraph did, and the language au
 it. This is the same trap the notes have warned about since September, and it was walked
 into anyway.
 
+## §142. The claim succeeded, and one of the three records is now suspended for a change we made (26.11.2026)
+
+**What the claim changed.** All three records read `Owner verified`, and the owner also
+posted §AC to Frank in Glama's `#support` Discord channel on 26.11 — the channel where he
+answers personally. The message is the same text as the email, narrowed to one ask with
+three outcomes.
+
+**What the claim did not fix.** The `/mcp` record `kristo-intelligence-api-onrender-838051`
+now reads **SEAL Suspended**:
+
+> SealKeeper has withheld this service's SEAL while the latest change to its definitions waits.
+
+Its "Latest change" is classified **Silent** — *"A definition changed, or some appeared
+while others went away, and the server's version stayed the same."* The cause is ours: the
+census promotion (commit `a654410`) added an eighth tool, `get_demand_census`, and
+`SERVICE_VERSION` in `app/blueprints/discovery.py` is still `6.3.1`. The live MCP
+`serverInfo.version` reports `6.3.1` as well, so SealKeeper sees new definitions under an
+unchanged version and withholds the SEAL.
+
+**Measured on the record page:** 20 answered checks, uptime 100%, 29 reads in 7 days,
+latency 229 ms median / 400 ms p95, last checked 26.11 12:41. The other two records are
+unaffected — the x402 record `kristo-intelligence-api-onrender-com` is **Bronze SEAL
+Active** with 25 valid checks, and the agent `kristo-intelligence` is **Bronze SEAL
+Active**, Trust 200, 67 tasks over 17 of 30 days.
+
+**The Guardian email is this suspension's notice.** Its header says the change keeps the
+SEAL; its table says the SEAL is held until the definition is confirmed. The record page
+resolves the contradiction: Suspended. Two fixes, and they are not equivalent: confirming
+in the signed-in dashboard clears the hold without touching code; bumping `SERVICE_VERSION`
+when the tool surface changes is the durable fix, because it announces the change instead
+of leaving it silent — but it makes the published MCP-registry row (`6.3.1`) stale until
+republished. Recorded as a decision, not taken.
+
+**Correction to §135.** That section said the first two records "pass every check". The
+checks still answer, but the `/mcp` record's SEAL is now withheld, so the sentence was true
+of the checks and not of the SEAL.
+
 
 
 
