@@ -8534,6 +8534,80 @@ difference is not explained by either page, so it is recorded instead of average
 messages", channels `outages` and `#support (Glama)`), not a question addressed to us —
 checked rather than assumed.
 
+## §136. The six "no published address" vendors had addresses, in the npm registry (26.11.2026)
+
+**What was blocking.** `docs/OUTREACH_DRAFTS.md` §P lists nine trust-layer vendors, and
+the table said of six of them: **"none published"**. §P had gone out to three
+(Hosannaith, x402r, Tanilo) and the other six were recorded as unreachable without a
+GitHub issue or a docs form. That was an assumption, and it survived only because the
+check had been done on the vendors' **websites**.
+
+**Where the addresses actually are.** The npm registry publishes maintainer addresses,
+and five of the six vendors ship an npm package. `scripts/vendor_contacts.py` reads
+`https://registry.npmjs.org/<pkg>` and prints the fields rather than inferring them:
+
+| vendor | package | published maintainer address |
+|---|---|---|
+| Teppi | `teppi-client` 0.10.0 | `teppidotxyz@gmail.com` (`teppi_xyz`) |
+| zauth | `@zauthx402/sdk` 0.1.14 | `zpointz777@gmail.com` (`zpointz`) |
+| PEAC Protocol | `@peac/adapter-x402` 0.16.5 | `peacprotocol@gmail.com` (`peacprotocol`) |
+| OMATrust | `@oma3/omatrust` 0.1.0-alpha.14 | `atom@oma3.org` (`oma3-ops`) |
+| AffixIO | `affixio` 2.0.5 | `kris@affix-io.com` (`affix-io`) |
+
+**Elara is the sixth, and its route is the weakest — recorded as such.** `elara-verify`
+on crates.io returns **no owners**, the repository publishes no address, and the commits
+are signed `Elara Project <noreply@elara.dev>` (a domain address that may well not
+accept mail, so it was not used). The address used is the one published on the **GitHub
+profile of the repository owner** (`navigatorbuilds`): `aivelikivodja@gmail.com`. The
+repository was last pushed **10.10.2026**, six weeks ago, so the vendor may be dormant.
+The letter says nothing about that; this file does, because the provenance of an address
+decides how much a non-reply means.
+
+**Six letters written and sent, 26.11 07:46 EET (§P4–§P9).** Each is personalised to the
+product the vendor actually sells, taken from the x402 Foundation's own
+`docs/dev-tools/third-party-extensions.md` rather than from marketing copy, and each
+carries the same measured core: a live x402 service on Base since August, **seven paid
+routes $0.005–$0.05 plus a $0.25 dataset**, **1,246,641 requests and 457 distinct user
+agents in thirty days**, **twelve payments from nine wallets that are not ours**,
+lifetime external revenue **five and a half cents**, and **135 payment attempts read one
+at a time, of which not one refusal was an ordinary buyer with a valid signature** — they
+were conformance fuzzers and our own tests.
+
+The personalisation is the whole argument, so it is not decoration:
+
+- **Teppi** checks a seller's **paid delivery record before a buyer signs** — their
+  published client's only occurrence of "payer" is a field in a receipt, so the record
+  proves delivery and never demand.
+- **zauth** sells a **refund SDK** — and a refund policy built on "payments fail
+  sometimes" is solving a problem that did not occur once in 135 real attempts, while the
+  problem that did occur (nobody arriving) is invisible to monitoring.
+- **PEAC Protocol** builds **verifiable receipts** — a receipt is a win with no
+  denominator.
+- **OMATrust** authorises **signed offers** — an authorization cannot say whether offers
+  in this market are ever accepted.
+- **AffixIO** ships a **pre-payment policy gate** — a gate with only conformance signals
+  approves a correctly payable, commercially dead endpoint exactly like a live one.
+- **Elara** attests **records bound to the payment id** — an attestation proves a record
+  is intact, not that a market exists.
+
+Each letter offers the census as **an input to their product rather than a rival**, names
+the public aggregate so it can be judged before buying, states our own losing signal
+record (now **1 hit against 12 misses across 99 scored calls**, `docs/SIGNAL_RECORD.md`)
+as the standard we hold ourselves to, and ends with an explicit exit: if it is not
+useful, say so and we stop treating that category as a buyer.
+
+**Delivery is not assumed.** All six were accepted by the SMTP server and all six are
+**in the Sent folder**; the mailbox was read back for `mailer-daemon` bounces and there
+were none at the time of writing. The lesson of 25.11 stands — an accepted message is not
+a delivered one — so the reply check is set for **28.11**, together with §P and §P2/§P3.
+
+**State of the target list:** all **nine** vendors in the Foundation's own extension list
+have now been written to directly — Hosannaith, x402r and Tanilo on 25.11, and Teppi,
+zauth, PEAC, OMATrust, AffixIO and Elara today. (HIVE402 is counted separately under §O
+because it sells a different product.) None has answered yet. The one party in this
+category who has answered anything is **Ernest**, and his answer was to drop his claim
+and deliver the correction we asked for.
+
 
 
 

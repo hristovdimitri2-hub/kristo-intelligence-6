@@ -55,12 +55,18 @@ Ordered plan, cheapest first:
    public meeting — every second Monday, 10:00 America/Chicago, next 30 November
    (18:00 EET), Zoom via LFX**, with the public minutes document. Slack is the one
    step left and it needs a Slack account.
-3. **§P: the trust-layer vendors** — **all three published addresses are now sent**
-   (25.11.2026): Hosannaith `cameron@hosannaith.com` (§P), x402r `hi@x402r.org`
-   (§P2, the failure population an arbitration layer will see), Tanilo
-   `joe@tanilo.io` (§P3, the base rate a spend cap is set without). No bounce 20
-   minutes after sending. Teppi, zauth, PEAC Protocol, OMATrust, AffixIO and Elara
-   publish no address; §O to HIVE402 waits for a reply.
+3. **§P: the trust-layer vendors — all nine are now written to.** 25.11: Hosannaith
+   `cameron@hosannaith.com` (§P), x402r `hi@x402r.org` (§P2, the failure population an
+   arbitration layer will see), Tanilo `joe@tanilo.io` (§P3, the base rate a spend cap is
+   set without). **26.11: the other six, whose addresses the table had recorded as
+   "none published" — that was checked against their websites only, and the npm registry
+   publishes maintainer addresses** (`scripts/vendor_contacts.py` prints the fields):
+   Teppi `teppidotxyz@gmail.com` (§P4), zauth `zpointz777@gmail.com` (§P5), PEAC Protocol
+   `peacprotocol@gmail.com` (§P6), OMATrust `atom@oma3.org` (§P7), AffixIO
+   `kris@affix-io.com` (§P8), and Elara `aivelikivodja@gmail.com` (§P9 — the weakest
+   route: no crates.io owners, commits signed by a domain noreply, so the address is the
+   repository owner's public GitHub profile one). All six accepted by the server, all six
+   in the Sent folder, no bounce at the time of writing. §O to HIVE402 waits for a reply.
 4. **Unchanged:** the census stays at $0.25, and December-vs-November is the
    first sellable change.
 
@@ -71,6 +77,16 @@ operators, the 40 x402 members) and immediately hit the real gap: we have the
 **companies** — the member list is public — and almost no **people**. §P reached
 Hosannaith only because its founder publishes his address; of nine trust-layer
 vendors, two publish an address at all.
+
+**Corrected 26.11.2026, and the correction is the point:** "two publish an address" was
+true of their **websites** and false of the vendors. **Five of the remaining six publish
+a maintainer address in the npm registry**, and the sixth publishes one on its GitHub
+profile — so the count was **nine of nine**, and the "gap" that made Explee worth buying
+was partly a search that stopped one source too early. `scripts/vendor_contacts.py` now
+does that lookup, and §P4–§P9 were sent on the strength of it. What remains genuinely
+hard is not finding an address but finding a **person** at a company that publishes only
+a role mailbox — which is a different problem from the one this section originally
+stated.
 
 **Explee** (explee.com, Explee LTD, London) is an AI outbound agent, and it is the
 first tool in this whole search that closes exactly that gap with a documented,
@@ -625,8 +641,9 @@ more than the sale — which argues for a higher price per job or a subscription
 - **17:10 EET — remove `X402LIST_VERIFICATION_TOKEN` from Render.** The directory's
   review window closed at **15:06Z**; the removal script is dry-run verified
   (`_tools/remove_x402list_token.py --apply`). Reminder is set.
-- **Reply checks.** §O Script Master Labs — **29.11 10:00 EET**; §P (x402r, Tanilo) —
-  **28.11**. §Z3 sits in the working group's moderation queue, so no reply is late yet.
+- **Reply checks.** §O Script Master Labs — **29.11 10:00 EET**; **§P, §P2–§P9 (all nine
+  trust-layer vendors) — 28.11**; the working-group post §Z3 sits in moderation, so no
+  reply is late yet.
 - **Mon 30.11 18:00 EET — x402 Domain Discovery WG** (bi-weekly, LFX/Zoom, public
   minutes). We can post to the list but cannot attend a call, so anything we want in
   that meeting goes to `Domain-Discovery@lists.x402.org` **before** it.

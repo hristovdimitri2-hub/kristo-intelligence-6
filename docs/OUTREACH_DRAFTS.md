@@ -624,10 +624,20 @@ address is published on the site rather than a noreply mailbox).
 | Hosannaith | reliability oracle: uptime, correct-402, latency | `cameron@hosannaith.com` (site; repo also lists `security@hosannaith.com`) |
 | x402r | refund and arbitration protocol | `hi@x402r.org` (site) |
 | Tanilo x402 Guard | pre-payment price and spend-cap check | `joe@tanilo.io` (docs page) |
-| Teppi | seller's paid-delivery record before signing | none published — GitHub issue or their docs form |
-| zauth | monitoring, verification, refund SDK | none published |
+| Teppi | seller's paid-delivery record before signing | **`teppidotxyz@gmail.com`** — npm maintainer of `teppi-client` (§P4, sent 26.11) |
+| zauth | monitoring, verification, refund SDK | **`zpointz777@gmail.com`** — npm maintainer of `@zauthx402/sdk` (§P5, sent 26.11) |
 | HIVE402 (Script Master Labs) | probe intelligence + demand-weighted trust score | already written to (§O), awaiting reply |
-| PEAC Protocol, OMATrust, AffixIO, Elara | receipts, signed offers, policy gate | none published |
+| PEAC Protocol | verifiable receipts | **`peacprotocol@gmail.com`** — npm maintainer (§P6, sent 26.11) |
+| OMATrust | key authorizations for signed offers and receipts | **`atom@oma3.org`** — npm maintainer (§P7, sent 26.11) |
+| AffixIO | client-side pre-payment policy gate | **`kris@affix-io.com`** — npm maintainer (§P8, sent 26.11) |
+| Elara | post-quantum record verification bound to the payment id | **`aivelikivodja@gmail.com`** — the repository owner's public GitHub profile (§P9, sent 26.11); the weakest route of the nine |
+
+**Correction, 26.11.2026.** The rows above said "none published" for six vendors. That
+was measured against their **websites** and stopped there. The npm registry publishes
+maintainer addresses, and five of the six ship a package; the sixth publishes one on a
+GitHub profile. So the list was never unreachable — the search was. `scripts/vendor_contacts.py`
+now prints those fields, with the provenance of each address, and every address in this
+table is a published field rather than a guess.
 
 **Subject:** `Your seller score has no demand base rate — measured, from a live paywall`
 
@@ -718,6 +728,188 @@ I am not asking for a favour. The measurement is a document: GET /api/v1/demand-
 Two things stated plainly. First, I would rather this were an input to your guard than a competing product; you have the pre-payment path and the price checks, I have the ledger, and the ledger only exists because someone ran a paywall for months and kept the attempts. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 97 scored calls.
 
 If the spend base rate is useful, tell me what shape fits and I will cut it that way. If it is not, say so and I will stop treating pre-payment guards as a buyer.
+
+Dimitri
+```
+
+## P4. Teppi — a delivery record has no demand base rate (26.11.2026)
+
+**Where:** `teppidotxyz@gmail.com` — the npm maintainer address published on
+`teppi-client` (0.10.0). Their site publishes no address, which is why this route was
+looked up in the registry rather than guessed; `scripts/vendor_contacts.py` records how
+each of these six addresses was found, so none of them is an inference.
+
+**Why them:** of the nine trust-layer vendors, Teppi is the closest to a buyer of this
+measurement — they check a seller's **paid delivery record before a buyer signs**, which
+is the supply side of exactly the number we hold. Their published client's only
+occurrence of "payer" is a field in a receipt.
+
+**Subject:** `A delivery record has no demand base rate — measured at one live paywall`
+
+```
+Teppi,
+
+You check a seller's paid delivery record before a buyer signs. I run one of the sellers such a check would be run against, and I can hand you the half of that record no seller publishes — the demand side of it.
+
+What I measure, from a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time. Not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs.
+
+Why that matters to a delivery record. Your check answers "did this seller deliver what was paid for". It cannot answer "has anyone ever paid this seller at all", and the base rate is brutal: 457 distinct agents arrived and twelve payments happened, from nine wallets. Two sellers with identical delivery records can differ by every dollar they have ever earned, and a buyer choosing between them is choosing on exactly that.
+
+I am not asking for a favour or offering a partnership deck. The measurement is a document: GET /api/v1/demand-census returns the full per-agent table — 1,494 rows, the arrival and return behaviour of each user agent, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first, so you can judge it before buying: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly, because they are why I am writing to you rather than to a catalogue.
+
+First, I would rather this became an input to your record than a competing one. You have the delivery path and the receipts; I have the ledger, and the ledger only exists because someone ran a paywall for months and kept the attempts that most sellers delete.
+
+Second, I hold myself to the standard I am selling. My own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 99 scored calls, documented in docs/SIGNAL_RECORD.md.
+
+If a demand base rate is useful to a delivery check, tell me what shape fits and I will cut it that way. If it is not, say so and I will stop treating delivery records as a buyer.
+
+Dimitri
+```
+
+## P5. zauth — the failure population a refund layer is built without (26.11.2026)
+
+**Where:** `zpointz777@gmail.com` — the npm maintainer address published on
+`@zauthx402/sdk` (0.1.14). Their site publishes no address.
+
+**Why them:** they sell monitoring, verification and a **refund SDK**. A refund layer
+needs to know how payments actually fail, and that is the one thing we read by hand.
+
+**Subject:** `Your refund layer's failure population — read one attempt at a time`
+
+```
+zauth,
+
+You sell monitoring, verification and refunds for x402 payments. I run one of the services such a layer would watch, so I can hand you the failure population a refund path is designed around — read attempt by attempt rather than assumed.
+
+From a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time.
+
+That reading is the part I would want if I were building refunds. Not one refusal was an ordinary buyer with a valid signature and a funded wallet. They were conformance fuzzers and my own test runs. So a refund policy built on "payments fail sometimes" is solving a problem that did not appear once in 135 real attempts at a live paywall — while the problem that did appear, nobody arriving at all, is invisible to a monitoring layer that only watches traffic it already receives.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this were an input to your monitoring than a competing one: you have the observation points and the SDK, I have a ledger that only exists because someone kept months of attempts. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 99 scored calls, documented in docs/SIGNAL_RECORD.md.
+
+If the failure taxonomy is useful, tell me what shape fits and I will cut it that way. If it is not, say so and I will stop treating monitoring vendors as a buyer.
+
+Dimitri
+```
+
+## P6. PEAC Protocol — a receipt proves one payment, not a market (26.11.2026)
+
+**Where:** `peacprotocol@gmail.com` — the npm maintainer address published on
+`@peac/adapter-x402` (0.16.5). Their site publishes no address.
+
+**Why them:** they build **verifiable receipts for x402 payments**. A receipt is
+per-payment evidence; the question it cannot answer is whether the market those receipts
+describe has more than a handful of payers in it.
+
+**Subject:** `A receipt proves one payment; it does not say whether anyone pays`
+
+```
+PEAC Protocol,
+
+You build verifiable receipts for x402 payments. I run one of the services whose payments would be receipted, and I can hand you the aggregate that a receipt corpus structurally cannot contain — the base rate underneath it.
+
+From a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time; not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs.
+
+The gap that leaves is the one a receipt cannot close. A receipt proves that a specific payment happened and is intact. It says nothing about whether anyone pays at all: at one live endpoint, 457 distinct agents arrived and twelve payments happened, from nine wallets. A buyer looking at a set of valid receipts is looking at the wins with no denominator, and the denominator is the number that decides whether a seller is alive.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this became an input to what you publish than a competing product: you have the cryptographic side and I have the ledger, and neither substitutes for the other. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 99 scored calls, documented in docs/SIGNAL_RECORD.md.
+
+If a demand base rate belongs beside a receipt, tell me what shape fits. If it does not, say so and I will stop treating receipt layers as a buyer.
+
+Dimitri
+```
+
+## P7. OMATrust — signed offers need a demand prior (26.11.2026)
+
+**Where:** `atom@oma3.org` — the npm maintainer address published on `@oma3/omatrust`
+(0.1.0-alpha.14). Their site publishes no address.
+
+**Why them:** they do **key authorizations for Signed Offers and Receipts**. An offer
+scheme needs a prior that anyone accepts offers, and that prior is not published by
+anyone.
+
+**Subject:** `Signed offers need a demand prior, and nobody publishes one`
+
+```
+OMATrust,
+
+You do key authorizations for signed offers and receipts on x402. I run one of the services such offers would be made against, and I hold the prior that an offer scheme needs and that no directory publishes — whether anyone accepts.
+
+From a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time; not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs.
+
+Why that is a prior and not a curiosity. An authorization proves an offer is authentic and properly keyed. It cannot tell the party receiving it whether offers in this market are ever taken up. At one live endpoint the answer is twelve payments from nine wallets out of 457 agents that arrived, so an offer layer that treats "signed and authorized" as "commercially meaningful" is ranking sellers on a property none of them has yet.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this became an input to your authorization layer than a competing one: you have the keying and the signature side, I have a ledger that only exists because someone ran a paywall and kept the attempts. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 99 scored calls, documented in docs/SIGNAL_RECORD.md.
+
+If a demand prior is useful beside a signed offer, tell me what shape fits. If it is not, say so and I will stop treating offer schemes as a buyer.
+
+Dimitri
+```
+
+## P8. AffixIO — a pre-payment gate with no demand base rate (26.11.2026)
+
+**Where:** `kris@affix-io.com` — the npm maintainer address published on `affixio`
+(2.0.5). Their site publishes no address.
+
+**Why them:** their package is an **optional client-side policy gate using x402's
+pre-payment hook**, and the page they publish for it is titled agent-trust. A gate that
+decides whether to pay is deciding on a base rate it does not have.
+
+**Subject:** `A pre-payment gate with no demand base rate approves dead endpoints`
+
+```
+Kris,
+
+You ship an optional client-side policy gate on x402's pre-payment hook — the decision point before a payment payload is created. I run one of the endpoints such a gate would be pointed at, and I hold the base rate the gate is currently deciding without.
+
+From a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time; not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs.
+
+What that means for a pre-payment gate. Your hook can enforce policy, price and cap, and it does that well. What it cannot currently express is "this endpoint is correctly payable and commercially dead", because the base rate is not in any catalogue: 457 agents arrived at one live endpoint and twelve payments happened, from nine wallets. A gate with only conformance signals approves both sellers identically, and the buyer pays the dead one first.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this became an input to your gate than a competing product: you have the pre-payment path and the policy engine, I have the ledger, and the ledger only exists because someone kept months of attempts. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 99 scored calls, documented in docs/SIGNAL_RECORD.md.
+
+If a demand signal is useful at the pre-payment hook, tell me what shape fits. If it is not, say so and I will stop treating policy gates as a buyer.
+
+Dimitri
+```
+
+## P9. Elara — attestation proves a record is intact, not that a market exists (26.11.2026)
+
+**Where:** `aivelikivodja@gmail.com` — the address published on the GitHub profile of
+`navigatorbuilds`, the repository owner, after their `elara-verify` crate showed **no
+owners** and their commits are signed `Elara Project <noreply@elara.dev>`. Recorded
+plainly because it is the weakest of the six routes: it is a personal profile address,
+not a project one, and the repository was last pushed on 10.10.2026.
+
+**Why them:** they do **post-quantum record verification with the attestation bound to
+the x402 payment id** — the same gap as the others, from the cryptography side.
+
+**Subject:** `Attestation proves a record is intact, not that a market exists`
+
+```
+Elara,
+
+You verify records post-quantum and bind the attestation to the x402 payment id. I run one of the services whose payment ids such an attestation would be bound to, and I hold the number an attestation cannot contain: whether anyone pays.
+
+From a live x402 service on Base since August: seven paid routes from $0.005 to $0.05, plus a $0.25 dataset. In the last thirty days it answered 1,246,641 requests and was reached by 457 distinct user agents. It was paid twelve times, by nine wallets that are not mine. Lifetime external revenue: five and a half cents. I read all 135 recorded payment attempts one at a time; not one refusal was an ordinary buyer with a valid signature and a funded wallet — they were conformance fuzzers and my own test runs.
+
+The gap is structural rather than a defect in your work. An attestation proves a record is intact and bound to the right payment. It cannot say whether the payment was one of nine wallets or one of nine hundred, and at one live endpoint 457 agents arrived and twelve payments happened. A verifier that reports "intact" to a buyer, with no denominator beside it, is reporting the strongest property of the weakest market.
+
+I am not asking for a favour. The measurement is a document: GET /api/v1/demand-census returns the per-agent table — 1,494 rows, arrival and return behaviour, all 135 payment attempts by outcome, and the payment history by payer class — for $0.25. The aggregate and the method are public first: https://github.com/hristovdimitri2-hub/kristo-intelligence-6/blob/main/docs/X402_DEMAND_CENSUS.md
+
+Two things stated plainly. First, I would rather this were an input to your verifier than a competing one: you have the attestation and the post-quantum side, I have the ledger. Second, I hold myself to the standard I am selling — my own signal engine's record is published free at /public/signals/history and it is a losing one: 1 hit against 12 misses across 99 scored calls, documented in docs/SIGNAL_RECORD.md.
+
+If a demand base rate is useful beside an attestation, tell me what shape fits. If it is not, say so and I will stop treating record verifiers as a buyer.
 
 Dimitri
 ```

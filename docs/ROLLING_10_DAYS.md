@@ -257,6 +257,22 @@ is **GET-only** (`/api/mcp/v1/servers` now **401**). A fresh submission needs th
 **owner's browser** or Glama creating the record. The connector itself is in the public
 search index and its badge returns **200**, rendering *"rated A on Glama"*.
 
+**The last six trust-layer vendors were reachable after all, and the table had said they
+were not.** §P listed nine vendors who sell trust about x402 sellers; three had been
+written to, and six were recorded as **"none published"** — a claim measured against
+their *websites* and stopped one source too early. **The npm registry publishes
+maintainer addresses**, and five of the six ship a package. `scripts/vendor_contacts.py`
+reads the registry and prints the fields with their provenance, which produced
+`teppidotxyz@gmail.com` (Teppi), `zpointz777@gmail.com` (zauth),
+`peacprotocol@gmail.com` (PEAC), `atom@oma3.org` (OMATrust) and `kris@affix-io.com`
+(AffixIO); Elara's came from the repository owner's public GitHub profile, since its
+crate has **no owners** and its commits are signed by a domain noreply — recorded as the
+weakest route of the nine, and its repository was last pushed six weeks ago. **Six
+letters written (§P4–§P9), personalised to the product each vendor actually sells, and
+sent 07:46 EET**, all six accepted, all six in the Sent folder, no bounce at the time of
+writing. So the whole category — **nine of nine** — has now been asked directly, and the
+correction is written into §P and into NEXT_ACTIONS rather than quietly dropped.
+
 ---
 
 ## Hanging in the air
