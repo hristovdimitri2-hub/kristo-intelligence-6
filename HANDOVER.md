@@ -8972,6 +8972,33 @@ republished. Recorded as a decision, not taken.
 checks still answer, but the `/mcp` record's SEAL is now withheld, so the sentence was true
 of the checks and not of the SEAL.
 
+**Resolved, 27.11.** The owner opened `/me?listing=…` — the link the notification email
+carries — and clicked each of the **five** white **"Confirm as intended"** buttons under
+*Definitions changed · Silent, 26 Nov*, one per changed row. The hold cleared. Verified
+from outside rather than from the screen: the record page's verdict element is now
+`profile-state-active`, the text reads **"SEAL · Active"** and **"Issued 27 Nov · expires in
+23 h 59 min"**, and the "Definitions changed" block and all five buttons are gone from the
+page. Bronze reads **Earned**, and Silver reads **Next · 4 of 4 met** with *"Confirm every
+risky or silent definition change · Nothing waiting"* — the same condition that read "5
+changes waiting" an hour earlier.
+
+**Two corrections to what this section believed.** (a) The orange **"Confirm change"** in
+the record's top bar is **not a button**. It is the text in the table's **"Needs you"**
+column, and it does not click; the only actionable controls are the per-row white buttons.
+That cost the owner a round trip and is recorded so it is not repeated. (b) **The version
+bump was not needed.** Confirming the definitions cleared the hold without touching
+`SERVICE_VERSION`, so the published MCP-registry row stays at `6.3.1` and nothing needs
+republishing. The bump remains the durable habit — a change announced by a version cannot
+be classified Silent in the first place — but it is not required to clear a pending hold.
+
+**The latency reading that looked alarming was a cold start.** The dashboard showed
+**2,335 ms p95** against the 400 ms p95 recorded on 26.11. Measured from here on 27.11,
+twenty consecutive `/health` calls: **min 300 ms, median 320 ms, p95 408 ms, max 838 ms.**
+The 2,335 ms belongs to the window right after the two deploys of 27.11, not to the service.
+The record's **Trust Score 0** is by design and not a defect: the score counts *verified
+tasks the agent solves*, and this surface has solved none — the agent and x402 records read
+200 because they have task history.
+
 ## §143. The expired proof is gone, Chet fixed the price, and Coinbase's own validator passes every route (27.11.2026)
 
 **The token removal, executed.** `X402LIST_VERIFICATION_TOKEN` expired at 15:06Z on 26.11
