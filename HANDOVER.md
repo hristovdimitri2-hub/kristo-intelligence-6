@@ -9312,11 +9312,18 @@ that asserts the first call on a `1..10000` window is `(9001, 10000)` and the la
 
 **A wall-clock budget exists, and the audit uses it.** `max_seconds` stops the scan, marks the
 ranges it never read, and sets `reason: "time_budget"` with `complete: false`. It defaults to
-`None`, so every existing caller is unchanged; `services/seller_audit.py` passes
-`AUDIT_TIME_BUDGET_SECONDS = 45.0`, which sits inside a buyer's client timeout instead of
-three times over it. `build_audit` already mapped `complete: false` to `read: "partial"`, so a
-30-day request now answers quickly and says which blocks it did not read — the honesty rule
-this service has carried since it was written, finally true of its widest window too.
+`None`, so every existing caller is unchanged. `build_audit` already mapped `complete: false`
+to `read: "partial"`, so a wide request now answers and says which blocks it did not read —
+the honesty rule this service has carried since it was written, finally true of its widest
+window too.
+
+**The first budget was still too generous, and the deploy is what showed it.** Set to 45s, the
+paid 30-day call answered — in **54.6s end to end**, because the budget covers the scan while
+signing, the 402 round trip and the response add about ten seconds on top. A client that
+allows 30s would still have timed out **and still have paid**, which is the whole failure being
+fixed. The budget is now **20.0s**, so the call lands near 30s; a wide window is answered as
+`partial` with the unread ranges named, and `AUDIT_CACHE_SECONDS` makes the repeat call free.
+Recorded because "it answers now" was measured before it was true of the clients that matter.
 
 **Why the test fakes the clock, recorded because it nearly hid the fix.** The first version of
 the budget test used `max_seconds=0` and failed with `complete is True`. The cause is not the
