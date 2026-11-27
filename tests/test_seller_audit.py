@@ -15,6 +15,7 @@ import pytest
 
 from services.seller_audit import (
     AUDIT_CACHE_SECONDS,
+    AUDIT_TIME_BUDGET_SECONDS,
     MAX_AUDIT_DAYS,
     MIN_AUDIT_DAYS,
     build_audit,
@@ -143,6 +144,31 @@ def test_the_window_is_bounded_both_ways():
         "a longer window than this is thousands of chunked calls on a public RPC")
     assert AUDIT_CACHE_SECONDS >= 60, (
         "a shorter cache would make the same receiver pay for RPC twice")
+    assert 0 < AUDIT_TIME_BUDGET_SECONDS <= 60, (
+        "the budget must fit inside a buyer's client timeout, or the call "
+        "settles and delivers nothing — measured 27.11 at 120 s")
+
+
+def test_the_audit_passes_a_wall_clock_budget_to_the_scan(monkeypatch):
+    """The window bounds alone were not enough: the 30-day maximum is about
+    13,000 chunks. The audit must hand the scanner a budget, or the request
+    outlives the client that paid for it."""
+    import scripts.competitor_recon as recon
+    from services import seller_audit
+
+    seen = {}
+
+    def fake_fetch(rpc_url, receiver, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(recon, "fetch_incoming_transfers", fake_fetch)
+    report = seller_audit.audit_receiver(
+        "0x" + "a" * 40, days=MAX_AUDIT_DAYS, rpc_url="https://fake")
+
+    assert seen["max_seconds"] == AUDIT_TIME_BUDGET_SECONDS
+    assert seen["days"] == MAX_AUDIT_DAYS
+    assert report["window_days"] == MAX_AUDIT_DAYS
 
 
 # ── the free surface ─────────────────────────────────────────────────────────

@@ -253,6 +253,7 @@ def _get_logs_adaptive(
     min_chunk: int = MIN_CHUNK_BLOCKS,
     pause_seconds: float = 0.15,
     progress: bool = False,
+    max_seconds: Optional[float] = None,
 ) -> tuple:
     """Run a get_logs query over its whole range, halving refused chunks.
 
@@ -262,8 +263,24 @@ def _get_logs_adaptive(
     the weekly monitor came to report an EMPTY week: an unread window is not an
     empty one.
 
+    TWO RULES LEARNED THE EXPENSIVE WAY (27.11.2026):
+
+    * **Chunks are queued newest first.** A caller asking for "the last 30 days"
+      is asking about the recent end of the range, so a scan that stops early
+      must have read the newest blocks. The previous order scanned forward, so a
+      short read answered from the stalest part of the window and said nothing
+      about it.
+    * **`max_seconds` is a wall-clock budget.** With ranges capped near 1000
+      blocks a 30-day window is roughly 13,000 chunks and cannot finish inside a
+      buyer's HTTP timeout. Measured: a paid call to
+      `/api/v1/verify-seller?days=30` settled on chain and returned nothing to a
+      client that gave up at 120s (`0xe3ffa8f9…`, 27.11 18:10:47Z). With a budget
+      the same call answers quickly, reports `complete=false`, and names the
+      ranges it did not read. A timeout is not an answer.
+
     Returns (logs, coverage) where coverage carries requested_blocks,
-    scanned_blocks, failed_ranges, split_retries, chunks and `complete`.
+    scanned_blocks, failed_ranges, split_retries, chunks, `reason` and
+    `complete`.
     """
     from_block, to_block = query["fromBlock"], query["toBlock"]
     logs: List = []
@@ -271,12 +288,19 @@ def _get_logs_adaptive(
     retries = 0
     scanned = 0
     chunks = 0
+    started = time.monotonic()
+    stopped_early = False
     queue: List[tuple] = []
-    start = from_block
-    while start <= to_block:                       # start at the known-good width
-        queue.append((start, min(start + chunk_size - 1, to_block)))
-        start += chunk_size
+    end = to_block
+    while end >= from_block:                       # newest first, deliberately
+        begin = max(from_block, end - chunk_size + 1)
+        queue.append((begin, end))
+        end = begin - 1
     while queue:
+        if max_seconds is not None and time.monotonic() - started > max_seconds:
+            stopped_early = True
+            failed.extend([[a, b] for a, b in queue])
+            break
         start, end = queue.pop(0)
         try:
             logs.extend(w3.eth.get_logs(dict(query, fromBlock=start, toBlock=end)))
@@ -284,8 +308,8 @@ def _get_logs_adaptive(
             width = end - start + 1
             if width > min_chunk:
                 mid = start + width // 2 - 1
-                queue.insert(0, (mid + 1, end))    # the refused range is retried
-                queue.insert(0, (start, mid))      # as two halves
+                queue.insert(0, (start, mid))       # older half queued second
+                queue.insert(0, (mid + 1, end))     # newer half retried first
                 retries += 1
                 continue
             print(f"[warn] get_logs {start}-{end} failed: {exc}")
@@ -300,6 +324,9 @@ def _get_logs_adaptive(
         if queue:
             time.sleep(pause_seconds)
     requested = to_block - from_block + 1
+    # The scan runs newest-first so a short read is a USEFUL one; the result is
+    # handed back oldest-first, so no existing caller sees a new ordering.
+    logs.sort(key=lambda lg: (lg.get("blockNumber", 0), lg.get("logIndex", 0)))
     return logs, {
         "requested_blocks": requested,
         "scanned_blocks": scanned,
@@ -307,6 +334,7 @@ def _get_logs_adaptive(
         "split_retries": retries,
         "chunks": chunks,
         "complete": not failed and scanned == requested,
+        "reason": "time_budget" if stopped_early else None,
     }
 
 
@@ -320,6 +348,7 @@ def fetch_incoming_transfers(
     pause_seconds: float = 0.15,
     stats: Optional[dict] = None,
     days: int = 7,
+    max_seconds: Optional[float] = None,
 ) -> List[dict]:
     """Fetch incoming USDC transfers to `receiver` via eth_getLogs.
 
@@ -330,8 +359,8 @@ def fetch_incoming_transfers(
 
     Pass `stats` (dict, filled in place) for the coverage report:
     rpc_url / from_block / to_block / requested_blocks / scanned_blocks /
-    failed_ranges / split_retries / complete. `complete=False` means the window
-    was NOT fully read — silence is not proof that nobody paid.
+    failed_ranges / split_retries / reason / complete. `complete=False` means the
+    window was NOT fully read — silence is not proof that nobody paid.
 
     `days` is how far back to look when the caller does not name a from_block.
     It defaults to 7 so every existing caller is unchanged. It exists because
@@ -340,6 +369,11 @@ def fetch_incoming_transfers(
     that had in fact read 7 is a claim the scan did not support. A caller who
     wants a different window now gets the window it says it read, or the
     coverage block tells it the read was short.
+
+    `max_seconds` bounds the wall clock. Unbounded (the default) a wide window
+    runs for many minutes and a buyer's client gives up long before the answer,
+    which is how a paid call settles and delivers nothing. Bounded, the scan
+    reads the newest blocks first and reports `reason="time_budget"`.
 
     Returns a list of {tx_hash, payer, amount_usdc, block_number}.
     """
@@ -373,6 +407,7 @@ def fetch_incoming_transfers(
             "topics": [TRANSFER_TOPIC, None, padded],
         },
         chunk_size, pause_seconds=pause_seconds, progress=stats is not None,
+        max_seconds=max_seconds,
     )
     transfers: List[dict] = []
     for lg in logs:

@@ -46,6 +46,17 @@ DEFAULT_AUDIT_DAYS = 7
 MIN_AUDIT_DAYS = 1
 MAX_AUDIT_DAYS = 30
 
+#: Wall-clock budget for one scan. The window bounds alone were not enough: with
+#: recipient-filtered ranges capped near 1000 blocks, the 30-day maximum is about
+#: 13,000 chunks, and a buyer's client gives up long before that finishes.
+#: Measured 27.11.2026: a paid call to `/api/v1/verify-seller?days=30` SETTLED ON
+#: CHAIN and returned nothing to a client that timed out at 120s
+#: (`0xe3ffa8f9…`, 18:10:47Z) — money moved, no report, and the failure is
+#: invisible in both parties' logs. With this budget the request answers inside a
+#: normal client timeout, reports `read: "partial"`, and names the block ranges it
+#: did not read, because the scan walks newest-first.
+AUDIT_TIME_BUDGET_SECONDS = 45.0
+
 #: How long a finished audit may be reused. An audit costs real RPC calls, so the
 #: same receiver must not pay for them twice in a minute — and a result this fresh
 #: cannot mislead anybody about the chain.
@@ -203,7 +214,8 @@ def audit_receiver(receiver: str, days: int = DEFAULT_AUDIT_DAYS,
     # report and the window walked are now the same value, and the coverage block
     # carries lookback_days so the two can be compared rather than trusted.
     stats: dict = {}
-    kwargs = {"stats": stats, "days": days}
+    kwargs = {"stats": stats, "days": days,
+              "max_seconds": AUDIT_TIME_BUDGET_SECONDS}
     if usdc_contract:
         kwargs["usdc_contract"] = usdc_contract
     try:

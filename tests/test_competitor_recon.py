@@ -388,3 +388,61 @@ def test_fingerprint_never_calls_an_unread_payer_human(monkeypatch):
     assert fp["scan_failed_ranges"]
     assert fp["distinct_receivers"] == 0
     assert fp["scan_blocks"] == "0/1000"
+
+
+# ── 27.11: two rules learned by paying for them ──────────────────────────────
+# A paid call to /api/v1/verify-seller?days=30 SETTLED ON CHAIN and returned
+# nothing to a client that gave up at 120 s (0xe3ffa8f9…, 18:10:47Z). Money
+# moved, no report, and the failure is invisible in both parties' logs. The scan
+# must therefore (a) start at the NEWEST blocks so a short read is useful, and
+# (b) stop on a wall-clock budget and say what it did not read.
+
+
+def test_scan_reads_newest_blocks_first(monkeypatch):
+    """A caller asking for "the last N days" is asking about the recent end. If
+    the queue starts at `from_block`, every early stop answers from the stalest
+    part of the window — which is exactly the wrong half."""
+    node = _install_fake_web3(monkeypatch, _FakeNode(max_width=10_000, latest=10_000))
+    recon.fetch_incoming_transfers(
+        "https://fake", recon.DEFAULT_RECEIVER, from_block=1, to_block=10_000,
+        chunk_size=1000, pause_seconds=0)
+
+    assert node.calls[0] == (9_001, 10_000), "the newest chunk must be read first"
+    assert node.calls[-1] == (1, 1_000), "the oldest chunk comes last"
+    assert node.calls == sorted(node.calls, reverse=True)
+
+
+def test_a_time_budget_stops_the_scan_and_names_what_it_did_not_read(monkeypatch):
+    """The window bounds alone were not enough. With a budget the call answers
+    inside a normal client timeout, reports `complete=False`, and lists the
+    ranges it did not read — never a silent zero.
+
+    The clock is faked rather than slept through: `time.monotonic()` on Windows
+    advances in ~15 ms ticks, so a fake node serving 20 chunks can finish inside
+    a single tick and never trip a real budget.
+    """
+    _install_fake_web3(monkeypatch, _FakeNode(max_width=500, latest=10_000))
+    ticks = [0.0] + [1_000.0] * 64
+    monkeypatch.setattr(recon.time, "monotonic", lambda: ticks.pop(0))
+
+    stats = {}
+    transfers = recon.fetch_incoming_transfers(
+        "https://fake", recon.DEFAULT_RECEIVER, from_block=1, to_block=10_000,
+        chunk_size=1000, pause_seconds=0, stats=stats, max_seconds=1)
+
+    assert transfers == []
+    assert stats["complete"] is False
+    assert stats["reason"] == "time_budget"
+    assert stats["scanned_blocks"] == 0
+    assert sum(e - s + 1 for s, e in stats["failed_ranges"]) == 10_000
+
+
+def test_no_budget_by_default_so_existing_callers_are_unchanged(monkeypatch):
+    node = _install_fake_web3(monkeypatch, _FakeNode(max_width=500, latest=2_000))
+    stats = {}
+    recon.fetch_incoming_transfers(
+        "https://fake", recon.DEFAULT_RECEIVER, from_block=1, to_block=2_000,
+        chunk_size=1000, pause_seconds=0, stats=stats)
+
+    assert stats["complete"] is True
+    assert stats["reason"] is None

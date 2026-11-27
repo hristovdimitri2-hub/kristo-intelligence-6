@@ -9295,3 +9295,36 @@ back at byte level with zero Cyrillic: `7212878372` (3,628 chars — a Bazaar ro
 not a declaration), `7225281930` (3,518 chars — the correction to our read, the 403
 measurement, and the full current/retired payTo pair that no reader can derive), and
 `7225320498` (1,877 chars — the self-inflicted lost-response instance with both hashes).
+
+## §149. The timeout is fixed: read newest first, and answer on a budget (27.11.2026)
+
+The defect recorded in §148 is closed, in two changes and four new tests — **1488 → 1492**,
+with the published count moved alongside them, because the gate that failed yesterday would
+otherwise have failed again for exactly the same reason.
+
+**Chunks are queued newest first.** `_get_logs_adaptive` built its queue forward, so any scan
+that stopped early answered from the **oldest** part of the window. For a caller asking for
+"the last 30 days" that is the wrong half, and nothing in the report said so. The queue now
+starts at `to_block`, the halving path retries the newer half before the older one, and the
+result is sorted back oldest-first so no existing caller sees a new ordering. Pinned by a test
+that asserts the first call on a `1..10000` window is `(9001, 10000)` and the last is
+`(1, 1000)`.
+
+**A wall-clock budget exists, and the audit uses it.** `max_seconds` stops the scan, marks the
+ranges it never read, and sets `reason: "time_budget"` with `complete: false`. It defaults to
+`None`, so every existing caller is unchanged; `services/seller_audit.py` passes
+`AUDIT_TIME_BUDGET_SECONDS = 45.0`, which sits inside a buyer's client timeout instead of
+three times over it. `build_audit` already mapped `complete: false` to `read: "partial"`, so a
+30-day request now answers quickly and says which blocks it did not read — the honesty rule
+this service has carried since it was written, finally true of its widest window too.
+
+**Why the test fakes the clock, recorded because it nearly hid the fix.** The first version of
+the budget test used `max_seconds=0` and failed with `complete is True`. The cause is not the
+budget: `time.monotonic()` on Windows advances in ~15 ms ticks, so a fake node serving twenty
+chunks finishes inside a single tick and never trips a real deadline. The test now feeds the
+clock explicitly. A test that silently proves nothing is worse than no test.
+
+**The count moved with the tests.** **1488 → 1492** in `README.md` (both places) and
+`SUITE_TESTS_PASSED`, and `SUITE_LAST_RUN` → **2026-11-27**, edited through Python with
+explicit UTF-8 and then checked for the CP1251 signature and for Cyrillic before committing —
+the round trip that has damaged these files twice.
