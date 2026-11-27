@@ -2872,6 +2872,40 @@ class HistoryStore:
             ),
         }
 
+    def settlement_rows(self, limit: int = 500) -> Dict[str, Any]:
+        """Every settled payment, one row each, carrying its transaction hash.
+
+        WHY THIS EXISTS. The x402 seller-audit thread (27.11.2026) turned into a
+        concrete offer: a second party joins our ledger against the chain and
+        returns matched-or-not-found per row plus payer identity, so the count
+        becomes checkable by someone who trusts neither side. The join key is the
+        transaction hash, so a row has to carry it. `sales_summary()` carries the
+        same columns but only as a 100-row tail, and a reconciliation handed 100
+        of 189 rows is not a reconciliation — it is a sample that flatters.
+
+        Read-only, one SELECT, clamped before it runs: the caller asks for a
+        number and gets at most that many rows, never a full scan on a
+        0.1-CPU instance. Oldest-first, because a reconciliation is read from the
+        beginning.
+        """
+        limit = max(1, min(int(limit or 500), 2000))
+        rows = self._run(
+            """SELECT tx_hash, block_number, ts, sender, amount_usdc,
+                      payer_class, payer_label, source
+               FROM onchain_sales ORDER BY ts ASC, tx_hash ASC LIMIT ?""",
+            (limit,), "all")[0]
+        total = int(self._run(
+            "SELECT COUNT(*) AS n FROM onchain_sales", (), "one")[0]["n"])
+        return {
+            "rows": rows,
+            "returned": len(rows),
+            "total": total,
+            "limit": limit,
+            "complete": len(rows) >= total,
+            "oldest_row_ts": rows[0]["ts"] if rows else None,
+            "newest_row_ts": rows[-1]["ts"] if rows else None,
+        }
+
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales straight from the durable table."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -3987,6 +4021,10 @@ HYBRID since 14.09:
     def signal_history_not_scored(self) -> int:
         """See HistoryStore.signal_history_not_scored."""
         return self.history.signal_history_not_scored()
+
+    def settlement_rows(self, limit: int = 500) -> Dict[str, Any]:
+        """See HistoryStore.settlement_rows — one row per settled payment."""
+        return self.history.settlement_rows(limit)
 
     def sales_summary(self, history_limit: int = 100) -> Dict[str, Any]:
         """Aggregate on-chain sales — see HistoryStore.sales_summary.

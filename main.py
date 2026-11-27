@@ -8537,6 +8537,37 @@ def api_admin_overview():
     return _safe_jsonify(_admin_overview_payload())
 
 
+@app.route("/api/admin/settlements", methods=["GET"])
+def api_admin_settlements():
+    """Every settled payment, one row each, with the transaction hash.
+
+    Built for the reconciliation offered on 27.11.2026: a second party joins our
+    ledger against the chain and returns matched-or-not-found per row plus payer
+    identity, so the count is checkable by someone who trusts neither side. The
+    transaction hash is the join key, and the row must carry the chain's own
+    block number so a reader can pin the range they re-check.
+
+    Admin-guarded, read-only, and bounded by `limit` (default 500, hard ceiling
+    2000) before any SQL runs. It reports `complete` so a caller can never
+    mistake a truncated export for the whole ledger — the failure this project
+    keeps finding in other people's data.
+    """
+    auth_error = _require_admin_access()
+    if auth_error:
+        return auth_error
+    try:
+        limit = int(request.args.get("limit") or 500)
+    except (TypeError, ValueError):
+        limit = 500
+    try:
+        payload = dashboard_db.settlement_rows(limit)
+    except Exception as exc:                                  # noqa: BLE001
+        log.warning("admin settlements read failed: %s", type(exc).__name__)
+        return _safe_jsonify({"ok": False, "error": "store_unreadable",
+                              "detail": type(exc).__name__}), 503
+    return _safe_jsonify({"ok": True, **payload})
+
+
 @app.route("/api/admin/catalog-metrics", methods=["GET"])
 def api_admin_catalog_metrics():
     """Return protected live 24-hour catalog metrics and popularity ranking."""
