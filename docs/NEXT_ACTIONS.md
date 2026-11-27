@@ -596,6 +596,15 @@ are closed on his side:
 So the only open half is the reliability window, and recomputing it is his to do —
 it is not something we can `PUT`.
 
+**Verified against the page and the API on 27.11**, rather than taken from the email:
+
+| claim | measured |
+|---|---|
+| the stale price is gone | ✅ the listing page now reads `3 of 3 routes settlement-verified · $0.005 to $0.05 USDC/request · 3 endpoints / 4 tools`, and the record's `price` is `{min: 0.005, max: 0.05, unit: per_call}` with `payment_verified: true` |
+| the four routes join the same card | ⏳ **not yet.** `endpoints_count` is still `3`, `verified_routes` still holds the three September tests, and the page still prints `3 of 3 routes … 3 endpoints`. The individual `$0.003` lines are the September **receipts**, so they are historical, not stale prices. |
+| the three rejected listings are not public | ✅ **out of the API catalogue** — paged all **3,119** entries of `/api/listings`, exactly **one** is ours. ⚠️ One page that matches a rejected name still renders and is linked from the agent-marketplace index: `/agent-marketplace/kristo-seller-audit-verify-an-x402-seller-before-you-pay` (HTTP 200, canonical, `og:title`). `/api/listings` carries only `api/…` URLs, so it cannot see that surface either way. |
+| — | ✅ the advertised `mcp_endpoint` is real: `/mcp/sse` answers `event: endpoint` plus `data: …/mcp/message?sessionId=…` with keepalives. |
+
 ---
 
 ## 3. Marketplace — measured, and the answer is "cannot be measured"

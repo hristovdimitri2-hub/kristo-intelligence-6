@@ -9061,15 +9061,37 @@ route behind it cannot pass the preflight, so it can never be paid through and n
 refreshed — does not apply to one of ours. This is the strongest external statement about
 the payment surface that exists, because the validator belongs to the indexer, not to us.
 
+## §144. Chet's claims were checked against the bytes, and one of them is only half true (27.11.2026)
 
+Chet Parker's reply of 26.11 16:23Z promised three things. Measuring them rather than
+reading them gives one done, one waiting, and one that is true of the catalogue and not of
+the web.
 
+**Done, and verified.** The stale September price is gone from both places that carried it.
+The listing page now reads `3 of 3 routes settlement-verified · **$0.005 to $0.05**
+USDC/request · 3 endpoints / 4 tools` — the line that a day earlier printed
+`$0.003 to $0.005`. The structured record agrees: `price {min: 0.005, max: 0.05, unit:
+per_call}`, `payment_verified: true`. The three per-route lines that still say "a $0.003 test
+payment on 2 Sep 2026" are **receipts of what was paid then**, not prices, and are correct
+as receipts.
 
+**Waiting.** The four routes are not on the card yet: `endpoints_count` is still `3`,
+`verified_routes` still holds the three September tests, and the page still counts
+`3 of 3 routes … 3 endpoints`. He said PayAPI pays the test on each from its own wallet, so
+this is his to complete, and no deposit is owed.
 
+**Half true.** "The three rejected listings: they are not public." Paging the whole API
+catalogue — all **3,119** entries of `/api/listings`, sixteen pages — finds exactly **one**
+listing of ours, the DeFi Signals card `6278cdce…`. So they are gone from the catalogue.
+But one page matching a rejected name still renders and is linked from the agent-marketplace
+index: `/agent-marketplace/kristo-seller-audit-verify-an-x402-seller-before-you-pay` answers
+**HTTP 200** with a self-referential `canonical`, an `og:title` of *"Kristo Seller Audit:
+verify an x402 seller before you pay | PayAPI Market"*, our provider name and our `$0.05`.
+The other two slugs 404. Note the limit of this reading: `/api/listings` carries **only**
+`api/…` URLs — all 3,119 of them — so it cannot see the agent-marketplace surface in either
+direction, which is why "not in the catalogue" is not the same as "not public".
 
-
-
-
-
-
-
-
+**And one claim of his that checks out without being asked.** The `mcp_endpoint` on our
+record points at `https://kristo-intelligence-api.onrender.com/mcp/sse`. That address is
+real: a plain GET returns `event: endpoint` with `data: …/mcp/message?sessionId=…` and
+`: keepalive` frames. A third-party listing is advertising a transport we actually serve.
