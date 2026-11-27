@@ -9248,3 +9248,50 @@ window-dependent and the range is the honest form. The bill for the letter is un
 EIP-3009 is 1.4× to 2.5× a plain transfer rather than 1.4× to 1.7×, and both readings put
 gas between 19% and 20% of a $0.005 call. Recorded rather than quietly dropped, because the
 recipient may check.
+
+## §148. The thread moved, and our own route produced the failure class it is arguing about (27.11.2026)
+
+**Our comment was answered, and by the strongest evidence in the thread.** `minia2auk`
+replied to the question we closed on and went further than we did: on CDP's index their
+`lastCrawledAt` equals their own settlement timestamp **to the millisecond** on every row
+they checked, where ours was three seconds apart. They then answered the direct question —
+*in our data the overcharge half is not seller behaviour, every traceable discrepancy had an
+index-side origin* — and added the field worth keeping: **which field of the index a number
+came from**, because a price that came from a receipt is not a price. Our read stands, and
+the stronger form of the evidence is theirs.
+
+**A measurement about the method, now in the thread.** Ernest's payer-identity method uses
+Blockscout's v2 API. Measured 27.11, twice, with a browser User-Agent:
+`base.blockscout.com/api/v2/addresses/<payTo>/token-transfers` returns **403** with a
+Cloudflare `Just a moment...` interstitial. The Etherscan-compatible path on the same host
+answered once and then returned 403 on the next call. So the column is **not recomputable as
+published** — a stronger objection than the truncated address `zambodotdev` raised, because
+the API refuses the reader. The replacement needs no indexer: `eth_getLogs` on USDC with
+`topics: [Transfer, null, payTo]`, over a stated block range. That is what our own audit
+route already uses and says so in its response.
+
+**And then we produced the failure class the thread is splitting, on ourselves.** Two paid
+calls to our own `/api/v1/verify-seller`, same payer (our demo wallet), 2m25s apart, both
+proved from the chain:
+
+| transaction | when | amount | outcome |
+|---|---|---|---|
+| `0xe3ffa8f9…` | 18:10:47Z | $0.05 | **settled, client received nothing** — the 30-day window exceeded the caller's 120s read timeout |
+| `0x8a2aaac9…` | 18:13:12Z | $0.05 | settled and delivered, 7-day window |
+
+A caller timeout is therefore a **fourth class**, distinct from both a settle failure and a
+lost response: after it `authorizationState` reads true and the buyer holds nothing. And it
+is **our defect**: `/api/v1/verify-seller?days=30` does not answer inside 120 seconds. The
+remedy is to bound, cache or make the window asynchronous — **not** to retry, because a
+retry after a consumed nonce is a second payment for the same intent.
+
+**Ledger effect, and the taxonomy working.** own_key moved from **137 settlements / $2.08** to
+**139 / $2.18**; the total is now **189 / $2.388**, and the third-party share of USDC fell
+from 9.09% to **8.71%** — not because anything changed for third parties, but because we paid
+ourselves twice. Two self-payments, both labelled, neither counted as demand.
+
+**Three comments posted** on `x402-foundation/x402#4367` as `hristovdimitri2-hub`, each read
+back at byte level with zero Cyrillic: `7212878372` (3,628 chars — a Bazaar row is a cache,
+not a declaration), `7225281930` (3,518 chars — the correction to our read, the 403
+measurement, and the full current/retired payTo pair that no reader can derive), and
+`7225320498` (1,877 chars — the self-inflicted lost-response instance with both hashes).
