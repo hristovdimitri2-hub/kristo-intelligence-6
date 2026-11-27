@@ -1855,3 +1855,50 @@ The ask, any one of three: (1) accept a fresh submission for github.com/hristovd
 Related, and also unanswered (BeneODev asked it here on 25.11): do the large card badge and the small score badge count the same for the "link back to the Glama listing" requirement?
 ```
 
+---
+
+## AD. Stabledrop.me — an escrow product on Base that our AP2 radar does not watch (27.11.2026)
+
+**Why this one.** Found through an r/ethdev thread on card-to-crypto payment
+orchestration. `stabledrop.me` is a real, live product: **Protected payments for everyone,
+for 1%** — time-delayed escrow, "no chargebacks, no vetting", checkout by script with no
+backend, on Base. Footer: *© 2026 Conduit UCPI · Stabledrop.me · Protected payments on Base
+· Company No. 8803019.* Measured the same day: their **AP2** settle API is public
+(`api.stabledrop.me/api/ap2/settle/doc` → Swagger, 200), their contracts are public
+(`github.com/conduit-ucpi/contracts` → *"Time-delayed escrow smart contracts on any EVM
+blockchain with dispute resolution"*), their partner page mentions MCP four times — and
+**x402 appears nowhere on their site**: checked six pages, zero occurrences. So this is an
+adjacent road, not a competitor, and the letter says so rather than pretending otherwise.
+
+**The one thing they cannot get from us by asking anyone else** is the demand-side number,
+and it is given away free at the top of the letter.
+
+**Subject:** `AP2 settle on Base, and the number your merchants will ask you for`
+
+```
+Hi,
+
+I'll lead with the measurement, because it's the only thing here you can check in two minutes.
+
+I run a paid x402 API on Base and I publish my own ledger, classified from on-chain behaviour rather than self-reported: 187 settled payments, $2.288 total. $2.08 of that is me exercising my own rail. 17 third-party wallets account for the other 50 settlements / $0.208 — crawlers paying to prove I'm in their crawl set, verifiers probing me, and exactly 13 payments / $0.064 / 10 wallets I cannot explain as anything but a real stranger.
+
+https://kristo-intelligence-api.onrender.com/api/v1/settlement-classes
+
+Three reasons I'm writing rather than just reading your site.
+
+1. You implement AP2 settle and your contracts are public (github.com/conduit-ucpi/contracts). I run a small AP2/x402 radar over public repos: google-agentic-commerce/AP2, google-agentic-commerce/a2a-x402, Merit-Systems/x402scan, alchemyplatform/alchemy-x402. Yours is not in it. If you want it watched, say so and I'll add it — it costs me nothing, and I would rather be corrected than miss a builder.
+
+2. Your product answers the buyer's question, "will I get what I paid for?" Nobody answers the seller's question, which is "will anyone pay at all?" That is the number I have, and I would rather ask whether it is useful to you than guess.
+
+3. Where I may simply be wrong: I found no mention of x402 anywhere on your site, so I may be reading an adjacency as a fit. If AP2 and x402 are separate roads for you, one line saying so is a fine answer and I'll stop.
+
+No pitch attached to any of this. If none of it is useful, that is useful too.
+
+Dimitri Hristov
+Kristo Intelligence
+```
+
+**Recipient:** `info@stabledrop.me` (their footer). No CC — there is no second address on the
+site.
+
+
