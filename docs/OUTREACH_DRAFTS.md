@@ -2728,3 +2728,80 @@ Dimitri
 
 **Recipient:** `charlie@stabledrop.me`, cc `charliepank@gmail.com` and `info@stabledrop.me`
 (he moved to the company address and kept the others on the thread).
+
+---
+
+## AK. a16z, Paradigm and Pantera — the base rate, sent to the people funding the thesis (28.11.2026)
+
+**Why these three.** Two idea-list posts on X (20k and 50k views) tag the agent-payment
+concepts with the funds that would pay for them, and the lines about agents paying each other
+for data and API calls are tagged **a16z**, **Paradigm** and **Pantera**. The underwriting
+question behind every one of those lines is the question this project can answer with a real
+ledger rather than a forecast: **does anyone actually pay?**
+
+**New buyer hypothesis, and it is not the sellers.** Nine trust-layer vendors were asked about
+their product and none replied. An investor is paid to reduce uncertainty, has money, and needs
+exactly this base rate before funding the thesis.
+
+**Addresses, published rather than guessed** — the same discipline as the npm-registry pass:
+
+| fund | address | where it is published |
+|---|---|---|
+| a16z | `sanfrancisco-info@a16z.com` | their own `/about/contact` (office inboxes; no research inbox is published, and `compliance@`/`privacy@`/`cirt@` are the wrong desk for this) |
+| Paradigm | `info@paradigm.xyz` | their `/contact` page |
+| Pantera | `pitch@panteracapital.com` | their `/contact` page, explicitly an inbound address |
+
+**The letter leads with the unflattering number**, gives the two things that make it checkable
+(Coinbase's own validator, and a third party's independent chain-derived match), and **refuses
+to publish a biased ecosystem figure** — the contiguous-page sampling was found to cluster by
+seller, so the letter says the number is not ready and why. An instrument that admits its
+sampling frame is broken is worth more to an analyst than a confident wrong figure.
+
+**Subject:** `A measured base rate for the agent-payments thesis: zero external payers in 30 days`
+
+```
+I am not pitching a round. I am writing because you fund the thesis I have spent months
+measuring from the inside, and the measurement is unflattering enough that nobody else will
+send it to you.
+
+I run a paid x402 service on Base — the protocol your portfolio companies would use for agents
+that pay per call. I publish my own ledger, classified from on-chain behaviour rather than
+self-report. Lifetime: 190 settled payments, $2.438 gross. $2.18 of that is me paying myself to
+exercise the rail. Third-party wallets account for 50 settlements and $0.208 across 17
+addresses, and of those, exactly 13 settlements / $0.064 / 10 wallets are addresses I cannot
+explain as anything but strangers.
+
+For the last 30 days the number is zero.
+
+That is a base rate for one seller, and one seller is not a market. So here is what I can add
+about the market, measured today from the index the ecosystem itself lists in:
+
+- That index carries 90,187 resources.
+- Every row I sampled — 20,000 of them, in two windows — carries at least one paid call in the
+  last 30 days. That is not a sign of a healthy market; it is a mechanism. A row in that index
+  is refreshed only by a successful paid call, so the index contains what has been paid for,
+  not what is for sale.
+- The index also stores calls-per-resource for the last 30 days, which is the demand number
+  nobody publishes. I am not sending you a figure derived from it, because I sampled contiguous
+  pages and then found the index clusters by seller: one seller occupied 10,000 consecutive
+  entries with one call each. That is not a random sample, and a number taken from it would be
+  wrong in exactly the way most ecosystem numbers are wrong.
+
+Two things make this checkable rather than a claim. My endpoint passes Coinbase's own x402
+validator 25/25 across all nine of my routes. And a third party independently re-derived my
+payer split from the chain over a published block range and matched it transaction for
+transaction — the same 13 external settlements, the same 10 wallets.
+
+The free, machine-readable version is here, with the method written beside it:
+https://kristo-intelligence-api.onrender.com/api/v1/settlement-classes
+
+If a question is more useful to you than a number, send the question. That is the honest form of
+what I am offering: a working instrument, not a dataset.
+
+Dimitri Hristov
+Kristo Intelligence
+```
+
+**Recipients:** three separate sends, one per fund — cross-ccing three funds on one message
+would be bad form and would read as a mailing.
+
