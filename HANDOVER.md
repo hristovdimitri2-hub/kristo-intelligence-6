@@ -9140,3 +9140,50 @@ the comment is clean, and the defect is in `Get-Content -Raw`, which decodes as 
 codepage here. The lesson already in this file is about *writing* files through PowerShell;
 this is the other direction — **never verify external UTF-8 with `Get-Content -Raw`; read
 the bytes.**
+
+## §146. The Alchemy newsletter was not the news; the repository it led to was (27.11.2026)
+
+**What arrived.** Alchemy wrote on 27.11 that it is the primary RPC provider for the **Zero
+Interop Zone** — LayerZero's new chain, built for global markets — that the testnet is live,
+that public mainnet opens **30.11**, and that a limited number of teams can request early
+mainnet access before then.
+
+**Why it is not actionable for us.** Zero is not a payment network anywhere in Alchemy's own
+x402 stack. Measured on 27.11 from `alchemyplatform/skills`,
+`skills/agentic-gateway/rules/x402/reference.md`, the **Payment Networks** section lists
+exactly two: **Base Sepolia `eip155:84532`** and **Base Mainnet `eip155:8453`** for EVM,
+plus USDC on Solana for SVM. Monad does appear — as a *query* chain-network slug
+(`monad-mainnet`, `monad-testnet`), not as a payment one. So nothing in the offer changes
+what a buyer can pay us with, and this project's own audit already named the constraint
+(§118): the traffic is machines checking us, not buyers wanting us. A seventh chain is
+another catalogue, not another customer. **Decision: not requested**, because the form asks
+whether Zero is on our roadmap and it is not; a request would be a false signal.
+
+**What the newsletter was worth, and it is not nothing.** Their live reference states the
+terms Alchemy's own client will use, and ours match it exactly:
+
+| | Alchemy's published term | ours |
+|---|---|---|
+| payment network | `eip155:8453` (Base Mainnet) | `eip155:8453` |
+| USDC contract | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | identical |
+| EIP-712 domain name | `USD Coin` | `USD Coin` |
+| payment header | `Payment-Signature`, base64 payload | `PAYMENT-SIGNATURE` — the same header, case-insensitive |
+
+So the strongest available statement about a large third-party x402 client is that it already
+expects the envelope we serve. Nothing to change, and that is a better answer than a new
+integration would have been.
+
+**The finding underneath: the radar was watching a dead repository.** `scripts/ap2_radar.py`
+has monitored `alchemyplatform/alchemy-x402` since the watch list was widened on 08.11.
+Measured: **last push 2026-03-19, 3 stars** — eight months silent, so every daily run spent
+one of its sixty anonymous requests on a repository nobody writes to, and reported "nothing
+moved" truthfully. Alchemy's x402 work lives in **`alchemyplatform/skills`** (pushed
+2026-11-18, 57 stars), which is where the rules above are. Added to the watch list; the old
+repository is **kept rather than dropped**, because a repository that resumes is news too and
+the digest compares history per repository. Radar tests: **35 passed.**
+
+**One more thing the reference settles for free.** Its newest commit before this reading is
+*"Add Monad and pricing to x402 reference"* — so Alchemy is actively adding networks and,
+for the first time, **pricing** to its x402 surface. Pricing appearing in a client's
+reference is the direction this project bet on (§108): a client that states a price needs a
+measurable base rate to state it against, and that is the asset we hold.

@@ -99,6 +99,19 @@ MONITORED = [
     "Merit-Systems/x402scan",
     "developerfred/x402-conformance-probe",
     "alchemyplatform/alchemy-x402",
+    # ── ADDED 27.11.2026: the Alchemy watch was on a repo that had stopped ────
+    # Measured: `alchemyplatform/alchemy-x402` was last pushed 2026-03-19 (3
+    # stars), so eight months of this radar's Alchemy coverage produced nothing
+    # because nothing was being written there. Alchemy's x402 work moved to
+    # `alchemyplatform/skills` — pushed 2026-11-18, 57 stars — which carries
+    # `skills/agentic-gateway/rules/x402/` : wallet generation, an x402 payment
+    # client, and the network list a buyer must fund. That file is the reason to
+    # watch it: it states which payment networks Alchemy's own client supports
+    # (**Base for EVM, Solana for SVM** as of 27.11 — Zero is not among them),
+    # which is a claim about us and our competitors that we can check rather
+    # than assume. The old repo is kept rather than dropped, because a repo that
+    # resumes is news too and history is compared per repository.
+    "alchemyplatform/skills",
     "tanaka-77/mart402-agent-kit",
     "node4dev/x402-agent-toolkit",
     "haoruilee/awesome-agent-native-services",
