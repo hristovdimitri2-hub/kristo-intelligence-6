@@ -2887,13 +2887,31 @@ class HistoryStore:
         number and gets at most that many rows, never a full scan on a
         0.1-CPU instance. Oldest-first, because a reconciliation is read from the
         beginning.
+
+        `route` was added the same evening, because the second party asked for
+        "path, amount, timestamp, transaction hash" and the first version had
+        everything but the path. `onchain_sales` does not carry it — the route
+        lives in `payment_attempts.path`, keyed by the same transaction hash — so
+        the row joins it. The join is best-effort: a deployment without
+        `payment_attempts` (the SQLite development copy) still exports, with
+        `route` empty, rather than failing the whole reconciliation.
         """
         limit = max(1, min(int(limit or 500), 2000))
-        rows = self._run(
-            """SELECT tx_hash, block_number, ts, sender, amount_usdc,
-                      payer_class, payer_label, source
-               FROM onchain_sales ORDER BY ts ASC, tx_hash ASC LIMIT ?""",
-            (limit,), "all")[0]
+        joined = """SELECT s.tx_hash, s.block_number, s.ts, s.sender,
+                           s.amount_usdc, s.payer_class, s.payer_label,
+                           s.source,
+                           (SELECT p.path FROM payment_attempts p
+                             WHERE lower(p.tx_hash) = lower(s.tx_hash)
+                             LIMIT 1) AS route
+                    FROM onchain_sales s
+                    ORDER BY s.ts ASC, s.tx_hash ASC LIMIT ?"""
+        plain = """SELECT tx_hash, block_number, ts, sender, amount_usdc,
+                          payer_class, payer_label, source, '' AS route
+                   FROM onchain_sales ORDER BY ts ASC, tx_hash ASC LIMIT ?"""
+        try:
+            rows = self._run(joined, (limit,), "all")[0]
+        except Exception:                                     # noqa: BLE001
+            rows = self._run(plain, (limit,), "all")[0]
         total = int(self._run(
             "SELECT COUNT(*) AS n FROM onchain_sales", (), "one")[0]["n"])
         return {
