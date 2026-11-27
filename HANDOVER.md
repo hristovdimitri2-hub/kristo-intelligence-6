@@ -9187,3 +9187,45 @@ the digest compares history per repository. Radar tests: **35 passed.**
 for the first time, **pricing** to its x402 surface. Pricing appearing in a client's
 reference is the direction this project bet on (§108): a client that states a price needs a
 measurable base rate to state it against, and that is the asset we hold.
+
+## §147. What a settlement actually costs in gas, measured on our own receipts (27.11.2026)
+
+A reply to §AD came back inside seven hours — **Charlie Pank** (`charliepank@gmail.com`, cc
+`info@stabledrop.me`) — with one question and nothing else: *"What's your take on x402 being
+a loss leader in terms of gas fees on micro payments?"* It is the first time a third party
+has asked us an economics question we can answer from our own chain history, so it was
+measured rather than argued: **ETH $1,660.42**, Base base fee **0.005 gwei**, 27.11.
+
+**Who pays, which is not who people assume.** Neither the buyer nor the seller. The buyer
+signs an EIP-3009 `transferWithAuthorization` — off chain, no transaction — and a
+**facilitator** submits it and pays. Both of our settlements prove it: the transaction's
+`from` is a third party in each case, and the payer appears only inside the log as the
+`AuthorizationUsed` authorizer.
+
+| settlement | submitter (paid the gas) | authorizer (the payer) | gas | gas price | fee | share of payment |
+|---|---|---|---|---|---|---|
+| our $0.25 census canary, 26.11 | `0x68efafe8…` | `0x5f6d3f20…` (our gas wallet) | 86,230 | 0.0100 gwei | **$0.001432** | **0.57%** |
+| PayAPI's $0.005 conformance test, 2 Sep | `0x42dd5390…` | `0x7e6b6556…` | 103,398 | 0.0056 gwei | **$0.000964** | **19.3%** |
+
+So the loss-leader effect is real, and the loss is the **facilitator's**, not the merchant's.
+Break-even for a facilitator charging no spread sits around **$0.001–0.002 per call**: at
+$0.005 it keeps about four tenths of a cent before its own costs, and at $0.25 gas is a
+rounding error.
+
+**EIP-3009 is the expensive part, and the premium is now a number.** A window of 150 recent
+Base blocks holding 1,037 USDC `Transfer` logs yielded 8 genuine plain `transfer` calls:
+**min 40,259, median 62,159 gas**. Our EIP-3009 settlements cost **86,230** and **103,398** —
+**1.4× to 1.7×** — because the token contract recovers the signature on chain. That premium is
+exactly what the buyer receives for never holding ETH, and it is paid by whoever submits.
+
+**What that does to a business at our price points.** The whole ledger is 187 settlements and
+$2.288 lifetime, average **$0.0122**, so at today's fee about **13% of gross** went to gas.
+Escrow amortises it — Stabledrop's own model, one deposit and one later release, two gas
+events per job — which is roughly 0.06% of a $5 job against roughly 19% of a $0.005 call. The
+same rail, two different businesses, and the reason per-call settlement has a floor that
+escrow does not. Neither number is a complaint about Base.
+
+**Reply §AE sent 27.11** to `charliepank@gmail.com`, cc `info@stabledrop.me`, confirmed in
+the Sent folder (**286** messages, one more than before). Every figure in it is measured: the
+two receipts are our own, and the plain-transfer median comes from
+`_tools/plain_transfer_gas.py` over live Base blocks.

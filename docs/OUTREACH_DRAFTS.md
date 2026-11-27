@@ -1901,4 +1901,81 @@ Kristo Intelligence
 **Recipient:** `info@stabledrop.me` (their footer). No CC — there is no second address on the
 site.
 
+**What came back (27.11 10:39, 7 hours after sending).** A reply from **Charlie Pank**
+(`charliepank@gmail.com`), cc `info@stabledrop.me`, asking one question and nothing else:
+
+> *What's your take on x402 being a loss leader in terms of gas fees on micro payments?*
+
+So the letter worked as intended: no pitch, and the answer is a question rather than a
+polite no. The reply below answers it from our own receipts, measured on 27.11 at
+**ETH $1,660.42** and a Base base fee of **0.005 gwei**:
+
+| settlement | gas | gas price | fee | share of the payment |
+|---|---|---|---|---|
+| our $0.25 census canary, 26.11 | 86,230 | 0.0100 gwei | **$0.001432** | **0.57%** |
+| PayAPI's $0.005 conformance test, 2 Sep | 103,398 | 0.0056 gwei | **$0.000964** | **19.3%** |
+| plain USDC `transfer`, median of 8 in a 150-block window | **62,159** | — | — | — |
+
+Both of our settlements are EIP-3009 `transferWithAuthorization`, and in **both** the
+transaction's `from` is a third party — `0x68efafe8…` and `0x42dd5390…` — with the payer
+appearing only as the `AuthorizationUsed` authorizer inside the log. So the gas is the
+facilitator's, and the merchant never sees it.
+
+## AE. Charlie Pank — the gas question, answered from the receipts (27.11.2026)
+
+**Subject:** `Re: AP2 settle on Base, and the number your merchants will ask you for`
+
+```
+Charlie,
+
+Good question, and I can answer it with receipts rather than an opinion, because the gas
+payer in x402 is not who most people assume.
+
+In the `exact` scheme on Base, neither side of the trade pays gas. The buyer signs an
+EIP-3009 transferWithAuthorization — an off-chain signature, no transaction — and a
+facilitator submits it and pays. I decoded both of my own settlements, and in both the
+transaction's `from` is a third party:
+
+- $0.25, 26 Nov — tx `from` 0x68efafe8…, gas 86,230 at 0.0100 gwei = $0.001432 = 0.57% of
+  the amount paid. The payer appears only inside the log, as the AuthorizationUsed
+  authorizer (0x5f6d3f20…, a wallet I control).
+- $0.005, 2 Sep — tx `from` 0x42dd5390…, gas 103,398 at 0.0056 gwei = $0.000964 = 19.3% of
+  the amount paid.
+
+So as a loss leader it is real, and the loss is the facilitator's, not the merchant's.
+Break-even for a facilitator charging no spread sits around $0.001–0.002 per call: at $0.005
+you keep roughly four tenths of a cent before your own costs, and at $0.25 gas is a rounding
+error.
+
+Two things follow.
+
+EIP-3009 is the expensive part. Measured against 150 blocks of USDC activity today: a plain
+`transfer` costs a median 62,159 gas (min 40,259), while my two EIP-3009 settlements cost
+86,230 and 103,398 — roughly 1.4x to 1.7x, because the token contract recovers the signature
+on chain. That premium is exactly what the buyer gets for never holding ETH, and it is paid
+by whoever submits the transaction.
+
+Only batching or escrow survives a low floor. Your time-delayed escrow takes one deposit and
+releases later, so it is two gas events per job instead of one per call. At today's fee that
+is about 0.06% of a $5 job and about 19% of a $0.005 call — the same rail, two completely
+different businesses. If your merchants ask, that is the honest comparison: per-call
+settlement has a floor, escrow has a much lower one, and neither number is a complaint about
+Base, whose base fee is 0.005 gwei.
+
+For scale, my whole ledger is 187 settlements and $2.288 lifetime, average $0.0122 — so at
+today's fee about 13% of gross went to gas. That is the entire case for a facilitator that
+charges a spread rather than nothing, and for structures that settle many authorizations in
+one transaction.
+
+Happy to send the decoded receipts if they are useful.
+
+Dimitri
+```
+
+**Recipient:** `charliepank@gmail.com`, cc `info@stabledrop.me` (matching how his reply
+arrived). Every figure in it was measured, not estimated: the two receipts are our own
+settlements, and the plain-transfer median comes from `_tools/plain_transfer_gas.py` over
+150 recent Base blocks.
+
+
 
