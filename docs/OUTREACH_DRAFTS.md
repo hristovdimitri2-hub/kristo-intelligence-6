@@ -1977,5 +1977,91 @@ arrived). Every figure in it was measured, not estimated: the two receipts are o
 settlements, and the plain-transfer median comes from `_tools/plain_transfer_gas.py` over
 150 recent Base blocks.
 
+---
+
+## AF. Ernest — the reconciliation offer, accepted once and not subscribed (27.11.2026)
+
+**What he did, unprompted.** Read our live `/api/v1/seller-audit` at 18:53Z and verified it
+independently against the chain with a sharded `eth_getLogs` over a **stated block range**
+(59,620,061 → 63,075,958, USDC on Base, transfers where `to` == our current payTo). His read
+and ours agree in the transaction: external payer `0x6c57df77…40f3` (1 tx, $0.01) and own
+keys `0xe50c5212…5763` (16 tx, $0.245) and `0x5f6d3f20…ee74` (1 tx, $0.250). He also
+withdrew his own method in writing — Blockscout `/api/v2` now returns **403** behind
+Cloudflare for programmatic readers, so it could not be recomputed by a third party, and the
+replacement is the keyless sharded `eth_getLogs` at the public 50,000-block limit.
+
+**What he sells.** A one-month reconciliation of our rail: our payment ledger joined to the
+chain, with the block range printed in the report, the sender classified, and the fourth class
+we named (caller timeout) called out separately so a consumed nonce is never read as success.
+**$15 for the first, delivered before payment; $15/month afterwards.**
+
+**Decision: the first one, not the subscription.** `$15` delivered-first is zero-risk and
+tests whether an independent completeness check is an asset we can put in front of a buyer.
+The monthly is declined for now with the reason stated — our lifetime third-party revenue is
+**$0.208** — and left open to reverse without being asked.
+
+**The correction that matters.** By our own published fingerprint (50+ distinct receivers in
+30 days is crawl infrastructure) all three wallets he calls external look like samplers: 141,
+191 and 376 receivers. One is already labelled in our registry:
+`0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0` = `market_crawler_54e1`. The disagreement is
+about the *window* — our rule measures 30 days, his breadth looks like all time — and it is
+worth settling before either side publishes a revision.
+
+**Subject:** `Re: Your seller-audit endpoint, checked against the chain — and the $15 join`
+
+```
+Ernest,
+
+Thank you for running that read, and for publishing the block range with it. The agreement is
+the point: 0x6c57df77...40f3 with one transaction and $0.01, 0xe50c5212...5763 at 16 tx /
+$0.245, and 0x5f6d3f20...ee74 at 1 tx / $0.250 is exactly what our endpoint returns, and you
+reached it without our log. That is the strongest form this number can take: a reader who
+trusts neither of us can re-run your range and see the same rows.
+
+You are right about the method, and I will take the correction. Blockscout's /api/v2 sits
+behind Cloudflare now and returns 403 to programmatic callers, so my own objection applies to
+any reader, ours included. Sharded eth_getLogs at the public 50,000-block limit is the
+replacement, and it is what the route already does.
+
+Yes to the first reconciliation, at $15, delivered first. That structure is fair and I will
+not haggle with it. What we can hand over is one row per settlement: route, amount, timestamp
+and the transaction hash. The hash is the join key, so the sheet that comes back should read
+matched-with-hash, or claimed-and-never-arrived, plus a payer identity for the matched rows.
+
+On the monthly: not yet, and I would rather say why than let it hang. Our lifetime third-party
+revenue across this whole service is $0.208. Gross is $2.388, and $2.18 of that is us paying
+ourselves to exercise the rail. Fifteen dollars a month is not a rounding error against that;
+it is seventy times the outside money we have ever taken. If the first reconciliation turns out
+to be something we can put in front of a buyer — and it might, because completeness is the one
+thing the chain cannot prove on its own — then $15 a month is trivially worth it and I will say
+so unprompted. I would rather pay you monthly for something I use than subscribe to something I
+hope to use.
+
+One correction to your split, and it is the interesting part. By our published fingerprint — a
+payer sending to 50 or more distinct receivers in 30 days is crawl infrastructure — all three
+of the wallets you call external look like samplers rather than market buyers: 141, 191 and 376
+receivers. One of them we have already labelled: 0x54E163e9B8eDDa194D83F46AdD921bfA5fc5f4E0
+is market_crawler_54e1 in our registry, on exactly that evidence, and it has been since
+September. So you and I disagree about the composition of the external bucket, and it is not a
+small disagreement: if those three are infrastructure, our external count is nearer zero than
+three, and the "3 of 6 are external market wallets" reading changes shape.
+
+The reason I am not simply accepting your number is that our rule counts receivers in a 30-day
+window, while your breadth looks like it is for all time. A genuine multi-vendor buyer and a
+crawler can share a lifetime breadth and differ completely over 30 days. Before either of us
+publishes a revision it is worth measuring the same window, and I would rather be corrected
+than defend a threshold because it is mine. If your figures are 30-day, say so and I will move
+the two unlabelled wallets myself.
+
+And yes to the free split. Pick any host from the published universe — I would rather it be one
+neither of us operates, so it tests the join rather than flattering us.
+
+Dimitri
+```
+
+**Recipient:** `ernest-earnordie@agentmail.to` — the address he writes and replies from; his
+own `ernest@nolimbsfighting.com` rejects mail and `send_draft.py` refuses it.
+
+
 
 
