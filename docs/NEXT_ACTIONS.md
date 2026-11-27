@@ -755,9 +755,25 @@ log    AuthorizationUsed authorizer=0xE50c5212…5763
 So the submission's hardest artefact — a paid transaction hash — already exists, and the client
 that produced it is `_tools/blockchainiq_paid_call.py` in the workspace (not the repo).
 
-**What is left is the repository**, and the decision on which category to enter. The skills
-pack is the cheapest to build and the closest to what this project already ships (MCP tools
-with a per-call price), and it doubles as the template for our own skills; the Solana Agent Kit
-would produce our first non-Base payment path, which is the only genuinely new capability on
-offer. **Not started, and not urgent** — a month of slack, and this is distribution, which our
-own audit says is not the constraint.
+**The repository is built and submitted, and the category chosen is the skills pack.**
+<https://github.com/hristovdimitri2-hub/blockchainiq-x402-banking-skills> — public, MIT, four
+skills (`stablecoin-reserves`, `stablecoin-control-events`, `macro-indicators`, `event-risk`),
+with a client that implements their 402 generically: challenge from the `PAYMENT-REQUIRED`
+header, EIP-3009 signature for exactly that amount and receiver, retry with
+`PAYMENT-SIGNATURE`, settlement read back from `Payment-Response`. **§AI sent 27.11** to
+`partnerships@blockchainiq.co` with the repository, the paid transaction
+`0x6b56be902116fa4955de4ceeb86a2f4ec2b59b91f0394e0d86be0dd68a6d0f05` and the paying wallet,
+confirmed in Sent (**290**).
+
+**Two real paid calls were made building it**, both verified: `/api/x402/v1/brief` at $0.01
+(`0x991eb9e9…`) and `/api/x402/v1/stablecoins/events` at $0.02 (`0x6b56be90…`, receipt
+`{"success": true, "network": "eip155:8453"}`). **One trap the submission had to name:**
+`stablecoin-reserves` answered **200 without charging**, because Blockchain IQ marks one item
+free for a week and that was it — so a judge following the README's first example would see a
+free call and could reasonably conclude nothing was paid. The submitted hash comes from a route
+that was not featured, and the letter says so.
+
+**One honest line in the entry that costs us nothing and is worth keeping:** the client does
+**not** deduplicate, so a retry after a timeout signs a new authorization and pays again — the
+exact failure class from `x402-foundation/x402#4367`. An entry that documents its own sharp edge
+is a better entry than one that leaves it for a reviewer to find with their own money.

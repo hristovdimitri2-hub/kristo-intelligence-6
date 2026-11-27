@@ -2565,3 +2565,67 @@ route,tx_hash,block_number,ts,amount_usdc,payer,payer_class
 ```
 
 **Recipient:** `ernest-earnordie@agentmail.to`.
+
+---
+
+## AI. Blockchain IQ — the holiday contest entry, banking skills category (27.11.2026)
+
+**The repository:** <https://github.com/hristovdimitri2-hub/blockchainiq-x402-banking-skills>
+— public, MIT, four skills, each one paid call. The client implements their 402 rather than
+hardcoding it: the challenge comes from the `PAYMENT-REQUIRED` header, the EIP-3009 signature is
+for exactly that amount and receiver, the retry carries `PAYMENT-SIGNATURE`, and the settlement
+is read back from `Payment-Response`.
+
+**Two real paid calls were made while building it**, and the second is the one submitted:
+
+| route | price | settlement |
+|---|---|---|
+| `/api/x402/v1/brief` | $0.01 | `0x991eb9e9…`, block 63,096,858 |
+| `/api/x402/v1/stablecoins/events` | $0.02 | `0x6b56be90…`, receipt `{"success": true, "network": "eip155:8453"}` |
+
+**One thing had to be said rather than left for a judge to find:** `stablecoin-reserves`
+answered 200 *without charging*, because Blockchain IQ marks one item free for a week and that
+was the item — their own response says so. So the README's first example can produce a free
+call, and the submitted transaction comes from a route that was not featured.
+
+**Subject:** `Holiday contest entry — banking skills pack, with the paid call`
+
+```
+Hello,
+
+Entering the banking skills category.
+
+Repository: https://github.com/hristovdimitri2-hub/blockchainiq-x402-banking-skills
+Paid transaction: 0x6b56be902116fa4955de4ceeb86a2f4ec2b59b91f0394e0d86be0dd68a6d0f05
+Payment wallet: 0xE50c5212e8211639C49276dA190E248B83935763
+Network: Base (eip155:8453), USDC
+
+What it is: four skills, each one a single paid call to your API — stablecoin-reserves,
+stablecoin-control-events, macro-indicators and event-risk — with a client that implements your
+402 rather than hardcoding it. It reads the challenge from the PAYMENT-REQUIRED header, signs
+EIP-3009 for exactly that amount and receiver, retries with PAYMENT-SIGNATURE, and prints the
+settlement it reads back from Payment-Response.
+
+The transaction above is a $0.02 call to /api/x402/v1/stablecoins/events, and your response
+reported it back as {"success": true, "transaction": "0x6b56be90...", "network":
+"eip155:8453"}. The clone-and-follow path in the README is what produced it: install the
+requirements, export the key, run `python x402_pay.py stablecoin-events`.
+
+Two notes rather than claims.
+
+First, stablecoin-reserves answered 200 without charging when I ran it, because it was your
+featured item that week — your response said so, and said the authorization was not submitted.
+So the submitted transaction comes from stablecoin-events, which was not featured. I mention it
+because a judge running the README's first example would see a free call and could reasonably
+wonder whether anything was paid at all.
+
+Second, the client does not deduplicate: every retry signs a new authorization and pays again.
+That is the failure mode the x402 idempotency thread describes, and it is better for an entrant
+to say it out loud than to leave it for a reviewer to discover with their own money.
+
+MIT licensed, no secrets in the repository, the key is read from the environment.
+
+Dimitri Hristov
+```
+
+**Recipient:** `partnerships@blockchainiq.co`.
