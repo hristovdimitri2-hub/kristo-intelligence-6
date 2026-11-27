@@ -9095,3 +9095,47 @@ direction, which is why "not in the catalogue" is not the same as "not public".
 record points at `https://kristo-intelligence-api.onrender.com/mcp/sse`. That address is
 real: a plain GET returns `event: endpoint` with `data: …/mcp/message?sessionId=…` and
 `: keepalive` frames. A third-party listing is advertising a transport we actually serve.
+
+## §145. The same discussion, in a channel we do have (27.11.2026)
+
+The owner has no Reddit account, so the r/ethdev thread on card-to-crypto orchestration
+cannot be answered from here. The equivalent venue is GitHub, and the same audience is
+there: **`x402-foundation/x402` #4367**, *"Buyer-side measurements from 25,011 paid x402
+calls on Base mainnet"*, opened by `sarmadahsan` (paidfor.dev) on 21.11 — **15 comments**,
+the busiest measurement thread in the repository.
+
+**What was already said, so it was not repeated.** `hwcho310` had already split the 507
+`overcharge` calls into "quote above the listing" — a discovery inconsistency — and
+"settled above the quote", a settlement problem. `earnordie-ernest` had already offered a
+seller-side cut of demand structure over the catalogue. The gap left open is the one we had
+measured: **the split assumes the listing is ground truth.**
+
+**What was added.** Posted as `hristovdimitri2-hub` on 27.11 07:50:55Z, comment
+`7212878372`, 3,628 characters:
+
+- **A Bazaar row is a cache, not a declaration.** It holds the `extensions` the buyer echoed
+  on the last *successful paid call*, and nothing else refreshes it. Dated from our own row:
+  `/api/v1/whaleflow` `lastUpdated` **2026-11-25T17:26:58Z** against a settlement at
+  **17:27:01Z** — three seconds apart, in that order.
+- **So a buyer-side check against the listing cannot catch a stale one**, and a seller who
+  raises a price between two calls records an overcharge nobody chose. No seller-side action
+  prevents it; the only refresh is a paid call, which is what the study is already doing.
+- **The same failure mode outside the Bazaar, with a different mechanism.** PayAPI printed
+  `$0.003 to $0.005` from `verified_routes` — September test receipts — while its own `price`
+  field and the live 402 both said `$0.005–$0.05`. A 10x apparent overcharge that only the
+  directory's operator could fix, and did on 26.11. Suggested splitting the class by source
+  index for exactly this reason.
+- **A durable operator-side claim for the transfer rail**, which their idempotency section
+  says does not exist today: `payment_guards`, a SQLite table deliberately not an in-process
+  set, refusing a replay as *"durable payment_guards claim refused (tx already spent)"*. Not
+  the `exact` scheme, and the comment says so plainly.
+- **Our payer taxonomy** as the measurement neither side can buy, with the free endpoint.
+
+**A trap caught while verifying, and it is the mirror of an older one.** The comment read
+back from the GitHub API as `вЂ”` — the CP1251 signature of UTF-8 bytes — and a first check
+concluded the post was corrupted. Reading the same bytes with
+`[System.IO.File]::ReadAllBytes` plus `UTF8.GetString` shows **6 em dashes and 0 Cyrillic**:
+the comment is clean, and the defect is in `Get-Content -Raw`, which decodes as the console
+codepage here. The lesson already in this file is about *writing* files through PowerShell;
+this is the other direction — **never verify external UTF-8 with `Get-Content -Raw`; read
+the bytes.**
