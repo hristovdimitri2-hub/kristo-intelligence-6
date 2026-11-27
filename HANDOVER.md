@@ -8972,6 +8972,68 @@ republished. Recorded as a decision, not taken.
 checks still answer, but the `/mcp` record's SEAL is now withheld, so the sentence was true
 of the checks and not of the SEAL.
 
+## §143. The expired proof is gone, Chet fixed the price, and Coinbase's own validator passes every route (27.11.2026)
+
+**The token removal, executed.** `X402LIST_VERIFICATION_TOKEN` expired at 15:06Z on 26.11
+and the variable carried no expiry check, so `/.well-known/x402list.txt` kept serving a
+proof that was no longer valid. `_tools/remove_x402list_token.py --apply` deleted the
+variable (`DELETE /v1/services/{id}/env-vars/{key}` → **204**), triggered the deploy
+explicitly (`POST /deploys` → **201**, `dep-dc4id9u1egvs738hr8r0`) because an env change
+alone does not restart the process, and polled the path: it answered 200 four times and
+**404 on the fifth poll**, about 75 seconds in. Verified after the redeploy: `/health` 200,
+`/validation` 200, `/mcp.json` 200, and `/.well-known/sealkeeper-claim.txt` still exactly
+**43 bytes**, sha256 `fc8b6323…` — the token the owner verified yesterday survives the
+deploy.
+
+**Chet Parker answered the PayAPI message (26.11 16:23Z), and both measured defects are
+closed on his side.** The route records for `/api/v1/signal` and `/api/v1/whaleflow` still
+held the September `$0.003`; their health check compared the live `$0.01` quote against
+that stale number and flagged a mismatch, so he updated both to `$0.01`. He probed all
+seven routes the same day and each returned a clean `402` on Base to our wallet, at
+`$0.005`, `$0.01` or `$0.05` as listed. The four routes missing from the
+settlement-verified line (`/api/sales`, `/api/arb/opportunities`, `/api/bot-status`,
+`/api/v1/verify-seller`) will be added **to the same card at PayAPI's cost** — they pay a
+small test on each from their own wallet, and all four are at or under `$0.05`, so no
+deposit is needed from us. Two things are not done: the reliability window has not been
+recomputed since September (his to recompute, not something we can `PUT`), and the three
+rejected listings are not public but **have not been deleted**. Listing is free and PayAPI
+takes **0%**.
+
+**Ernest's advice was already recorded; our own measurement refines it.** Row 3b holds the
+answer from `coinbase/cdp-sdk#881` (filed by us 24.11 18:00Z, one comment, from
+`earnordie-ernest`, 25.11 12:53Z): **there is no delisting mechanism**, a Bazaar row moves
+only when a paid call re-indexes it, and orphaned rows otherwise decay. What the bytes add
+is the reason they cannot be refreshed by paying: the six retired rows are **double-hashed
+MCP resources** (`/mcp#get_market_stats#get_market_stats`, `#get_trading_signal#…`,
+`#get_arbitrage_opportunities#…`, `#get_bot_status#…`, `#get_onchain_sales#…`,
+`#verify_seller_receiver#…`), every one dated **2026-11-10**, while the live rows use a
+single hash (`/mcp#get_market_stats`). The current address also still carries one
+double-hashed duplicate, `/mcp#get_whale_flow#get_whale_flow` (17.11). A resource string no
+client can construct cannot be paid through, so the retired six and the duplicate can only
+age out — decay, exactly as he said, and not a redirect we can perform.
+
+**The current address holds 21 rows, and one of them is new.** 13 HTTP + 8 MCP. The 21st is
+**`/api/v1/demand-census`, indexed 2026-11-26 05:52:44Z** — so the census promotion reached
+the CDP catalogue as well as the four machine surfaces. The index's own `lastCrawledAt`
+corroborates two earlier readings rather than replacing them: `/api/v1/whaleflow` at
+**25.11 17:26:58Z**, three seconds before the external payment at 17:27:01Z, and
+`/api/v1/signal` at 25.11 07:37:45Z. Three of the four routes PayAPI is about to test were
+last crawled **17.11** (`/api/v1/verify-seller` 05:52:48Z, `/api/sales` 08:14:02Z,
+`/api/arb/opportunities` 14:41:23Z): indexed, valid, and nothing has paid through them
+since.
+
+**Coinbase's own validator passes all nine routes, 25 checks out of 25.**
+`_tools/run_cdp_validator_full.py` calls `POST /platform/v2/x402/validate` with our CDP key
+and prints every preflight check rather than a summary. `valid: true`, zero failures, for
+`/mcp`, `/api/v1/signal`, `/api/v1/whaleflow`, `/api/v1/verify-seller`, `/api/sales`,
+`/api/arb/opportunities`, `/api/bot-status` and `/api/v1/demand-census`. The checks cover
+`returns_402`, the `PAYMENT-REQUIRED` header, `scheme`, `network eip155:8453`, `asset USDC`,
+the amount, `payTo`, `maxTimeoutSeconds`, and the whole Bazaar extension including
+`input.method.matches_request`. Ernest's warning — that a row can be catalogued while the
+route behind it cannot pass the preflight, so it can never be paid through and never
+refreshed — does not apply to one of ours. This is the strongest external statement about
+the payment surface that exists, because the validator belongs to the indexer, not to us.
+
 
 
 

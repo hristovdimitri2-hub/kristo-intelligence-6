@@ -497,8 +497,8 @@ marketplace is where you are hired instead. Two doors, and both point away from
 |---|---|---|
 | 1 | **Jamenbin** — tell him the fixture moved | **DONE.** Comment posted 24.11 at 16:46Z on `VibeMirror-coder/n8n-nodes-omnidome#3`, verified by reading the issue back. |
 | 2 | **Free or pilot tier** | **Approved.** Marketplace conversations may promise a pilot. |
-| 3 | **`X402LIST_VERIFICATION_TOKEN`** | **Prepared.** Token still present (`x402list-verify-rCh48s…`, 59 chars) and `/.well-known/x402list.txt` serves it (HTTP 200). It expires 26.11 15:06Z. `_tools/remove_x402list_token.py` does the whole job — dry-run verified, `--apply` deletes the variable with `DELETE /env-vars/{key}` (never a `PUT` of the collection), triggers the deploy, then polls until the path returns 404. Reminder set for 26.11 17:10 EET. |
-| 4 | **PayAPI's `Price` field** | **Half done.** The price edit went through on 24.11 — the public record now reads `$0.005 – $0.05`. The visible page text and `endpoints_count` still show the September values, for the reason measured in §2b. |
+| 3 | **`X402LIST_VERIFICATION_TOKEN`** | **DONE 26.11.2026.** The token expired 15:06Z and the variable had no expiry check, so the path kept serving it. `_tools/remove_x402list_token.py --apply` deleted the variable (`DELETE /env-vars/{key}` → **204**), triggered deploy **`dep-dc4id9u1egvs738hr8r0`**, and `/.well-known/x402list.txt` returned **404** on the fifth poll (~75 s). Verified after the redeploy: `/health` 200, `/validation` 200, `/.well-known/sealkeeper-claim.txt` still the same 43 bytes / sha256 `fc8b6323…`. |
+| 4 | **PayAPI's `Price` field** | **DONE 26.11.2026.** The price edit went through on 24.11 (`$0.005 – $0.05`), and the stale `verified_routes` line that still printed `$0.003 – $0.005` **was fixed by Chet on 26.11** — see §2c. The four routes missing from the settlement-verified line are being added by PayAPI at their own cost. |
 
 ### 2b. PayAPI — price fixed, and "degraded" is a six-week-old record
 
@@ -569,6 +569,32 @@ expose) — a `HEAD`/`OPTIONS` probe and a full GET both answer correctly.
 **Conclusion.** The only lever left is a re-verification by PayAPI, on the
 existing card. That is the one thing to ask Chet for, and the message in
 `OUTREACH_DRAFTS.md` §L2 now says exactly that instead of asking what they probe.
+
+### 2c. Chet answered on 26.11 — the price defect is fixed, and PayAPI pays for the missing four
+
+Chet Parker replied on **26.11 16:23Z** to that message, and both measured defects
+are closed on his side:
+
+- **The stale price is gone.** The route records for `/api/v1/signal` and
+  `/api/v1/whaleflow` still held the September `$0.003`; their health check
+  compared the live `$0.01` quote against that stale number and flagged a
+  mismatch. He updated both to `$0.01`.
+- **He probed all seven routes the same day:** each returned a clean `402` on Base
+  to our wallet, at `$0.005`, `$0.01` or `$0.05` as listed. The listing is live on
+  the same card.
+- **The four missing routes will be added to the same card, at PayAPI's cost.**
+  They pay a small test on each from their own wallet — all four are at or under
+  `$0.05`, so no deposit is needed from us — and the routes join once tested.
+  **No second card.**
+- **Reliability is not refreshed.** The uptime figure and the "degraded" label come
+  from a stored reliability window that has not been recomputed since September; he
+  has not refreshed it yet.
+- **The three rejected listings are not public.** He has noted the deletion request;
+  **nothing has been removed yet.**
+- Free to list, and PayAPI takes **0%** of each job.
+
+So the only open half is the reliability window, and recomputing it is his to do —
+it is not something we can `PUT`.
 
 ---
 
