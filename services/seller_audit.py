@@ -52,10 +52,16 @@ MAX_AUDIT_DAYS = 30
 #: Measured 27.11.2026: a paid call to `/api/v1/verify-seller?days=30` SETTLED ON
 #: CHAIN and returned nothing to a client that timed out at 120s
 #: (`0xe3ffa8f9…`, 18:10:47Z) — money moved, no report, and the failure is
-#: invisible in both parties' logs. With this budget the request answers inside a
-#: normal client timeout, reports `read: "partial"`, and names the block ranges it
-#: did not read, because the scan walks newest-first.
-AUDIT_TIME_BUDGET_SECONDS = 45.0
+#: invisible in both parties' logs.
+#:
+#: FIRST SET TO 45s AND THEN CUT, on the same day's measurement. With a 45s
+#: budget the request answered in **54.6s** end to end (the budget covers the
+#: scan; signing, the 402 round trip and the response add ~10s on top). A client
+#: that allows 30s would still have timed out and still have paid, so the budget
+#: is now 20s and the whole call lands near 30s. A wide window is therefore
+#: answered as `partial` with the unread ranges named, which is the truthful
+#: shape for it — and `AUDIT_CACHE_SECONDS` makes the repeat call free.
+AUDIT_TIME_BUDGET_SECONDS = 20.0
 
 #: How long a finished audit may be reused. An audit costs real RPC calls, so the
 #: same receiver must not pay for them twice in a minute — and a result this fresh
