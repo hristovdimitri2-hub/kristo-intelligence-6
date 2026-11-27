@@ -719,3 +719,45 @@ more than the sale — which argues for a higher price per job or a subscription
 - **Next checkpoint for `docs/SIGNAL_RECORD.md` is 100 scored signals** (99 today), and
   the **second census snapshot** is due **20.12** (`scripts/build_demand_census.py`),
   which is what creates the first real delta product.
+
+---
+
+## 8. Opportunity — Blockchain IQ's holiday contest, and the path is already proven (27.11.2026)
+
+Announced by email 27.11 20:35. **$100 USDC for the best integration in each of three
+categories** — a Solana Agent Kit, a Vercel AI SDK integration, and a skills pack of at least
+three skills. Judged on technical soundness (60) and creativity (40), and **every passing entry
+is published on their integrations page whether it wins or not**, which is the part worth more
+than the prize.
+
+**Measured rather than assumed:**
+
+| | |
+|---|---|
+| their catalogue | `GET https://www.blockchainiq.co/api/x402/v1` — **59 resources**, 7 free, 52 paid |
+| cheapest paid call | **`/api/x402/v1/brief`, $0.01** (dearest is $990) |
+| rails | **Base `eip155:8453` USDC** and **Solana USDC** — two payTo addresses |
+| their 402 shape | the challenge is in the **`PAYMENT-REQUIRED` header**, base64, and the receipt comes back in **`Payment-Response`** — not in the body |
+| deadline | **25.12.2026 23:59 CT**; winners announced and paid by 31.12 |
+| submit to | `partnerships@blockchainiq.co` with the repo link, the paid transaction hash and the payment wallet |
+
+**The entry path is proven end to end, at a cost of one cent.** A real paid call was made on
+27.11 with our own demo key over the standard EIP-3009 rail, and verified on chain:
+
+```
+tx     0x991eb9e9945f8e355c8a1efd69efb71573b5ff121f4dce66a383a6466426cfba
+block  63096858
+to     0x617dA9383fbA67e86137BC4924b8b7E400fB7C9e   (their payTo)
+amount $0.01     gasUsed 86,250 (86k is EIP-3009's signature recovery, our own number)
+log    AuthorizationUsed authorizer=0xE50c5212…5763
+```
+
+So the submission's hardest artefact — a paid transaction hash — already exists, and the client
+that produced it is `_tools/blockchainiq_paid_call.py` in the workspace (not the repo).
+
+**What is left is the repository**, and the decision on which category to enter. The skills
+pack is the cheapest to build and the closest to what this project already ships (MCP tools
+with a per-call price), and it doubles as the template for our own skills; the Solana Agent Kit
+would produce our first non-Base payment path, which is the only genuinely new capability on
+offer. **Not started, and not urgent** — a month of slack, and this is distribution, which our
+own audit says is not the constraint.
