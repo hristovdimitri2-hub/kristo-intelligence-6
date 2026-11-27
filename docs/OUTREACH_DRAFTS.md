@@ -2629,3 +2629,102 @@ Dimitri Hristov
 ```
 
 **Recipient:** `partnerships@blockchainiq.co`.
+
+---
+
+## AJ. Charlie Pank — the loss leader ends, and the number says where it bites (27.11.2026)
+
+**What he replied.** *"Whoever is paying the gas on the loss leader (Coinbase) must be doing it
+for a reason. So when that loss leader deal ends everyone will be paying for their gas again on
+systems making micropayments and it'll no longer be a viable solution."*
+
+**Measured before answering, at ETH $1,666 and a Base base fee of 0.0050 gwei**, against the
+86,230-gas EIP-3009 cost taken from our own settlements:
+
+| price | gas share today | break-even gas price | headroom |
+|---|---|---|---|
+| $0.001 | **71.9%** | 0.010 gwei | **2×** |
+| $0.005 | **14.4%** | 0.035 gwei | **7×** |
+| $0.01 | 7.2% | 0.070 gwei | 14× |
+| $0.05 | 1.4% | 0.35 gwei | 70× |
+| $0.25 | 0.29% | 1.74 gwei | 348× |
+
+So his direction is right and the margin is **thin**: a half-cent call survives a **7×** fee
+increase, and a tenth-of-a-cent call is at break-even *today*. The first version of my answer
+implied more room than that; this is the correction.
+
+**Two different risks, which is the part worth separating.** The subsidy ending and the fee
+rising are not the same event. If the subsidy ends and the fee stays where it is, the seller
+absorbs $0.0007–0.0014 a call: fatal at $0.005, noise at $0.05. So "the loss leader ends" does
+not kill micropayments — it kills the **sub-cent end** of them, which is a pricing conclusion
+rather than a protocol one.
+
+**And it is not one company's promotion.** Three distinct facilitators paid the gas on three
+sellers' payments that we can name, including one we made to a third party today:
+`0x68efafe8…` (our own census canary), `0x42dd5390…` (PayAPI's conformance test) and
+`0x93f66011…` (our $0.02 payment to Blockchain IQ). Three submitters, three unrelated sellers.
+That is a market structure somebody is funding, and still somebody's cost centre.
+
+**The mitigation everyone assumes — batching — is not happening.** Measured over 400 Base
+blocks: **1,860 USDC transfers in 1,211 transactions; 3 carried ten or more transfers and none
+carried 32 or more**, and the multi-transfer transactions that do exist cost *more* per transfer
+(median 156,941 gas for the 2–9 bucket) because they are routers, not batch settlers. The
+arithmetic of amortising settlement is real; the practice is absent, and the visible
+multi-transfer traffic is not a counter-example.
+
+**Conclusion offered:** a seller should not price below the gas it may have to absorb. Our floor
+is $0.005 and its margin is 7×, which is thin — if it were re-priced today it would not go below
+a cent. And escrow, one deposit and one release, is the shape that survives a fee rise, because
+it is two gas events per job rather than one per call.
+
+**Subject:** `Re: AP2 settle on Base — the loss leader ends, and here is where it bites`
+
+```
+Charlie,
+
+You are right that a subsidy is not a business model, and the number is worse for the cheap end
+than I implied in my last message. Measured at ETH $1,666 and a Base base fee of 0.0050 gwei,
+against the 86,230 gas an EIP-3009 authorization costs (taken from my own settlements):
+
+  price    gas share today   break-even gas price   headroom
+  $0.001        71.9%              0.010 gwei          2x
+  $0.005        14.4%              0.035 gwei          7x
+  $0.01          7.2%              0.070 gwei         14x
+  $0.05          1.4%              0.35 gwei          70x
+  $0.25          0.29%             1.74 gwei         348x
+
+So a half-cent call survives a seven-fold fee increase and no more, and a tenth of a cent is at
+break-even today. That is a much narrower margin than "gas is two orders of magnitude below our
+smallest price" implies, and I would rather correct myself than let you build on my first
+answer.
+
+Where I would separate your argument, though: the subsidy ending and the fee rising are two
+different risks, and only the second one is about micropayments. If the subsidy ends and the fee
+stays where it is, whoever settles absorbs $0.0007 to $0.0014 a call. At $0.05 that is 1.4% and
+nobody notices. At $0.005 it is 14% and it decides the product. So the loss leader ending does
+not kill micropayments; it kills the sub-cent end of them, which is a pricing conclusion rather
+than a protocol one.
+
+One thing worth knowing before you discount the model as one company's promotion: it is not one
+company. Three distinct facilitators paid the gas on three sellers' payments I can name — mine,
+a conformance test somebody ran against me, and a payment I made today to a third party. Three
+submitters, three unrelated merchants. That is a market structure several parties are funding,
+which makes it more durable than a promo and still somebody's cost centre.
+
+And the mitigation everyone reaches for is not happening yet. I measured 400 Base blocks: 1,860
+USDC transfers in 1,211 transactions, of which three carried ten or more transfers and none
+carried thirty-two or more. The multi-transfer transactions that do exist cost MORE per transfer
+than a standalone authorization (median 156,941 gas in the 2-to-9 bucket), because they are
+routers rather than batch settlers. Amortising settlement is real arithmetic and currently
+absent practice, so nobody should plan on it arriving in time.
+
+Which is why your escrow shape is the one I would defend in that scenario: one deposit and one
+release is two gas events per job, so a fee rise moves it from 0.06% of a $5 job to 0.6%, where
+per-call settlement at $0.005 goes from 14% to something fatal. Same rail, and only one of those
+two products survives the scenario you are describing.
+
+Dimitri
+```
+
+**Recipient:** `charlie@stabledrop.me`, cc `charliepank@gmail.com` and `info@stabledrop.me`
+(he moved to the company address and kept the others on the thread).
