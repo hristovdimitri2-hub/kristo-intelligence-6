@@ -9132,7 +9132,8 @@ measured: **the split assumes the listing is ground truth.**
 - **Our payer taxonomy** as the measurement neither side can buy, with the free endpoint.
 
 **A trap caught while verifying, and it is the mirror of an older one.** The comment read
-back from the GitHub API as `вЂ”` — the CP1251 signature of UTF-8 bytes — and a first check
+back from the GitHub API as three CP1251 glyphs where the em dash should be — the classic
+signature of UTF-8 bytes decoded as CP1251 — and a first check
 concluded the post was corrupted. Reading the same bytes with
 `[System.IO.File]::ReadAllBytes` plus `UTF8.GetString` shows **6 em dashes and 0 Cyrillic**:
 the comment is clean, and the defect is in `Get-Content -Raw`, which decodes as the console
