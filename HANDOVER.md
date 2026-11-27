@@ -9212,11 +9212,22 @@ Break-even for a facilitator charging no spread sits around **$0.001–0.002 per
 $0.005 it keeps about four tenths of a cent before its own costs, and at $0.25 gas is a
 rounding error.
 
-**EIP-3009 is the expensive part, and the premium is now a number.** A window of 150 recent
-Base blocks holding 1,037 USDC `Transfer` logs yielded 8 genuine plain `transfer` calls:
-**min 40,259, median 62,159 gas**. Our EIP-3009 settlements cost **86,230** and **103,398** —
-**1.4× to 1.7×** — because the token contract recovers the signature on chain. That premium is
+**EIP-3009 is the expensive part, and the premium is now a number.** Windows of recent Base
+blocks holding over a thousand USDC `Transfer` logs yielded 8 genuine plain `transfer` calls
+each time: the first window gave **min 40,259, median 62,159** gas, the second **min 40,271,
+median 45,071, max 62,171**. The spread is real and comes from the recipient's state — a
+transfer to an address that has never held the token writes more storage than one to an
+existing holder — so the honest statement is a range, not a median. Against that, our
+EIP-3009 settlements cost **86,230** and **103,398** gas, which is **1.4× to 2.5×** the
+plain-transfer range, and the premium is the signature recovery on chain. That premium is
 exactly what the buyer receives for never holding ETH, and it is paid by whoever submits.
+
+**The tool is tracked, not scratch.** `scripts/measure_settlement_gas.py` takes settlement
+hashes as arguments and prints the submitter, the function, the gas, the fee in dollars, and
+the decoded logs, then measures the plain-transfer baseline in the same run. It rotates
+across four public Base RPCs, because a single hardcoded host fails halfway: measured, the
+first run died with **403** from `publicnode` and an earlier one with **429** from
+`mainnet.base.org`. Re-run it before quoting any of these numbers again.
 
 **What that does to a business at our price points.** The whole ledger is 187 settlements and
 $2.288 lifetime, average **$0.0122**, so at today's fee about **13% of gross** went to gas.
@@ -9227,5 +9238,13 @@ escrow does not. Neither number is a complaint about Base.
 
 **Reply §AE sent 27.11** to `charliepank@gmail.com`, cc `info@stabledrop.me`, confirmed in
 the Sent folder (**286** messages, one more than before). Every figure in it is measured: the
-two receipts are our own, and the plain-transfer median comes from
-`_tools/plain_transfer_gas.py` over live Base blocks.
+two receipts are our own, and the plain-transfer baseline comes from
+`scripts/measure_settlement_gas.py` over live Base blocks.
+
+**One correction to the letter, made after it was sent.** The reply quotes "median 62,159 gas
+(min 40,259)" for a plain transfer, which is what the first window measured. A second window
+on the same day gave a median of **45,071** with the same maximum, so the figure is
+window-dependent and the range is the honest form. The bill for the letter is unaffected —
+EIP-3009 is 1.4× to 2.5× a plain transfer rather than 1.4× to 1.7×, and both readings put
+gas between 19% and 20% of a $0.005 call. Recorded rather than quietly dropped, because the
+recipient may check.
