@@ -63,6 +63,15 @@ Ordered plan, cheapest first:
    `$0.01` settle at `17:27:01Z`. Forked to `hristovdimitri2-hub/x402`, branch
    `docs/bazaar-settlement-driven-freshness`, commit `a82ff2c`. The wording is
    deliberately facilitator-agnostic and the PR body offers to trim, move or drop it.
+   **One account action is outstanding, and it is the only step the token cannot do:**
+   that repo requires **signed commits** and neither API-written commit is signed
+   (`549638e`, `a82ff2c`), which its own bot says blocks review and closes the PR
+   after a week of inactivity. A signing key now exists locally — RSA 4096,
+   sign-only, two years, fingerprint `D1DFC42A A53D72B3 39150906 59790D2C 3265AA08`
+   — and signing was proven with a detached signature before it was offered. Until
+   the public half is registered under **Settings → SSH and GPG keys → New GPG key**,
+   the PR is `MERGEABLE` and `BLOCKED` at once. Then: squash, sign, force-push; the
+   diff does not change. Comment `7241616213` says all of this on the PR itself.
 2. **Join the Domain Discovery working group's public mailing list and Slack**
    (free) — the only place our measurements could shape a specification.
    **Mailing list done 25.11.2026:** subscription confirmed (Groups.io confirms by

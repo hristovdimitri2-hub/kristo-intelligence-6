@@ -9385,3 +9385,38 @@ Before it: issue `#3483` (seller-side verification gap), the grant application `
 and four comments in `#4367`. A merged paragraph in the seller-facing document is a smaller
 artifact than any of those and the only one that would carry our finding in the Foundation's own
 words.
+
+**The repository requires signed commits, and that is one account action, not a defect in the
+change.** Within three minutes of opening, four bots answered: Mintlify needs a maintainer to
+approve a fork preview, Vercel needs the Coinbase team to authorise a deploy, and two checkers said
+the same thing — *"we require commit signing, please rebase and verify your commits… the team will
+not review this PR before ALL commits have been verified and it will be closed after 1 week of
+inactivity"*, naming `549638e` and `a82ff2c` as unsigned. They are, and the reason is structural:
+both were written through the GitHub Contents API, and this account had no signing key registered,
+so `commit.gpgsign` had nothing to sign with. Measured rather than assumed: `gpg --list-secret-keys`
+was empty, `~/.ssh` does not exist, and the account's key endpoints answer **404 —
+*"This API operation needs the `admin:gpg_key` scope"***, with the same for `admin:ssh_signing_key`
+and `admin:public_key`; the token carries only `gist, read:org, repo, workflow`. Registering a
+signing key is an account-settings action and cannot be done from here.
+
+**So a key was generated, and signing was proven before anything depended on it.** RSA 4096,
+sign-only, two years, `Kristo Intelligence <hristovdimitri2@gmail.com>`, fingerprint
+**`D1DFC42A A53D72B3 39150906 59790D2C 3265AA08`**, in `~/.gnupg` with its revocation certificate at
+`~/.gnupg/openpgp-revocs.d/D1DFC42A…3265AA08.rev`. A detached signature was made over a throwaway
+file and verified (`Good signature … [ultimate]`) before the key was offered, because an unverified
+signing key is exactly the kind of thing that fails once and silently. The PR comment
+`7241616213` states the blocker and the fingerprint publicly, so the PR reads as waiting on a
+mechanical step rather than on seller interest. **Once the public half is registered: squash to a
+single commit, sign it, force-push — the diff does not change.**
+
+**The key is a permission, so it is recorded as one.** It carries no passphrase, because a
+signature that needs a human at a pinentry prompt cannot be produced by this workflow; the
+consequence is that anyone who can read `~/.gnupg` can sign as the owner. It is sign-only (not
+encrypt, not certify), it expires 2028-11-28, and the revocation certificate exists, so the exposure
+is bounded and revocable. Written down rather than left implicit, and the alternative — a passphrase
+on every agent-authored commit — is not one this setup can carry.
+
+**Signing was not enabled globally.** It is scoped to the fork clone: the owner's other repositories
+have no such requirement, and a global `commit.gpgsign` that starts failing on a broken agent would
+break commits in repositories that never asked for it. Our own repo's history stays unsigned and is
+unaffected.
