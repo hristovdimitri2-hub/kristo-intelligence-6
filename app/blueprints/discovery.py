@@ -42,7 +42,7 @@ discovery_bp = Blueprint("discovery", __name__)
 #
 # UPDATE BOTH VALUES TOGETHER. tests/test_visibility_seo.py fails if the number
 # falls behind the suite actually collected.
-SUITE_TESTS_PASSED = 1504
+SUITE_TESTS_PASSED = 1507
 SUITE_LAST_RUN = "2026-11-27"
 
 #: The uptime window this page publishes, as a dated measurement — not a live
@@ -2828,6 +2828,39 @@ def sealkeeper_claim():
     except Exception as exc:                      # missing or unreadable
         logging.getLogger(__name__).info(
             "sealkeeper-claim.txt not served yet: %s", exc)
+        return Response("claim file not present\n", status=404,
+                        mimetype="text/plain")
+
+
+@discovery_bp.route("/.well-known/api-reviews.txt")
+def api_reviews_claim():
+    """402reviews' domain-control token, served BYTE FOR BYTE.
+
+    Their provider documentation names two ways to prove ownership: a DNS TXT
+    record at `_api-reviews.<domain>`, or a file at
+    `https://<domain>/.well-known/api-reviews.txt`. This host is a Render
+    subdomain, so the DNS zone is not ours and **the file is the only option we
+    have** — the path is copied from their docs rather than guessed, for the same
+    reason the SealKeeper path above is copied from their screen.
+
+    The body is the TXT value their portal prints, with no trailing newline,
+    because a DNS record has none and what a verifier does is compare bytes.
+    Streamed with no processing at all, from a file in the repository root so the
+    bytes served are the bytes committed and anyone with a checkout can read
+    them. 404 rather than an empty 200 while the file is absent.
+    """
+    import logging
+    import os as _os
+
+    repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))))
+    path = _os.path.join(repo_root, "api-reviews.txt")
+    try:
+        with open(path, "rb") as handle:
+            return Response(handle.read(), mimetype="text/plain")
+    except Exception as exc:                      # missing or unreadable
+        logging.getLogger(__name__).info(
+            "api-reviews.txt not served yet: %s", exc)
         return Response("claim file not present\n", status=404,
                         mimetype="text/plain")
 
