@@ -48,6 +48,21 @@ Ordered plan, cheapest first:
    GitHub Discussions is not enabled there, and the spec repo's own measurement
    issue #4284 is about **dynamic route templates** (5.3% unusable), a different
    finding from ours.
+   **The originally planned documentation finding went in on 28.11.2026 as a pull
+   request, not an issue:** `x402-foundation/x402#4508` —
+   `docs/bazaar: a catalog entry is a snapshot of the last settled echo, not a live
+   view`, +12/−0 in `docs/extensions/bazaar.mdx`. It adds a fifth item to
+   *Troubleshooting catalog visibility*, whose items 1 and 4 already say that
+   cataloguing is driven by the extension echoed in a settled `PaymentPayload` and
+   that indexing may be asynchronous — the missing consequence being that a seller's
+   own edits update nothing until another call settles through the resource. Two
+   measured supports: our MCP row `…/mcp#get_trading_signal` kept publishing a
+   replaced description until a $0.01 call settled (tx `0xbb454d92…55bc4`, block
+   62016384, `lastUpdated 2026-11-25T08:00:53.795Z`), and the `/api/v1/whaleflow`
+   crawl stamp moved to `2026-11-25T17:26:58Z`, three seconds before a stranger's
+   `$0.01` settle at `17:27:01Z`. Forked to `hristovdimitri2-hub/x402`, branch
+   `docs/bazaar-settlement-driven-freshness`, commit `a82ff2c`. The wording is
+   deliberately facilitator-agnostic and the PR body offers to trim, move or drop it.
 2. **Join the Domain Discovery working group's public mailing list and Slack**
    (free) — the only place our measurements could shape a specification.
    **Mailing list done 25.11.2026:** subscription confirmed (Groups.io confirms by

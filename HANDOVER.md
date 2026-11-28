@@ -9335,3 +9335,53 @@ clock explicitly. A test that silently proves nothing is worse than no test.
 `SUITE_TESTS_PASSED`, and `SUITE_LAST_RUN` → **2026-11-27**, edited through Python with
 explicit UTF-8 and then checked for the CP1251 signature and for Cyrillic before committing —
 the round trip that has damaged these files twice.
+
+## §150. The spec repo took a documentation finding, not a documentation nit (28.11.2026)
+
+**What went in, and why it is a pull request rather than an issue.** `x402-foundation/x402#4508`
+— *"docs(bazaar): a catalog entry is a snapshot of the last settled echo, not a live view"* — +12/−0
+in `docs/extensions/bazaar.mdx`, one file, opened 28.11.2026. §122 step 1 named this file and this
+finding, and it was the only item on that plan that cost nothing. It is a PR because the change is
+a paragraph in an existing section, not a question: the maintainers can take it, edit it or close
+it without a conversation. Forked to `hristovdimitri2-hub/x402`, branch
+`docs/bazaar-settlement-driven-freshness`, commit `a82ff2c`.
+
+**The gap was verified in their bytes, not assumed.** `bazaar.mdx` (36,860 characters) documents
+that a buyer must echo the `bazaar` extension, that non-conforming content is soft-dropped, and
+that cataloguing is asynchronous — item 1 already says *"a server-side declaration alone catalogs
+nothing if no paying client echoes it"* and item 4 already says indexing may happen later. What it
+does not say is the consequence for the seller's own row, which is the same sentence one step
+further on: **the row is a snapshot of the last settled echo, so a seller's edits update nothing
+until another call settles through the resource.** The new item 5 states that, that the refreshing
+call may come from any paying client, and that an entry whose catalogued `resource` can no longer
+be constructed by a client can never be paid through again and only ages in place. Searching their
+corpus first: 15 issues match `bazaar`, none states this, and `#3005` covers the same mechanism
+from the trust side — client-echoed metadata without server-origin authentication — not the
+temporal one.
+
+**Three measured supports, all ours, none inferred.** (1) The MCP row `…/mcp#get_trading_signal`
+kept publishing a description the live `PaymentRequired` had already replaced, and changed only
+when a `$0.01` call settled through it — Base tx
+`0xbb454d929ca7ef712d2ac7976b2799bee7799825653e4dcc9f7513cacb455bc4`, block `62016384`,
+`2026-11-25T08:00:55Z`, after which the row read `lastUpdated 2026-11-25T08:00:53.795Z`. (2) The
+`/api/v1/whaleflow` crawl stamp moved to `2026-11-25T17:26:58Z`, three seconds before a stranger
+(`0x6c57df77…40f3`) settled `$0.01` through that route at `17:27:01Z` — adjacent, not days apart,
+which is what makes the stamp payment-driven rather than scheduled. (3) The six double-hashed MCP
+rows from the `2026-11-10` cutover (`/mcp#get_market_stats#get_market_stats` and five more) are
+catalogued under strings no client can construct, so they cannot be paid through and there is no
+delisting call: decay, exactly as `coinbase/cdp-sdk#881` says.
+
+**Two deliberate limits in the wording.** The text names no facilitator and does not carry our
+transaction hashes — the evidence is in the PR body, where a reviewer can weigh it, and the
+document gets only the behaviour. And it is hedged where the claim is not ours to make: *"no
+guarantee of a scheduled re-crawl"*, not *"there is no re-crawl"*, because that is a CDP
+implementation fact we measured and not a statement about every catalog. The PR body offers
+explicitly to trim it to one sentence, move it into the FAQ, drop the CDP framing, or withdraw it
+if catalog behaviour is meant to stay out of this document entirely. Nothing was claimed about
+other facilitators, other networks or other implementations.
+
+**This is the fourth thing we have put into that repository and the first one it can merge.**
+Before it: issue `#3483` (seller-side verification gap), the grant application `#3719` (closed),
+and four comments in `#4367`. A merged paragraph in the seller-facing document is a smaller
+artifact than any of those and the only one that would carry our finding in the Foundation's own
+words.
