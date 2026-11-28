@@ -9420,3 +9420,32 @@ on every agent-authored commit — is not one this setup can carry.
 have no such requirement, and a global `commit.gpgsign` that starts failing on a broken agent would
 break commits in repositories that never asked for it. Our own repo's history stays unsigned and is
 unaffected.
+
+**The blocker cleared in eight minutes, and the signature is verifiable rather than asserted.** The
+owner pasted the public key into *Settings → SSH and GPG keys* at 17:44 EET and the account now shows
+`Key ID: 59790D2C3265AA08, Added on Nov 28, 2026`. The branch was then **rebuilt rather than amended
+twice**: a blobless clone of the fork, `reset --soft` to the main tip `0916131a`, one signed commit
+`b2373765` whose message carries the reasoning, force-push. GitHub reports `verified: true,
+reason: valid`, the PR is down to **one commit**, and `check-verified-commits` **passes in 5 s** on
+that head. Two traps on the way, both caught before they mattered: the first signed commit went in
+with a **UTF-8 BOM on the subject line** — `Out-File -Encoding utf8` in Windows PowerShell 5 writes
+one even with `-NoNewline`, so the subject began with an invisible character — fixed by writing the
+message through `[System.IO.File]::WriteAllText(..., UTF8Encoding($false))` and amending, which is
+the same CP1251/BOM family of trap that has damaged these files twice before; and the force-push
+died once on `Could not resolve host: github.com`, a transient DNS failure, and went through on the
+next attempt. **The two bot comments still name `549638e` and `a82ff2c` as unsigned** because their
+workflows had not re-posted, so comment `7241733180` says plainly that those commits no longer exist
+and that the check passes — a maintainer reading the stale checklist would otherwise have been
+looking at a condition already met.
+
+**What is left is theirs, and it is named.** All five fork workflows (`Lint`, `Format`, `Run Unit
+Tests`, `Check Python`, `Check Go`) sit at `action_required` — a maintainer has to approve running
+them on a fork — the Mintlify fork preview needs the same approval, and the Vercel check asks the
+Coinbase team to authorise the deploy. The PR reads `mergeable: MERGEABLE`, `mergeState: BLOCKED`,
+`reviewDecision: REVIEW_REQUIRED`. That is the healthy end state for a contribution from outside:
+nothing remaining that is ours to do, and every open item owned by someone else.
+
+**Still scoped, still unsigned here.** Signing remains configured only inside the fork clone; this
+repository's own history stays unsigned and its CI is green (`3fed35f`). The signing key is the same
+one recorded above — no passphrase, sign-only, expiring 2028-11-28 — and it is now attached to the
+account rather than merely sitting on disk.

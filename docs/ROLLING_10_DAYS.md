@@ -8,36 +8,11 @@ the last ten days, what is still hanging in the air, and what happens next.
 day leaves. Curated prose is expected here; the factual base is reproducible with
 `python scripts/rolling_10_days.py`, which prints the commits grouped by day.
 
-**Window: 16.11.2026 – 26.11.2026** (174 commits).
+**Window: 19.11.2026 – 28.11.2026** (199 commits).
 
 ---
 
 ## What shipped, oldest first
-
-### 16 Nov — the payment path itself
-
-Rotated the fee receiver, because the old one had no key anybody could find. Fixed
-CORS advertising POST on routes that answer only GET. Created and funded a
-dedicated gas wallet (0.00243575 ETH on Base, verified on chain). Fixed two PayAI
-catalogue defects with real money behind them: the facilitator was being sent two
-of our own keys that silently unlisted every settlement, and the `resource` had to
-be sent in the shape the index keys by. Raised three underpriced routes. Added
-`depth-shortfall waits a second before refusing`. Wrote `docs/INDEX.md`: a map of
-all 81 documents, with the stale-copy check as its first task.
-
-### 17 Nov — what indexing actually requires
-
-Recorded that nothing in the declarations reliably gets an endpoint indexed.
-Declared the bare `/mcp` endpoint (the catalogue appends the tool name itself).
-Stopped reading an API 404 as "this listing does not exist" — a different thing
-entirely. Gave the GitLab runner `node`, so nine tests stopped silently skipping.
-
-### 18 Nov — measuring the buyers, not the supply
-
-Measured the signal engine's own edge: **1.2% is not a threshold artefact**.
-Measured buyers rather than listings: **eight wallets holding $131 spent five
-cents.** Moved the shop window to lead with the seller check instead of the
-signal. Corrected the Glama record's date.
 
 ### 19 Nov — paid audits read, kill criterion adopted
 
@@ -321,6 +296,51 @@ after the whaleflow Bazaar row was refreshed. One consequence is written down ra
 fixed: the six letters sent that morning quote the 24.11 snapshot (12 payments, 9
 wallets), which is one payment short — understating our own revenue, and still wrong.
 
+### 27 Nov — a paid call that delivered nothing became a fix, and the ledger was handed over
+
+The defect was ours and expensive in a narrow way: a **30-second paid call that
+settled and returned nothing**, because the audit scanned oldest-first and the
+client gave up while the money did not. Fixed by reading newest-first under a
+wall-clock budget — and then the budget itself was caught being too generous:
+**45 s still let a 30-second client pay and get nothing**, so it is **20 s**, and a
+wide window now answers `partial` with the unread ranges named. The reconciliation
+built to be handed to somebody else went out the same day: **190 rows of 190**, one
+row per settlement with its join key, and Ernest verified our endpoint **against the
+chain** rather than against our word. Price agreed at **$15 once**; the monthly was
+declined because it is 72× our lifetime third-party revenue. Three answers measured
+rather than read — the gas question settled from our own receipts (**19.3%** of a
+$0.005 call, **0.57%** of a $0.25 one, and the figure is a range, not a median);
+listing monitoring was priced **by the market at one cent, not $10 a month**, and
+the cheap detector refused a valid payment; and Chet's price fix was confirmed on
+the page, not in the letter. Also this day: the nonce rule moved from prose into
+code, the crawler-label window defect we promised publicly was recorded, and the
+labelling-contest entry was submitted.
+
+### 28 Nov — a missing payer class, three letters that told the truth, and the spec repo took the finding
+
+The day's correction was found **by a counterparty**. Ernest's audit classified every
+payer as a side effect of reconciling, and one wallet we published as demand —
+`0xee523a51…` — is **his own verification wallet**. Paying us on purpose to find out
+whether the endpoint works is neither an operator nor a buyer, so the class now
+exists (`ernest_x402_verification` → **canary**, pinned by a test), the published
+`/api/v1/settlement-classes` moved from **10 payers / 13 settlements to 9 / 11**, and
+the same point went into the public thread. Three letters carried the unflattering
+number instead of a rounded one: **Charlie Pank** was offered the merchant experiment
+instead of an escrow sale (*not your escrow customer, but possibly your merchant* —
+one route, the $0.25 census, result published even if it sells nothing); **Ernest's
+invoice was accepted in writing with the reason it is not already paid** — the
+service's own balance is $2.56, and he knows that better than we do; and **AI Agents
+Archive** was answered by email because the owner has no Reddit account, which
+produced a finding — **the address in their own `/.well-known/security.txt` does not
+accept mail** — so the answer was re-cut for X in four parts. The 402reviews listing
+was **claimed and owned**, and the claim only worked once the token stopped being read
+from a screenshot: it is `=`, not `-`, and 49 bytes, not 50. And the free item on the
+plan went in: **`x402-foundation/x402#4508`** — a catalogue row is a snapshot of the
+last settled echo, so a seller's edits update nothing until another call settles. It
+was blocked within three minutes by a rule nobody had read (signed commits), which
+cost one 30-second paste by the owner and produced a key, a proof that it signs, and a
+single verified commit.
+
 ---
 
 ## Hanging in the air
@@ -331,9 +351,9 @@ wallets), which is one payment short — understating our own revenue, and still
 | Discovery-truth report | **posted 25.11 16:46:47Z** as `wg-domain-discovery#19` and to the group's list; **both lists confirmed** (`main@` and `Domain-Discovery@`), so the post sits in the first-post moderation queue | the group's response to the three asks; the meeting of 30.11 18:00 EET, which we cannot attend — anything we want in it goes to the list first |
 | Signal engine record | **`docs/SIGNAL_RECORD.md` written 26.11 from the live feed** (272 issued, 99 scored, 1 hit / 12 misses / 86 flats, 1.0%) | the next declared checkpoint, **100 scored signals** — it supersedes the document |
 | SealKeeper (A2A directory) | **listed on its own since 26.11**: Bronze SEAL, uptime 100% (145/145), 7/7 skills, but `Owner not verified` and Trust Score 0 | the owner claiming it — the claim page needs a signed-in account, so it is not automatable from here |
-| Listing-truth monitoring as a product | identified, unoccupied by the nine vendors | a price decision by the owner |
+| Listing-truth monitoring as a product | **the market priced it on 27.11: one cent, not $10 a month** — Pathmint sells a `$0.01` ping and a `$0.02` listing-check — and the cheap detector **refused a validly signed payment**, so it cannot be bought yet | nothing from us: buy the detector when it accepts money, and price attestation only when a buyer asks for it |
 | Marx / Engels programme | requested 25.11 | stage 1 delivered; stages 2–3 are reading and synthesis |
-| §O to HIVE402, §P to Hosannaith, x402r, Tanilo | **all sent** | replies; check 28.11 |
+| §O to HIVE402, §P to the nine trust-layer vendors | **all ten sent** — Hosannaith, x402r and Tanilo on 25.11, the six registry-found vendors on 26.11 07:46 EET | **checked 28.11: not one reply.** Hosannaith's letter was delivered (Sent confirms, no bounce), so no follow-up is sent to a company that simply chose not to answer |
 | §P4–§P9 — the six vendors the table called unreachable | **addresses found in the npm registry and all six sent 26.11 07:46 EET** (Teppi, zauth, PEAC, OMATrust, AffixIO; Elara via a GitHub profile, the weakest route) | replies; check 28.11 |
 | Glama `/mcp/servers/` record | **Frank answered 25.11: the record was removed at our own request — verified in our Sent folder, asked twice (1 and 3 Nov), withdrawn in writing 17 Nov (§134).** Badge went from a grade on 4 Nov to "not listed" on 26 Nov, so the row died after the withdrawal. Reply §AB sent; ask narrowed to three actionable outcomes. **Submission path measured 26.11: it is browser-only** (`/mcp/servers/add` 301s to a search query; `Add Server` is a client-side button with no form, route or fetch; the public API is GET-only and `/api/mcp/v1/servers` is 401) | Glama's answer to §AB (#160212386) — resubmit, create the record, or state that a hosted endpoint can only live under `/mcp/connectors/` — which unblocks PR #13219 either way. **If the answer is "resubmit", it needs the owner's browser** |
 | Olas Mech | **measured 25.11 and deferred with numbers** (Base + USDC, no OLAS, but `olas-prepay` not x402; 8 daily active agents, 96.7% of requests one agent) | an owner decision to build a mech; nothing from us now |
@@ -341,20 +361,27 @@ wallets), which is one payment short — understating our own revenue, and still
 | §Q public thread | written, ready | the owner's X account |
 | Base Batches | open question | whether to apply, and how to frame numbers that fail a screen |
 | Fixture 1 / OmniDome | **closed by him 25.11 20:13Z: issue #127 completed via `d48eaa1`**, both wording corrections in his `RESULTS.md` in our own words, the row pointing at gist revision `6d1fe258a0fc` | nothing from us |
+| The spec-repo contribution | **`x402-foundation/x402#4508` opened 28.11** (+12/−0 in `docs/extensions/bazaar.mdx`, item 5 under *Troubleshooting catalog visibility*); rebuilt as **one signed commit `b2373765`**, `verified: true`, `check-verified-commits` passes | **a maintainer.** The five fork workflows are `action_required`, the Mintlify fork preview needs approval, and Vercel asks the Coinbase team to authorise the deploy — nothing left that is ours |
+| Ernest's invoice — 15.0002 USDC | **accepted in writing 28.11, payment promised by the evening of 29.11.** Accepted on its merits: 190 rows of 190 matched, block delta 0, and the 82 blank routes explained as the proof-rail cutover | **money that is not in the service.** We hold $2.5638 against $15.0002 — a shortfall of $12.4364, and the retired receiver's $1.033 is unspendable |
+| 402reviews seeding | **listing claimed and owned 28.11** (`owner.claimed: true`), description cut to 178 chars after the first was 84 too long, and seeding requested for 7 of the 10 endpoints ($0.09) | the calls to land on chain; then read them as **canary**, not as demand — they pay real money for honest reviews, which is not the same thing as a customer |
 
 ## Must happen next
 
-1. ~~Decide whether the discovery-truth report goes to the Domain Discovery working
-   group, and join its public mailing list~~ — **done 25.11**: posted as issue #19 and to
-   the list, both lists confirmed, the post in moderation.
-2. Remove `X402LIST_VERIFICATION_TOKEN` after 26.11 15:06Z — **today, 17:10 EET**.
-3. Send the remaining §P recipients; check for replies on 28.11.
-4. Snapshot the census again on 20.12 — a month not snapshotted is gone.
-5. PayAPI: three rejected listings to delete; the page still shows September.
-6. Glama `/mcp/servers/` record still missing — it blocks PR #13219, and the
-   submission path is now measured as **browser-only**, so it needs the owner.
-7. Olas is still the one of the first six that was never contacted.
-8. Oracle/Foresight revival is blocked on the GLM balance, which is an owner action.
-9. **Owner actions, all three one click each:** claim the SealKeeper agent, resubmit on
-   Glama if Frank says to, and remove the x402-list token if the scheduled script has not
-   already run.
+1. **Pay Ernest — the evening of 29.11 is the deadline he was given.** `15.0002 USDC`
+   to `0xEe523a51…2A3a` on Base, invoice code `gwVwSqqAjVAIQnfieK6Dyfob`. The service
+   holds **$2.5638**, so **$12.4364 has to arrive from outside**. A reminder is set for
+   29.11 10:00 EET.
+2. The spec-repo PR (`#4508`) waits on a maintainer, not on us — the signing rule is
+   satisfied and the commit is verified.
+3. Snapshot the census again on **20.12** — a month not snapshotted is gone.
+4. **The Domain Discovery meeting is 30.11 18:00 EET.** The mailing-list post sits in
+   moderation with 0 comments, so anything we want in that meeting goes to the list.
+5. Watch the 402reviews seeding land, and classify it as canary.
+6. PayAPI still shows September; three rejected listings to delete.
+7. Glama `/mcp/servers/` is still missing and its submission path is browser-only,
+   which blocks PR #13219.
+8. Olas was the one of the first six never contacted; Oracle/Foresight waits on the
+   GLM balance.
+9. **Owner actions, all short:** claim the SealKeeper agent, resubmit on Glama if Frank
+   says to, publish the §AO X post (four parts, ready), create the Explee API key, and
+   top up the GLM balance.

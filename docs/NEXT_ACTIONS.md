@@ -72,6 +72,16 @@ Ordered plan, cheapest first:
    the public half is registered under **Settings → SSH and GPG keys → New GPG key**,
    the PR is `MERGEABLE` and `BLOCKED` at once. Then: squash, sign, force-push; the
    diff does not change. Comment `7241616213` says all of this on the PR itself.
+   **Cleared the same day.** The owner registered the key at 17:44 EET (`Key ID
+   59790D2C3265AA08`), the branch was rebuilt as **one signed commit `b2373765`**
+   (blobless clone, `reset --soft` to the main tip `0916131a`, `commit -S`,
+   force-push), GitHub reports `verified: true, reason: valid`, and
+   `check-verified-commits` **passes** on that head. Comment `7241733180` says so,
+   because the two bot checklists still name the vanished commits as unsigned.
+   **What remains is not ours:** the five fork workflows are `action_required`
+   (a maintainer must approve running them), the Mintlify fork preview needs the
+   same, and the Vercel check asks the Coinbase team to authorise the deploy. The
+   PR is `MERGEABLE` / `BLOCKED` / `REVIEW_REQUIRED` — waiting on a human.
 2. **Join the Domain Discovery working group's public mailing list and Slack**
    (free) — the only place our measurements could shape a specification.
    **Mailing list done 25.11.2026:** subscription confirmed (Groups.io confirms by
