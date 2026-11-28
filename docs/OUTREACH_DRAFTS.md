@@ -2805,3 +2805,68 @@ Kristo Intelligence
 **Recipients:** three separate sends, one per fund — cross-ccing three funds on one message
 would be bad form and would read as a mailing.
 
+---
+
+## AL. Charlie Pank — "does that make you my client?" (28.11.2026)
+
+**What he asked.** One line: *"¿Eso te convierte entonces en mi cliente?"* — after a letter in
+which we told him his escrow shape is the one that survives a fee rise. He read the engagement
+as a buying signal, which is a fair reading.
+
+**The answer, and it is two answers.** **Not as a buyer of escrow**, because escrow insures a
+delivery risk our product cannot have: the 200 response *is* the product, delivery is
+instantaneous and final, and a release step would add a second gas event and a wait — at $0.005
+a call, 19% of the payment spent insuring against a risk measured in milliseconds. **But
+possibly as a merchant**, because a card-to-USDC checkout removes the wallet from the buyer's
+side while still paying the merchant in USDC, and the one thing our own ledger says is that
+agents pay while humans do not: 457 agents found the API, **17 third-party addresses have ever
+paid**, **10** of them are strangers — and **in the last 30 days the number of those is zero**.
+The barrier is not price (the cheapest route is half a cent); it is that a human must acquire a
+wallet and USDC first.
+
+**The experiment offered, not the discussion:** put **one** route behind their checkout — the
+$0.25 demand census, the only thing we sell that a human decides on rather than a machine — and
+see whether any human buys it. One product, one price, no exclusivity, and we publish the result
+either way, including if it sells nothing.
+
+**Subject:** `Re: AP2 settle on Base — does that make me your client`
+
+```
+Charlie,
+
+Not of the escrow, and I would rather give you the reason than a polite no.
+
+Escrow insures a delivery risk, and my product cannot have one: the 200 response IS the product.
+Delivery is instantaneous and final, and a buyer who does not get it has a bug report rather than
+a dispute. A release step would add a second gas event and a wait, and at $0.005 a call that is
+19% of the payment spent insuring against a risk measured in milliseconds. Your escrow shape is
+right for a $5 job with a shipping window; it is wrong for a half-cent answer.
+
+Where I might become your client is one step to the side of that, and it is the part of my own
+data I cannot fix by trying harder.
+
+I have run a paid x402 API on Base for months and measured who pays. 457 agents found it.
+Seventeen third-party addresses have ever paid me, of which ten are addresses I cannot explain as
+anything but strangers — and in the last 30 days the number of those is zero. The barrier is not
+price: my cheapest route is half a cent. The barrier is that a human who wants my data has to
+acquire a wallet and USDC first, and almost none will. Agents pay. People do not.
+
+Your rail is the one thing in this thread that touches that, because a card-to-USDC checkout
+removes the wallet from the buyer's side while still paying the merchant in USDC. That is a buyer
+class I have never been able to reach, and no amount of listing my API in more catalogues will
+reach it.
+
+So here is the experiment I would rather run than discuss: put ONE route behind your checkout —
+the $0.25 demand census, because it is the only thing I sell that a human decides on rather than
+a machine — and see whether any human buys it. One product, one price, no exclusivity. I will
+publish the result either way, including if it sells nothing, and I will tell you the number
+before I tell anyone else.
+
+Two things I need to know first: does your checkout support a digital delivery with no shipping
+address, and is the 1% the whole cost to a merchant?
+
+Dimitri
+```
+
+**Recipient:** `charlie@stabledrop.me`, cc `charliepank@gmail.com` and `info@stabledrop.me`.
+
