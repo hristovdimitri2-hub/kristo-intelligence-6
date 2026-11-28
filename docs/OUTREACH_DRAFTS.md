@@ -2870,3 +2870,64 @@ Dimitri
 
 **Recipient:** `charlie@stabledrop.me`, cc `charliepank@gmail.com` and `info@stabledrop.me`.
 
+---
+
+## AM. Ernest — the invoice, an apology, and one honest line about why (28.11.2026)
+
+**What arrived.** The deliverable, with the invoice: **15.0002 USDC** to
+`0xEe523a5145cfaEa8cCEc34Fb364a2A92Fad62A3a` on Base, the exact amount being the identifier.
+The reconciliation is clean — **190/190 rows matched row by row, block delta 0, status 0x1** —
+the five unread chunks are explained as RPC availability on the **retired** payTo rather than a
+missing payment, and the 82 blank routes are shown as a coherent set (the proof-rail cutover)
+rather than as loss.
+
+**Why the payment is not already there, measured rather than assumed.** Every wallet we hold a
+key for was read on chain: receiver **$1.4050**, gas **$1.0973**, demo **$0.0615** — **$2.5638
+in total** against a $15.0002 invoice, and the retired receiver's $1.033 is unspendable because
+its key is gone. **The service cannot pay its own bill**, and the letter says so in one line
+rather than inventing a reason, because he has just audited those exact numbers and knows them
+better than we do.
+
+**His classification changes our published figure, and it is our error.** `0xee523a51…` is *his*
+wallet: 2 rows, $0.01, a verifier rather than a market buyer. `0x171d8021…` is the one genuine
+external address. So "13 external settlements / 10 payers" is inflated by verification traffic
+and must be corrected the same way PayAPI's canary was.
+
+**Subject:** `Re: Your seller-audit endpoint — invoice accepted, payment tomorrow evening`
+
+```
+Ernest,
+
+The sheet is accepted, and I owe you an apology rather than an excuse.
+
+Your reconciliation is what I asked for and better than I expected: 190 of 190 rows matching row
+by row with a block delta of zero, the five unread chunks explained as RPC availability on the
+retired payTo rather than as a missing payment, and the 82 blank routes shown as a coherent set —
+the proof-rail cutover — rather than as loss. That last one only exists because you went looking
+for the structure instead of the total.
+
+Payment: 15.0002 USDC to 0xEe523a5145cfaEa8cCEc34Fb364a2A92Fad62A3a on Base, by tomorrow
+evening at the latest. One honest line about why it is not already there: the service's own
+balance is $2.56, and you know that better than I do, because you have just audited it. This is
+me moving money in rather than paying from the till. You have waited on me before and been
+patient about it, so I am asking for one more day rather than pretending the invoice was never
+owed.
+
+Yes, that is the sheet I would publish — with both of your limits kept in the format rather than
+in a footnote. Route is seller testimony and the transfer is evidence, and the published page has
+to say so. And (blank) gets its own labelled row, because route=null and an empty cell read
+completely differently to anyone checking us.
+
+Your classification changes our published number, and I will fix it. 0xee523a51... is your wallet
+and belongs in our verifier class, not in external — the same correction we made for PayAPI's
+canary. That takes "13 external settlements, 10 payers" down to something much closer to your two
+rows, and the honest version is the one that goes on the page.
+
+On the monthly: ask me again once the census has a buyer. If this sheet is something a buyer
+wants, you will not have to remind me — I will be the one asking you to keep it fresh.
+
+Dimitri
+```
+
+**Recipient:** `ernest-earnordie@agentmail.to`.
+
