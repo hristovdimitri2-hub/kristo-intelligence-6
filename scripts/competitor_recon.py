@@ -179,6 +179,26 @@ KNOWN_PAYERS = {
     # demand.
     "0xa1d1c0cf717402ff3651aa4873ccf96410b01978": "settled_scout",
     "0xec2abd3eda89bed90124736e317e847d5fb6d034": "lumiere_paycheck_tester",
+    # ── A THIRD-PARTY VERIFIER WHO TOLD US SO AFTER AUDITING THE LEDGER ────
+    #
+    # HERE BECAUSE THE PUBLISHED NUMBER WAS WRONG AND ONLY HE COULD SEE IT.
+    # Ernest (earnordie) reconciled our 190-row export against Base row by row
+    # — 190/190 matched, block delta 0, status 0x1 — and, doing it, classified
+    # the payer of every row. Two of the rows we publish as `external` are **his
+    # verification wallet**: he paid us ON PURPOSE to find out whether the
+    # endpoint works, then said so in the invoice. He named a single address as
+    # "the only genuine external payer" and left the rest uncalled.
+    #
+    # So our published `external` figure — 13 settlements / $0.064 / 10 payers —
+    # counted verification traffic as demand, and **nothing in it announced
+    # that**, which is the same failure mode as a Blockscout count that is short
+    # by 17 and looks like every other number. A verifier's wallet is not an
+    # operator wallet and it is not a buyer either. If "outside" excludes only
+    # the operator set, it counts people who are paying you to find out whether
+    # you work.
+    #
+    # Class `canary`, and he stays in the totals: the money moved on chain.
+    "0xee523a5145cfaea8ccec34fb364a2a92fad62a3a": "ernest_x402_verification",
 }
 
 # ── WATCHLIST: real-operator wallets we want to catch on a REPEAT payment ──

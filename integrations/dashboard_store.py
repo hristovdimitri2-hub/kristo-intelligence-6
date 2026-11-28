@@ -255,6 +255,12 @@ PAYER_CLASSES = {
     # them in scripts/competitor_recon.KNOWN_PAYERS for the published evidence.
     "settled_scout": "canary",
     "lumiere_paycheck_tester": "canary",
+    # 28.11: Ernest's verification wallet. He reconciled our 190-row ledger
+    # against Base and was the one to point out that two of the rows we publish
+    # as `external` were his own paid probes — he paid us to find out whether
+    # the endpoint works. Class `canary`, not `external`: a verifier is not a
+    # customer. See the long note beside it in scripts/competitor_recon.
+    "ernest_x402_verification": "canary",
 }
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"

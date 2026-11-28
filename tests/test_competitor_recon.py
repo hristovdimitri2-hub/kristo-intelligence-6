@@ -193,6 +193,32 @@ def test_watchlist_registry_has_operator_wallets():
     assert "0x4db7aafbe797a39cd6cc4e7aa64d970f7f6e02b7" in recon.WATCHLIST
 
 
+def test_the_verifier_who_audited_us_is_a_canary_not_a_customer():
+    """Ernest reconciled our 190-row ledger against Base row by row and, doing
+    it, classified every payer. Two of the rows we publish as `external` are his
+    own verification wallet: he paid us on purpose to find out whether the
+    endpoint works, then said so in the invoice.
+
+    This is the third time this class of defect has been found — the demo key,
+    the gas wallet, and now a counterparty's audit — and the first time somebody
+    else found it for us. What makes it worth a test rather than a comment: our
+    published figure announced nothing, so the number looked exactly as
+    trustworthy while it was counting paid probes as demand.
+    """
+    from integrations.dashboard_store import PAYER_CLASSES
+
+    address = "0xee523a5145cfaea8ccec34fb364a2a92fad62a3a"
+    assert recon.KNOWN_PAYERS[address] == "ernest_x402_verification"
+    assert PAYER_CLASSES["ernest_x402_verification"] == "canary"
+
+    report = recon.classify_transfers([_t(address, 0.01)])
+    assert report["external_unique_payers"] == 0, (
+        "a verifier's payment is an instrument, not demand")
+    assert report["known_verification_txs"] == 1
+    assert (report["known_verifications"][0]["label"]
+            == "ernest_x402_verification")
+
+
 def test_every_known_payer_label_has_a_dashboard_class():
     """The taxonomy lives in two files: `KNOWN_PAYERS` (labels) and the
     dashboard's `PAYER_CLASSES` (classes). A label without a class silently
