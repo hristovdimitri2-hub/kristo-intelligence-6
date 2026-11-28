@@ -3013,4 +3013,46 @@ Kristo Intelligence
 ```
 
 **Recipient:** `desk@aiagentsarchive.com` — the address their own
-`/.well-known/security.txt` publishes.
+`/.well-known/security.txt` publishes. **It bounced** (`554 5.1.1`, undeliverable), so this text is
+held for the X channel instead — see below.
+
+---
+
+## AO. The same answer for X — `@aiagentsarchive`, ready to post (28.11.2026)
+
+**Why it is not sent.** We hold no X credentials — `secrets/` carries Render, CDP, Glama, HubSpot
+and 402reviews keys, and nothing for X — so the post has to come from the owner's own session.
+Delivered as copy-paste text for that reason, in four parts, each inside the 280-character limit.
+
+**Where to put it.** As a reply under `@aiagentsarchive`'s own launch post, or as a standalone
+post mentioning them. We cannot check from here whether a matching X post exists, because X does
+not answer unauthenticated reads — so the owner should place it where their own thread is.
+
+**Part 1 — the answer to the question they actually asked (192 characters):**
+
+```
+@aiagentsarchive Metered mostly bills machines that return: 190 payments, 17 outside addresses,
+and the repeat payers are crawlers and verifiers, not buyers. Pay-once is right for sealed work.
+```
+
+**Part 2 — the class to check in their own figure (216 characters):**
+
+```
+One class to check in your $14.08: a third party's verification payment is neither self-test nor a
+buyer. Two rows of my published "13 external settlements" were a counterparty's paid probes; the
+honest figure is 11.
+```
+
+**Part 3 — the replay rule (267 characters):**
+
+```
+On replay under the exact scheme: the signed nonce is the idempotency key and
+authorizationState(payer, nonce) is the record. Persist it before you send, check it before you
+re-sign. A client that retries after a timeout pays twice unless it remembers what it signed.
+```
+
+**Part 4 — the free artifact (79 characters, plus a URL):**
+
+```
+Free, no signup: kristo-intelligence-api.onrender.com/api/v1/settlement-classes
+```
