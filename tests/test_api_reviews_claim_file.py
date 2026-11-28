@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-TOKEN = "api-reviews-verification-42252f1ca1f725918d800d573"
+#: Copied as TEXT from their portal, not read from a screenshot. The first version
+#: came from an image, used `-` instead of `=`, carried one extra hex character, and
+#: did not verify — while their checker kept fetching it and getting 200, which is
+#: what proved the path was right and the content was wrong.
+TOKEN = "api-reviews-verification=42252f1ca1f725918d80d573"
 
 
 @pytest.fixture()
@@ -28,7 +32,8 @@ def test_the_file_carries_exactly_the_token_with_no_trailing_newline():
     assert raw.decode("ascii") == TOKEN, "the served value must be the issued one"
     assert raw.endswith(b"3"), "a trailing newline would be a different value"
     assert b"\n" not in raw
-    assert len(raw) == 50
+    assert b"=" in raw, "the separator is `=`, which a screenshot read as `-`"
+    assert len(raw) == 49
 
 
 def test_the_route_serves_the_committed_bytes_unchanged(client):
