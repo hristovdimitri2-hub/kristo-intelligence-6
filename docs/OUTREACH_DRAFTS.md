@@ -2931,3 +2931,86 @@ Dimitri
 
 **Recipient:** `ernest-earnordie@agentmail.to`.
 
+---
+
+## AN. AI Agents Archive — an unanswered question in r/x402, answered where it can be heard (28.11.2026)
+
+**Where it came from.** A post in `r/x402` by `u/terminator57` shipping a sealed-research seller
+on Base — preview public, body behind a 402, `POST unlock` with `X-PAYMENT`, replay free, **90%
+of each unlock forwarded on-chain to the filer** — ending with a real question: *"how others
+handle seller-side filer payout after facilitator settle — any patterns you like for 'pay once,
+permanent access' vs metered calls?"* **Zero comments.** The owner has no Reddit account, so the
+reply goes to the address their own `security.txt` publishes.
+
+**Measured before writing, because their claims are checkable.** Their `/api/status` gives payTo
+`0x2BE121e0…`, `facilitatorKind: "cdp"`, `x402Ready: true`. Their `/api/earnings` is unusually
+honest about its own definitions: **`buyerPaidOnChainUsd: 14.0841`**, `filerPaidOnChainUsd:
+10.503`, `onChainPayoutCount: 36`, `deskVolumeUsd: 28.8241`, `receiptCount: 73`, and *"self-test
+and demo rows excluded"* — more discipline than our own board had. Their `/api/demand` publishes
+supply gaps per tag, where the column that matters is **`unlocks: 0`** on almost every one.
+
+**What we have that they do not.** Three things, all measured rather than argued:
+
+1. **Pay-once versus metered, from a ledger that ran metered.** 190 settlements, 17 third-party
+   addresses, and the addresses that come back are crawl infrastructure and verification services
+   rather than buyers. Metered pricing therefore mostly bills **machines that return** — which is
+   why pay-once is right for a sealed artifact whose marginal cost is zero, and metered is right
+   only when the same buyer has a reason to look again.
+2. **The replay rule under `exact`.** The signed nonce is the idempotency key and USDC records its
+   consumption irreversibly through `authorizationState(payer, nonce)`; persist `(payer, nonce)`
+   before sending and check it before re-signing. That came out of
+   `x402-foundation/x402#4367`, where every double-settled intent turned out to be **two distinct
+   nonces on one payer**, not one replay.
+3. **A class to check in their $14.08.** Excluding self-test rows is not enough: a **third party's
+   verification payment is neither self-test nor a buyer.** Our own published "13 external
+   settlements / 10 payers" contained two rows paid by a counterparty who probes sellers to find
+   out whether they work; the correction took it to 11 settlements across 9 payers. Worth checking
+   whether any of their 73 receipts are verifiers before quoting `buyerPaidOnChainUsd`.
+
+**Subject:** `Your r/x402 question — pay-once vs metered, and one class worth checking in your $14.08`
+
+```
+You asked in r/x402 how others handle filer payout and pay-once versus metered, and got no
+comments. I have no Reddit account, so this is the answer where I can actually send it.
+
+I run a metered x402 API on Base — nine routes, half a cent to a quarter — and I publish my own
+ledger, so I can answer from a measured side rather than a preference.
+
+On pay-once versus metered: I chose metered and my own data argues against it for anything sealed.
+190 settled payments lifetime, 17 third-party addresses, and the addresses that come BACK are
+crawl infrastructure and verification services, not buyers. Metered pricing mostly bills machines
+that return. That is fine for my signals route, where the same buyer has a reason to look again,
+and it is a tax on the wrong party for a sealed artifact whose marginal cost is zero and whose
+read is one-time. Your model is the right one for the product you have.
+
+On replay: "replay free" is correct, and since you settle through CDP's facilitator the hardening
+belongs on the payment rather than the session. Under the exact scheme the signed nonce IS the
+idempotency key, and USDC records its consumption irreversibly through
+authorizationState(payer, nonce). Persist (payer, nonce) before the request goes out and check it
+before re-signing. That rule came out of x402-foundation/x402#4367, where every double-settled
+intent turned out to be two distinct nonces on one payer rather than one authorization replayed —
+so a client that retries after a timeout pays twice for one intent unless it remembers what it
+signed.
+
+One class worth checking, because I got it wrong in the same way. Your /api/earnings excludes
+self-test and demo rows, which is more discipline than my own board had. But a third party's
+verification payment is neither self-test nor a buyer: I published "13 external settlements
+across 10 payers" and a counterparty reconciled my ledger against the chain, matching 190 of 190
+rows, and then told me that two of those rows were HIS paid probes — he pays sellers to find out
+whether they work. My corrected figure is 11 settlements across 9 payers. If any of your 73
+receipts came from a verification service, buyerPaidOnChainUsd includes them, and nothing in the
+number announces it.
+
+Worth saying, since it is the part of your site I would point a buyer at: on /api/demand the column
+that matters is unlocks: 0, and your own note that a cold packet sitting at zero unlocks is not an
+invalid filing is the honest version of that. Most people publishing supply counts never say it.
+
+The machine-readable version of my payer split, with the method beside it, is free at
+https://kristo-intelligence-api.onrender.com/api/v1/settlement-classes — no payment, no signup.
+
+Dimitri Hristov
+Kristo Intelligence
+```
+
+**Recipient:** `desk@aiagentsarchive.com` — the address their own
+`/.well-known/security.txt` publishes.
